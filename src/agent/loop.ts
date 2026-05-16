@@ -6,8 +6,9 @@ import type {
   ToolCall,
   ToolMessage,
 } from "../client/types.js";
-import type { ToolContext, ToolDispatcher } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 import type { ToolRegistry } from "../tools/registry.js";
+import type { ApprovalGate } from "../approval/types.js";
 
 export interface AgentDeps {
   prompt: string;
@@ -15,11 +16,13 @@ export interface AgentDeps {
   config: { baseUrl: string; apiKey: string; model: string };
   registry: ToolRegistry;
   ctx: ToolContext;
+  gate: ApprovalGate;
   streamChat: (opts: StreamChatOptions) => AsyncGenerator<StreamDelta, AssistantMessage>;
   executeToolCalls: (
     toolCalls: ToolCall[],
-    dispatcher: ToolDispatcher,
+    registry: ToolRegistry,
     ctx: ToolContext,
+    gate: ApprovalGate,
   ) => Promise<ToolMessage[]>;
   write: (s: string) => void;
   maxTurns?: number;
@@ -82,7 +85,12 @@ export async function runAgent(deps: AgentDeps): Promise<ChatMessage[]> {
       return messages;
     }
 
-    const toolMessages = await deps.executeToolCalls(assistant.tool_calls, deps.registry, deps.ctx);
+    const toolMessages = await deps.executeToolCalls(
+      assistant.tool_calls,
+      deps.registry,
+      deps.ctx,
+      deps.gate,
+    );
     messages.push(...toolMessages);
   }
 
