@@ -1,50 +1,92 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 import { executeToolCalls } from "./execute.js";
+import { ToolRegistry } from "./registry.js";
+import { defineTool } from "./types.js";
 import type { ToolCall } from "../client/types.js";
-import type { ToolContext, ToolDispatcher } from "./types.js";
+import type { ApprovalGate, ApprovalRequest } from "../approval/types.js";
+import type { Tool } from "./types.js";
 
-const ctx: ToolContext = { workspaceRoot: "/tmp" };
+const ctx = { workspaceRoot: "/tmp" };
 
 function call(id: string, name: string, args = "{}"): ToolCall {
   return { id, type: "function", function: { name, arguments: args } };
 }
 
-describe("executeToolCalls", () => {
-  it("maps each tool call to a tool message keyed by tool_call_id", async () => {
-    const dispatcher: ToolDispatcher = {
-      dispatch: async (name) => `result:${name}`,
-    };
-    const out = await executeToolCalls([call("a", "read_file"), call("b", "list_dir")], dispatcher, ctx);
-    expect(out).toEqual([
-      { role: "tool", tool_call_id: "a", content: "result:read_file" },
-      { role: "tool", tool_call_id: "b", content: "result:list_dir" },
-    ]);
+function reg() {
+  const r = new ToolRegistry();
+  r.register(
+    defineTool({
+      name: "read_file", description: "", capability: "read", approval: "auto",
+      schema: z.object({}), handler: async () => "READ",
+    }),
+  );
+  r.register(
+    defineTool({
+      name: "write_file", description: "", capability: "write", approval: "required",
+      schema: z.object({}), handler: async () => "WROTE",
+    }),
+  );
+  return r;
+}
+
+function gateWith(approve: boolean) {
+  const calls: ApprovalRequest[][] = [];
+  const gate: ApprovalGate = {
+    needsApproval: (tool: Tool) => tool.approval !== "auto",
+    requestBatch: async (requests) => {
+      calls.push(requests);
+      return new Map(requests.map((r) => [r.id, approve]));
+    },
+  };
+  return { gate, calls };
+}
+
+describe("executeToolCalls (approval-aware)", () => {
+  it("runs auto tools without asking for approval", async () => {
+    const { gate, calls } = gateWith(false);
+    const out = await executeToolCalls([call("a", "read_file")], reg(), ctx, gate);
+    expect(out).toEqual([{ role: "tool", tool_call_id: "a", content: "READ" }]);
+    expect(calls).toHaveLength(0);
   });
 
-  it("isolates a failing tool as an error message without rejecting the batch", async () => {
-    const dispatcher: ToolDispatcher = {
-      dispatch: async (name) => {
-        if (name === "bad") throw new Error("boom");
-        return "ok";
-      },
-    };
-    const out = await executeToolCalls([call("a", "bad"), call("b", "good")], dispatcher, ctx);
-    expect(out[0]).toEqual({ role: "tool", tool_call_id: "a", content: "Error: boom" });
-    expect(out[1]).toEqual({ role: "tool", tool_call_id: "b", content: "ok" });
+  it("executes a gated tool once approved", async () => {
+    const { gate, calls } = gateWith(true);
+    const out = await executeToolCalls([call("a", "write_file")], reg(), ctx, gate);
+    expect(out).toEqual([{ role: "tool", tool_call_id: "a", content: "WROTE" }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]!.toolName).toBe("write_file");
   });
 
-  it("runs the tool calls concurrently (overlapping execution)", async () => {
-    const order: string[] = [];
-    const dispatcher: ToolDispatcher = {
-      dispatch: async (name) => {
-        order.push(`start:${name}`);
-        await new Promise((r) => setTimeout(r, 15));
-        order.push(`end:${name}`);
-        return name;
-      },
-    };
-    await executeToolCalls([call("a", "A"), call("b", "B")], dispatcher, ctx);
-    // 并发:B 在 A 结束前就已开始
-    expect(order.indexOf("start:B")).toBeLessThan(order.indexOf("end:A"));
+  it("returns a rejection message when a gated tool is denied", async () => {
+    const { gate } = gateWith(false);
+    const out = await executeToolCalls([call("a", "write_file")], reg(), ctx, gate);
+    expect(out[0]!.content).toContain("用户拒绝");
+  });
+
+  it("asks approval for gated tools in a single batch and keeps order", async () => {
+    const { gate, calls } = gateWith(true);
+    const out = await executeToolCalls(
+      [call("a", "read_file"), call("b", "write_file"), call("c", "write_file")],
+      reg(),
+      ctx,
+      gate,
+    );
+    expect(out.map((m) => m.tool_call_id)).toEqual(["a", "b", "c"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.map((r) => r.id)).toEqual(["b", "c"]);
+  });
+
+  it("isolates a dispatch error as an Error message", async () => {
+    const r = new ToolRegistry();
+    r.register(
+      defineTool({
+        name: "read_file", description: "", capability: "read", approval: "auto",
+        schema: z.object({}), handler: async () => { throw new Error("boom"); },
+      }),
+    );
+    const { gate } = gateWith(false);
+    const out = await executeToolCalls([call("a", "read_file")], r, ctx, gate);
+    expect(out[0]!.content).toBe("Error: boom");
   });
 });
