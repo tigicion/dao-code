@@ -1,0 +1,61 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { writeFileTool } from "./write_file.js";
+
+let root: string;
+beforeEach(async () => {
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-writefile-"));
+});
+afterEach(async () => {
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+describe("write_file tool", () => {
+  it("creates a new file (no read required)", async () => {
+    const out = await writeFileTool.handler(
+      { path: "new.txt", content: "hello\nworld" },
+      { workspaceRoot: root, readFiles: new Set() },
+    );
+    expect(out).toContain("已写入");
+    expect(await fs.readFile(path.join(root, "new.txt"), "utf8")).toBe("hello\nworld");
+  });
+
+  it("creates parent directories as needed", async () => {
+    await writeFileTool.handler(
+      { path: "a/b/c.txt", content: "x" },
+      { workspaceRoot: root, readFiles: new Set() },
+    );
+    expect(await fs.readFile(path.join(root, "a/b/c.txt"), "utf8")).toBe("x");
+  });
+
+  it("refuses to overwrite an existing file that was not read", async () => {
+    await fs.writeFile(path.join(root, "exists.txt"), "old", "utf8");
+    await expect(
+      writeFileTool.handler({ path: "exists.txt", content: "new" }, { workspaceRoot: root, readFiles: new Set() }),
+    ).rejects.toThrow(/先用 read_file/);
+  });
+
+  it("overwrites an existing file once it has been read", async () => {
+    const abs = path.join(root, "exists.txt");
+    await fs.writeFile(abs, "old", "utf8");
+    await writeFileTool.handler(
+      { path: "exists.txt", content: "new" },
+      { workspaceRoot: root, readFiles: new Set([abs]) },
+    );
+    expect(await fs.readFile(abs, "utf8")).toBe("new");
+  });
+
+  it("rejects path escaping the workspace", async () => {
+    await expect(
+      writeFileTool.handler({ path: "../evil.txt", content: "x" }, { workspaceRoot: root, readFiles: new Set() }),
+    ).rejects.toThrow(/越界/);
+  });
+
+  it("declares write capability and required approval", () => {
+    expect(writeFileTool.capability).toBe("write");
+    expect(writeFileTool.approval).toBe("required");
+    expect(writeFileTool.name).toBe("write_file");
+  });
+});
