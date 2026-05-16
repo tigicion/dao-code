@@ -38,4 +38,16 @@ describe("read_file tool", () => {
     expect(readFileTool.approval).toBe("auto");
     expect(readFileTool.name).toBe("read_file");
   });
+
+  it("rejects paths escaping the workspace", async () => {
+    await expect(
+      readFileTool.handler({ path: "../escape.txt" }, { workspaceRoot: root }),
+    ).rejects.toThrow(/越界/);
+  });
+
+  it("records the read file's absolute path in ctx.readFiles", async () => {
+    const seen = new Set<string>();
+    await readFileTool.handler({ path: "a.txt" }, { workspaceRoot: root, readFiles: seen });
+    expect(seen.has(path.join(root, "a.txt"))).toBe(true);
+  });
 });
