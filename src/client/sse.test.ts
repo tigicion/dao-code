@@ -29,4 +29,10 @@ describe("parseSSEChunk", () => {
     const r = parseSSEChunk(": keep-alive\n\ndata: {\"a\":1}\n\n");
     expect(r.payloads).toEqual(['{"a":1}']);
   });
+
+  it("normalizes CRLF line endings", () => {
+    const r = parseSSEChunk('data: {"a":1}\r\n\r\ndata: [DONE]\r\n\r\n');
+    expect(r.payloads).toEqual(['{"a":1}', "[DONE]"]);
+    expect(r.rest).toBe("");
+  });
 });
