@@ -59,6 +59,16 @@ describe("edit_file tool", () => {
     ).rejects.toThrow(/先用 read_file/);
   });
 
+  it("treats $ in new_string literally (no replacement-pattern interpretation)", async () => {
+    await fs.writeFile(abs, "price PLACEHOLDER end", "utf8");
+    const out = await editFileTool.handler(
+      { path: "f.txt", old_string: "PLACEHOLDER", new_string: "$100 & $& and $1" },
+      ctx(),
+    );
+    expect(out).toContain("替换 1 处");
+    expect(await fs.readFile(abs, "utf8")).toBe("price $100 & $& and $1 end");
+  });
+
   it("declares write capability and required approval", () => {
     expect(editFileTool.capability).toBe("write");
     expect(editFileTool.approval).toBe("required");
