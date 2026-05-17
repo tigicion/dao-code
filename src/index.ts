@@ -54,8 +54,35 @@ async function main() {
     .join("\n");
   const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries });
 
+  const write = (s: string) => process.stdout.write(s);
+
+  // 单一 readline:'line' 事件喂一个共享行队列;REPL 读行与审批/ask_user 都从这一个
+  // nextLine() 拉,保证管道里的行按 FIFO 分配,不会出现两个消费者抢 stdin。
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (prompt: string) => rl.question(prompt);
+  const lineQueue: string[] = [];
+  const lineWaiters: Array<(line: string | null) => void> = [];
+  let rlClosed = false;
+  rl.on("line", (line) => {
+    const w = lineWaiters.shift();
+    if (w) w(line);
+    else lineQueue.push(line);
+  });
+  rl.on("close", () => {
+    rlClosed = true;
+    for (const w of lineWaiters) w(null);
+    lineWaiters.length = 0;
+  });
+  const nextLine = (): Promise<string | null> => {
+    if (lineQueue.length) return Promise.resolve(lineQueue.shift()!);
+    if (rlClosed) return Promise.resolve(null);
+    return new Promise((res) => lineWaiters.push(res));
+  };
+  // ask:打印提示,从共享队列拉下一行(EOF → 空串)。审批 / ctx.ask 共用。
+  const ask = async (prompt: string): Promise<string> => {
+    write(prompt);
+    const line = await nextLine();
+    return line ?? "";
+  };
 
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const gate = new SessionApprovalGate(makeApprovalPrompt(ask), alwaysApproved, (name) =>
@@ -69,7 +96,6 @@ async function main() {
     ask: (q: string) => ask(`\n${q}\n> `),
     fetchImpl: fetch,
   };
-  const write = (s: string) => process.stdout.write(s);
 
   const runOneTurn = () =>
     runTurn({
@@ -90,27 +116,9 @@ async function main() {
       return;
     }
     write(`codeds —— 输入消息开始;/help 看命令,/exit 退出。\n`);
-    // Queue lines from the 'line' event so piped input works correctly.
-    const lineQueue: string[] = [];
-    const lineWaiters: Array<(line: string | null) => void> = [];
-    let rlClosed = false;
-    rl.on("line", (line) => {
-      if (lineWaiters.length) {
-        lineWaiters.shift()!(line);
-      } else {
-        lineQueue.push(line);
-      }
-    });
-    rl.on("close", () => {
-      rlClosed = true;
-      for (const w of lineWaiters) w(null);
-      lineWaiters.length = 0;
-    });
-    const readLine = (): Promise<string | null> => {
+    const readLine = async (): Promise<string | null> => {
       write("\n> ");
-      if (lineQueue.length) return Promise.resolve(lineQueue.shift()!);
-      if (rlClosed) return Promise.resolve(null);
-      return new Promise((res) => lineWaiters.push(res));
+      return nextLine();
     };
     await runRepl({ session, readLine, runTurn: runOneTurn, write });
   } finally {
