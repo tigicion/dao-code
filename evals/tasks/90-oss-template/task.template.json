@@ -1,0 +1,24 @@
+{
+  "kind": "oss",
+  "desc": "示例:近期开源库的真实 bug-fix(把本文件改名为 task.json 才会被跑)",
+
+  "_说明": [
+    "这是 OSS 真任务模板。能力主集应该用它,而不是手编合成题。",
+    "防污染:选模型 cutoff 之后的近期 commit/PR(如 2026 年的),别用 Django 这种老热门(已在训练数据里)。",
+    "环境:挑装起来快的小型纯 TS/JS 库。",
+    "怎么造一个真任务(以某个修复 bug 的 PR 为例):",
+    "  1. 找一个近期 PR:它修了个 bug、且带了测试。记下 PR 的 base commit(合并前父提交)。",
+    "  2. repo = 仓库地址;ref = base commit(让 agent 从 bug 还在的状态开始)。",
+    "  3. prompt = 该 issue/PR 的标题+正文(真实需求;别泄漏解法)。",
+    "  4. fail2pass = 跑 PR 新增/修改的那个测试的命令(base 上失败、改对后通过)。",
+    "  5. pass2pass = 跑其余测试的命令(始终通过,确保没改坏别的)。",
+    "  fail2pass/pass2pass 是在工作区根目录用 bash 执行的命令(exit 0 = 通过)。"
+  ],
+
+  "repo": "https://github.com/<owner>/<small-recent-ts-lib>",
+  "ref": "<bug 仍在的 base commit SHA>",
+  "install": ["npm ci"],
+  "prompt": "<把该 PR/issue 的真实需求贴这里,别泄漏实现>",
+  "fail2pass": "npx vitest run path/to/the_bug.test.ts",
+  "pass2pass": "npx vitest run --exclude path/to/the_bug.test.ts"
+}

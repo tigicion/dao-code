@@ -1,0 +1,7 @@
+{
+  "kind": "double",
+  "desc": "修复 dedupeById:应按 id 去重并保留首次出现",
+  "prompt": "工作区里的 dedupe.mjs 有个 bug:dedupeById 本应按对象的 id 字段去重、保留每个 id 第一次出现的那个对象、并维持原顺序;但现在它用 Set 按引用去重,导致 id 相同但不是同一个对象的项没有被去掉。修复它。",
+  "fail2pass": "tests/fail2pass.mjs",
+  "pass2pass": "tests/pass2pass.mjs"
+}
