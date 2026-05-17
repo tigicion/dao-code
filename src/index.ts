@@ -27,6 +27,8 @@ import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { buildSystemPrompt } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { runRepl } from "./repl.js";
+import { compactMessages, shouldCompact } from "./agent/compact.js";
+import type { ChatMessage } from "./client/types.js";
 
 async function main() {
   const argvPrompt = process.argv.slice(2).join(" ").trim();
@@ -106,8 +108,50 @@ async function main() {
     fetchImpl: fetch,
   };
 
-  const runOneTurn = () =>
-    runTurn({
+  const KEEP_RECENT_TURNS = 2;
+  const CONTEXT_WINDOW = 1_000_000;
+
+  // 压缩用:对一批旧消息生成简洁摘要(独立一次 streamChat,不带工具,不流式渲染)。
+  const summarize = async (msgs: ChatMessage[]): Promise<string> => {
+    const rendered = msgs
+      .map((m) => {
+        if (m.role === "assistant" && m.tool_calls) {
+          const calls = m.tool_calls.map((t) => `${t.function.name}(${t.function.arguments})`).join(", ");
+          return `[assistant 调用工具] ${calls}${m.content ? `\n${m.content}` : ""}`;
+        }
+        return `[${m.role}] ${typeof m.content === "string" ? m.content : ""}`;
+      })
+      .join("\n");
+    const gen = streamChat({
+      baseUrl: cfg.baseUrl,
+      apiKey: cfg.apiKey,
+      model: session.model,
+      messages: [
+        { role: "system", content: "你是对话压缩器。把给定的早期对话压缩成简洁中文摘要,保留:关键事实与用户偏好、已做的文件改动与命令、做出的决定、未完成事项。只输出摘要正文,不要寒暄。" },
+        { role: "user", content: rendered },
+      ],
+    });
+    let out = "";
+    let r = await gen.next();
+    while (!r.done) {
+      if (r.value.kind === "content") out += r.value.text;
+      r = await gen.next();
+    }
+    return out.trim() || (typeof r.value.content === "string" ? r.value.content : "(摘要为空)");
+  };
+
+  const runCompaction = async (): Promise<void> => {
+    const before = session.messages.length;
+    session.messages = await compactMessages(session.messages, {
+      keepRecentTurns: KEEP_RECENT_TURNS,
+      summarize,
+    });
+    const after = session.messages.length;
+    write(after < before ? `\n[已压缩对话:${before} → ${after} 条消息]\n` : `\n[对话较短,无需压缩]\n`);
+  };
+
+  const runOneTurn = async () => {
+    await runTurn({
       session,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
       registry,
@@ -117,6 +161,11 @@ async function main() {
       executeToolCalls,
       write,
     });
+    if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
+      write("\n[接近上限,自动压缩…]\n");
+      await runCompaction();
+    }
+  };
 
   try {
     if (argvPrompt) {
@@ -129,7 +178,7 @@ async function main() {
       write("\n> ");
       return nextLine();
     };
-    await runRepl({ session, readLine, runTurn: runOneTurn, write });
+    await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction });
   } finally {
     rl.close();
   }
