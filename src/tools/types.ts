@@ -12,6 +12,10 @@ export interface ToolContext {
   ask?: (question: string) => Promise<string>;
   // 网络抓取(web_search/fetch_url 用);注入,默认全局 fetch。
   fetchImpl?: typeof fetch;
+  // 一次性派发子代理,返回其最终结果(index 注入)。
+  runSubagent?: (task: string) => Promise<string>;
+  // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
+  subagentDepth?: number;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。
