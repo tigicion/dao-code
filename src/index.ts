@@ -1,7 +1,9 @@
 import { createInterface } from "node:readline/promises";
 import path from "node:path";
 import os from "node:os";
-import { loadConfig } from "./config/config.js";
+import { readConfig } from "./config/config.js";
+import { loadDotenv } from "./config/env_file.js";
+import { loadStoredKey, saveKey } from "./config/key_store.js";
 import { streamChat } from "./client/client.js";
 import { runTurn } from "./agent/loop.js";
 import { executeToolCalls } from "./tools/execute.js";
@@ -33,19 +35,83 @@ import { compactMessages, shouldCompact } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
 
+const KEY_HELP =
+  "获取 key:https://platform.deepseek.com/api_keys";
+
 async function main() {
   const argvPrompt = process.argv.slice(2).join(" ").trim();
-
-  let cfg;
-  try {
-    cfg = loadConfig(process.env);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exit(1);
-  }
-
   const workspaceRoot = process.cwd();
   const approvalsFile = path.join(workspaceRoot, ".codeds", "approvals.json");
+  const keyFile = path.join(os.homedir(), ".codeds", "config.json");
+
+  const write = (s: string) => process.stdout.write(s);
+
+  // 单一 readline:'line' 事件喂一个共享行队列;REPL 读行 / 审批 / ask_user / key 引导
+  // 都从这一个 nextLine() 拉,保证管道里的行按 FIFO 分配,不会两个消费者抢 stdin。
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const lineQueue: string[] = [];
+  const lineWaiters: Array<(line: string | null) => void> = [];
+  let rlClosed = false;
+  rl.on("line", (line) => {
+    const w = lineWaiters.shift();
+    if (w) w(line);
+    else lineQueue.push(line);
+  });
+  rl.on("close", () => {
+    rlClosed = true;
+    for (const w of lineWaiters) w(null);
+    lineWaiters.length = 0;
+  });
+  const nextLine = (): Promise<string | null> => {
+    if (lineQueue.length) return Promise.resolve(lineQueue.shift()!);
+    if (rlClosed) return Promise.resolve(null);
+    return new Promise((res) => lineWaiters.push(res));
+  };
+  const ask = async (prompt: string): Promise<string> => {
+    write(prompt);
+    const line = await nextLine();
+    return line ?? "";
+  };
+
+  // ---- 解析 API key:环境变量 > 项目 .env > 已存配置 > 交互引导 ----
+  const dotenv = await loadDotenv(path.join(workspaceRoot, ".env"));
+  const effectiveEnv = { ...dotenv, ...process.env }; // 环境变量优先,.env 填空缺
+  const raw = readConfig(effectiveEnv);
+  let apiKey = raw.apiKey ?? (await loadStoredKey(keyFile));
+
+  if (!apiKey) {
+    if (process.stdin.isTTY) {
+      // 真终端:引导用户粘贴 key,并可一次性保存
+      write(`\n未检测到 DeepSeek API key。\n${KEY_HELP}\n`);
+      const entered = (await ask("请粘贴你的 key: ")).trim();
+      if (!entered) {
+        write("未输入 key,已退出。\n");
+        rl.close();
+        process.exit(1);
+      }
+      apiKey = entered;
+      const saveAns = (await ask(`是否保存到 ${keyFile} 方便下次免输?[Y/n] `)).trim().toLowerCase();
+      if (saveAns === "" || saveAns === "y" || saveAns === "yes") {
+        await saveKey(keyFile, apiKey);
+        write(`✓ 已保存(下次直接可用)。\n`);
+      }
+    } else {
+      // 非交互(管道/CI):无法引导,给出清晰指引后退出
+      console.error(
+        [
+          "未找到 DeepSeek API key。请用以下任一方式设置:",
+          "  • 环境变量:export DEEPSEEK_API_KEY=sk-...",
+          "  • 项目 .env:在 .env 写一行 DEEPSEEK_API_KEY=sk-...",
+          "  • 在终端直接运行 codeds(不接管道),会引导你粘贴并保存 key",
+          KEY_HELP,
+        ].join("\n"),
+      );
+      rl.close();
+      process.exit(1);
+    }
+  }
+
+  const cfg = { apiKey: apiKey!, baseUrl: raw.baseUrl, model: raw.model };
 
   const registry = new ToolRegistry();
   for (const t of [
@@ -67,36 +133,6 @@ async function main() {
   const memoryText = memories.map((m) => `- ${m.text}`).join("\n");
 
   const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries, memories: memoryText });
-
-  const write = (s: string) => process.stdout.write(s);
-
-  // 单一 readline:'line' 事件喂一个共享行队列;REPL 读行与审批/ask_user 都从这一个
-  // nextLine() 拉,保证管道里的行按 FIFO 分配,不会出现两个消费者抢 stdin。
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const lineQueue: string[] = [];
-  const lineWaiters: Array<(line: string | null) => void> = [];
-  let rlClosed = false;
-  rl.on("line", (line) => {
-    const w = lineWaiters.shift();
-    if (w) w(line);
-    else lineQueue.push(line);
-  });
-  rl.on("close", () => {
-    rlClosed = true;
-    for (const w of lineWaiters) w(null);
-    lineWaiters.length = 0;
-  });
-  const nextLine = (): Promise<string | null> => {
-    if (lineQueue.length) return Promise.resolve(lineQueue.shift()!);
-    if (rlClosed) return Promise.resolve(null);
-    return new Promise((res) => lineWaiters.push(res));
-  };
-  // ask:打印提示,从共享队列拉下一行(EOF → 空串)。审批 / ctx.ask 共用。
-  const ask = async (prompt: string): Promise<string> => {
-    write(prompt);
-    const line = await nextLine();
-    return line ?? "";
-  };
 
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const gate = new SessionApprovalGate(makeApprovalPrompt(ask), alwaysApproved, (name) =>
