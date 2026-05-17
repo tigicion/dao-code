@@ -4,6 +4,7 @@ export interface CommandResult {
   handled: boolean;
   output?: string;
   exit?: boolean;
+  compact?: boolean;
 }
 
 export function dispatchCommand(input: string, session: Session): CommandResult {
@@ -34,11 +35,11 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
       session.clear();
       return { handled: true, output: "已清空对话(保留系统设定)" };
     case "compact":
-      return { handled: true, output: "compact 尚未实现(将在后续里程碑加入)" };
+      return { handled: true, compact: true };
     case "help":
       return {
         handled: true,
-        output: "/model [id] 切模型 · /plan 切模式 · /clear 清空 · /compact(待实现) · /exit 退出",
+        output: "/model [id] 切模型 · /plan 切模式 · /clear 清空 · /compact 压缩对话 · /exit 退出",
       };
     case "exit":
     case "quit":
