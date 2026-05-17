@@ -26,6 +26,7 @@ import { runSubagent } from "./agent/subagent.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories } from "./memory/store.js";
 import { SessionApprovalGate } from "./approval/gate.js";
+import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { buildSystemPrompt } from "./prompt/system_prompt.js";
@@ -134,10 +135,13 @@ async function main() {
 
   const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries, memories: memoryText });
 
+  // CODEDS_AUTO_APPROVE=1 时跳过所有审批(用于 eval / CI 在抛弃式工作区里无人值守运行)。
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
-  const gate = new SessionApprovalGate(makeApprovalPrompt(ask), alwaysApproved, (name) =>
-    appendAlwaysApproved(approvalsFile, name),
-  );
+  const gate: ApprovalGate = process.env.CODEDS_AUTO_APPROVE
+    ? { needsApproval: () => false, requestBatch: async () => new Map() }
+    : new SessionApprovalGate(makeApprovalPrompt(ask), alwaysApproved, (name) =>
+        appendAlwaysApproved(approvalsFile, name),
+      );
 
   const session = new Session(systemPrompt, cfg.model);
   const ctx: ToolContext = {
