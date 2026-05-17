@@ -14,15 +14,17 @@ export class ToolRegistry implements ToolDispatcher {
     return this.tools.get(name);
   }
 
-  toApiTools(): ApiTool[] {
-    return [...this.tools.values()].map((t) => ({
-      type: "function" as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: toJsonSchema(t.schema),
-      },
-    }));
+  toApiTools(predicate?: (tool: Tool) => boolean): ApiTool[] {
+    return [...this.tools.values()]
+      .filter((t) => (predicate ? predicate(t) : true))
+      .map((t) => ({
+        type: "function" as const,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: toJsonSchema(t.schema),
+        },
+      }));
   }
 
   async dispatch(name: string, rawArgs: string, ctx: ToolContext): Promise<string> {
