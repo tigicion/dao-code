@@ -118,4 +118,31 @@ describe("runTurn", () => {
     });
     expect(written.join("")).toContain("最大轮数");
   });
+
+  it("blocks write/exec tool calls at execution in plan mode (does not dispatch them)", async () => {
+    const r = new ToolRegistry();
+    r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
+    r.register(defineTool({ name: "write_file", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "" }));
+    const s = new Session("SYS", "m");
+    s.addUser("create a file");
+    s.toggleMode(); // → plan
+    let executedCalls = 0;
+    const calls = scripted([
+      turn([], { role: "assistant", content: null, tool_calls: [{ id: "w0", type: "function", function: { name: "write_file", arguments: "{}" } }] }),
+      turn([{ kind: "content", text: "can't in plan" }], { role: "assistant", content: "can't in plan" }),
+    ]);
+    await runTurn({
+      session: s,
+      config,
+      registry: r,
+      ctx,
+      gate: stubGate,
+      streamChat: () => calls(),
+      executeToolCalls: (async (cs: any) => { executedCalls += cs.length; return cs.map((c: any) => ({ role: "tool", tool_call_id: c.id, content: "RAN" })); }) as any,
+      write: () => {},
+    });
+    expect(executedCalls).toBe(0); // write_file never dispatched in plan
+    const toolMsg = s.messages.find((m) => m.role === "tool");
+    expect(toolMsg?.content).toContain("不可用");
+  });
 });
