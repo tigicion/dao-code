@@ -1,6 +1,5 @@
 import type {
   AssistantMessage,
-  ChatMessage,
   StreamChatOptions,
   StreamDelta,
   ToolCall,
@@ -9,11 +8,12 @@ import type {
 import type { ToolContext } from "../tools/types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { ApprovalGate } from "../approval/types.js";
+import type { Session } from "../session/session.js";
+import { apiToolsForMode } from "../tools/tools_for_mode.js";
 
-export interface AgentDeps {
-  prompt: string;
-  system?: string;
-  config: { baseUrl: string; apiKey: string; model: string };
+export interface TurnDeps {
+  session: Session;
+  config: { baseUrl: string; apiKey: string };
   registry: ToolRegistry;
   ctx: ToolContext;
   gate: ApprovalGate;
@@ -64,36 +64,24 @@ async function renderTurn(
   return r.value;
 }
 
-export async function runAgent(deps: AgentDeps): Promise<ChatMessage[]> {
-  const messages: ChatMessage[] = [];
-  if (deps.system) messages.push({ role: "system", content: deps.system });
-  messages.push({ role: "user", content: deps.prompt });
-
-  const tools = deps.registry.toApiTools();
+// 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
+export async function runTurn(deps: TurnDeps): Promise<void> {
+  const { session } = deps;
   const maxTurns = deps.maxTurns ?? 25;
-
-  for (let turn = 0; turn < maxTurns; turn++) {
+  for (let t = 0; t < maxTurns; t++) {
+    const tools = apiToolsForMode(deps.registry, session.mode);
     const gen = deps.streamChat({
-      ...deps.config,
-      messages,
+      baseUrl: deps.config.baseUrl,
+      apiKey: deps.config.apiKey,
+      model: session.model,
+      messages: session.messages,
       ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
     });
     const assistant = await renderTurn(gen, deps.write);
-    messages.push(assistant);
-
-    if (!assistant.tool_calls || assistant.tool_calls.length === 0) {
-      return messages;
-    }
-
-    const toolMessages = await deps.executeToolCalls(
-      assistant.tool_calls,
-      deps.registry,
-      deps.ctx,
-      deps.gate,
-    );
-    messages.push(...toolMessages);
+    session.messages.push(assistant);
+    if (!assistant.tool_calls || assistant.tool_calls.length === 0) return;
+    const toolMessages = await deps.executeToolCalls(assistant.tool_calls, deps.registry, deps.ctx, deps.gate);
+    session.messages.push(...toolMessages);
   }
-
   deps.write("\n[已达最大轮数,停止]\n");
-  return messages;
 }
