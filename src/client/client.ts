@@ -4,6 +4,7 @@ import type {
   StreamChatOptions,
   StreamDelta,
   ToolCall,
+  Usage,
 } from "./types.js";
 
 export async function* streamChat(
@@ -14,6 +15,8 @@ export async function* streamChat(
     model: opts.model,
     messages: opts.messages,
     stream: true,
+    // 流式下要拿 usage(含 cache 命中/未命中)必须显式开启,usage 在 [DONE] 前最后一个 chunk。
+    stream_options: { include_usage: true },
     ...(opts.tools ? { tools: opts.tools } : {}),
     ...(opts.parallelToolCalls !== undefined
       ? { parallel_tool_calls: opts.parallelToolCalls }
@@ -52,6 +55,8 @@ export async function* streamChat(
     } catch {
       return []; // 半个 JSON 不该出现(已按 \n\n 切),保险跳过
     }
+    // usage chunk(choices 常为空)在 [DONE] 前到达——先抓它再判 delta。
+    if (parsed?.usage) opts.onUsage?.(parsed.usage as Usage);
     const delta = parsed?.choices?.[0]?.delta;
     if (!delta) return [];
     const out: StreamDelta[] = [];

@@ -36,10 +36,13 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
       return { handled: true, output: "已清空对话(保留系统设定)" };
     case "compact":
       return { handled: true, compact: true };
+    case "cost":
+    case "cache":
+      return { handled: true, output: session.usageSummary() };
     case "help":
       return {
         handled: true,
-        output: "/model [id] 切模型 · /plan 切模式 · /clear 清空 · /compact 压缩对话 · /exit 退出",
+        output: "/model [id] 切模型 · /plan 切模式 · /clear 清空 · /compact 压缩对话 · /cost 用量与cache命中 · /exit 退出",
       };
     case "exit":
     case "quit":
