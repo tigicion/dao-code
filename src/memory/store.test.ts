@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy } from "./store.js";
+import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy, textSimilarity, GRAY_LOW, DUP_THRESHOLD } from "./store.js";
 import { newMemory } from "./types.js";
 
 const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "memstore-"));
@@ -25,6 +25,41 @@ describe("store md dir", () => {
     const all = await loadAllMemories(d, d + "-none");
     expect(all.map((m) => m.name)).toEqual(["api-v2"]); // 旧的被跳过
     expect(await fs.readFile(path.join(d, "api.md"), "utf8")).toMatch(/status: superseded/); // 但文件还在
+  });
+  // 改写式近重复:字符相似度落在灰区,交裁判判合并。
+  const A = "用户在 macOS 上使用 pnpm 管理依赖";
+  const B = "用户用 pnpm 作为包管理器";
+  it("paraphrase pair lands in the gray band (not auto-merged, not auto-new)", () => {
+    const s = textSimilarity(A, B);
+    expect(s).toBeGreaterThanOrEqual(GRAY_LOW);
+    expect(s).toBeLessThan(DUP_THRESHOLD);
+  });
+  it("gray-band + adjudicate=yes → merges (no new file)", async () => {
+    const d = await tmp();
+    await upsertMemory(d, newMemory({ name: "a", text: A, type: "user", today: "2026-06-07" }), []);
+    let calls = 0;
+    const r = await upsertMemory(d, newMemory({ name: "b", text: B, type: "user", today: "2026-06-08" }),
+      await loadAllMemories(d, d + "-x"), async () => { calls++; return true; });
+    expect(calls).toBe(1);
+    expect(r.action).toBe("updated");
+    expect((await loadAllMemories(d, d + "-x")).length).toBe(1);
+  });
+  it("gray-band + adjudicate=no → new file", async () => {
+    const d = await tmp();
+    await upsertMemory(d, newMemory({ name: "a", text: A, type: "user", today: "2026-06-07" }), []);
+    const r = await upsertMemory(d, newMemory({ name: "b", text: B, type: "user", today: "2026-06-08" }),
+      await loadAllMemories(d, d + "-x"), async () => false);
+    expect(r.action).toBe("added");
+    expect((await loadAllMemories(d, d + "-x")).length).toBe(2);
+  });
+  it("below GRAY_LOW → new without ever calling adjudicate", async () => {
+    const d = await tmp();
+    await upsertMemory(d, newMemory({ name: "a", text: "用户喜欢养猫", type: "user", today: "2026-06-07" }), []);
+    let called = false;
+    const r = await upsertMemory(d, newMemory({ name: "b", text: "项目部署在 AWS 东京区", type: "user", today: "2026-06-08" }),
+      await loadAllMemories(d, d + "-x"), async () => { called = true; return true; });
+    expect(called).toBe(false);
+    expect(r.action).toBe("added");
   });
   it("migrates legacy memories.json", async () => {
     const d = await tmp();

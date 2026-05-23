@@ -29,6 +29,7 @@ import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectForInjection } from "./memory/inject.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
+import { makeFlashAdjudicator } from "./memory/adjudicate.js";
 import { SessionApprovalGate } from "./approval/gate.js";
 import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
@@ -268,10 +269,12 @@ async function main() {
         messages: session.messages,
         today,
       });
+      // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
+      const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
       let n = 0;
       for (const cand of cands) {
         const existing = await loadAllMemories(projectMemoryDir, userMemoryDir);
-        await upsertMemory(projectMemoryDir, cand, existing);
+        await upsertMemory(projectMemoryDir, cand, existing, adjudicate);
         n++;
       }
       if (n > 0) write(`\n已更新记忆:${n} 条\n`);
