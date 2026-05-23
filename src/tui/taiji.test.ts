@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderTaiji, TAIJI_WIDTH, detectBackground } from "./taiji.js";
+import { renderTaiji, TAIJI_WIDTH } from "./taiji.js";
 import type { Capabilities } from "./capabilities.js";
 
 const caps = (tier: Capabilities["tier"]): Capabilities => ({ tier, isTTY: true, columns: 80 });
@@ -36,20 +36,5 @@ describe("renderTaiji", () => {
       const maxVisible = Math.max(...lines.map((l) => [...strip(l)].length));
       expect(TAIJI_WIDTH(caps(t))).toBe(maxVisible);
     }
-  });
-});
-
-describe("detectBackground", () => {
-  it("DAO_THEME 显式优先", () => {
-    expect(detectBackground({ DAO_THEME: "light", COLORFGBG: "15;0" })).toBe("light");
-    expect(detectBackground({ DAO_THEME: "dark", COLORFGBG: "0;15" })).toBe("dark");
-  });
-  it("COLORFGBG 末位:15/7 → light;0 → dark", () => {
-    expect(detectBackground({ COLORFGBG: "0;15" })).toBe("light");
-    expect(detectBackground({ COLORFGBG: "0;7" })).toBe("light");
-    expect(detectBackground({ COLORFGBG: "15;0" })).toBe("dark");
-  });
-  it("缺省 → dark", () => {
-    expect(detectBackground({})).toBe("dark");
   });
 });

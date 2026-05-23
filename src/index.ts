@@ -40,14 +40,14 @@ import { Session } from "./session/session.js";
 import { runRepl } from "./repl.js";
 import { buildWelcome } from "./tui/banner.js";
 import { detectCapabilities } from "./tui/capabilities.js";
-import { detectBackground } from "./tui/taiji.js";
+import { resolveBackground } from "./tui/background.js";
+import { VERSION } from "./version.js";
 import { compactMessages, shouldCompact } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
 
 const KEY_HELP =
   "获取 key:https://platform.deepseek.com/api_keys";
-const VERSION = "0.0.1"; // 与 package.json 同步;只用于欢迎 banner 显示
 
 async function main() {
   const argvPrompt = process.argv.slice(2).join(" ").trim();
@@ -56,6 +56,9 @@ async function main() {
   const keyFile = path.join(os.homedir(), ".codeds", "config.json");
 
   const write = (s: string) => process.stdout.write(s);
+
+  // 背景(亮/暗)检测要在 readline 接管 stdin 之前做(OSC 11 需短暂 raw + 读 stdin)。
+  const bg = await resolveBackground(process.env);
 
   // 单一 readline:'line' 事件喂一个共享行队列;REPL 读行 / 审批 / ask_user / key 引导
   // 都从这一个 nextLine() 拉,保证管道里的行按 FIFO 分配,不会两个消费者抢 stdin。
@@ -310,7 +313,7 @@ async function main() {
       cwd: workspaceRoot,
       version: VERSION,
       branch: gitBranch,
-    }, caps, undefined, detectBackground(process.env)) + "\n");
+    }, caps, undefined, bg) + "\n");
     const readLine = async (): Promise<string | null> => {
       write("\n> ");
       return nextLine();
