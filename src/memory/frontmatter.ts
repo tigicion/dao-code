@@ -1,7 +1,7 @@
 import type { Memory, MemoryType } from "./types.js";
 
 const STR = new Set(["name", "text", "type", "created", "lastUsed", "source", "sourceHash", "status", "supersededBy", "validUntil"]);
-const NUM = new Set(["importance", "confidence"]);
+const NUM = new Set(["importance", "confidence", "uses"]);
 const BOOL = new Set(["locked"]);
 
 // 解析一个记忆 md 文件;name 由文件名传入(frontmatter 的 name 优先)。失败返回 null。
@@ -31,6 +31,7 @@ export function parseMemoryFile(name: string, raw: string): Memory | null {
     lastUsed: (obj.lastUsed as string) || "",
     ...(obj.source ? { source: obj.source as string } : {}),
     ...(obj.sourceHash ? { sourceHash: obj.sourceHash as string } : {}),
+    uses: typeof obj.uses === "number" && !Number.isNaN(obj.uses) ? obj.uses : 0,
     status: obj.status as Memory["status"],
     ...(obj.supersededBy ? { supersededBy: obj.supersededBy as string } : {}),
     ...(obj.validUntil ? { validUntil: obj.validUntil as string } : {}),
@@ -39,7 +40,7 @@ export function parseMemoryFile(name: string, raw: string): Memory | null {
 }
 
 export function serializeMemory(m: Memory): string {
-  const lines = [`name: ${m.name}`, `type: ${m.type}`, `importance: ${m.importance}`];
+  const lines = [`name: ${m.name}`, `type: ${m.type}`, `importance: ${m.importance}`, `uses: ${m.uses ?? 0}`];
   if (m.confidence !== undefined) lines.push(`confidence: ${m.confidence}`);
   lines.push(`created: ${m.created}`, `lastUsed: ${m.lastUsed}`);
   if (m.source) lines.push(`source: ${m.source}`);
