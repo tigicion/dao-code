@@ -153,7 +153,13 @@ async function main() {
   // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
   const memoryText = buildMemorySection(selectForInjection(validated, today));
 
-  const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries, memories: memoryText });
+  const systemPrompt = buildSystemPrompt({
+    modelId: cfg.model,
+    toolSummaries,
+    memories: memoryText,
+    cwd: workspaceRoot,
+    platform: process.platform,
+  });
 
   // CODEDS_AUTO_APPROVE=1 时跳过所有审批(用于 eval / CI 在抛弃式工作区里无人值守运行)。
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
