@@ -184,6 +184,11 @@ export interface SystemPromptOptions {
   platform?: string; // 运行平台,如 darwin/linux
 }
 
+// ⚠️ 缓存纪律(prefix cache 的 #1 静默杀手):系统 prompt 进固定前缀,必须字节稳定。
+// 绝不要往这里插入易变 token——当前时间/日期、session-id、随机问候、每轮变化的状态。
+// 需要当前时间的让模型用工具拿(见正文「行动纪律」)。易变内容只能作为尾部消息追加,不进前缀。
+// 占位符里:{memory} 放在 BODY 末尾(最易变的放最后,变了只失效尾部);{model_id}/{cwd}/{platform}/{tools}
+// 启动时定一次、整会话固定。改这里前先想清楚会不会让前缀逐请求变化。
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   return BODY
     .replaceAll("{model_id}", opts.modelId)

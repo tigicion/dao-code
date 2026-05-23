@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { runTurn } from "./loop.js";
 import { Session } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
+import { readFileTool } from "../tools/read_file.js";
+import { listDirTool } from "../tools/list_dir.js";
 
 // 缓存纪律的回归:runTurn 只能往 messages 尾部【追加】,绝不改写/重排已有前缀——
 // 任何前缀变动都会从分歧点起整段 bust DeepSeek prefix cache(命中价比未命中便宜约 98%)。
@@ -50,5 +52,25 @@ describe("prefix append-only invariant", () => {
     s.addUser("q");
     await runTurn(deps(s));
     expect(s.messages[0]).toEqual({ role: "system", content: "SYS-ANCHOR" });
+  });
+
+  // TS 最常见的隐形缓存杀手:工具定义(zod→JSON schema)逐请求序列化漂移(key 顺序不稳)。
+  // 一旦两轮的 tools 字节不同,前缀缓存从工具段起整段失效。这里钉死它字节稳定。
+  it("tool definitions serialize byte-identically across turns (no zod/registry drift)", async () => {
+    const reg = new ToolRegistry();
+    reg.register(readFileTool);
+    reg.register(listDirTool);
+    const toolsJson: string[] = [];
+    const capturing = (opts: any) => {
+      toolsJson.push(JSON.stringify(opts.tools ?? null));
+      return (async function* () { return { role: "assistant" as const, content: "ok" }; })();
+    };
+    const s = new Session("SYS", "deepseek-v4-pro");
+    const d = { ...deps(s), registry: reg, streamChat: capturing } as any;
+    s.addUser("a"); await runTurn(d);
+    s.addUser("b"); await runTurn(d);
+    expect(toolsJson).toHaveLength(2);
+    expect(toolsJson[0]).toBe(toolsJson[1]); // 逐字节相同 → 工具段不破缓存
+    expect(toolsJson[0]).toContain("read_file");
   });
 });
