@@ -18,7 +18,13 @@ export async function distill(p: {
   config: { baseUrl: string; apiKey: string }; model: string;
   messages: { role: string; content: string | null }[]; today: string;
 }): Promise<Memory[]> {
-  const rendered = p.messages.map((m) => `${m.role}: ${m.content ?? ""}`).join("\n").slice(0, 24000);
+  // 只渲染真实对话:必须排除 system 消息——它含巨大的系统 prompt(工具/指令/记忆),
+  // 既会把 flash 带偏,又会从开头吃满字符预算、把真正的用户对话挤掉。取最近 24000 字符。
+  const rendered = p.messages
+    .filter((m) => m.role !== "system")
+    .map((m) => `${m.role}: ${m.content ?? ""}`)
+    .join("\n")
+    .slice(-24000);
   const gen = p.streamChat({
     baseUrl: p.config.baseUrl, apiKey: p.config.apiKey, model: p.model,
     messages: [{ role: "system", content: SYS }, { role: "user", content: rendered }],
