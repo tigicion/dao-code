@@ -25,6 +25,13 @@ const PALETTES: Record<Background, Record<Semantic, ColorSpec>> = {
   },
 };
 
+// 语义色的 #rrggbb(供 Ink <Text color> 直接使用,按背景取深/浅版)。
+export function semHex(sem: Semantic, bg: Background = "dark"): string {
+  const [r, g, b] = PALETTES[bg][sem].rgb;
+  const h = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+
 const FG_RESET = "\x1b[39m";
 
 function fg(rgb: RGB): string {
