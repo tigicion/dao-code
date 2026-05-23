@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "verify:mem": "tsx scripts/verify-memory.ts",
     "accept:mem": "bash scripts/accept-memory.sh",
+    "accept:cache": "bash scripts/accept-cache.sh",
     "debug:distill": "tsx scripts/debug-distill.ts"
   },
   "dependencies": {
