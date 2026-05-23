@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -121,7 +122,7 @@ async function main() {
           "未找到 DeepSeek API key。请用以下任一方式设置:",
           "  • 环境变量:export DEEPSEEK_API_KEY=sk-...",
           "  • 项目 .env:在 .env 写一行 DEEPSEEK_API_KEY=sk-...",
-          "  • 在终端直接运行 codeds(不接管道),会引导你粘贴并保存 key",
+          "  • 在终端直接运行 dao(不接管道),会引导你粘贴并保存 key",
           KEY_HELP,
         ].join("\n"),
       );
