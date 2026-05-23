@@ -13,7 +13,8 @@ export function detectCapabilities(
   isTTY: boolean,
   columns?: number,
 ): Capabilities {
-  const cols = columns ?? ((env.COLUMNS ? parseInt(env.COLUMNS, 10) : 80) || 80);
+  // 用 || 链:显式列数 > COLUMNS > 80;0/NaN/undefined 都回退(终端偶尔报 columns=0)。
+  const cols = columns || (env.COLUMNS ? parseInt(env.COLUMNS, 10) : 0) || 80;
   if (!isTTY || env.NO_COLOR) return { tier: "none", isTTY, columns: cols };
 
   const force = env.FORCE_COLOR;
