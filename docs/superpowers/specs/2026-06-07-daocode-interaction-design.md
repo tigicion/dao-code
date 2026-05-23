@@ -146,5 +146,6 @@
 
 ## 12. 改名清理(DAO CODE)
 
-- CLI 名/横幅/帮助文案/`package.json` name 等从 codeds → DAO CODE(命令名 P1 定:`dao` 或 `daocode`)。
-- 配置目录 `~/.codeds`、`.codeds/` 是否迁移:**P1 决定**(倾向保留 `.codeds` 路径以免破坏现有 key/approval,仅改展示名),避免破坏用户既有数据与 eval。
+- CLI 名/横幅/帮助文案/`package.json` name 等从 codeds → DAO CODE。**命令名 = `dao`**(已定)。
+- 配置目录:**保留 `~/.codeds`、`.codeds/` 路径不变**(已定),仅改展示名,避免破坏现有 key/approval 与 eval。
+- StatusBar chip 取舍:先按 §5 全列(8 个),P2 出预览后按实际观感再调。
