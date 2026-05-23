@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { readConfig } from "./config/config.js";
@@ -297,13 +298,17 @@ async function main() {
       return;
     }
     const caps = detectCapabilities(process.env, process.stdout.isTTY ?? false);
+    let gitBranch: string | undefined;
+    try {
+      const head = readFileSync(path.join(workspaceRoot, ".git", "HEAD"), "utf8");
+      gitBranch = head.match(/ref: refs\/heads\/(.+)/)?.[1]?.trim();
+    } catch {}
     write(buildWelcome({
       model: cfg.model,
       thinking: process.env.CODEDS_REASONING_EFFORT || "max",
-      mode: session.mode,
-      memories: memories.length,
       cwd: workspaceRoot,
       version: VERSION,
+      branch: gitBranch,
     }, caps) + "\n");
     const readLine = async (): Promise<string | null> => {
       write("\n> ");
