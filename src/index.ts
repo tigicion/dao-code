@@ -26,7 +26,8 @@ import { runSubagent } from "./agent/subagent.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
-import { buildMemorySection } from "./memory/inject.js";
+import { buildMemorySection, selectForInjection } from "./memory/inject.js";
+import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
 import { SessionApprovalGate } from "./approval/gate.js";
 import type { ApprovalGate } from "./approval/types.js";
@@ -138,6 +139,10 @@ async function main() {
   // 一次性把旧 memories.json 迁移成 md(已迁移则跳过;目录不存在也容错)。
   await migrateLegacy(projectMemoryDir, today);
   await migrateLegacy(userMemoryDir, today);
+  // 衰减 GC:先剪掉死记忆(留存跌破阈值的低价值事实 / 过期且宽限期已过的取代项),
+  // 使它们既不被加载也不被注入。确定性,无 LLM。
+  await gcMemories(projectMemoryDir, today);
+  await gcMemories(userMemoryDir, today);
   const memories = await loadAllMemories(projectMemoryDir, userMemoryDir);
   // 逐条对照 live code 做确定性验证(stale 剔除 / changed 标注 / ok 注入)。
   const validated: { mem: (typeof memories)[number]; verdict: Verdict }[] = [];
@@ -145,7 +150,8 @@ async function main() {
     const { verdict } = await validateMemory(mem, workspaceRoot, today);
     validated.push({ mem, verdict });
   }
-  const memoryText = buildMemorySection(validated);
+  // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
+  const memoryText = buildMemorySection(selectForInjection(validated, today));
 
   const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries, memories: memoryText });
 
