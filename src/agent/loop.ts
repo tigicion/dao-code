@@ -27,13 +27,18 @@ export interface TurnDeps {
   ) => Promise<ToolMessage[]>;
   write: (s: string) => void;
   maxTurns?: number;
+  // 中途取消信号(ESC/超时):透传给 streamChat 与工具 ctx;abort 后本回合优雅停止。
+  signal?: AbortSignal;
 }
 
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
 export async function runTurn(deps: TurnDeps): Promise<void> {
-  const { session } = deps;
+  const { session, signal } = deps;
+  // 工具 ctx 透传取消信号(exec_shell 据此 SIGTERM);不改原 ctx 引用,按需补 signal。
+  const toolCtx = signal ? { ...deps.ctx, signal } : deps.ctx;
   const maxTurns = deps.maxTurns ?? (Number(process.env.CODEDS_MAX_TURNS) || 50);
   for (let t = 0; t < maxTurns; t++) {
+    if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
     const tools = apiToolsForMode(deps.registry, session.mode);
     const gen = deps.streamChat({
       baseUrl: deps.config.baseUrl,
@@ -46,9 +51,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       // 思考模式下 temperature/top_p 无效,故不设采样参数。
       extra: { reasoning_effort: process.env.CODEDS_REASONING_EFFORT || "max" },
       onUsage: (u) => session.addUsage(u),
+      signal,
     });
     const assistant = await renderStream(gen, deps.write);
     session.messages.push(assistant);
+    // 流被 abort:streamChat 返回的是部分消息,已入库;不再发起工具执行,优雅停止。
+    if (signal?.aborted) return;
     if (!assistant.tool_calls || assistant.tool_calls.length === 0) return;
 
     if (session.mode === "plan") {
@@ -60,7 +68,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (!allowed.has(tc.function.name)) deps.write(`\n[plan 模式:拒绝 ${tc.function.name}]\n`);
       }
       const ran = runnable.length
-        ? await deps.executeToolCalls(runnable, deps.registry, deps.ctx, deps.gate)
+        ? await deps.executeToolCalls(runnable, deps.registry, toolCtx, deps.gate)
         : [];
       const byId = new Map(ran.map((m) => [m.tool_call_id, m]));
       session.messages.push(
@@ -73,7 +81,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         ),
       );
     } else {
-      const toolMessages = await deps.executeToolCalls(assistant.tool_calls, deps.registry, deps.ctx, deps.gate);
+      const toolMessages = await deps.executeToolCalls(assistant.tool_calls, deps.registry, toolCtx, deps.gate);
       session.messages.push(...toolMessages);
     }
   }

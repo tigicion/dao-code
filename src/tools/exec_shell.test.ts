@@ -22,6 +22,21 @@ describe("exec_shell tool", () => {
     expect(out).toMatch(/id=proc-\d+/);
   });
 
+  it("kills the foreground child on abort and returns promptly with [已中断]", async () => {
+    const controller = new AbortController();
+    const start = Date.now();
+    const p = execShellTool.handler(
+      { command: "sleep 5" },
+      { workspaceRoot: process.cwd(), signal: controller.signal },
+    );
+    // 给子进程一点启动时间再 abort,确认它被 SIGTERM 提前结束而非跑满 5s。
+    setTimeout(() => controller.abort(), 100);
+    const out = await p;
+    const elapsed = Date.now() - start;
+    expect(out).toContain("[已中断]");
+    expect(elapsed).toBeLessThan(3000);
+  });
+
   it("declares exec capability and required approval", () => {
     expect(execShellTool.capability).toBe("exec");
     expect(execShellTool.approval).toBe("required");

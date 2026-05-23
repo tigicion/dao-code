@@ -132,4 +132,56 @@ describe("streamChat", () => {
       run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: fakeFetch([], 401) })),
     ).rejects.toThrow(/401/);
   });
+
+  it("returns the partial assistant message when aborted mid-stream (does not throw)", async () => {
+    const enc = new TextEncoder();
+    const controller = new AbortController();
+    // 流:先吐一个 content delta,然后一直挂起 → 给我们时间 abort。
+    // abort 时把 reader 的 read() reject 成 AbortError(模拟 fetch 的中断行为)。
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+      },
+      pull() {
+        // 第二次 read():返回一个永不 resolve、但在 abort 时 reject 的 promise。
+        return new Promise<void>((_, reject) => {
+          controller.signal.addEventListener("abort", () => {
+            const e = new Error("aborted");
+            e.name = "AbortError";
+            reject(e);
+          });
+        });
+      },
+    });
+    const abortingFetch = (async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
+
+    const gen = streamChat({
+      ...base,
+      messages: [{ role: "user", content: "hi" }],
+      fetchImpl: abortingFetch,
+      signal: controller.signal,
+    });
+
+    const deltas: StreamDelta[] = [];
+    let r = await gen.next(); // 拿到第一个 content delta
+    expect(r.done).toBe(false);
+    deltas.push(r.value as StreamDelta);
+
+    // 触发 abort,然后继续驱动生成器到结束——应正常返回部分消息,不抛错。
+    controller.abort();
+    let message: AssistantMessage | undefined;
+    await expect(
+      (async () => {
+        r = await gen.next();
+        while (!r.done) {
+          deltas.push(r.value as StreamDelta);
+          r = await gen.next();
+        }
+        message = r.value;
+      })(),
+    ).resolves.toBeUndefined();
+
+    expect(deltas).toContainEqual({ kind: "content", text: "partial" });
+    expect(message).toEqual({ role: "assistant", content: "partial" });
+  });
 });
