@@ -28,13 +28,19 @@ DEEPSEEK_API_KEY=sk-... DEEPSEEK_MODEL=deepseek-v4-flash node evals/run.mjs
 
 跑完打印可读汇总,并写 **`evals/report.md`**:头条(pass^k 稳定解决几个)+ 表格(任务/类型/pass^k/通过率/工具数/耗时/失败原因)。
 
+**失败复盘(方法论第 6 条)**:临时工作区跑完即删,但每次运行的证据会落盘到 `evals/runs/<task>/run-N/`(git 忽略):`agent.log`(完整轨迹)、`agent.diff`(agent 实际改的源码,注入隐藏测试**前**抓的)、`fail2pass.log`/`pass2pass.log`(两轨原始输出,看哪个 subtest 怎么挂的)、`meta.json`。读 `agent.diff` 对 `fix_ref` 的正解 = 直接看出 agent 改错了哪/漏改了哪。
+
 ## 任务类型(task.json 的 `kind`)
 
 | kind | 用途 | 判定 |
 |---|---|---|
-| `oss` | **能力主集**:真实开源 bug-fix | clone repo@ref → install → 跑 codeds → `fail2pass`+`pass2pass`(bash 命令,exit 0=过) |
+| `oss` | **能力主集**:真实开源 bug-fix | clone repo@`ref`(base 父 commit,bug 在、新测试缺)→ install → 跑前自检(临时注入 `fix_ref` 的测试确认 fail2pass 此刻确实失败,再撤掉)→ 跑 codeds → **agent 跑完才注入隐藏测试**(`git checkout <fix_ref> -- <test_files>`)→ `fail2pass`+`pass2pass`(bash 命令,exit 0=过) |
+| `docker` | 能力题(重工具链:Java/C++/数据科学) | 同 `oss`,但 install/`fail2pass`/`pass2pass` 跑在容器里(`image` 字段);codeds 本体仍在宿主改挂载的工作区(host-agent + bind-mount)。测试阶段断网+降权+限额。docker 不可用则跳过。详见 `evals/docker/README.md` |
 | `double` | 能力题(自包含,无需联网装依赖) | `workspace/` 拷给 agent;`tests/` 对 agent 隐藏;`fail2pass`+`pass2pass` 用 `node tests/x.mjs <workspace>` 判 |
 | `local` | 安全/红队 | `workspace/`(可选)+ `check.mjs` 做确定性判定 |
+
+> **oss/docker 测试后注入**:PR 带的新测试在 base `ref` 上不存在,agent 看不到;runner 在 agent 跑完后才注入测试再判定(SWE-bench/Terminal-Bench 范式),防 reward-hacking。
+> task.json(oss/docker)字段:`ref`(base 父 SHA)、`fix_ref`(修复/合并 commit SHA)、`test_files`(PR 增改的测试文件,仓库相对路径数组)、`install`/`fail2pass`/`pass2pass`(命令),docker 另加 `image`。
 
 目录结构:
 ```

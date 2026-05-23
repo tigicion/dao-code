@@ -41,6 +41,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       model: session.model,
       messages: session.messages,
       ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
+      // agent 类客户端用最高思考强度(官方对 Claude Code/OpenCode 类亦自动升到 max)。
+      // 思考模式下 temperature/top_p 无效,故不设采样参数。
+      extra: { reasoning_effort: "max" },
     });
     const assistant = await renderStream(gen, deps.write);
     session.messages.push(assistant);

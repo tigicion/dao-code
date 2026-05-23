@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "hono compress:设了 encoding 选项就忽略 Accept-Encoding",
+  "repo": "https://github.com/honojs/hono",
+  "ref": "a192df0844724aeaf5cbc6f1ea2f8425d3f8a86a",
+  "fix_ref": "f0ed2465913f2a89ebdf65cc54d6254915fc3ff6",
+  "test_files": ["src/middleware/compress/index.test.ts"],
+  "install": ["npm install"],
+  "prompt": "hono 的 compress 中间件在显式配置了 encoding 选项(例如 compress({ encoding: 'gzip' }))后,会无条件地按该编码压缩响应,完全忽略客户端的 Accept-Encoding 请求头。这违背内容协商:当请求根本没带 Accept-Encoding、或明确用 q=0 拒绝了该编码时,本不该用它压缩;遇到 x-gzip 这类不等同于 gzip 的写法也不应误用;有多个候选时应按 q 值选最高的。请修复:即便配置了 encoding,也要尊重 Accept-Encoding(包括 q 值、q=0 拒绝、缺失该头时不压缩等情况),只在客户端确实接受该编码时才使用它。",
+  "fail2pass": "npx vitest run src/middleware/compress/index.test.ts",
+  "pass2pass": "npx vitest run src/middleware --exclude '**/compress/index.test.ts'",
+  "_pass2pass_scope": "src/middleware 全部测试(26文件/619用例),排除 compress 本身。",
+  "_validated": true,
+  "_validation_note": "本机实跑(HELD-OUT 仍自检):base 注入test后 fail2pass 失败(6用例),checkout fix 的 compress/index.ts 后 fail2pass exit=0、pass2pass 619通过。已确认修复依赖的 parseAccept 在 base 的 src/utils/accept.ts 已存在,fix 仅需改 index.ts。"
+}

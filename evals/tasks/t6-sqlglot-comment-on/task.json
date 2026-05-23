@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "sqlglot Postgres:COMMENT ON 丢失 schema 限定名",
+  "repo": "https://github.com/tobymao/sqlglot",
+  "ref": "c3fa1ced5d7fce8f3546cc01f9f604ca4ad41859",
+  "fix_ref": "07faa10723e822d2319f2f41c7099948336d7514",
+  "test_files": ["tests/dialects/test_postgres.py"],
+  "install": ["python3 -m pip install -e .", "python3 -m pip install pytest"],
+  "prompt": "用 sqlglot 解析 Postgres 的 COMMENT ON 语句时,对于带 schema 限定名的对象(例如 COMMENT ON TYPE foo.mood IS 'x'、COMMENT ON VIEW myschema.v IS '...'、SEQUENCE、INDEX 同理),解析会失败或丢掉 schema 前缀——它把对象名当成单个标识符解析,无法处理 schema.object 形式。请修复 Postgres 方言:让 COMMENT ON TYPE / VIEW / SEQUENCE / INDEX 能正确解析带 schema 限定的对象名,并在重新生成 SQL 时保留该限定名。",
+  "fail2pass": "python3 -m pytest tests/dialects/test_postgres.py -q",
+  "pass2pass": "python3 -m pytest tests/dialects/test_postgres.py tests/test_parser.py tests/test_transpile.py -q",
+  "_pass2pass_scope": "改动在共享的 parser.py。pass2pass 选 postgres 方言 + parser 单测 + transpile 单测(120文件/1482子用例),直接覆盖解析与重生成。未用整个 tests/dialects/ 因 test_bigquery 在本机缺少可选依赖 pytz 触发 collection error(环境问题,非回归)。",
+  "_validated": true,
+  "_validation_note": "本机实跑(纯 Python,最轻):ref c3fa1ce 是 squash-merge 07faa10 的直接 parent。base 注入test后 fail2pass 失败(COMMENT ON TYPE foo.mood ParseError),checkout fix 的 parser.py 后 fail2pass exit=0、pass2pass 120通过。修正:brief 未给 fix 提交,经 PR API 确认 merge_commit=07faa10。"
+}

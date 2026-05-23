@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "hono cookie:同名 cookie 行为不一致(应一致取第一个)",
+  "repo": "https://github.com/honojs/hono",
+  "ref": "26f8c33f23e6151873d165107f2dbcadf1204d15",
+  "fix_ref": "ff7522fdccef4a55f6aa326ece705c0cd7cd8031",
+  "test_files": ["src/utils/cookie.test.ts"],
+  "install": ["npm install"],
+  "prompt": "hono 的 cookie 解析在遇到同名 cookie(同一个 Cookie 头里出现多次相同的 name)时行为不一致:parse(cookieString) 解析全部时,该 name 返回的是最后一次出现的值;而 parse(cookieString, name) 指定单个 name 时返回的却是第一次出现的值。两条路径对同名 cookie 给出不同结果(cookie shadowing)。此外,当 cookie 名恰好与 Object.prototype 上的属性(如 __proto__、constructor、toString)同名时还会出问题(键冲突,甚至丢 cookie)。请修复:统一为“同名取第一个值(first-wins)”,parse() 与 parse(name) 结果一致;并正确处理与 Object.prototype 同名的 cookie 键,签名 cookie 的解析同理。",
+  "fail2pass": "npx vitest run src/utils/cookie.test.ts",
+  "pass2pass": "npx vitest run src/utils --exclude '**/cookie.test.ts'",
+  "_pass2pass_scope": "src/utils 全部测试(18文件/约374用例),排除 cookie 本身。",
+  "_validated": true,
+  "_validation_note": "本机实跑:npm install 正常。base 注入test后 fail2pass 失败(4 duplicate/proto用例),checkout fix 的 cookie.ts 后 fail2pass exit=0、pass2pass 374通过。"
+}
