@@ -1,7 +1,7 @@
 import type { Capabilities } from "./capabilities.js";
 import { paint, gradientBlock } from "./theme.js";
 import { randomMaxim } from "./maxim.js";
-import { renderTaiji, TAIJI_WIDTH } from "./taiji.js";
+import { renderTaiji, TAIJI_WIDTH, type Background } from "./taiji.js";
 import { displayWidth } from "./width.js";
 
 export interface WelcomeInfo {
@@ -34,14 +34,19 @@ function shortenPath(p: string): string {
   return segs.length <= 3 ? p : "…/" + segs.slice(-3).join("/");
 }
 
-export function buildWelcome(info: WelcomeInfo, caps: Capabilities, rng?: () => number): string {
+export function buildWelcome(
+  info: WelcomeInfo,
+  caps: Capabilities,
+  rng?: () => number,
+  bg: Background = "dark",
+): string {
   const cols = caps.columns;
   const out: string[] = [];
   const blank = () => out.push("");
 
   blank();
   // 太极(程序化阴阳鱼)+ 词标(jade→ink 渐变),贴在一起作 logo
-  const taiji = renderTaiji(caps);
+  const taiji = renderTaiji(caps, bg);
   const tw = TAIJI_WIDTH(caps);
   taiji.forEach((row) => out.push(centerColored(row, tw, cols)));
   const wm = gradientBlock(WORDMARK, "jade", "ink", caps);
