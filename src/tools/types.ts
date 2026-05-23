@@ -16,6 +16,8 @@ export interface ToolContext {
   runSubagent?: (task: string) => Promise<string>;
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
+  // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
+  today?: string;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。
