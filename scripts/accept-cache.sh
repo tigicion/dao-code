@@ -33,4 +33,4 @@ echo "=== 自动初判(最终由 Claude 确认)==="
 RATIOS=$(grep -o "命中率 [0-9.]*%" "$WS/cache.out" | tr '\n' ' ')
 echo "出现的命中率: ${RATIOS:-（无）}  （期望:第一次≈0%、之后明显 >0 并随轮次上升）"
 echo
-echo "=== 把以上全部输出贴回给 Claude 判定。工作区留在 $WS（验完可 rm -rf）==="
+echo "=== 把以上全部输出贴回给 Claude 判定。工作区留在 ${WS} (验完可 rm -rf) ==="
