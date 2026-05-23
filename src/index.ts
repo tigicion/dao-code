@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -66,23 +66,33 @@ async function main() {
   // (OSC 11 主动探测会与 readline/Ink 抢 stdin,暂不在启动路径用;可 export DAO_THEME=light 强制。)
   const bg = bgFromEnv(process.env) ?? "dark";
 
-  // 单一 readline:'line' 事件喂一个共享行队列;REPL 读行 / 审批 / ask_user / key 引导
-  // 都从这一个 nextLine() 拉,保证管道里的行按 FIFO 分配,不会两个消费者抢 stdin。
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // 懒创建 readline:仅「key 引导 / 非 TTY 纯文本 REPL」需要。
+  // Ink 交互态绝不创建 readline——readline 会接管 stdin,其 create+close 周期会破坏 stdin 状态,
+  // 导致 Ink 接管后立刻收到 EOF/退出(表现为渲染一帧就退回 shell)。不碰它,Ink 的 useInput keep-alive 才正常。
+  let rl: Interface | null = null;
   const lineQueue: string[] = [];
   const lineWaiters: Array<(line: string | null) => void> = [];
   let rlClosed = false;
-  rl.on("line", (line) => {
-    const w = lineWaiters.shift();
-    if (w) w(line);
-    else lineQueue.push(line);
-  });
-  rl.on("close", () => {
-    rlClosed = true;
-    for (const w of lineWaiters) w(null);
-    lineWaiters.length = 0;
-  });
+  const ensureRl = () => {
+    if (rl) return rl;
+    rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.on("line", (line) => {
+      const w = lineWaiters.shift();
+      if (w) w(line);
+      else lineQueue.push(line);
+    });
+    rl.on("close", () => {
+      rlClosed = true;
+      for (const w of lineWaiters) w(null);
+      lineWaiters.length = 0;
+    });
+    return rl;
+  };
+  const closeRl = () => {
+    if (rl) rl.close();
+  };
   const nextLine = (): Promise<string | null> => {
+    ensureRl();
     if (lineQueue.length) return Promise.resolve(lineQueue.shift()!);
     if (rlClosed) return Promise.resolve(null);
     return new Promise((res) => lineWaiters.push(res));
@@ -106,7 +116,7 @@ async function main() {
       const entered = (await ask("请粘贴你的 key: ")).trim();
       if (!entered) {
         write("未输入 key,已退出。\n");
-        rl.close();
+        closeRl();
         process.exit(1);
       }
       apiKey = entered;
@@ -126,7 +136,7 @@ async function main() {
           KEY_HELP,
         ].join("\n"),
       );
-      rl.close();
+      closeRl();
       process.exit(1);
     }
   }
@@ -336,9 +346,10 @@ async function main() {
     };
 
     if (process.stdout.isTTY) {
-      // 交互态:Ink REPL(inline)。先关 readline 释放 stdin 给 Ink(raw mode)。
+      // 交互态:Ink REPL(inline)。常见路径下从未创建 readline(stdin 干净),Ink 的 useInput 直接接管;
+      // 仅当首次运行做过 key 引导才存在 rl,此时关掉让出 stdin。
       subagentWrite = () => {}; // Ink 态静默子代理直接输出
-      rl.close();
+      closeRl();
       await runInkApp({
         welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
         submit: async (text, { events, signal }) => {
@@ -386,7 +397,7 @@ async function main() {
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
     await distillOnExit();
   } finally {
-    rl.close();
+    closeRl();
   }
 }
 
