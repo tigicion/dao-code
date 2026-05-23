@@ -15,13 +15,17 @@ function shortenPath(p: string): string {
 }
 
 // 订阅终端 resize,返回当前列宽(变化即触发重渲染 → 布局重排)。
+// 在 alternate screen(全屏缓冲)下,Ink 按固定网格整屏重绘,resize 不会残留旧帧 → 不变形。
 function useTermWidth(fallback: number): number {
   const { stdout } = useStdout();
   const [cols, setCols] = useState(stdout?.columns ?? fallback);
   useEffect(() => {
     if (!stdout) return;
-    const onResize = () => setCols(stdout.columns ?? fallback);
-    onResize();
+    const onResize = () => {
+      // 清整屏再重排:alt-screen 下安全(不丢 scrollback),消除 Ink 放大时不清屏残留的旧边框。
+      stdout.write("\x1b[2J\x1b[H");
+      setCols(stdout.columns ?? fallback);
+    };
     stdout.on("resize", onResize);
     return () => {
       stdout.off("resize", onResize);
