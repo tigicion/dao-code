@@ -42,7 +42,7 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
     case "help":
       return {
         handled: true,
-        output: "/model [id] 切模型 · /plan 切模式 · /yolo 自动批准开关 · /clear 清空 · /compact 压缩对话 · /cost 用量与cache命中 · /exit 退出",
+        output: "/model [id] 切模型 · /plan 切模式 · /theme 切浅深色 · /yolo 自动批准开关 · /clear 清空 · /compact 压缩对话 · /cost 用量与cache命中 · /exit 退出",
       };
     case "exit":
     case "quit":
