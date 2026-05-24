@@ -268,6 +268,25 @@ async function main() {
       signal,
     });
 
+  // 申请访问工作区外路径(读类工具):一次授权后本会话不再追问;选"本仓库后续都用"则持久化。
+  let externalReadGranted = alwaysApproved.has("external-read");
+  ctx.approveExternalRead = async (abs: string): Promise<boolean> => {
+    if (yolo || externalReadGranted) return true;
+    if (!inkApprovalPrompt) return false; // 非交互(管道/eval)默认拒绝区外访问
+    const decisions = await inkApprovalPrompt([
+      { id: "ext", toolName: "读取(工作区外)", capability: "read", summary: `访问工作区外路径:${abs}` },
+    ]);
+    const d = decisions.get("ext") ?? "deny";
+    if (d === "deny") return false;
+    if (d === "always") {
+      externalReadGranted = true;
+      await appendAlwaysApproved(approvalsFile, "external-read");
+    } else if (d === "session") {
+      externalReadGranted = true;
+    }
+    return true; // once 放行本次
+  };
+
   const KEEP_RECENT_TURNS = 2;
   const CONTEXT_WINDOW = 1_000_000;
 

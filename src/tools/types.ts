@@ -22,6 +22,9 @@ export interface ToolContext {
   signal?: AbortSignal;
   // 可执行验收命令(DoD):设了则 verify_done 跑它判完成;未设则模型据证据自判。运行时可改。
   verifyCommand?: string;
+  // 申请访问工作区外路径(读类工具用):返回是否获批。未注入(非交互)默认拒绝。
+  // 一次授权后同会话/本仓库后续外部读不再追问(减少阻塞)。
+  approveExternalRead?: (absPath: string) => Promise<boolean>;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。
