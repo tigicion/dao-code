@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { render } from "ink-testing-library";
 import { App } from "./App.js";
 import type { AppDeps } from "./types.js";
+import type { ApprovalDecision, ApprovalPrompt } from "../../approval/types.js";
 
 const delay = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
@@ -103,6 +104,38 @@ describe("App", () => {
     stdin.write("\r");
     await delay();
     expect(submitted).toBe("aXbc");
+  });
+
+  it("审批模态:弹出 → 按键 → resolve 决定", async () => {
+    let ap: ApprovalPrompt | null = null;
+    let resolved: Map<string, ApprovalDecision> | null = null;
+    const { lastFrame, stdin } = render(
+      <App
+        {...makeDeps({
+          register: ({ approvalPrompt }) => { ap = approvalPrompt; },
+          submit: async () => {
+            resolved = await ap!([{ id: "1", toolName: "write_file", capability: "write", summary: "write_file a.txt" }]);
+          },
+        })}
+      />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(lastFrame()).toContain("需要批准");
+    stdin.write("y");
+    await delay();
+    expect(resolved!.get("1")).toBe("once");
+  });
+
+  it("/theme 切换主题(App 内拦截)", async () => {
+    const { lastFrame, stdin } = render(<App {...makeDeps()} />);
+    for (const ch of "/theme") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(lastFrame()).toContain("已切换主题");
   });
 
   it("submit 抛错 → 显示出错 notice,不崩", async () => {
