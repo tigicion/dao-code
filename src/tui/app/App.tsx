@@ -10,10 +10,13 @@ import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js"
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const MAX_LIVE_LINES = 12; // 流式动态区只显示尾部这么多行,防止动态区高度≥终端高触发 Ink 整屏闪烁(ink#359)
 
-function preview(s: string, lines = 6): string {
+// 工具结果展示预览:中间截断(保头+保尾,报错常在尾),标注省略行数。
+function preview(s: string, lines = 8): string {
   const all = s.split("\n");
   if (all.length <= lines) return s.trimEnd();
-  return all.slice(0, lines).join("\n") + `\n  … +${all.length - lines} 行`;
+  const head = Math.ceil(lines / 2);
+  const tailN = lines - head;
+  return [...all.slice(0, head), `… (省略 ${all.length - lines} 行) …`, ...all.slice(all.length - tailN)].join("\n");
 }
 
 // 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。

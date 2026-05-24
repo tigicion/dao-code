@@ -2,6 +2,7 @@ import { exec } from "node:child_process";
 import { z } from "zod";
 import { defineTool } from "./types.js";
 import { processManager } from "./process_manager.js";
+import { clampOutput } from "./output.js";
 
 interface ForegroundResult {
   stdout: string;
@@ -62,6 +63,6 @@ export const execShellTool = defineTool({
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
     parts.push(r.aborted ? `[已中断]` : r.timedOut ? `[超时,已终止]` : `[exit ${r.code}]`);
-    return parts.join("\n");
+    return clampOutput(parts.join("\n"));
   },
 });
