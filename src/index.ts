@@ -51,6 +51,7 @@ import { walkFiles } from "./tools/walk.js";
 import type { ApprovalPrompt } from "./approval/types.js";
 import { VERSION } from "./version.js";
 import { compactMessages, shouldCompact, estimateTokens } from "./agent/compact.js";
+import { todoStore, formatTodos } from "./tools/todo_store.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
 import type { TranscriptItem } from "./tui/app/types.js";
@@ -289,10 +290,11 @@ async function main() {
 
   const runCompaction = async (): Promise<void> => {
     const before = session.messages.length;
-    session.messages = await compactMessages(session.messages, {
-      keepRecentTurns: KEEP_RECENT_TURNS,
-      summarize,
-    });
+    session.messages = await compactMessages(
+      session.messages,
+      { keepRecentTurns: KEEP_RECENT_TURNS, summarize },
+      todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
+    );
     const after = session.messages.length;
     write(after < before ? `\n[已压缩对话:${before} → ${after} 条消息]\n` : `\n[对话较短,无需压缩]\n`);
   };
@@ -316,7 +318,11 @@ async function main() {
 
   // Ink 态压缩:不向 stdout 写(会冲渲染),只压缩消息;提示由 App 通过 events/notice 给出。
   const inkCompact = async (): Promise<void> => {
-    session.messages = await compactMessages(session.messages, { keepRecentTurns: KEEP_RECENT_TURNS, summarize });
+    session.messages = await compactMessages(
+      session.messages,
+      { keepRecentTurns: KEEP_RECENT_TURNS, summarize },
+      todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
+    );
   };
 
   // 会话结束蒸馏:独立一次 flash + 关思考(distill 内部已设)抽取原子事实/用户模型,

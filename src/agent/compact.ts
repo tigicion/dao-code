@@ -28,6 +28,7 @@ export interface CompactOptions {
 export async function compactMessages(
   messages: ChatMessage[],
   opts: CompactOptions,
+  pinned?: string, // 压缩后重注入的"活的任务清单",使计划穿越压缩、防长任务目标漂移
 ): Promise<ChatMessage[]> {
   if (messages.length === 0) return messages;
   const system = messages[0]!;
@@ -49,5 +50,7 @@ export async function compactMessages(
     role: "system",
     content: `[早期对话摘要]\n${summary}`,
   };
-  return [system, summaryMsg, ...tail];
+  const out: ChatMessage[] = [system, summaryMsg];
+  if (pinned && pinned.trim()) out.push({ role: "system", content: `[当前任务清单(请据此继续,勿偏离)]\n${pinned}` });
+  return [...out, ...tail];
 }
