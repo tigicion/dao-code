@@ -10,15 +10,6 @@ import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js"
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const MAX_LIVE_LINES = 12; // 流式动态区只显示尾部这么多行,防止动态区高度≥终端高触发 Ink 整屏闪烁(ink#359)
 
-// 工具结果展示预览:中间截断(保头+保尾,报错常在尾),标注省略行数。
-function preview(s: string, lines = 8): string {
-  const all = s.split("\n");
-  if (all.length <= lines) return s.trimEnd();
-  const head = Math.ceil(lines / 2);
-  const tailN = lines - head;
-  return [...all.slice(0, head), `… (省略 ${all.length - lines} 行) …`, ...all.slice(all.length - tailN)].join("\n");
-}
-
 // 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。
 function tail(s: string, n: number): string {
   const all = s.split("\n");
@@ -32,6 +23,55 @@ const LANG: Record<string, string> = {
 };
 const langFromPath = (p: string): string => LANG[p.split(".").pop()?.toLowerCase() ?? ""] ?? "";
 const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
+
+// 连续的工具/diff 行紧凑堆叠(去掉行间空隙),压缩并发/连续工具调用的展示。
+const isToolish = (it?: { kind: string }): boolean => !!it && (it.kind === "tool" || it.kind === "diff");
+
+// 工具调用的"意图/命令"标签:展示意图而非工具名(read_file → 读取 src/foo.ts)。
+function activityLabel(name: string, argsJson: string): string {
+  let a: Record<string, unknown> = {};
+  try { a = JSON.parse(argsJson) as Record<string, unknown>; } catch {}
+  const s = (v: unknown) => (typeof v === "string" ? v : "");
+  const q = (v: unknown) => JSON.stringify(s(v));
+  switch (name) {
+    case "read_file": return `读取 ${s(a.path)}${a.offset ? ` :${a.offset}` : ""}`;
+    case "list_dir": return `列目录 ${s(a.path) || "."}`;
+    case "grep_files": return `搜索 ${q(a.pattern)}${a.glob ? ` (${s(a.glob)})` : ""}`;
+    case "file_search": return `查找 ${s(a.glob)}`;
+    case "exec_shell": return `$ ${s(a.command).split("\n")[0]!.slice(0, 80)}`;
+    case "exec_shell_poll": return `查看后台输出`;
+    case "exec_shell_kill": return `结束后台进程`;
+    case "write_file": return `写入 ${s(a.path)}`;
+    case "edit_file": return `编辑 ${s(a.path)}`;
+    case "verify_done": return `验收`;
+    case "web_search": return `网页搜索 ${q(a.query)}`;
+    case "fetch_url": return `抓取 ${s(a.url)}`;
+    case "memory_write": return `记忆 ${s(a.text).slice(0, 50)}`;
+    case "todo_write": return `更新任务清单`;
+    case "ask_user": return `提问`;
+    case "agent": return Array.isArray(a.tasks) ? `并行 ${a.tasks.length} 个子代理` : `子代理:${s(a.task).slice(0, 50)}`;
+    default: return name;
+  }
+}
+
+// 结果只留一行小结(内容做轻;详细结果由模型的后续思考/动作体现)。报错显示首行。
+function resultDetail(name: string, ok: boolean, content: string): string {
+  const lines = content.split("\n");
+  if (!ok) return lines[0]!.slice(0, 120); // 报错首行
+  const n = lines.length;
+  switch (name) {
+    case "read_file": return `${n} 行`;
+    case "list_dir": return content.startsWith("(") ? content : `${n} 项`;
+    case "grep_files": return content.startsWith("(") ? content : `${n} 命中`;
+    case "file_search": return content.startsWith("(") ? content : `${n} 个`;
+    case "write_file": return content.replace(/^已写入[^()]*/, "").trim() || `${n} 行`;
+    case "exec_shell": return lines.filter((l) => l.trim()).slice(-1)[0]?.slice(0, 100) ?? "";
+    case "verify_done": return lines.filter((l) => l.includes("验收")).slice(-1)[0] ?? lines.slice(-1)[0]!.slice(0, 80);
+    case "web_search": return content.startsWith("(") ? content : `${content.split("\n\n").length} 条`;
+    case "fetch_url": return `${content.length} 字`;
+    default: return ""; // memory/todo/ask 等:标签已足够
+  }
+}
 
 export function App(deps: AppDeps) {
   const { exit } = useApp();
@@ -93,19 +133,20 @@ export function App(deps: AppDeps) {
         const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
         const name = call.function.name;
         let pushed = false;
-        if (ok && (name === "edit_file" || name === "write_file")) {
+        if (ok && name === "edit_file") {
+          // 仅 edit 保留红绿 diff(唯一值得看的富展示);write 等改为轻量意图行。
           try {
-            const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string; content?: string };
+            const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string };
             const path = String(a.path ?? "");
-            const removed = name === "edit_file" ? toLines(String(a.old_string ?? "")) : [];
-            const added = toLines(String(name === "edit_file" ? a.new_string ?? "" : a.content ?? ""));
-            pushItem({ id: nextId(), kind: "diff", path, removed, added, lang: langFromPath(path) });
+            pushItem({ id: nextId(), kind: "diff", path, removed: toLines(String(a.old_string ?? "")), added: toLines(String(a.new_string ?? "")), lang: langFromPath(path) });
             pushed = true;
           } catch {
-            /* 参数非 JSON,退回普通工具卡片 */
+            /* 参数非 JSON,退回轻量工具行 */
           }
         }
-        if (!pushed) pushItem({ id: nextId(), kind: "tool", name, preview: preview(msg.content), ok });
+        if (!pushed) {
+          pushItem({ id: nextId(), kind: "tool", label: activityLabel(name, call.function.arguments), detail: resultDetail(name, ok, msg.content), ok });
+        }
         setLive((l) => (l ? { ...l, tools: l.tools.filter((n) => n !== name) } : l));
       },
       assistantDone: (msg) => {
@@ -253,11 +294,11 @@ export function App(deps: AppDeps) {
   return (
     <Box flexDirection="column">
       <Static items={items}>
-        {(item) =>
+        {(item, index) =>
           item.kind === "welcome" ? (
             <Welcome key={item.id} info={deps.welcome.info} caps={deps.welcome.caps} bg={bg} maxim={deps.welcome.maxim} />
           ) : (
-            <Row key={item.id} item={item} c={c} />
+            <Row key={item.id} item={item} c={c} tight={isToolish(item) && isToolish(items[index - 1])} />
           )
         }
       </Static>
@@ -326,7 +367,7 @@ export function App(deps: AppDeps) {
   );
 }
 
-function Row({ item, c }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string }) {
+function Row({ item, c, tight }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string; tight?: boolean }) {
   if (item.kind === "user") {
     return (
       <Box marginTop={1}>
@@ -343,12 +384,12 @@ function Row({ item, c }: { item: TranscriptItem; c: (s: Parameters<typeof semHe
     );
   }
   if (item.kind === "tool") {
+    // 轻量:一行意图 + 灰色一行小结(报错标红);连续工具紧凑(tight→无行间空隙)。
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text color={item.ok ? c("jade") : c("vermilion")}>● {item.name}</Text>
-        <Text color={c("dim")}>
-          {item.preview.split("\n").map((l, i) => (i === 0 ? "  ⎿ " : "    ") + l).join("\n")}
-        </Text>
+      <Box marginTop={tight ? 0 : 1}>
+        <Text color={item.ok ? c("jade") : c("vermilion")}>● </Text>
+        <Text color={c("ink")}>{item.label}</Text>
+        {item.detail ? <Text color={item.ok ? c("dim") : c("vermilion")}>  {item.detail}</Text> : null}
       </Box>
     );
   }
@@ -360,9 +401,9 @@ function Row({ item, c }: { item: TranscriptItem; c: (s: Parameters<typeof semHe
     ];
     const shown = rows.slice(0, cap);
     return (
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={tight ? 0 : 1}>
         <Text color={c("jade")}>
-          ● {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
+          ● 编辑 {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
         </Text>
         {shown.map(([sign, l], i) => (
           <Text key={i} color={sign === "+" ? c("jade") : c("vermilion")}>

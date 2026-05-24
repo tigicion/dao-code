@@ -175,6 +175,30 @@ describe("App", () => {
     expect(f).toContain("上次的回答");
   });
 
+  it("工具展示:意图标签 + 一行小结(读取 path · N 行),不显示工具名", async () => {
+    const { lastFrame, stdin } = render(
+      <App
+        {...makeDeps({
+          submit: async (_t, { events }) => {
+            events.toolResult(
+              { id: "c1", type: "function" as const, function: { name: "read_file", arguments: JSON.stringify({ path: "src/foo.ts" }) } },
+              { role: "tool", tool_call_id: "c1", content: "line1\nline2\nline3" },
+            );
+            events.assistantDone({ role: "assistant", content: "ok" });
+          },
+        })}
+      />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("读取 src/foo.ts");
+    expect(f).toContain("3 行");
+    expect(f).not.toContain("read_file");
+  });
+
   it("submit 抛错 → 显示出错 notice,不崩", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ submit: async () => { throw new Error("boom"); } })} />,
