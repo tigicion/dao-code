@@ -20,7 +20,7 @@ function makeDeps(over: Partial<AppDeps> = {}): AppDeps {
     runCommand: (line) =>
       line.startsWith("/help") ? { handled: true, output: "命令:/help /exit" } : { handled: true, output: "未知" },
     compact: async () => {},
-    getStatus: () => ({ model: "deepseek-v4-pro", mode: "normal", promptTokens: 12, completionTokens: 3, cacheHitRatio: 0.5, yolo: false }),
+    getStatus: () => ({ model: "deepseek-v4-pro", mode: "normal", promptTokens: 12, completionTokens: 3, cacheHitRatio: 0.5, yolo: false, branch: "main", contextPct: 0.3 }),
     register: () => {},
     ...over,
   };

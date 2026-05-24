@@ -47,7 +47,7 @@ import { randomMaxim } from "./tui/maxim.js";
 import { runInkApp } from "./tui/app/run.js";
 import type { ApprovalPrompt } from "./approval/types.js";
 import { VERSION } from "./version.js";
-import { compactMessages, shouldCompact } from "./agent/compact.js";
+import { compactMessages, shouldCompact, estimateTokens } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
 
@@ -394,6 +394,8 @@ async function main() {
           completionTokens: session.usage.completionTokens,
           cacheHitRatio: session.cacheHitRatio(),
           yolo,
+          branch: gitBranch,
+          contextPct: (estimateTokens(session.messages) / CONTEXT_WINDOW) * 100,
         }),
         register: ({ approvalPrompt, askUser }) => {
           inkApprovalPrompt = approvalPrompt;
