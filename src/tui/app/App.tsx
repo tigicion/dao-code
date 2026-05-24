@@ -221,6 +221,17 @@ export function App(deps: AppDeps) {
       return;
     }
     if (key.delete) { setField((f) => ({ ...f, text: f.text.slice(0, f.cursor) + f.text.slice(f.cursor + 1) })); return; } // 删光标处
+    if (key.tab) { // @文件补全:把光标前的 @前缀 补成第一个匹配
+      setField((f) => {
+        const m = f.text.slice(0, f.cursor).match(/@(\S*)$/);
+        const matches = m && deps.completeFiles ? deps.completeFiles(m[1] ?? "") : [];
+        if (!m || !matches.length) return f;
+        const atStart = f.cursor - m[0].length;
+        const completion = "@" + matches[0] + " ";
+        return { text: f.text.slice(0, atStart) + completion + f.text.slice(f.cursor), cursor: atStart + completion.length };
+      });
+      return;
+    }
     if (ch && !key.ctrl && !key.meta) {
       setField((f) => ({ text: f.text.slice(0, f.cursor) + ch + f.text.slice(f.cursor), cursor: f.cursor + ch.length }));
     }
@@ -298,6 +309,13 @@ export function App(deps: AppDeps) {
                 .join("  ") || "(无匹配命令)"}
             </Text>
           ) : null}
+          {(() => {
+            const m = input.slice(0, cursor).match(/@(\S*)$/);
+            const matches = m && deps.completeFiles ? deps.completeFiles(m[1] ?? "") : [];
+            return matches.length ? (
+              <Text color={c("dim")}>{"  "}{matches.slice(0, 6).join("  ")}  <Text color={c("jade")}>(Tab 补全)</Text></Text>
+            ) : null;
+          })()}
         </Box>
       )}
 
