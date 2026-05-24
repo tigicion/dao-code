@@ -44,7 +44,7 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
     case "help":
       return {
         handled: true,
-        output: "/model 切模型 · /plan 切模式 · /theme 切浅深色 · /yolo 自动批准 · /restore 回退上个检查点 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
+        output: "/model 切模型 · /plan 切模式 · /yolo 自动批准 · /dod <命令> 设验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
       };
     case "exit":
     case "quit":
