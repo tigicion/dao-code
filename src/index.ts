@@ -38,6 +38,8 @@ import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { buildSystemPrompt } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
+import { createSessionStore, logEvents, findResumable } from "./session/log.js";
+import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
 import { buildWelcome } from "./tui/banner.js";
@@ -51,6 +53,19 @@ import { VERSION } from "./version.js";
 import { compactMessages, shouldCompact, estimateTokens } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
+import type { TranscriptItem } from "./tui/app/types.js";
+
+// 续跑时,把历史消息重建成可见的 transcript(只回放 user/assistant 文本;工具细节在日志里)。
+function transcriptFromMessages(messages: ChatMessage[]): TranscriptItem[] {
+  const out: TranscriptItem[] = [];
+  let id = 1;
+  for (const m of messages) {
+    if (m.role === "user" && typeof m.content === "string") out.push({ id: id++, kind: "user", text: m.content });
+    else if (m.role === "assistant" && typeof m.content === "string" && m.content.trim())
+      out.push({ id: id++, kind: "assistant", text: m.content });
+  }
+  return out;
+}
 
 const KEY_HELP =
   "获取 key:https://platform.deepseek.com/api_keys";
@@ -58,7 +73,9 @@ const KEY_HELP =
 async function main() {
   const rawArgs = process.argv.slice(2);
   const yoloFlag = rawArgs.includes("--yolo");
-  const argvPrompt = rawArgs.filter((a) => a !== "--yolo").join(" ").trim();
+  const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
+  const flags = new Set(["--yolo", "--continue", "-c"]);
+  const argvPrompt = rawArgs.filter((a) => !flags.has(a)).join(" ").trim();
   const workspaceRoot = process.cwd();
   const approvalsFile = path.join(workspaceRoot, ".codeds", "approvals.json");
   const keyFile = path.join(os.homedir(), ".codeds", "config.json");
@@ -366,9 +383,41 @@ async function main() {
           if (fileCache.length >= 5000) break;
         }
       } catch {}
+      // 长任务地基:会话日志/状态快照(崩溃恢复)+ 影子 git 检查点(回滚)。
+      const sessionsDir = path.join(workspaceRoot, ".codeds", "sessions");
+      let resumeId: string | undefined;
+      let initialItems: TranscriptItem[] = [];
+      if (continueFlag) {
+        const prev = findResumable(sessionsDir, workspaceRoot);
+        if (prev) {
+          session.messages = prev.messages;
+          session.setModel(prev.model);
+          session.mode = prev.mode;
+          session.usage.promptTokens += prev.usage.promptTokens;
+          session.usage.completionTokens += prev.usage.completionTokens;
+          session.usage.cacheHitTokens += prev.usage.cacheHitTokens;
+          session.usage.cacheMissTokens += prev.usage.cacheMissTokens;
+          resumeId = prev.id; // 续写同一会话文件
+          const recap = transcriptFromMessages(prev.messages);
+          recap.unshift({ id: 0, kind: "notice", text: "[已恢复上次会话]" });
+          initialItems = recap.map((it, i) => ({ ...it, id: i + 1 })); // 统一编号(welcome 占 0)
+        }
+      }
+      const store = createSessionStore(sessionsDir, resumeId);
+      const ckpt = createCheckpointer(workspaceRoot);
+      const persist = () =>
+        store.saveState({
+          cwd: workspaceRoot,
+          model: session.model,
+          mode: session.mode,
+          messages: session.messages,
+          usage: { ...session.usage },
+        });
       await runInkApp({
         welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
         submit: async (text, { events, signal }) => {
+          ckpt.snapshot(`回合前: ${text.slice(0, 60)}`); // 回合前快照,便于 /restore 回退本回合
+          store.append({ t: "user", text });
           session.addUser(text);
           await runTurn({
             session,
@@ -379,19 +428,31 @@ async function main() {
             streamChat,
             executeToolCalls,
             write: () => {},
-            events,
+            events: logEvents(events, store), // 渲染的同时写日志
             signal,
           });
+          store.append({ t: "turn_end" });
           if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
+            const before = session.messages.length;
             events.notice("[接近上限,自动压缩…]");
             await inkCompact();
+            store.append({ t: "compaction", before, after: session.messages.length });
           }
+          persist(); // 回合末存档(崩溃可恢复)
         },
         runCommand: (line) => {
           const name = line.trim().slice(1).split(/\s+/)[0];
           if (name === "yolo") {
             yolo = !yolo;
             return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(慎用)" : "YOLO 已关闭:恢复审批门" };
+          }
+          if (name === "restore") {
+            if (!ckpt.enabled) return { handled: true, output: "检查点不可用(无 git)" };
+            const snaps = ckpt.list();
+            const target = snaps[1] ?? snaps[0]; // 回退到上一个回合前的快照
+            if (!target) return { handled: true, output: "暂无可回退的检查点" };
+            const ok = ckpt.restore(target.ref);
+            return { handled: true, output: ok ? `已回退工作区到检查点:${target.label}` : "回退失败" };
           }
           return dispatchCommand(line, session);
         },
@@ -412,7 +473,9 @@ async function main() {
         },
         completeFiles: (prefix) =>
           (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),
+        initialItems,
       });
+      store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。
       write(buildWelcome(welcomeInfo, caps, undefined, bg) + "\n");
