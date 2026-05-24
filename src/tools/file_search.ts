@@ -20,7 +20,10 @@ export const fileSearchTool = defineTool({
     const root = resolveInWorkspace(ctx.workspaceRoot, args.path ?? ".");
     const re = globToRegExp(args.glob);
     const hits: { rel: string; mtime: number }[] = [];
+    let scanned = 0;
     for await (const { abs, rel } of walkFiles(root)) {
+      if (ctx.signal?.aborted) break; // 尊重 ESC/超时
+      if (++scanned > 50000) break; // 巨型树扫描上限
       if (!re.test(rel)) continue;
       try {
         const st = await fs.stat(abs);

@@ -15,9 +15,13 @@ export const listDirTool = defineTool({
     const abs = resolveInWorkspace(ctx.workspaceRoot, args.path ?? ".");
     const entries = await fs.readdir(abs, { withFileTypes: true });
     if (entries.length === 0) return "(空目录)";
-    return [...entries]
+    const sorted = [...entries]
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
-      .join("\n");
+      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+    const MAX = 500; // 超大目录(如 node_modules)截断,防撑爆上下文
+    if (sorted.length > MAX) {
+      return sorted.slice(0, MAX).join("\n") + `\n…(共 ${sorted.length} 项,已截断前 ${MAX};用 grep_files/file_search 精确定位)`;
+    }
+    return sorted.join("\n");
   },
 });

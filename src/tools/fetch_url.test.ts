@@ -29,13 +29,13 @@ describe("fetch_url tool", () => {
     expect(out.length).toBeLessThan(160);
   });
 
-  it("throws on non-2xx", async () => {
-    await expect(
-      fetchUrlTool.handler(
-        { url: "https://example.com" },
-        { workspaceRoot: "/tmp", fetchImpl: fetchReturning("x", 404) },
-      ),
-    ).rejects.toThrow(/404/);
+  it("非2xx → 返回 Error 信息(不抛,便于模型读)", async () => {
+    const out = await fetchUrlTool.handler(
+      { url: "https://example.com" },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning("x", 404) },
+    );
+    expect(out).toContain("404");
+    expect(out).toContain("Error");
   });
 
   it("declares network capability and suggest approval", () => {

@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { defineTool } from "./types.js";
 import { resolveInWorkspace } from "./paths.js";
+import { atomicWrite } from "./fs_atomic.js";
 
 export const writeFileTool = defineTool({
   name: "write_file",
@@ -25,8 +25,7 @@ export const writeFileTool = defineTool({
     if (exists && ctx.readFiles && !ctx.readFiles.has(abs)) {
       throw new Error(`覆盖已存在文件前请先用 read_file 读过它:${args.path}`);
     }
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, args.content, "utf8");
+    await atomicWrite(abs, args.content);
     ctx.readFiles?.add(abs);
     return `已写入 ${args.path}(${args.content.split("\n").length} 行)`;
   },

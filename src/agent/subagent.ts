@@ -18,6 +18,7 @@ export interface SubagentDeps {
   executeToolCalls: TurnDeps["executeToolCalls"];
   write: (s: string) => void;
   runTurn: (deps: TurnDeps) => Promise<void>;
+  signal?: AbortSignal; // 父代理 abort 时一并停子代理
 }
 
 // 一次性派发:全新隔离会话(系统 prompt + task)跑到底,返回最终 assistant 文本。
@@ -30,11 +31,13 @@ export async function runSubagent(deps: SubagentDeps): Promise<string> {
     session: sub,
     config: deps.config,
     registry: deps.registry,
-    ctx: { ...deps.ctx, subagentDepth: (deps.ctx.subagentDepth ?? 0) + 1 },
+    // 子代理用独立 readFiles(不污染主代理"已读"集合,避免绕过写前须读护栏)。
+    ctx: { ...deps.ctx, subagentDepth: (deps.ctx.subagentDepth ?? 0) + 1, readFiles: new Set() },
     gate: deps.gate,
     streamChat: deps.streamChat,
     executeToolCalls: deps.executeToolCalls,
     write: deps.write,
+    signal: deps.signal,
   });
   deps.write("\n[子代理完成]\n");
   const last = sub.messages[sub.messages.length - 1];

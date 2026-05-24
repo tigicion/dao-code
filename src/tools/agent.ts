@@ -29,13 +29,13 @@ export const agentTool = defineTool({
     const run = ctx.runSubagent;
     const tasks = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
     if (tasks.length === 0) return "请提供 task 或 tasks。";
-    if (tasks.length === 1) return run(tasks[0]!);
+    if (tasks.length === 1) return run(tasks[0]!, ctx.signal);
 
     // 并行 scatter-gather:各子代理独立会话并发跑,单个失败不影响其余,最后汇总。
     const results = await Promise.all(
       tasks.map(async (t, i) => {
         try {
-          return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n${await run(t)}`;
+          return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n${await run(t, ctx.signal)}`;
         } catch (e) {
           return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n[失败] ${e instanceof Error ? e.message : String(e)}`;
         }

@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
 import { resolveInWorkspace } from "./paths.js";
+import { atomicWrite } from "./fs_atomic.js";
 
 export const editFileTool = defineTool({
   name: "edit_file",
@@ -28,7 +29,7 @@ export const editFileTool = defineTool({
     }
     // split/join 对单处(count===1)与全部替换都正确,且不会把 new_string 里的 $ 当成替换模式。
     const next = raw.split(args.old_string).join(args.new_string);
-    await fs.writeFile(abs, next, "utf8");
+    await atomicWrite(abs, next);
     return `已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处)`;
   },
 });
