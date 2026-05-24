@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Box, Text, Static, useApp, useInput } from "ink";
+import { Box, Text, Static, useApp, useInput, usePaste } from "ink";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
@@ -157,17 +157,15 @@ export function App(deps: AppDeps) {
     }
     if (key.return) { void onSubmit(input); return; }
     if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
-    if (ch && !key.ctrl && !key.meta) {
-      // 有些终端/粘贴会把"文字+回车"作为一个 chunk 送来(ch 内含 \r/\n)→ 取换行前的部分并提交。
-      if (ch.includes("\r") || ch.includes("\n")) {
-        const before = ch.split(/[\r\n]/)[0] ?? "";
-        const full = input + before;
-        setInput("");
-        void onSubmit(full);
-      } else {
-        setInput((s) => s + ch);
-      }
-    }
+    if (ch && !key.ctrl && !key.meta) setInput((s) => s + ch);
+  });
+
+  // 粘贴:bracketed paste 下整段作一个字符串进来(不经 useInput),原样追加进输入框、不自动提交。
+  usePaste((text) => {
+    if (approval) return;
+    if (ask) { setAskInput((s) => s + text); return; }
+    if (busy) return;
+    setInput((s) => s + text);
   });
 
   const elapsed = busy ? ((Date.now() - startedAt) / 1000).toFixed(1) : "0.0";
