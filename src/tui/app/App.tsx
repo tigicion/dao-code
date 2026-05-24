@@ -27,6 +27,15 @@ const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
 // 连续的工具/diff 行紧凑堆叠(去掉行间空隙),压缩并发/连续工具调用的展示。
 const isToolish = (it?: { kind: string }): boolean => !!it && (it.kind === "tool" || it.kind === "diff");
 
+// 工具动作词(toolStart 时参数尚在流式中,只有名字)——用于 live 进度行。
+const VERB: Record<string, string> = {
+  read_file: "读取", list_dir: "列目录", grep_files: "搜索", file_search: "查找",
+  exec_shell: "执行", exec_shell_poll: "查看输出", exec_shell_kill: "结束进程",
+  write_file: "写入", edit_file: "编辑", verify_done: "验收", web_search: "网页搜索",
+  fetch_url: "抓取", memory_write: "记忆", todo_write: "更新清单", ask_user: "提问", agent: "子代理",
+};
+const toolVerb = (name: string): string => VERB[name] ?? name;
+
 // 工具调用的"意图/命令"标签:展示意图而非工具名(read_file → 读取 src/foo.ts)。
 function activityLabel(name: string, argsJson: string): string {
   let a: Record<string, unknown> = {};
@@ -128,7 +137,10 @@ export function App(deps: AppDeps) {
     return {
       reasoning: (chunk) => setLive((l) => (l ? { ...l, reasoning: l.reasoning + chunk } : l)),
       content: (chunk) => setLive((l) => (l ? { ...l, content: l.content + chunk } : l)),
-      toolStart: (call) => setLive((l) => (l ? { ...l, tools: [...l.tools, call.name] } : l)),
+      toolStart: (call) =>
+        setLive((l) =>
+          l ? { ...l, tools: [...l.tools, call.name], toolCount: l.toolCount + 1, lastActivity: toolVerb(call.name) } : l,
+        ),
       toolResult: (call, msg) => {
         const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
         const name = call.function.name;
@@ -153,7 +165,7 @@ export function App(deps: AppDeps) {
         if (typeof msg.content === "string" && msg.content.trim()) {
           pushItem({ id: nextId(), kind: "assistant", text: msg.content });
         }
-        setLive((l) => (l ? { reasoning: "", content: "", tools: l.tools } : l));
+        setLive((l) => (l ? { ...l, reasoning: "", content: "" } : l));
         setStatus(deps.getStatus());
       },
       notice: (text) => {
@@ -188,7 +200,7 @@ export function App(deps: AppDeps) {
     pushItem({ id: nextId(), kind: "user", text });
     setBusy(true);
     setStartedAt(Date.now());
-    setLive({ reasoning: "", content: "", tools: [] });
+    setLive({ reasoning: "", content: "", tools: [], toolCount: 0, lastActivity: "" });
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
@@ -305,16 +317,15 @@ export function App(deps: AppDeps) {
 
       {live && (
         <Box flexDirection="column" marginTop={1}>
-          {live.reasoning ? (
+          {live.reasoning && !live.content ? (
             <Text color={c("dim")}>{spin} 悟… {live.reasoning.split("\n").pop()?.slice(0, 80)}</Text>
           ) : null}
           {live.content ? <Text>{tail(live.content, MAX_LIVE_LINES)}</Text> : null}
-          {live.tools.map((t, i) => (
-            <Text key={i} color={c("jade")}>● {t}</Text>
-          ))}
-          {!live.content && !live.reasoning && live.tools.length === 0 ? (
-            <Text color={c("dim")}>{spin} 思考中… <Text color={c("dim")}>({elapsed}s · Esc 打断)</Text></Text>
-          ) : null}
+          {/* 进度可见性:当前活动 + 已用工具数 + 耗时(始终一行,长任务也看得见在干嘛)。 */}
+          <Text color={c("dim")}>
+            {spin} {live.lastActivity || (live.content ? "生成回答" : "思考中")}…{" "}
+            ({elapsed}s{live.toolCount > 0 ? ` · ${live.toolCount} 次工具` : ""} · Esc 打断)
+          </Text>
         </Box>
       )}
 
