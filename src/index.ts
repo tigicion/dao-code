@@ -24,6 +24,7 @@ import { fetchUrlTool } from "./tools/fetch_url.js";
 import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
+import { memorySearchTool } from "./tools/memory_search.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
 import { createTaskManager } from "./agent/tasks.js";
@@ -179,7 +180,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, verifyDoneTool, agentTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, agentTool,
   ]) {
     registry.register(t);
   }
