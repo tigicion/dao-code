@@ -17,7 +17,7 @@
 | 项目 | 路径 | 对标方向 |
 |---|---|---|
 | **Claude Code** | `/Users/huaruoxu/ClaudeProject/claude-code` | 功能对标 |
-| **DAO CODE** | `/Users/huaruoxu/ClaudeProject/career_plan/code/codeds` | 本项目 |
+| **DAO CODE** | `/Users/huaruoxu/ClaudeProject/ClaudeProject/dao-code` | 本项目 |
 | **CodeWhale** | `/Users/huaruoxu/ClaudeProject/career_plan/code/week3/CodeWhale` | 宪法对标 |
 
 ## 五大特色功能对标总览

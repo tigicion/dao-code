@@ -3,7 +3,7 @@ import path from "node:path";
 
 // 自定义子代理类型:用 markdown(frontmatter + 正文)定义一个专用 agent——
 // 名字/描述/工具白名单/模型 + 专属 system prompt。模型用 agent 工具的 agent_type 指定。
-// 来源:项目 .codeds/agents/*.md 与用户 ~/.codeds/agents/*.md(同名项目覆盖用户)。
+// 来源:项目 .dao/agents/*.md 与用户 ~/.dao/agents/*.md(同名项目覆盖用户)。
 
 export interface AgentDef {
   name: string;

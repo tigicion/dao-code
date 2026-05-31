@@ -9,7 +9,7 @@ import { contentHash } from "../memory/hash.js";
 import { resolveInWorkspace } from "./paths.js";
 
 const memDir = (scope: "project" | "user", ws: string, home?: string) =>
-  path.join(scope === "user" ? home ?? os.homedir() : ws, ".codeds", "memory");
+  path.join(scope === "user" ? home ?? os.homedir() : ws, ".dao", "memory");
 
 function slug(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";

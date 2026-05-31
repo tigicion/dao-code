@@ -21,7 +21,7 @@ printf '%s\n' \
   "再用一句话讲讲什么是递归" \
   "/cost" \
   "/exit" \
-| ( cd "$WS" && DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" CODEDS_AUTO_APPROVE=1 CODEDS_REASONING_EFFORT=low "$TSX" "$REPO/src/index.ts" ) 2>&1 | strip > "$WS/cache.out"
+| ( cd "$WS" && DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" DAO_AUTO_APPROVE=1 DAO_REASONING_EFFORT=low "$TSX" "$REPO/src/index.ts" ) 2>&1 | strip > "$WS/cache.out"
 
 echo "--- /cost 两次输出(冷启动 vs 多轮后)---"
 grep -n "本会话用量\|本会话暂无" "$WS/cache.out" || echo "(没找到 /cost 输出 —— 可能 API 没在流式里回 usage)"

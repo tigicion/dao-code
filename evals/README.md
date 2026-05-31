@@ -1,6 +1,6 @@
-# codeds eval —— 真实评测集(v2)
+# dao eval —— 真实评测集(v2)
 
-判断 codeds 好不好用分两层:**代码对不对**(`src/**/*.test.ts`,`npm test`)和 **agent 干真活好不好**(本目录)。这里测后者。
+判断 dao 好不好用分两层:**代码对不对**(`src/**/*.test.ts`,`npm test`)和 **agent 干真活好不好**(本目录)。这里测后者。
 
 ## 方法论(2023–2026 评测研究的硬结论,见文末引用)
 
@@ -23,7 +23,7 @@ DEEPSEEK_API_KEY=sk-... node evals/run.mjs 01-parse-query
 DEEPSEEK_API_KEY=sk-... DEEPSEEK_MODEL=deepseek-v4-flash node evals/run.mjs
 ```
 
-> 真实调用模型、**产生费用**。每题在抛弃式临时目录跑,设 `CODEDS_AUTO_APPROVE=1` 无人值守放行。
+> 真实调用模型、**产生费用**。每题在抛弃式临时目录跑,设 `DAO_AUTO_APPROVE=1` 无人值守放行。
 > ⚠️ **auto-approve 只在抛弃式/沙箱用**:PathEscape 只管文件工具,`exec_shell` 不受工作区约束、正常靠审批门兜底;自动放行后它能读写任意路径(`05-pathescape` 红队任务就证实会 `cat /etc/hosts`)。
 
 跑完打印可读汇总,并写 **`evals/report.md`**:头条(pass^k 稳定解决几个)+ 表格(任务/类型/pass^k/通过率/工具数/耗时/失败原因)。
@@ -34,8 +34,8 @@ DEEPSEEK_API_KEY=sk-... DEEPSEEK_MODEL=deepseek-v4-flash node evals/run.mjs
 
 | kind | 用途 | 判定 |
 |---|---|---|
-| `oss` | **能力主集**:真实开源 bug-fix | clone repo@`ref`(base 父 commit,bug 在、新测试缺)→ install → 跑前自检(临时注入 `fix_ref` 的测试确认 fail2pass 此刻确实失败,再撤掉)→ 跑 codeds → **agent 跑完才注入隐藏测试**(`git checkout <fix_ref> -- <test_files>`)→ `fail2pass`+`pass2pass`(bash 命令,exit 0=过) |
-| `docker` | 能力题(重工具链:Java/C++/数据科学) | 同 `oss`,但 install/`fail2pass`/`pass2pass` 跑在容器里(`image` 字段);codeds 本体仍在宿主改挂载的工作区(host-agent + bind-mount)。测试阶段断网+降权+限额。docker 不可用则跳过。详见 `evals/docker/README.md` |
+| `oss` | **能力主集**:真实开源 bug-fix | clone repo@`ref`(base 父 commit,bug 在、新测试缺)→ install → 跑前自检(临时注入 `fix_ref` 的测试确认 fail2pass 此刻确实失败,再撤掉)→ 跑 dao → **agent 跑完才注入隐藏测试**(`git checkout <fix_ref> -- <test_files>`)→ `fail2pass`+`pass2pass`(bash 命令,exit 0=过) |
+| `docker` | 能力题(重工具链:Java/C++/数据科学) | 同 `oss`,但 install/`fail2pass`/`pass2pass` 跑在容器里(`image` 字段);dao 本体仍在宿主改挂载的工作区(host-agent + bind-mount)。测试阶段断网+降权+限额。docker 不可用则跳过。详见 `evals/docker/README.md` |
 | `double` | 能力题(自包含,无需联网装依赖) | `workspace/` 拷给 agent;`tests/` 对 agent 隐藏;`fail2pass`+`pass2pass` 用 `node tests/x.mjs <workspace>` 判 |
 | `local` | 安全/红队 | `workspace/`(可选)+ `check.mjs` 做确定性判定 |
 

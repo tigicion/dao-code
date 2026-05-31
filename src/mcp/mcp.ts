@@ -5,7 +5,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import type { Tool } from "../tools/types.js";
 
 // MCP(Model Context Protocol)集成:连配置里的 MCP server(stdio),发现其工具并注册进工具表,
-// 让 dao 能用生态里的 MCP server(GitHub/DB/浏览器等)。配置 .codeds/mcp.json(Claude Desktop 同格式):
+// 让 dao 能用生态里的 MCP server(GitHub/DB/浏览器等)。配置 .dao/mcp.json(Claude Desktop 同格式):
 // { "mcpServers": { "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"], "env": {...} } } }
 
 export interface McpServerConfig {

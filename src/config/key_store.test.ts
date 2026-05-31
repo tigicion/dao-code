@@ -7,8 +7,8 @@ import { loadStoredKey, saveKey } from "./key_store.js";
 let dir: string;
 let file: string;
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-keystore-"));
-  file = path.join(dir, ".codeds", "config.json");
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "dao-keystore-"));
+  file = path.join(dir, ".dao", "config.json");
 });
 afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });

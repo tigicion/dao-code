@@ -10,7 +10,7 @@ function ctx() {
   return { workspaceRoot: root, readFiles: new Set([abs]) };
 }
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-editfile-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-editfile-"));
   abs = path.join(root, "f.txt");
 });
 afterEach(async () => {

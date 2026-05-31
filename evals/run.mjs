@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// codeds eval runner v2
-// 对每个任务,在抛弃式临时工作区里跑 codeds,做"双轨 + 终态"硬判定,多跑几次看 pass^k,
+// dao eval runner v2
+// 对每个任务,在抛弃式临时工作区里跑 dao,做"双轨 + 终态"硬判定,多跑几次看 pass^k,
 // 末尾打印可读汇总并写 evals/report.md。
 //
 // 用法:DEEPSEEK_API_KEY=sk-... node evals/run.mjs [taskId...]
@@ -11,12 +11,12 @@
 //             防作弊)。fail2pass:agent 改完应由失败转通过;pass2pass:既有功能须始终通过。
 //             跑前先验 base 确实让 fail2pass 失败(确认任务有效)。
 //  - "oss":  能力题(真实开源)。clone repo@ref(base 父 commit,bug 在、新测试缺)→ install →
-//             跑前自检(临时注入 fix_ref 的测试确认 fail2pass 此刻确实失败,再撤掉)→ 跑 codeds
+//             跑前自检(临时注入 fix_ref 的测试确认 fail2pass 此刻确实失败,再撤掉)→ 跑 dao
 //             → agent 完事后才注入隐藏测试(fix_ref 的 test_files)→ fail2pass/pass2pass。
 //             测试后注入、对 agent 隐藏 = 防作弊(SWE-bench/Terminal-Bench 范式)。
 //             用近期(模型 cutoff 后)commit 防污染。环境较重,按需启用。
 //  - "docker":同 oss,但 install/fail2pass/pass2pass 跑在容器里(重工具链 Java/C++/数据科学)。
-//             codeds 本体仍在宿主跑、改挂载进容器的工作区文件(host-agent + bind-mount)。
+//             dao 本体仍在宿主跑、改挂载进容器的工作区文件(host-agent + bind-mount)。
 //             测试阶段容器断网 + 降权 + 限额。task.json 多一个 "image" 字段。docker 不可用则跳过。
 //  - "local":安全/红队题。workspace/(可选)+ check.mjs 做确定性判定。
 //
@@ -72,14 +72,14 @@ function exec(cmd, args, { cwd, input, env } = {}) {
   });
 }
 
-// 跑 codeds(prompt → argv 一次性;input → REPL 管道),自动放行审批。
-function runCodeds({ cwd, prompt, input }) {
+// 跑 dao(prompt → argv 一次性;input → REPL 管道),自动放行审批。
+function runDao({ cwd, prompt, input }) {
   const args = [INDEX];
   if (prompt) args.push(prompt);
   return exec(TSX, args, {
     cwd,
     input: input ? input.join("\n") + "\n" : undefined,
-    env: { CODEDS_AUTO_APPROVE: "1" },
+    env: { DAO_AUTO_APPROVE: "1" },
   });
 }
 
@@ -161,7 +161,7 @@ async function loadTasks(filter) {
 
 // 准备 agent 工作区(返回 tmp 目录)
 async function prepareWorkspace(task) {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), `codeds-eval-${task.id}-`));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), `dao-eval-${task.id}-`));
   if (task.kind === "oss" || task.kind === "docker") {
     // a. 健壮 clone base 父 commit(bug 在、新测试缺)
     await cloneAndCheckout(task, tmp);
@@ -178,10 +178,10 @@ async function prepareWorkspace(task) {
   return tmp;
 }
 
-async function judge(task, tmp, codedsOut, exitCode) {
+async function judge(task, tmp, daoOut, exitCode) {
   if (task.kind === "local") {
     const check = await import(pathToFileURL(path.join(task.dir, "check.mjs")).href);
-    const v = await check.default({ workspace: tmp, output: stripAnsi(codedsOut), exitCode });
+    const v = await check.default({ workspace: tmp, output: stripAnsi(daoOut), exitCode });
     return { pass: !!v.pass, note: v.note || "" };
   }
   // double / oss / docker:双轨。缺验证器直接判失败(防"空双轨默默判过"的假阳性)。
@@ -262,8 +262,8 @@ async function runOnce(task, i = 0) {
       }
       if (base.code === 0) return { pass: false, note: "⚠️任务无效:base 未改时 fail2pass 就已通过", tools: 0, ms: 0 };
     }
-    // d. 在 base 工作区(bug 在、测试缺)跑 codeds
-    const r = await runCodeds({ cwd: tmp, prompt: task.prompt, input: task.input });
+    // d. 在 base 工作区(bug 在、测试缺)跑 dao
+    const r = await runDao({ cwd: tmp, prompt: task.prompt, input: task.input });
     // d'. 注入测试前先抓 agent 的改动(此刻 diff 只含 agent 改的源码,不含隐藏测试)
     const diff = await captureDiff(task, tmp);
     // e. agent 完事后才注入真测试(已无法看到)
@@ -271,7 +271,7 @@ async function runOnce(task, i = 0) {
     const v = await judge(task, tmp, r.out, r.code);
     const tools = countTools(r.out);
     await persistRun(task, i, { agentOut: r.out, diff, v, tools, ms: r.ms ?? 0 });
-    return { pass: v.pass, note: v.note, tools, ms: r.ms ?? 0, codedsMs: r.ms };
+    return { pass: v.pass, note: v.note, tools, ms: r.ms ?? 0, daoMs: r.ms };
   } catch (e) {
     return { pass: false, note: `runner error: ${e.message}`, tools: 0, ms: 0 };
   } finally {
@@ -286,7 +286,7 @@ async function main() {
   const tasks = await loadTasks(filter);
   if (!tasks.length) { console.error("没有任务。"); process.exit(1); }
 
-  console.log(`codeds eval —— ${tasks.length} 题 × ${RUNS} 次  (模型 ${MODEL})\n`);
+  console.log(`dao eval —— ${tasks.length} 题 × ${RUNS} 次  (模型 ${MODEL})\n`);
   const rows = [];
   for (const task of tasks) {
     process.stdout.write(`▶ ${task.id}  `);
@@ -313,7 +313,7 @@ async function main() {
   const headline = `稳定解决(pass^${RUNS}):${stableK}/${rows.length}    至少解决一次:${everSolved}/${rows.length}`;
 
   const md = [
-    `# codeds eval 报告`,
+    `# dao eval 报告`,
     ``,
     `- 模型:\`${MODEL}\`    每题跑:${RUNS} 次`,
     `- **${headline}**`,

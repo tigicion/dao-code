@@ -17,8 +17,8 @@ export const memorySearchTool = defineTool({
     limit: z.number().int().min(1).max(20).optional().describe("返回条数,默认 8"),
   }),
   handler: async (args, ctx) => {
-    const projectDir = path.join(ctx.workspaceRoot, ".codeds", "memory");
-    const userDir = path.join(ctx.homeDir ?? os.homedir(), ".codeds", "memory");
+    const projectDir = path.join(ctx.workspaceRoot, ".dao", "memory");
+    const userDir = path.join(ctx.homeDir ?? os.homedir(), ".dao", "memory");
     const mems = await loadAllMemories(projectDir, userDir);
     if (mems.length === 0) return "(暂无记忆)";
     const scored = mems
