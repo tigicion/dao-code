@@ -1,4 +1,5 @@
 import { Session } from "../session/session.js";
+import type { ChatMessage } from "../client/types.js";
 import type { Mode } from "../tools/tools_for_mode.js";
 import type { ToolContext } from "../tools/types.js";
 import type { ToolRegistry } from "../tools/registry.js";
@@ -19,6 +20,7 @@ export interface SubagentDeps {
   write: (s: string) => void;
   runTurn: (deps: TurnDeps) => Promise<void>;
   signal?: AbortSignal; // 父代理 abort 时一并停子代理
+  writeTranscript?: (messages: ChatMessage[]) => void; // 子代理转录落盘(sidechain 观测/可恢复)
 }
 
 // 一次性派发:全新隔离会话(系统 prompt + task)跑到底,返回最终 assistant 文本。
@@ -40,6 +42,7 @@ export async function runSubagent(deps: SubagentDeps): Promise<string> {
     signal: deps.signal,
   });
   deps.write("\n[子代理完成]\n");
+  try { deps.writeTranscript?.(sub.messages); } catch { /* 落盘失败不影响结果 */ }
   const last = sub.messages[sub.messages.length - 1];
   return last && last.role === "assistant" && typeof last.content === "string" && last.content
     ? last.content

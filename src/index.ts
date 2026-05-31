@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createInterface, type Interface } from "node:readline/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { readConfig } from "./config/config.js";
@@ -334,6 +334,14 @@ async function main() {
       write: subagentWrite,
       runTurn,
       signal,
+      writeTranscript: (messages) => {
+        try {
+          const dir = path.join((wsRoot ?? workspaceRoot), ".codeds", "subagents");
+          mkdirSync(dir, { recursive: true });
+          const name = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
+          writeFileSync(path.join(dir, name), messages.map((m) => JSON.stringify(m)).join("\n"));
+        } catch { /* 观测落盘失败不影响 */ }
+      },
     });
   };
 
