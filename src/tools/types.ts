@@ -19,6 +19,8 @@ export interface ToolContext {
   runBackgroundAgent?: (task: string, agentType?: string) => string;
   // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。
   agentTypes?: { name: string; description: string }[];
+  // 可用 skill(名字+描述+正文+目录),供 skill 工具按需加载正文。
+  skills?: { name: string; description: string; body: string; dir: string }[];
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
