@@ -33,6 +33,8 @@ export interface TurnDeps {
   maxTurns?: number;
   // 中途取消信号(ESC/超时):透传给 streamChat 与工具 ctx;abort 后本回合优雅停止。
   signal?: AbortSignal;
+  // 回合边界消费的追加消息(SendMessage 给运行中子代理用):每个工具回合前注入为 user 消息。
+  drainPending?: () => string[];
 }
 
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
@@ -67,6 +69,10 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   };
   for (let t = 0; t < maxTurns; t++) {
     if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
+    // SendMessage:回合边界消费父代理追加的指令(注入为 user 消息)。
+    if (deps.drainPending) {
+      for (const m of deps.drainPending()) session.messages.push({ role: "user", content: `[追加指令] ${m}` });
+    }
     const tools = apiToolsForMode(deps.registry, session.mode);
     const gen = deps.streamChat({
       baseUrl: deps.config.baseUrl,

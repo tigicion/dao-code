@@ -12,10 +12,14 @@ export interface BgTask {
 }
 
 export interface TaskManager {
-  // 后台启动一个任务(run 收到 signal 用于取消),立即返回 task id。
-  launch(description: string, run: (signal: AbortSignal) => Promise<string>): string;
+  // 后台启动一个任务(run 收到 signal 与自身 id),立即返回 task id。
+  launch(description: string, run: (signal: AbortSignal, id: string) => Promise<string>): string;
   // 接管一个已在运行的 promise(前台超时自动转后台用):完成/失败时入队通知。不可取消。
   adopt(description: string, promise: Promise<string>): string;
+  // 给运行中的任务追加一条消息(SendMessage),由其在下一个工具回合边界消费。
+  send(id: string, message: string): boolean;
+  // 取出并清空某任务的待消费消息(子代理 runTurn 在回合边界调用)。
+  drainPending(id: string): string[];
   drainNotifications(): string[]; // 取出并清空待通知(已完成/失败任务的 XML 通知)
   hasPending(): boolean;
   running(): BgTask[];
@@ -42,6 +46,7 @@ function notificationXml(t: BgTask): string {
 export function createTaskManager(): TaskManager {
   const tasks = new Map<string, BgTask>();
   const controllers = new Map<string, AbortController>();
+  const pending = new Map<string, string[]>(); // 各任务待消费消息(SendMessage)
   const notifications: string[] = [];
   let counter = 0;
   let onChangeCb: (() => void) | undefined;
@@ -66,7 +71,7 @@ export function createTaskManager(): TaskManager {
       tasks.set(id, t);
       controllers.set(id, ac);
       notify();
-      run(ac.signal).then(
+      run(ac.signal, id).then(
         (result) => {
           if (t.status !== "running") return; // 已被取消
           t.status = "completed";
@@ -108,6 +113,18 @@ export function createTaskManager(): TaskManager {
         },
       );
       return id;
+    },
+    send(id, message) {
+      const t = tasks.get(id);
+      if (!t || t.status !== "running") return false;
+      (pending.get(id) ?? pending.set(id, []).get(id)!).push(message);
+      return true;
+    },
+    drainPending(id) {
+      const q = pending.get(id);
+      if (!q || q.length === 0) return [];
+      pending.set(id, []);
+      return q;
     },
     drainNotifications() {
       return notifications.splice(0);

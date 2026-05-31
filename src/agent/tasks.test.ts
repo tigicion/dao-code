@@ -51,6 +51,21 @@ describe("TaskManager", () => {
     expect(notes[0]).toContain("后台结果X");
   });
 
+  it("send/drainPending:给运行中任务追加消息,任务在回合边界消费", async () => {
+    const tm = createTaskManager();
+    let drained: string[] = [];
+    const id = tm.launch("t", async (_signal, taskId) => {
+      await tick();
+      drained = tm.drainPending(taskId);
+      return "done";
+    });
+    expect(tm.send(id, "追加指令A")).toBe(true);
+    await tick();
+    await tick();
+    expect(drained).toContain("追加指令A");
+    expect(tm.send("task-不存在", "x")).toBe(false);
+  });
+
   it("onChange 在启动与完成时触发", async () => {
     const tm = createTaskManager();
     let changes = 0;
