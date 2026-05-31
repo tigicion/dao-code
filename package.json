@@ -50,6 +50,7 @@
   "homepage": "https://github.com/tigicion/dao-code#readme",
   "bugs": "https://github.com/tigicion/dao-code/issues",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "cli-highlight": "^2.1.11",
     "ink": "^7.0.5",
     "react": "^19.2.7",

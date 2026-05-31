@@ -45,6 +45,8 @@ export interface Tool {
   capability: Capability;
   approval: Approval;
   handler: (args: any, ctx: ToolContext) => Promise<string>;
+  // 直接给 API 的参数 JSON Schema(MCP 工具用其原始 inputSchema);省略则由 schema(zod)转换。
+  apiParameters?: object;
 }
 
 // 定义单个工具时用,保留 handler 参数的精确类型(z.infer<S>)。
