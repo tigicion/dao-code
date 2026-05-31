@@ -8,8 +8,8 @@ import { newMemory } from "../memory/types.js";
 import { contentHash } from "../memory/hash.js";
 import { resolveInWorkspace } from "./paths.js";
 
-const memDir = (scope: "project" | "user", ws: string) =>
-  path.join(scope === "user" ? os.homedir() : ws, ".codeds", "memory");
+const memDir = (scope: "project" | "user", ws: string, home?: string) =>
+  path.join(scope === "user" ? home ?? os.homedir() : ws, ".codeds", "memory");
 
 function slug(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";
@@ -39,7 +39,7 @@ export const memoryWriteTool = defineTool({
   }),
   handler: async (args, ctx) => {
     const scope = args.scope ?? (args.type === "user" || args.type === "feedback" ? "user" : "project");
-    const dir = memDir(scope, ctx.workspaceRoot);
+    const dir = memDir(scope, ctx.workspaceRoot, ctx.homeDir);
     const today = ctx.today ?? new Date().toISOString().slice(0, 10);
     let sourceHash: string | undefined;
     if (args.source) {
@@ -54,7 +54,7 @@ export const memoryWriteTool = defineTool({
       importance: args.importance, confidence: args.confidence, source: args.source, sourceHash,
     });
     const r = await withMemLock(async () => {
-      const existing = await loadAllMemories(dir, memDir("user", ctx.workspaceRoot));
+      const existing = await loadAllMemories(dir, memDir("user", ctx.workspaceRoot, ctx.homeDir));
       return upsertMemory(dir, cand, existing);
     });
     const label = scope === "user" ? "用户级" : "项目级";

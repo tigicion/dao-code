@@ -39,6 +39,8 @@ export interface ToolContext {
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
   today?: string;
+  // 用户主目录(用户级记忆 ~/.codeds 的根);默认 os.homedir()。注入便于测试隔离真实主目录。
+  homeDir?: string;
   // 中途取消信号(ESC/超时):工具据此提前终止(如 exec_shell 给子进程发 SIGTERM)。
   signal?: AbortSignal;
   // 可执行验收命令(DoD):设了则 verify_done 跑它判完成;未设则模型据证据自判。运行时可改。

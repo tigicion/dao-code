@@ -18,7 +18,7 @@ export const memorySearchTool = defineTool({
   }),
   handler: async (args, ctx) => {
     const projectDir = path.join(ctx.workspaceRoot, ".codeds", "memory");
-    const userDir = path.join(os.homedir(), ".codeds", "memory");
+    const userDir = path.join(ctx.homeDir ?? os.homedir(), ".codeds", "memory");
     const mems = await loadAllMemories(projectDir, userDir);
     if (mems.length === 0) return "(暂无记忆)";
     const scored = mems

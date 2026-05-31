@@ -7,7 +7,7 @@ import type { ToolContext } from "./types.js";
 
 let root: string;
 function ctx(): ToolContext {
-  return { workspaceRoot: root, today: "2026-06-07" };
+  return { workspaceRoot: root, today: "2026-06-07", homeDir: root };
 }
 function memDir() {
   return path.join(root, ".codeds", "memory");
