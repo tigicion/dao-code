@@ -28,7 +28,7 @@
 
 ### 1.3 🔥 借鉴 CC 的点
 
-#### A. 引入 feedback 记忆类型
+#### A. 引入 feedback 记忆类型 ✅(2026-06-10 已落地)
 
 **CC 实现**（`src/memdir/memoryTypes.ts` L57-72）：
 
@@ -45,7 +45,7 @@
 
 **迁移方案**：在 DAO 的 `memory/types.ts` 加 `"feedback"` 类型，distill prompt 中增加对应的 when_to_save 指令。
 
-#### B. 引入"为什么 + 怎么用"记忆体结构
+#### B. 引入"为什么 + 怎么用"记忆体结构 ✅(2026-06-10 已落地,并入 feedback 的 text 结构)
 
 **CC 实现**（`memoryTypes.ts` 中的 `body_structure` 指令）：
 
@@ -56,7 +56,7 @@ Knowing *why* lets you judge edge cases instead of blindly following the rule.</
 
 **CC 的设计理由**：纯规则在边界情况会失效；知道"为什么有这个规则"(如"上次 mock 的测试通过了但 migration 失败了")才能判断当前边界是否适用。
 
-#### C. 记忆漂移警告机制
+#### C. 记忆漂移警告机制 ✅(2026-06-10 已落地,system prompt 记忆段加行为指令)
 
 **CC 实现**（`memoryTypes.ts` L201-202）：
 
@@ -68,7 +68,7 @@ export const MEMORY_DRIFT_CAVEAT =
 
 **DAO 当前的优点**：DAO 已通过 `validate.ts` 做确定性验证（sourceHash），这个比 CC 更强。但 DAO 缺少 CC 的 **行为指令**——模型不仅要知道"记忆可能过期"，还要知道"该怎么做"。
 
-#### D. 团队记忆的 scope 标签
+#### D. 团队记忆的 scope 标签 ❌(暂不做:个人工具,无团队场景)
 
 **CC 实现**（`memoryTypes.ts`）：
 
