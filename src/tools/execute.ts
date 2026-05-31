@@ -8,8 +8,16 @@ async function dispatchOne(
   registry: ToolRegistry,
   ctx: ToolContext,
 ): Promise<ToolMessage> {
+  const name = tc.function.name;
+  const argsJson = tc.function.arguments;
   try {
-    const content = await registry.dispatch(tc.function.name, tc.function.arguments, ctx);
+    // PreToolUse 钩子:命令阻断则不执行该工具,把原因作为结果回灌。
+    if (ctx.preToolHook) {
+      const h = await ctx.preToolHook(name, argsJson);
+      if (h.block) return { role: "tool", tool_call_id: tc.id, content: `[被 hook 阻止] ${h.reason || "(无原因)"}` };
+    }
+    const content = await registry.dispatch(name, argsJson, ctx);
+    if (ctx.postToolHook) await ctx.postToolHook(name, argsJson, content); // PostToolUse(副作用,如自动格式化)
     return { role: "tool", tool_call_id: tc.id, content };
   } catch (err) {
     return { role: "tool", tool_call_id: tc.id, content: `Error: ${(err as Error).message}` };
