@@ -39,8 +39,8 @@ export interface AppDeps {
   welcome: { info: WelcomeInfo; caps: Capabilities; bg: Background; maxim: Maxim };
   // 跑一个用户回合:由 index 绑定真实 session/registry/gate;App 提供 events(喂 state)与 signal(ESC 取消)。
   submit: (text: string, hooks: { events: TurnEvents; signal: AbortSignal }) => Promise<void>;
-  // 斜杠命令(/model /plan /clear /compact /help /exit)。
-  runCommand: (line: string) => { handled: boolean; output?: string; exit?: boolean; compact?: boolean };
+  // 斜杠命令(/model /plan /clear /compact /help /exit;以及自定义命令展开成 prompt)。
+  runCommand: (line: string) => { handled: boolean; output?: string; exit?: boolean; compact?: boolean; prompt?: string };
   compact: () => Promise<void>;
   getStatus: () => StatusInfo;
   // App 挂载后注册自己的审批/提问模态,供 index 的 gate 与 ctx.ask 委派。
