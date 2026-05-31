@@ -40,6 +40,17 @@ describe("TaskManager", () => {
     expect(tm.hasPending()).toBe(false); // 取消的不入完成/失败通知
   });
 
+  it("adopt 接管已运行 promise → 完成入队通知", async () => {
+    const tm = createTaskManager();
+    let resolve!: (s: string) => void;
+    tm.adopt("接管的任务", new Promise<string>((r) => { resolve = r; }));
+    expect(tm.running()).toHaveLength(1);
+    resolve("后台结果X");
+    await tick();
+    const notes = tm.drainNotifications();
+    expect(notes[0]).toContain("后台结果X");
+  });
+
   it("onChange 在启动与完成时触发", async () => {
     const tm = createTaskManager();
     let changes = 0;

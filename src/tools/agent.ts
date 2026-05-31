@@ -65,6 +65,18 @@ export const agentTool = defineTool({
     };
     const tasks = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
     if (tasks.length === 0) return "请提供 task 或 tasks。";
+    // 单个前台子代理:跑超过阈值(默认 60s)自动转后台,主循环不被长子任务一直阻塞。
+    if (tasks.length === 1 && !isolate && ctx.adoptBackground) {
+      const p = run(tasks[0]!, ctx.signal, type);
+      const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<{ bg: true }>((res) => { timer = setTimeout(() => res({ bg: true }), ms); });
+      const raced = await Promise.race([p.then((r) => ({ bg: false as const, r })), timeout]);
+      if (timer) clearTimeout(timer);
+      if (!raced.bg) return raced.r;
+      const id = ctx.adoptBackground(`(自动转后台) ${tasks[0]!.slice(0, 50)}`, p);
+      return `子代理运行超过 ${Math.round(ms / 1000)}s,已自动转入后台(${id});完成后会通知你。你可以先继续别的或结束本轮。`;
+    }
     if (tasks.length === 1) return runOne(tasks[0]!);
 
     // 并行 scatter-gather:各子代理独立会话并发跑,单个失败不影响其余,最后汇总。

@@ -67,6 +67,24 @@ describe("agent tool", () => {
     expect(out).toBe("审查结果");
   });
 
+  it("单前台子代理超时 → 自动转后台", async () => {
+    const prev = process.env.DAO_AUTO_BACKGROUND_MS;
+    process.env.DAO_AUTO_BACKGROUND_MS = "10";
+    let adopted = false;
+    const out = await agentTool.handler(
+      { task: "慢任务" },
+      {
+        workspaceRoot: "/tmp",
+        runSubagent: () => new Promise<string>(() => {}), // 永不完成
+        adoptBackground: () => { adopted = true; return "task-9"; },
+      },
+    );
+    process.env.DAO_AUTO_BACKGROUND_MS = prev;
+    expect(adopted).toBe(true);
+    expect(out).toContain("自动转入后台");
+    expect(out).toContain("task-9");
+  });
+
   it("background → 后台启动返回 id,不阻塞", async () => {
     const launched: string[] = [];
     const out = await agentTool.handler(
