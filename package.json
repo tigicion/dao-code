@@ -19,6 +19,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "bundle": "node scripts/sync-version.mjs && bun build ./src/index.ts --compile --outfile dao",
+    "bundle:install": "npm run bundle && cp dao \"$HOME/.local/bin/dao\" && echo \"已安装 → $HOME/.local/bin/dao\"",
     "start": "node dist/index.js",
     "preview:welcome": "tsx scripts/preview-welcome.ts",
     "preview:ink": "tsx scripts/welcome-ink.tsx",
