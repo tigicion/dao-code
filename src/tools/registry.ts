@@ -14,6 +14,13 @@ export class ToolRegistry implements ToolDispatcher {
     return this.tools.get(name);
   }
 
+  // 按工具名白名单建子集(自定义 agent 类型的 tools 限制用);保持插入顺序。
+  subset(names: Set<string>): ToolRegistry {
+    const r = new ToolRegistry();
+    for (const [n, t] of this.tools) if (names.has(n)) r.register(t);
+    return r;
+  }
+
   toApiTools(predicate?: (tool: Tool) => boolean): ApiTool[] {
     return [...this.tools.values()]
       .filter((t) => (predicate ? predicate(t) : true))

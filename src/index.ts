@@ -28,6 +28,7 @@ import { memorySearchTool } from "./tools/memory_search.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
 import { createTaskManager } from "./agent/tasks.js";
+import { loadAgentDefs } from "./agent/agent_defs.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
@@ -212,13 +213,25 @@ async function main() {
   // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
   const memoryText = buildMemorySection(selectForInjection(validated, today));
 
-  const systemPrompt = buildSystemPrompt({
-    modelId: cfg.model,
-    toolSummaries,
-    memories: memoryText,
-    cwd: workspaceRoot,
-    platform: process.platform,
-  });
+  // 自定义子代理类型(.codeds/agents/*.md):专属 prompt/工具白名单/模型。
+  const agentDefs = await loadAgentDefs(
+    path.join(workspaceRoot, ".codeds", "agents"),
+    path.join(os.homedir(), ".codeds", "agents"),
+  );
+  const agentTypesSection =
+    agentDefs.length > 0
+      ? `\n\n# 可用子代理类型(派 agent 时用 agent_type 指定,各有专属角色与工具)\n` +
+        agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
+      : "";
+
+  const systemPrompt =
+    buildSystemPrompt({
+      modelId: cfg.model,
+      toolSummaries,
+      memories: memoryText,
+      cwd: workspaceRoot,
+      platform: process.platform,
+    }) + agentTypesSection;
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
   let inkApprovalPrompt: ApprovalPrompt | null = null;
@@ -256,14 +269,18 @@ async function main() {
 
   // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
   let subagentWrite: (s: string) => void = write;
-  ctx.runSubagent = (task: string, signal?: AbortSignal) =>
-    runSubagent({
+  ctx.agentTypes = agentDefs.map((d) => ({ name: d.name, description: d.description }));
+  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string) => {
+    const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
+    const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
+    const reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
+    return runSubagent({
       task,
-      systemPrompt,
-      model: session.model,
+      systemPrompt: sp,
+      model: def?.model ?? session.model,
       mode: session.mode,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
-      registry,
+      registry: reg,
       ctx,
       gate,
       streamChat,
@@ -272,11 +289,14 @@ async function main() {
       runTurn,
       signal,
     });
+  };
 
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
-  ctx.runBackgroundAgent = (task: string) =>
-    taskManager.launch(task.slice(0, 60), (signal) => ctx.runSubagent!(task, signal));
+  ctx.runBackgroundAgent = (task: string, agentType?: string) =>
+    taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal) =>
+      ctx.runSubagent!(task, signal, agentType),
+    );
 
   // 申请访问工作区外路径(读类工具):一次授权后本会话不再追问;选"本仓库后续都用"则持久化。
   let externalReadGranted = alwaysApproved.has("external-read");

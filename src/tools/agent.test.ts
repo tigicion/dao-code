@@ -44,6 +44,29 @@ describe("agent tool", () => {
     expect(out).toContain("R:C");
   });
 
+  it("agent_type 未知 → 提示可用类型", async () => {
+    const out = await agentTool.handler(
+      { task: "x", agent_type: "nope" },
+      { workspaceRoot: "/tmp", runSubagent: async () => "r", agentTypes: [{ name: "reviewer", description: "审查" }] },
+    );
+    expect(out).toContain("未知子代理类型");
+    expect(out).toContain("reviewer");
+  });
+
+  it("agent_type 有效 → 透传给 runSubagent", async () => {
+    let passed: string | undefined;
+    const out = await agentTool.handler(
+      { task: "x", agent_type: "reviewer" },
+      {
+        workspaceRoot: "/tmp",
+        runSubagent: async (_t, _s, type) => { passed = type; return "审查结果"; },
+        agentTypes: [{ name: "reviewer", description: "审查" }],
+      },
+    );
+    expect(passed).toBe("reviewer");
+    expect(out).toBe("审查结果");
+  });
+
   it("background → 后台启动返回 id,不阻塞", async () => {
     const launched: string[] = [];
     const out = await agentTool.handler(
