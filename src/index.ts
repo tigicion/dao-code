@@ -29,6 +29,7 @@ import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
 import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
+import { createWorktree } from "./agent/worktree.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { skillTool } from "./tools/skill.js";
@@ -313,10 +314,12 @@ async function main() {
     await runHooks(hooks, "PostToolUse", { cwd: workspaceRoot, toolName, payload: { tool: toolName, args: argsJson, result } });
   };
   await runHooks(hooks, "SessionStart", { cwd: workspaceRoot }); // 会话开始钩子
-  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string) => {
+  ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
+  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string) => {
     const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
     const reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
+    const subCtx = wsRoot ? { ...ctx, workspaceRoot: wsRoot } : ctx; // worktree 隔离:覆盖工作区根
     return runSubagent({
       task,
       systemPrompt: sp,
@@ -324,7 +327,7 @@ async function main() {
       mode: session.mode,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
       registry: reg,
-      ctx,
+      ctx: subCtx,
       gate,
       streamChat,
       executeToolCalls,
