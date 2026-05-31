@@ -30,6 +30,7 @@ export interface StatusInfo {
   cacheHitRatio: number;
   yolo: boolean;
   longTask?: boolean; // 长任务自主模式
+  coordinator?: boolean; // Coordinator 编排模式
   branch?: string;
   contextPct: number; // 当前上下文占 1M 窗口的百分比
 }

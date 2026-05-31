@@ -487,6 +487,7 @@ function StatusBar({
     <Box marginTop={1}>
       <Text color={c("dim")}>
         {busy ? `${spin} ${elapsed}s · ` : ""}
+        {status.coordinator ? <Text color={c("gold")}>🧭Coordinator · </Text> : ""}
         {status.longTask ? <Text color={c("gold")}>🪢长任务 · </Text> : ""}
         {status.yolo ? <Text color={c("vermilion")}>⚡YOLO · </Text> : ""}
         {status.mode} · {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}% · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
