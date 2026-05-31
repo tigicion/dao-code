@@ -90,10 +90,12 @@ export function App(deps: AppDeps) {
   const initial = deps.initialItems ?? [];
   const idRef = useRef(initial.reduce((m, it) => Math.max(m, it.id), 0) + 1);
   const nextId = () => idRef.current++;
-  const [items, setItems] = useState<({ id: number; kind: "welcome" } | TranscriptItem)[]>([
-    { id: 0, kind: "welcome" },
-    ...initial,
-  ]);
+  // 欢迎屏延迟固化:会话开始前留在动态区(随终端 resize 重排),
+  // 首个 transcript 项产生时才作为 items[0] 进 <Static>(恢复会话则直接固化)。
+  const [items, setItems] = useState<({ id: number; kind: "welcome" } | TranscriptItem)[]>(
+    initial.length ? [{ id: 0, kind: "welcome" }, ...initial] : [],
+  );
+  const welcomeCommitted = useRef(initial.length > 0);
   const [live, setLive] = useState<LiveState | null>(null);
   // 输入框:text + 光标位置合成一个 state,用函数式更新(避免同步连打/批处理下读到旧闭包值而丢字符)。
   const [field, setField] = useState<{ text: string; cursor: number }>({ text: "", cursor: 0 });
@@ -117,7 +119,12 @@ export function App(deps: AppDeps) {
   const history = useRef<string[]>([]);
   const histIdx = useRef<number>(-1); // -1 = 不在历史浏览中
 
-  const pushItem = (it: TranscriptItem) => setItems((p) => [...p, it]);
+  const pushItem = (it: TranscriptItem) =>
+    setItems((p) => {
+      if (welcomeCommitted.current) return [...p, it];
+      welcomeCommitted.current = true;
+      return [{ id: 0, kind: "welcome" } as const, ...p, it];
+    });
 
   // spinner / elapsed 计时(仅 busy 时)。
   useEffect(() => {
@@ -197,7 +204,7 @@ export function App(deps: AppDeps) {
       const res = deps.runCommand(text);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
-      if (name === "clear") setItems([{ id: 0, kind: "welcome" }]);
+      if (name === "clear") setItems(welcomeCommitted.current ? [{ id: 0, kind: "welcome" }] : []);
       if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
       // 自定义命令:展开成 prompt → 当作一个回合跑。
       if (res.prompt) {
@@ -376,6 +383,10 @@ export function App(deps: AppDeps) {
 
   return (
     <Box flexDirection="column">
+      {/* 会话开始前:欢迎屏在动态区,随终端 resize 实时重排(useTermWidth 订阅)。 */}
+      {items.length === 0 ? (
+        <Welcome info={deps.welcome.info} caps={deps.welcome.caps} bg={bg} maxim={deps.welcome.maxim} />
+      ) : null}
       <Static items={items}>
         {(item, index) =>
           item.kind === "welcome" ? (
@@ -429,7 +440,7 @@ export function App(deps: AppDeps) {
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
-              {["model", "plan", "theme", "yolo", "clear", "compact", "cost", "help", "exit"]
+              {["model", "plan", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
                 .filter((cmd) => ("/" + cmd).startsWith(input))
                 .map((cmd) => "/" + cmd)
                 .join("  ") || "(无匹配命令)"}
@@ -527,7 +538,9 @@ function StatusBar({
         {status.coordinator ? <Text color={c("gold")}>🧭Coordinator · </Text> : ""}
         {status.longTask ? <Text color={c("gold")}>🪢长任务 · </Text> : ""}
         {status.yolo ? <Text color={c("vermilion")}>⚡YOLO · </Text> : ""}
-        {status.mode} · {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}% · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
+        {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}
+        {status.mode === "plan" ? <Text color={c("gold")}>📋 plan(只读规划) · </Text> : ""}
+        {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}% · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
         {status.branch ? ` · ⎇ ${status.branch}` : ""}
       </Text>
     </Box>
