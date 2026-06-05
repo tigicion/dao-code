@@ -100,4 +100,22 @@ describe("runAgent", () => {
     expect(messages).toHaveLength(7);
     expect(written.join("")).toContain("最大轮数");
   });
+
+  it("omits tools and parallel_tool_calls when the registry is empty", async () => {
+    let sentOpts: any;
+    await runAgent({
+      prompt: "hi",
+      config,
+      registry: new ToolRegistry(), // empty
+      ctx,
+      streamChat: (opts) => {
+        sentOpts = opts;
+        return turn([{ kind: "content", text: "ok" }], { role: "assistant", content: "ok" })();
+      },
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(sentOpts.tools).toBeUndefined();
+    expect(sentOpts.parallelToolCalls).toBeUndefined();
+  });
 });
