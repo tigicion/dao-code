@@ -204,6 +204,8 @@
 **记忆(approval: Auto)**
 - `memory_write` —— 记录跨 session 的事实(用户手动 + 模型主动)。写入时**代码层自动去重/合并**,不单设 `memory_read`。
 
+> **M4 已落地并实测(2026-06-05)**:`grep_files`/`file_search`(纯 Node,经 walk+glob 原语+PathEscape)、`ask_user`(经注入 `ctx.ask`)、`fetch_url`(去标签纯文本+截断)、`web_search`(DuckDuckGo HTML 抓取)、`todo_write`(单层清单,单 in_progress)。真网络验:模型并行调用 todo_write+grep_files 定位符号;fetch_url/web_search(approval=suggest)经审批 `y` 后抓取/搜索成功(DDG 返回真实结果)。现共 13 个工具。**延后**:approval 三档细分(suggest 现等同 required)、web_search 健壮性(可切 Tavily/Brave)、ripgrep 加速。子代理 `agent` 与 `memory_write` 见后续里程碑。
+
 ## 5. 权限 / 审批设计
 
 - **框架**:capability(只读/写/执行/网络)→ approval(Auto / Suggest / Required)。
