@@ -73,8 +73,7 @@ export async function runAgent(deps: AgentDeps): Promise<ChatMessage[]> {
     const gen = deps.streamChat({
       ...deps.config,
       messages,
-      tools,
-      parallelToolCalls: true,
+      ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
     });
     const assistant = await renderTurn(gen, deps.write);
     messages.push(assistant);
