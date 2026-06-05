@@ -26,9 +26,8 @@ export const editFileTool = defineTool({
     if (count > 1 && !args.replace_all) {
       throw new Error(`old_string 在 ${args.path} 出现 ${count} 次,不唯一;用 replace_all 或扩大上下文`);
     }
-    const next = args.replace_all
-      ? raw.split(args.old_string).join(args.new_string)
-      : raw.replace(args.old_string, args.new_string);
+    // split/join 对单处(count===1)与全部替换都正确,且不会把 new_string 里的 $ 当成替换模式。
+    const next = raw.split(args.old_string).join(args.new_string);
     await fs.writeFile(abs, next, "utf8");
     return `已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处)`;
   },
