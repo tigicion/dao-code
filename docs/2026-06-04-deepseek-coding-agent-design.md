@@ -213,6 +213,8 @@
 - **细粒度引擎**:shell 命令级 allowlist/denylist 用 exec-policy;网络域名用 network-policy;沙箱用 sandbox-policy(参考已有移植思路,重写)。
 - **审批期间并发**:Auto 工具立刻并发执行,需审批的工具挂起等用户;互不依赖的 Auto 工具不被阻塞。被拒工具向模型返回"用户拒绝"。一轮在所有工具 resolve 后结束。
 
+> **M3 已落地并实测(2026-06-05)**:审批门(once/session/always,always 落盘 `.codeds/approvals.json`)+ PathEscape + write_file/edit_file/exec_shell(前台+后台)/exec_shell_poll/exec_shell_kill。真网络验证:write_file/exec_shell 经审批 `y` 执行;`rm` 喂 `n` 拒绝则文件存活、模型收到"用户拒绝"并据此回应;read_file 等 auto 工具不提示。**延后**:细粒度 exec/network/sandbox policy、plan 模式禁写执行(M5)、审批摘要美化(现为原始 JSON 参数)。
+
 ## 6. 子代理
 
 - 范式:**一次性派发**(Claude Code Task 式)。主 agent 看不到子过程,只拿最终结果。
