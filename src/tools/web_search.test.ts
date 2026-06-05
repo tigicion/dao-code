@@ -55,6 +55,24 @@ describe("web_search tool", () => {
     ).rejects.toThrow(/503/);
   });
 
+  it("does not misattribute snippets when a result has none", async () => {
+    const html = `
+<a class="result__a" href="https://x.com/1">First</a>
+<a class="result__a" href="https://x.com/2">Second</a>
+<a class="result__snippet">Snippet for second</a>
+`;
+    const out = await webSearchTool.handler(
+      { query: "x" },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning(html) },
+    );
+    // First has no snippet; "Snippet for second" must belong to Second, not First.
+    const blocks = out.split("\n\n");
+    expect(blocks[0]).toContain("First");
+    expect(blocks[0]).not.toContain("Snippet for second");
+    expect(blocks[1]).toContain("Second");
+    expect(blocks[1]).toContain("Snippet for second");
+  });
+
   it("declares network capability and suggest approval", () => {
     expect(webSearchTool.capability).toBe("network");
     expect(webSearchTool.approval).toBe("suggest");
