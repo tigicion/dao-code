@@ -35,4 +35,8 @@ describe("list_dir tool", () => {
     expect(listDirTool.approval).toBe("auto");
     expect(listDirTool.name).toBe("list_dir");
   });
+
+  it("rejects paths escaping the workspace", async () => {
+    await expect(listDirTool.handler({ path: ".." }, { workspaceRoot: root })).rejects.toThrow(/越界/);
+  });
 });
