@@ -11,6 +11,13 @@ import { editFileTool } from "./tools/edit_file.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
+import { grepFilesTool } from "./tools/grep_files.js";
+import { fileSearchTool } from "./tools/file_search.js";
+import { askUserTool } from "./tools/ask_user.js";
+import { fetchUrlTool } from "./tools/fetch_url.js";
+import { webSearchTool } from "./tools/web_search.js";
+import { todoWriteTool } from "./tools/todo_write.js";
+import { stdinAsk } from "./tools/stdin_ask.js";
 import { SessionApprovalGate } from "./approval/gate.js";
 import { stdinApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
@@ -41,6 +48,12 @@ async function main() {
   registry.register(execShellTool);
   registry.register(execShellPollTool);
   registry.register(execShellKillTool);
+  registry.register(grepFilesTool);
+  registry.register(fileSearchTool);
+  registry.register(askUserTool);
+  registry.register(fetchUrlTool);
+  registry.register(webSearchTool);
+  registry.register(todoWriteTool);
 
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const gate = new SessionApprovalGate(stdinApprovalPrompt, alwaysApproved, (name) =>
@@ -51,7 +64,7 @@ async function main() {
     prompt,
     config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model },
     registry,
-    ctx: { workspaceRoot, readFiles: new Set<string>() },
+    ctx: { workspaceRoot, readFiles: new Set<string>(), ask: stdinAsk, fetchImpl: fetch },
     gate,
     streamChat,
     executeToolCalls,
