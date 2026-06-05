@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { runAgent } from "./loop.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type { AssistantMessage, StreamDelta, ToolMessage } from "../client/types.js";
+import type { ApprovalGate } from "../approval/types.js";
 
+const stubGate: ApprovalGate = { needsApproval: () => false, requestBatch: async () => new Map() };
 const config = { baseUrl: "https://x", apiKey: "sk", model: "deepseek-v4-pro" };
 const ctx = { workspaceRoot: "/tmp" };
 
@@ -25,6 +27,7 @@ describe("runAgent", () => {
       config,
       registry: new ToolRegistry(),
       ctx,
+      gate: stubGate,
       streamChat: scripted([
         turn([{ kind: "content", text: "hello" }], { role: "assistant", content: "hello" }),
       ]),
@@ -50,6 +53,7 @@ describe("runAgent", () => {
       config,
       registry: new ToolRegistry(),
       ctx,
+      gate: stubGate,
       streamChat: scripted([
         turn([{ kind: "tool_call", index: 0, name: "read_file" }], assistantWithTool),
         turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
@@ -72,6 +76,7 @@ describe("runAgent", () => {
       config,
       registry: new ToolRegistry(),
       ctx,
+      gate: stubGate,
       streamChat: scripted([turn([], { role: "assistant", content: "ok" })]),
       executeToolCalls: async () => [],
       write: () => {},
@@ -92,6 +97,7 @@ describe("runAgent", () => {
       config,
       registry: new ToolRegistry(),
       ctx,
+      gate: stubGate,
       streamChat: scripted([looping, looping, looping, looping, looping]),
       executeToolCalls: async () => [{ role: "tool", tool_call_id: "c", content: "x" }],
       write: (s) => written.push(s),
@@ -108,6 +114,7 @@ describe("runAgent", () => {
       config,
       registry: new ToolRegistry(), // empty
       ctx,
+      gate: stubGate,
       streamChat: (opts) => {
         sentOpts = opts;
         return turn([{ kind: "content", text: "ok" }], { role: "assistant", content: "ok" })();
