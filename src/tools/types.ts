@@ -6,6 +6,8 @@ export type Approval = "auto" | "suggest" | "required";
 export interface ToolContext {
   // 工具的文件根目录;路径相对它解析。
   workspaceRoot: string;
+  // 本会话已读文件的绝对路径集合(写工具据此判断"覆盖/编辑前是否已读");可选。
+  readFiles?: Set<string>;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。

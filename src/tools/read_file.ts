@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
-import path from "node:path";
 import { z } from "zod";
 import { defineTool } from "./types.js";
+import { resolveInWorkspace } from "./paths.js";
 
 export const readFileTool = defineTool({
   name: "read_file",
@@ -15,8 +15,9 @@ export const readFileTool = defineTool({
     limit: z.number().int().min(1).optional().describe("最多读取的行数"),
   }),
   handler: async (args, ctx) => {
-    const abs = path.resolve(ctx.workspaceRoot, args.path);
+    const abs = resolveInWorkspace(ctx.workspaceRoot, args.path);
     const raw = await fs.readFile(abs, "utf8");
+    ctx.readFiles?.add(abs);
     const lines = raw.split("\n");
     const start = args.offset ? args.offset - 1 : 0;
     const end = args.limit !== undefined ? start + args.limit : lines.length;
