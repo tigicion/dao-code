@@ -8,6 +8,10 @@ export interface ToolContext {
   workspaceRoot: string;
   // 本会话已读文件的绝对路径集合(写工具据此判断"覆盖/编辑前是否已读");可选。
   readFiles?: Set<string>;
+  // 向用户提问(ask_user 用);注入,便于测试。
+  ask?: (question: string) => Promise<string>;
+  // 网络抓取(web_search/fetch_url 用);注入,默认全局 fetch。
+  fetchImpl?: typeof fetch;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。
