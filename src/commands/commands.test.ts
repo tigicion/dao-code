@@ -45,10 +45,10 @@ describe("dispatchCommand", () => {
     expect(dispatchCommand("/exit", sess()).exit).toBe(true);
   });
 
-  it("/compact reports not-yet-implemented", () => {
+  it("/compact signals compaction", () => {
     const r = dispatchCommand("/compact", sess());
     expect(r.handled).toBe(true);
-    expect(r.output).toMatch(/未实现|尚未/);
+    expect(r.compact).toBe(true);
   });
 
   it("unknown command is handled with a hint", () => {
