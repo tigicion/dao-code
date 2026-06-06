@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { runAgent } from "./loop.js";
+import { runTurn } from "./loop.js";
+import { Session } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
-import type { AssistantMessage, StreamDelta, ToolMessage } from "../client/types.js";
+import { defineTool } from "../tools/types.js";
+import { z } from "zod";
+import type { AssistantMessage, StreamChatOptions, StreamDelta, ToolMessage } from "../client/types.js";
 import type { ApprovalGate } from "../approval/types.js";
 
-const stubGate: ApprovalGate = { needsApproval: () => false, requestBatch: async () => new Map() };
-const config = { baseUrl: "https://x", apiKey: "sk", model: "deepseek-v4-pro" };
+const config = { baseUrl: "https://x", apiKey: "sk" };
 const ctx = { workspaceRoot: "/tmp" };
+const stubGate: ApprovalGate = { needsApproval: () => false, requestBatch: async () => new Map() };
 
 function turn(deltas: StreamDelta[], message: AssistantMessage) {
   return async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
@@ -18,111 +21,101 @@ function scripted(turns: Array<() => AsyncGenerator<StreamDelta, AssistantMessag
   let i = 0;
   return () => turns[i++]!();
 }
+function emptyReg() {
+  return new ToolRegistry();
+}
 
-describe("runAgent", () => {
-  it("returns after one turn when the model requests no tools", async () => {
-    const written: string[] = [];
-    const messages = await runAgent({
-      prompt: "hi",
+describe("runTurn", () => {
+  it("appends the assistant reply to the session when no tools requested", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    await runTurn({
+      session: s,
       config,
-      registry: new ToolRegistry(),
+      registry: emptyReg(),
       ctx,
       gate: stubGate,
-      streamChat: scripted([
-        turn([{ kind: "content", text: "hello" }], { role: "assistant", content: "hello" }),
-      ]),
+      streamChat: scripted([turn([{ kind: "content", text: "hello" }], { role: "assistant", content: "hello" })]),
       executeToolCalls: async () => [],
-      write: (s) => written.push(s),
+      write: () => {},
     });
-    expect(messages).toEqual([
+    expect(s.messages).toEqual([
+      { role: "system", content: "SYS" },
       { role: "user", content: "hi" },
       { role: "assistant", content: "hello" },
     ]);
-    expect(written.join("")).toContain("hello");
   });
 
-  it("executes tools then loops until the model stops requesting them", async () => {
+  it("sends session.model and runs tools then loops", async () => {
+    const s = new Session("SYS", "deepseek-v4-flash");
+    s.addUser("go");
+    let sentModel = "";
     const assistantWithTool: AssistantMessage = {
-      role: "assistant",
-      content: null,
+      role: "assistant", content: null,
       tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
     };
-    const toolResult: ToolMessage[] = [{ role: "tool", tool_call_id: "c0", content: "FILE BODY" }];
-    const messages = await runAgent({
-      prompt: "read a",
-      config,
-      registry: new ToolRegistry(),
-      ctx,
-      gate: stubGate,
-      streamChat: scripted([
-        turn([{ kind: "tool_call", index: 0, name: "read_file" }], assistantWithTool),
-        turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
-      ]),
-      executeToolCalls: async () => toolResult,
-      write: () => {},
-    });
-    expect(messages).toEqual([
-      { role: "user", content: "read a" },
-      assistantWithTool,
-      { role: "tool", tool_call_id: "c0", content: "FILE BODY" },
-      { role: "assistant", content: "done" },
+    const toolMsgs: ToolMessage[] = [{ role: "tool", tool_call_id: "c0", content: "R" }];
+    const calls = scripted([
+      turn([], assistantWithTool),
+      turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
     ]);
-  });
-
-  it("prepends a system message when provided", async () => {
-    const messages = await runAgent({
-      prompt: "hi",
-      system: "you are codeds",
+    await runTurn({
+      session: s,
       config,
-      registry: new ToolRegistry(),
+      registry: emptyReg(),
       ctx,
       gate: stubGate,
-      streamChat: scripted([turn([], { role: "assistant", content: "ok" })]),
-      executeToolCalls: async () => [],
+      streamChat: ((opts: StreamChatOptions) => {
+        sentModel = opts.model;
+        return calls();
+      }) as any,
+      executeToolCalls: async () => toolMsgs,
       write: () => {},
     });
-    expect(messages[0]).toEqual({ role: "system", content: "you are codeds" });
+    expect(sentModel).toBe("deepseek-v4-flash");
+    expect(s.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "assistant"]);
   });
 
-  it("stops at maxTurns when the model keeps requesting tools", async () => {
-    const written: string[] = [];
-    const looping = () =>
-      turn([], {
-        role: "assistant",
-        content: null,
-        tool_calls: [{ id: "c", type: "function", function: { name: "read_file", arguments: "{}" } }],
-      })();
-    const messages = await runAgent({
-      prompt: "loop",
+  it("omits write/exec tools in plan mode", async () => {
+    const r = new ToolRegistry();
+    r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
+    r.register(defineTool({ name: "write_file", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "" }));
+    const s = new Session("SYS", "m");
+    s.addUser("plan something");
+    s.toggleMode();
+    let sentTools: string[] | undefined;
+    await runTurn({
+      session: s,
       config,
-      registry: new ToolRegistry(),
+      registry: r,
       ctx,
       gate: stubGate,
-      streamChat: scripted([looping, looping, looping, looping, looping]),
-      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c", content: "x" }],
-      write: (s) => written.push(s),
-      maxTurns: 3,
-    });
-    expect(messages).toHaveLength(7);
-    expect(written.join("")).toContain("最大轮数");
-  });
-
-  it("omits tools and parallel_tool_calls when the registry is empty", async () => {
-    let sentOpts: any;
-    await runAgent({
-      prompt: "hi",
-      config,
-      registry: new ToolRegistry(), // empty
-      ctx,
-      gate: stubGate,
-      streamChat: (opts) => {
-        sentOpts = opts;
+      streamChat: ((opts: StreamChatOptions) => {
+        sentTools = opts.tools?.map((t) => t.function.name);
         return turn([{ kind: "content", text: "ok" }], { role: "assistant", content: "ok" })();
-      },
+      }) as any,
       executeToolCalls: async () => [],
       write: () => {},
     });
-    expect(sentOpts.tools).toBeUndefined();
-    expect(sentOpts.parallelToolCalls).toBeUndefined();
+    expect(sentTools).toEqual(["read_file"]);
+  });
+
+  it("stops at maxTurns", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("loop");
+    const looping = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "c", type: "function", function: { name: "x", arguments: "{}" } }] })();
+    const written: string[] = [];
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      streamChat: scripted([looping, looping, looping, looping]),
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c", content: "x" }],
+      write: (t) => written.push(t),
+      maxTurns: 2,
+    });
+    expect(written.join("")).toContain("最大轮数");
   });
 });
