@@ -20,6 +20,8 @@ import { fetchUrlTool } from "./tools/fetch_url.js";
 import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
+import { runSubagent } from "./agent/subagent.js";
+import { agentTool } from "./tools/agent.js";
 import { loadAllMemories } from "./memory/store.js";
 import { SessionApprovalGate } from "./approval/gate.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
@@ -29,6 +31,7 @@ import { Session } from "./session/session.js";
 import { runRepl } from "./repl.js";
 import { compactMessages, shouldCompact } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
+import type { ToolContext } from "./tools/types.js";
 
 async function main() {
   const argvPrompt = process.argv.slice(2).join(" ").trim();
@@ -48,7 +51,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, agentTool,
   ]) {
     registry.register(t);
   }
@@ -101,12 +104,28 @@ async function main() {
   );
 
   const session = new Session(systemPrompt, cfg.model);
-  const ctx = {
+  const ctx: ToolContext = {
     workspaceRoot,
     readFiles: new Set<string>(),
     ask: (q: string) => ask(`\n${q}\n> `),
     fetchImpl: fetch,
   };
+
+  ctx.runSubagent = (task: string) =>
+    runSubagent({
+      task,
+      systemPrompt,
+      model: session.model,
+      mode: session.mode,
+      config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
+      registry,
+      ctx,
+      gate,
+      streamChat,
+      executeToolCalls,
+      write,
+      runTurn,
+    });
 
   const KEEP_RECENT_TURNS = 2;
   const CONTEXT_WINDOW = 1_000_000;
