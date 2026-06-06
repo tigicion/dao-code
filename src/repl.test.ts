@@ -16,6 +16,7 @@ describe("runRepl", () => {
       session: s,
       readLine: lineFeeder(["hello", "/plan", "/exit"]),
       runTurn: async () => { turns.push(s.messages[s.messages.length - 1]!.content as string); },
+      compact: async () => {},
       write: (t) => written.push(t),
     });
     expect(turns).toEqual(["hello"]);
@@ -30,6 +31,7 @@ describe("runRepl", () => {
       session: s,
       readLine: lineFeeder(["hi"]),
       runTurn: async () => { turnCount++; },
+      compact: async () => {},
       write: () => {},
     });
     expect(turnCount).toBe(1);
@@ -42,8 +44,22 @@ describe("runRepl", () => {
       session: s,
       readLine: lineFeeder(["   ", "hi"]),
       runTurn: async () => { turnCount++; },
+      compact: async () => {},
       write: () => {},
     });
     expect(turnCount).toBe(1);
+  });
+
+  it("invokes compact on /compact", async () => {
+    const s = new Session("SYS", "m");
+    let compacted = 0;
+    await runRepl({
+      session: s,
+      readLine: lineFeeder(["/compact", "/exit"]),
+      runTurn: async () => {},
+      compact: async () => { compacted++; },
+      write: () => {},
+    });
+    expect(compacted).toBe(1);
   });
 });
