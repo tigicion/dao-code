@@ -1,0 +1,7 @@
+{
+  "kind": "double",
+  "desc": "修复 parseQuery:重复 key 应聚合成数组",
+  "prompt": "工作区里的 qs.mjs 有个 bug:parseQuery 解析查询串时,同一个 key 出现多次(例如 a=1&a=2)只保留了最后一个值。修复它:重复出现的 key 聚合成字符串数组(按出现顺序),只出现一次的 key 仍是字符串。不要改变其它行为。",
+  "fail2pass": "tests/fail2pass.mjs",
+  "pass2pass": "tests/pass2pass.mjs"
+}
