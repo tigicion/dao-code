@@ -25,47 +25,23 @@ export async function* streamChat(
   };
 
   // 空闲看门狗:连接挂起/模型停滞导致长时间收不到任何数据时,自动中断本次流并抛清晰错误。
-  // 这样单回合不会永久卡死(此前唯一退路是手动 ESC,流真停滞或按键未送达时无法恢复)。
   const idleMs = opts.idleTimeoutMs ?? (Number(process.env.DAO_STREAM_IDLE_MS) || 120000);
-  const watchdog = new AbortController();
-  let idledOut = false;
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  const armIdle = () => {
-    clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { idledOut = true; watchdog.abort(); }, idleMs);
+  const idleErrMsg = `模型流空闲超时(${Math.round(idleMs / 1000)}s 未收到数据),已停止本回合`;
+  const maxRetries = opts.maxRetries ?? 2;
+  const retryDelayMs = opts.retryDelayMs ?? 600;
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  // abort(ESC/超时)判定:中断后 reader.read() reject AbortError——不上抛,优雅返回已累积部分。
+  const isAbort = (e: unknown): boolean =>
+    opts.signal?.aborted === true ||
+    (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError"));
+  // 可重试的网络瞬断(连接被关、重置、DNS 抖动等):产出内容前遇到则自动重试。
+  const isRetryable = (e: unknown): boolean => {
+    const m = e instanceof Error ? `${e.name} ${e.message}` : String(e);
+    return /socket|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|closed unexpectedly|fetch failed|terminated|ENOTFOUND|EAI_AGAIN|network/i.test(m);
   };
-  // fetch 同时听外部取消(ESC)与内部看门狗。
-  const fetchSignal = opts.signal ? AbortSignal.any([opts.signal, watchdog.signal]) : watchdog.signal;
-  const idleError = () => new Error(`模型流空闲超时(${Math.round(idleMs / 1000)}s 未收到数据),已停止本回合`);
 
-  armIdle(); // 连接/首字节阶段也纳入看门狗
-  let res: Response;
-  try {
-    res = await fetchImpl(`${opts.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${opts.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: fetchSignal,
-    });
-  } catch (err) {
-    clearTimeout(idleTimer);
-    if (idledOut) throw idleError();
-    throw err;
-  }
-
-  if (!res.ok) {
-    clearTimeout(idleTimer);
-    const text = await res.text().catch(() => "");
-    throw new Error(`DeepSeek API error ${res.status}: ${text}`);
-  }
-  if (!res.body) {
-    throw new Error("DeepSeek API returned an empty body");
-  }
-
-  // 累积状态
+  // 累积状态(每次尝试前重置——仅在尚未产出任何 delta 时才会重试)。
   let content = "";
   const toolAcc: { id: string; name: string; args: string }[] = [];
   const announced = new Set<number>();
@@ -113,45 +89,66 @@ export async function* streamChat(
     return out;
   }
 
-  // abort(ESC/超时)判定:fetch 中断后 reader.read() 会 reject AbortError——
-  // 不向上抛,跳出读取循环,返回此刻已累积的 content + tool_calls(部分消息),让上层优雅停。
-  const isAbort = (e: unknown): boolean =>
-    opts.signal?.aborted === true ||
-    (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError"));
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let aborted = false;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      armIdle(); // 收到数据 → 重置看门狗
-      buffer += decoder.decode(value, { stream: true });
-      const { payloads, rest } = parseSSEChunk(buffer);
-      buffer = rest;
-      for (const payload of payloads) {
-        for (const d of processPayload(payload)) yield d;
+  let yieldedAny = false; // 是否已产出过 delta(产出后不再重试,避免重复内容)
+  for (let attempt = 0; ; attempt++) {
+    // 每次尝试独立的看门狗 + 累积状态(重试 = 从头重来)。
+    content = "";
+    toolAcc.length = 0;
+    announced.clear();
+    const watchdog = new AbortController();
+    let idledOut = false;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    const armIdle = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => { idledOut = true; watchdog.abort(); }, idleMs);
+    };
+    const fetchSignal = opts.signal ? AbortSignal.any([opts.signal, watchdog.signal]) : watchdog.signal;
+    let buffer = "";
+    try {
+      armIdle(); // 连接/首字节阶段也纳入看门狗
+      const res = await fetchImpl(`${opts.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.apiKey}` },
+        body: JSON.stringify(body),
+        signal: fetchSignal,
+      });
+      if (!res.ok) {
+        clearTimeout(idleTimer);
+        const text = await res.text().catch(() => "");
+        throw new Error(`DeepSeek API error ${res.status}: ${text}`);
       }
-    }
-  } catch (err) {
-    // 看门狗触发:停滞超时,抛清晰错误(区别于外部 ESC 取消的"优雅返回部分")。
-    if (idledOut) throw idleError();
-    if (!isAbort(err)) throw err;
-    aborted = true;
-  } finally {
-    clearTimeout(idleTimer);
-  }
-
-  // 流末 flush:处理可能残留的、未以 \n\n 收尾的最后一个事件(被 abort 时跳过,残留可能是半个事件)。
-  if (!aborted) {
-    buffer += decoder.decode();
-    if (buffer.trim()) {
-      const { payloads } = parseSSEChunk(buffer.endsWith("\n\n") ? buffer : buffer + "\n\n");
-      for (const payload of payloads) {
-        for (const d of processPayload(payload)) yield d;
+      if (!res.body) throw new Error("DeepSeek API returned an empty body");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        armIdle(); // 收到数据 → 重置看门狗
+        buffer += decoder.decode(value, { stream: true });
+        const { payloads, rest } = parseSSEChunk(buffer);
+        buffer = rest;
+        for (const payload of payloads) for (const d of processPayload(payload)) { yieldedAny = true; yield d; }
       }
+      // 流末 flush:处理未以 \n\n 收尾的最后一个事件。
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        const { payloads } = parseSSEChunk(buffer.endsWith("\n\n") ? buffer : buffer + "\n\n");
+        for (const payload of payloads) for (const d of processPayload(payload)) { yieldedAny = true; yield d; }
+      }
+      clearTimeout(idleTimer);
+      break; // 成功
+    } catch (err) {
+      clearTimeout(idleTimer);
+      if (idledOut) throw new Error(idleErrMsg); // 停滞超时:清晰错误
+      if (isAbort(err)) break; // ESC/取消:优雅返回已累积部分
+      if (isRetryable(err)) {
+        // 产出内容前的瞬断 → 退避重试;重试耗尽且无内容 → 抛清晰错误(不抛 undici 原始报错);
+        // 已产出内容的中途断开 → 返回部分(不重试,避免重复)。
+        if (!yieldedAny && attempt < maxRetries) { await sleep(retryDelayMs * (attempt + 1)); continue; }
+        if (!yieldedAny) throw new Error(`连接 DeepSeek 失败(已重试 ${maxRetries} 次,请检查网络后重试)`);
+        break;
+      }
+      throw err; // 非可重试错误,原样上抛
     }
   }
 

@@ -185,6 +185,44 @@ describe("streamChat", () => {
     expect(message).toEqual({ role: "assistant", content: "partial" });
   });
 
+  it("连接瞬断:首次 socket 错误自动重试,第二次成功", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      if (calls === 1) throw new Error("The socket connection was closed unexpectedly");
+      return new Response(sseStream(['data: {"choices":[{"delta":{"content":"hi"}}]}\n\n', "data: [DONE]\n\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { message } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 0 }),
+    );
+    expect(calls).toBe(2);
+    expect(message).toEqual({ role: "assistant", content: "hi" });
+  });
+
+  it("连接持续失败:重试耗尽后抛清晰错误(非 undici 原始报错)", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; throw new Error("fetch failed"); }) as unknown as typeof fetch;
+    await expect(
+      run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 0 })),
+    ).rejects.toThrow(/连接.*失败|重试/);
+    expect(calls).toBe(3); // 1 + 2 retries
+  });
+
+  it("流中途断开:返回已累积部分,不抛错、不重试", async () => {
+    const enc = new TextEncoder();
+    let calls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"part"}}]}\n\n')); },
+      pull() { return Promise.reject(new Error("The socket connection was closed unexpectedly")); },
+    });
+    const fetchImpl = (async () => { calls++; return new Response(body, { status: 200 }); }) as unknown as typeof fetch;
+    const { message } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 0 }),
+    );
+    expect(message.content).toBe("part");
+    expect(calls).toBe(1); // 已产出内容 → 不重试
+  });
+
   it("aborts with a clear idle-timeout error when the stream stalls", async () => {
     const enc = new TextEncoder();
     let fetchSignal: AbortSignal | undefined;
