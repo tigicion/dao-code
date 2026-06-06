@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import path from "node:path";
+import os from "node:os";
 import { loadConfig } from "./config/config.js";
 import { streamChat } from "./client/client.js";
 import { runTurn } from "./agent/loop.js";
@@ -18,6 +19,8 @@ import { askUserTool } from "./tools/ask_user.js";
 import { fetchUrlTool } from "./tools/fetch_url.js";
 import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
+import { memoryWriteTool } from "./tools/memory_write.js";
+import { loadAllMemories } from "./memory/store.js";
 import { SessionApprovalGate } from "./approval/gate.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
@@ -43,7 +46,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool,
   ]) {
     registry.register(t);
   }
@@ -52,7 +55,13 @@ async function main() {
     .toApiTools()
     .map((t) => `- ${t.function.name}:${t.function.description}`)
     .join("\n");
-  const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries });
+
+  const projectMemoryFile = path.join(workspaceRoot, ".codeds", "memory", "memories.json");
+  const userMemoryFile = path.join(os.homedir(), ".codeds", "memory", "memories.json");
+  const memories = await loadAllMemories(projectMemoryFile, userMemoryFile);
+  const memoryText = memories.map((m) => `- ${m.text}`).join("\n");
+
+  const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries, memories: memoryText });
 
   const write = (s: string) => process.stdout.write(s);
 
