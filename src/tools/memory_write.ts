@@ -8,8 +8,10 @@ import { newMemory } from "../memory/types.js";
 import { contentHash } from "../memory/hash.js";
 import { resolveInWorkspace } from "./paths.js";
 
-const memDir = (scope: "project" | "user", ws: string, home?: string) =>
-  path.join(scope === "user" ? home ?? os.homedir() : ws, ".dao", "memory");
+const memDir = (scope: "project" | "user" | "knowledge", ws: string, home?: string) => {
+  if (scope === "knowledge") return path.join(home ?? os.homedir(), ".dao", "knowledge");
+  return path.join(scope === "user" ? home ?? os.homedir() : ws, ".dao", "memory");
+};
 
 function slug(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";
@@ -35,10 +37,12 @@ export const memoryWriteTool = defineTool({
     importance: z.number().int().min(1).max(10).optional().describe("1–10 重要度,默认 5"),
     confidence: z.number().min(0).max(1).optional().describe("用户模型/推断类填,0–1"),
     source: z.string().optional().describe("该事实的代码出处 path 或 path#symbol"),
-    scope: z.enum(["project", "user"]).optional().describe("不填则按类型定:user/feedback→user(跨项目),其余→project"),
+    scope: z.enum(["project", "user", "knowledge"]).optional().describe("不填按类型定:procedural→knowledge(跨项目知识库),user/feedback→user,其余→project"),
   }),
   handler: async (args, ctx) => {
-    const scope = args.scope ?? (args.type === "user" || args.type === "feedback" ? "user" : "project");
+    const scope =
+      args.scope ??
+      (args.type === "procedural" ? "knowledge" : args.type === "user" || args.type === "feedback" ? "user" : "project");
     const dir = memDir(scope, ctx.workspaceRoot, ctx.homeDir);
     const today = ctx.today ?? new Date().toISOString().slice(0, 10);
     let sourceHash: string | undefined;
@@ -54,10 +58,14 @@ export const memoryWriteTool = defineTool({
       importance: args.importance, confidence: args.confidence, source: args.source, sourceHash,
     });
     const r = await withMemLock(async () => {
-      const existing = await loadAllMemories(dir, memDir("user", ctx.workspaceRoot, ctx.homeDir));
+      const existing = await loadAllMemories(
+        memDir("project", ctx.workspaceRoot, ctx.homeDir),
+        memDir("user", ctx.workspaceRoot, ctx.homeDir),
+        memDir("knowledge", ctx.workspaceRoot, ctx.homeDir),
+      );
       return upsertMemory(dir, cand, existing);
     });
-    const label = scope === "user" ? "用户级" : "项目级";
+    const label = scope === "user" ? "用户级" : scope === "knowledge" ? "知识库" : "项目级";
     return r.action === "updated"
       ? `已更新(${label}):${args.text.trim()}`
       : `已记住(${label}):${args.text.trim()}`;
