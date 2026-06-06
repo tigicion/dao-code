@@ -290,6 +290,10 @@ codeds/src/
 
 **数据流**:`tui` → `agent` loop → `client` → DeepSeek;模型回的 `tool_calls` → `tools`(经 `approval` 门)→ 结果回 `agent` loop。
 
+> **M9(TUI)已落地并实测(2026-06-06)——MVP 完成**:`tui/width`(**自实现 East-Asian-Width**,CJK/全角/emoji 计 2 列)、`tui/markdown`(**自建 markdown→ANSI**:标题/粗体/斜体/行内码/代码块/列表/引用/分隔线/**CJK 宽度对齐表格**)、`tui/render` `renderStream`(reasoning 实时灰显、content 缓冲到边界整体 markdown 渲染、tool_call 青标记)取代 loop 内联 renderTurn。**零新依赖**(没用 marked-terminal/string-width,自建以求理解+可测;它们作为更全替代留后期)。约 175 用例全绿。真网络实测:模型输出的二级标题/列表/行内码/中文表格在终端正确渲染、表格列按 CJK 宽度对齐。延后:增量 markdown(现 content 缓冲后渲染)、自动折行、表格单元格行内格式、审批/子代理的折叠展示。
+>
+> **MVP 全景**:M1 骨架 → M2 工具循环 → M3 审批门+写/执行 → M4 工具补全 → M5 系统prompt+normal/plan+REPL → M6 记忆P1 → M7 上下文压缩 → M8 子代理 → M9 TUI。codeds = 交互式终端 coding agent:DeepSeek V4 流式 + 15 工具 + 审批门/PathEscape + plan 安全模式 + 跨 session 记忆 + 自动/手动压缩 + 一次性子代理 + markdown/CJK 渲染。
+
 ## 12. 工具执行时序
 
 - **等整条 assistant 消息流完,再批量并发执行全部 tool_calls**(eager/边流边执行为后期优化,因与审批门冲突且收益有限,MVP 不做)。
