@@ -9,8 +9,10 @@ import type { ApprovalPrompt } from "../../approval/types.js";
 export type TranscriptItem =
   | { id: number; kind: "user"; text: string }
   | { id: number; kind: "assistant"; text: string }
-  | { id: number; kind: "tool"; label: string; detail: string; ok: boolean }
-  | { id: number; kind: "diff"; path: string; removed: string[]; added: string[]; lang: string }
+  | { id: number; kind: "reasoning"; text: string } // 模型思考(暗色,留历史,复刻 CC)
+  | { id: number; kind: "tool"; label: string; detail: string; ok: boolean; output?: string[]; rawArgs?: string }
+  | { id: number; kind: "diff"; path: string; removed: string[]; added: string[]; lang: string; startLine?: number; rows?: string[] }
+  | { id: number; kind: "todo"; items: { status: "pending" | "in_progress" | "completed"; content: string }[] }
   | { id: number; kind: "notice"; text: string };
 
 // 当前回合的动态区(小,流式中重渲染)。
@@ -44,6 +46,8 @@ export interface AppDeps {
   runCommand: (line: string) => { handled: boolean; output?: string; exit?: boolean; compact?: boolean; prompt?: string };
   compact: () => Promise<void>;
   getStatus: () => StatusInfo;
+  // verbose/debug 模式:展示工具原样参数、工具结果全量、思考全量(默认显意图 + 截断)。
+  verbose?: boolean;
   // Shift+Tab 循环权限模式(CC 风格);返回切换后的模式标签用于提示。省略则不绑定。
   cycleMode?: () => string;
   // App 挂载后注册自己的审批/提问模态,供 index 的 gate 与 ctx.ask 委派。

@@ -103,7 +103,8 @@ async function main() {
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
   const taskFlag = rawArgs.includes("--task");
   const coordinatorFlag = rawArgs.includes("--coordinator");
-  const flags = new Set(["--yolo", "--continue", "-c", "--task", "--coordinator"]);
+  const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
+  const flags = new Set(["--yolo", "--continue", "-c", "--task", "--coordinator", "--verbose", "--debug"]);
   // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
@@ -589,6 +590,7 @@ async function main() {
         });
       await runInkApp({
         welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
+        verbose,
         submit: async (text, { events, signal }) => {
           // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。
           const up = await runHooks(hooks, "UserPromptSubmit", { cwd: workspaceRoot, payload: { prompt: text } });
