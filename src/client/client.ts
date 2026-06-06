@@ -24,17 +24,40 @@ export async function* streamChat(
     ...opts.extra,
   };
 
-  const res = await fetchImpl(`${opts.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${opts.apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: opts.signal,
-  });
+  // 空闲看门狗:连接挂起/模型停滞导致长时间收不到任何数据时,自动中断本次流并抛清晰错误。
+  // 这样单回合不会永久卡死(此前唯一退路是手动 ESC,流真停滞或按键未送达时无法恢复)。
+  const idleMs = opts.idleTimeoutMs ?? (Number(process.env.DAO_STREAM_IDLE_MS) || 120000);
+  const watchdog = new AbortController();
+  let idledOut = false;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const armIdle = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { idledOut = true; watchdog.abort(); }, idleMs);
+  };
+  // fetch 同时听外部取消(ESC)与内部看门狗。
+  const fetchSignal = opts.signal ? AbortSignal.any([opts.signal, watchdog.signal]) : watchdog.signal;
+  const idleError = () => new Error(`模型流空闲超时(${Math.round(idleMs / 1000)}s 未收到数据),已停止本回合`);
+
+  armIdle(); // 连接/首字节阶段也纳入看门狗
+  let res: Response;
+  try {
+    res = await fetchImpl(`${opts.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: fetchSignal,
+    });
+  } catch (err) {
+    clearTimeout(idleTimer);
+    if (idledOut) throw idleError();
+    throw err;
+  }
 
   if (!res.ok) {
+    clearTimeout(idleTimer);
     const text = await res.text().catch(() => "");
     throw new Error(`DeepSeek API error ${res.status}: ${text}`);
   }
@@ -104,6 +127,7 @@ export async function* streamChat(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      armIdle(); // 收到数据 → 重置看门狗
       buffer += decoder.decode(value, { stream: true });
       const { payloads, rest } = parseSSEChunk(buffer);
       buffer = rest;
@@ -112,8 +136,12 @@ export async function* streamChat(
       }
     }
   } catch (err) {
+    // 看门狗触发:停滞超时,抛清晰错误(区别于外部 ESC 取消的"优雅返回部分")。
+    if (idledOut) throw idleError();
     if (!isAbort(err)) throw err;
     aborted = true;
+  } finally {
+    clearTimeout(idleTimer);
   }
 
   // 流末 flush:处理可能残留的、未以 \n\n 收尾的最后一个事件(被 abort 时跳过,残留可能是半个事件)。
