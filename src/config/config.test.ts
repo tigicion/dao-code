@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { loadConfig } from "./config.js";
+import { readConfig } from "./config.js";
 
-describe("loadConfig", () => {
+describe("readConfig", () => {
   it("reads api key and applies defaults", () => {
-    const cfg = loadConfig({ DEEPSEEK_API_KEY: "sk-test" });
+    const cfg = readConfig({ DEEPSEEK_API_KEY: "sk-test" });
     expect(cfg.apiKey).toBe("sk-test");
     expect(cfg.baseUrl).toBe("https://api.deepseek.com");
     expect(cfg.model).toBe("deepseek-v4-pro");
   });
 
   it("allows overriding base url and model", () => {
-    const cfg = loadConfig({
+    const cfg = readConfig({
       DEEPSEEK_API_KEY: "sk-test",
       DEEPSEEK_BASE_URL: "https://proxy.example.com",
       DEEPSEEK_MODEL: "deepseek-v4-flash",
@@ -19,7 +19,14 @@ describe("loadConfig", () => {
     expect(cfg.model).toBe("deepseek-v4-flash");
   });
 
-  it("throws a clear error when api key is missing", () => {
-    expect(() => loadConfig({})).toThrow(/DEEPSEEK_API_KEY/);
+  it("leaves apiKey undefined (no throw) when missing — onboarding resolves it", () => {
+    const cfg = readConfig({});
+    expect(cfg.apiKey).toBeUndefined();
+    expect(cfg.baseUrl).toBe("https://api.deepseek.com");
+    expect(cfg.model).toBe("deepseek-v4-pro");
+  });
+
+  it("treats an empty-string key as missing", () => {
+    expect(readConfig({ DEEPSEEK_API_KEY: "" }).apiKey).toBeUndefined();
   });
 });
