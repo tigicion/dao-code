@@ -10,6 +10,14 @@ import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js"
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const MAX_LIVE_LINES = 12; // 流式动态区只显示尾部这么多行,防止动态区高度≥终端高触发 Ink 整屏闪烁(ink#359)
 
+// 运行中轮流展示的提示(CC 风格):不每次硬塞同一句,降低噪音。首条是排队说明(最该让人知道的)。
+const BUSY_TIPS = [
+  "当前命令运行中,可以再输入其他命令排队执行",
+  "按 Esc 可随时打断当前回合",
+  "@ 引用文件,Tab 补全路径",
+  "输入 /help 查看全部命令",
+];
+
 // 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。
 function tail(s: string, n: number): string {
   const all = s.split("\n");
@@ -147,8 +155,10 @@ export function App(deps: AppDeps) {
 
   function makeEvents(): TurnEvents {
     return {
-      reasoning: (chunk) => setLive((l) => (l ? { ...l, reasoning: l.reasoning + chunk } : l)),
-      content: (chunk) => setLive((l) => (l ? { ...l, content: l.content + chunk } : l)),
+      // 收到推理/正文 = 模型又在思考/生成了:清掉上一个工具的活动标签,
+      // 否则 live 行会一直显示陈旧的"搜索…"(工具早结束、其实在生成),误导成"卡在搜索"。
+      reasoning: (chunk) => setLive((l) => (l ? { ...l, reasoning: l.reasoning + chunk, lastActivity: "" } : l)),
+      content: (chunk) => setLive((l) => (l ? { ...l, content: l.content + chunk, lastActivity: "" } : l)),
       toolStart: (call) =>
         setLive((l) =>
           l ? { ...l, tools: [...l.tools, call.name], toolCount: l.toolCount + 1, lastActivity: toolVerb(call.name) } : l,
@@ -280,7 +290,7 @@ export function App(deps: AppDeps) {
   useInput((ch, key) => {
     if (approval) {
       const d: ApprovalDecision | null =
-        ch === "y" ? "once" : ch === "a" ? "always" : ch === "n" ? "deny" : null;
+        ch === "y" ? "once" : ch === "s" ? "session" : ch === "a" ? "always" : ch === "n" ? "deny" : null;
       if (d) {
         const req = approval.requests[apIdx];
         if (req) apDecisions.current.set(req.id, d);
@@ -301,6 +311,13 @@ export function App(deps: AppDeps) {
     }
     if (key.escape && busy) { controllerRef.current?.abort(); return; }
     if (key.ctrl && ch === "c") { exit(); return; }
+    // Shift+Tab:循环权限模式(default→acceptEdits→plan→bypassPermissions),随时可用。
+    if (key.tab && key.shift && deps.cycleMode) {
+      const m = deps.cycleMode();
+      setStatus(deps.getStatus());
+      pushItem({ id: nextId(), kind: "notice", text: `权限模式 → ${m}` });
+      return;
+    }
     if (busy) {
       // 运行中:支持排队输入(steering)。回车排队,当前回合结束后按序处理。
       if (key.return) {
@@ -417,7 +434,7 @@ export function App(deps: AppDeps) {
             需要批准{approval.requests.length > 1 ? ` (${apIdx + 1}/${approval.requests.length})` : ""}:
           </Text>
           <Text color={c("ink")}>  {approval.requests[apIdx]?.summary.slice(0, 120)}</Text>
-          <Text color={c("dim")}>[y]本次 [a]本仓库该类后续都用 [n]拒绝</Text>
+          <Text color={c("dim")}>[y]本次 [s]本会话 [a]记住(写 allow 规则到 settings.local.json) [n]拒绝</Text>
         </Box>
       )}
 
@@ -435,12 +452,11 @@ export function App(deps: AppDeps) {
             {input.slice(0, cursor)}
             <Text color={c("jade")}>▎</Text>
             {input.slice(cursor)}
-            {busy ? <Text color={c("dim")}>  (运行中,回车排队{queued.length ? ` · 已排 ${queued.length}` : ""})</Text> : null}
           </Text>
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
-              {["model", "plan", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
+              {["model", "plan", "mode", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
                 .filter((cmd) => ("/" + cmd).startsWith(input))
                 .map((cmd) => "/" + cmd)
                 .join("  ") || "(无匹配命令)"}
@@ -453,6 +469,15 @@ export function App(deps: AppDeps) {
               <Text color={c("dim")}>{"  "}{matches.slice(0, 6).join("  ")}  <Text color={c("jade")}>(Tab 补全)</Text></Text>
             ) : null;
           })()}
+          {/* 运行中:排队优先显计数(重要状态),否则轮流展示一条提示——独立一行,不挤进输入框。 */}
+          {busy ? (
+            <Text color={c("dim")}>
+              {"  "}
+              {queued.length
+                ? `⏎ ${queued.length} 条已排队,当前回合结束后依次执行`
+                : `💡 ${BUSY_TIPS[Math.floor(tick / 110) % BUSY_TIPS.length]}`}
+            </Text>
+          ) : null}
         </Box>
       )}
 
@@ -540,6 +565,7 @@ function StatusBar({
         {status.yolo ? <Text color={c("vermilion")}>⚡YOLO · </Text> : ""}
         {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}
         {status.mode === "plan" ? <Text color={c("gold")}>📋 plan(只读规划) · </Text> : ""}
+        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>✎ acceptEdits · </Text> : ""}
         {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}% · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
         {status.branch ? ` · ⎇ ${status.branch}` : ""}
       </Text>

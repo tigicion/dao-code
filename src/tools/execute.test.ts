@@ -33,11 +33,22 @@ function reg() {
 function gateWith(approve: boolean) {
   const calls: ApprovalRequest[][] = [];
   const gate: ApprovalGate = {
-    needsApproval: (tool: Tool) => tool.approval !== "auto",
+    // auto 工具放行;其余进入 ask(审批)。
+    decide: (_name: string, _args: string, tool: Tool) => (tool.approval === "auto" ? "allow" : "ask"),
     requestBatch: async (requests) => {
       calls.push(requests);
       return new Map(requests.map((r) => [r.id, approve]));
     },
+  };
+  return { gate, calls };
+}
+
+// deny 门:模拟 deny 规则命中(直接拦截,不询问)。
+function denyGate() {
+  const calls: ApprovalRequest[][] = [];
+  const gate: ApprovalGate = {
+    decide: () => "deny",
+    requestBatch: async (requests) => { calls.push(requests); return new Map(); },
   };
   return { gate, calls };
 }
@@ -75,6 +86,13 @@ describe("executeToolCalls (approval-aware)", () => {
     expect(out.map((m) => m.tool_call_id)).toEqual(["a", "b", "c"]);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.map((r) => r.id)).toEqual(["b", "c"]);
+  });
+
+  it("blocks a denied tool without asking and returns a deny message", async () => {
+    const { gate, calls } = denyGate();
+    const out = await executeToolCalls([call("a", "write_file")], reg(), ctx, gate);
+    expect(out[0]!.content).toContain("权限规则拒绝");
+    expect(calls).toHaveLength(0); // deny 不进入审批询问
   });
 
   it("isolates a dispatch error as an Error message", async () => {

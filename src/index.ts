@@ -45,10 +45,11 @@ import { buildMemorySection, selectForInjection } from "./memory/inject.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
 import { makeFlashAdjudicator } from "./memory/adjudicate.js";
-import { SessionApprovalGate } from "./approval/gate.js";
 import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
+import { PermissionGate } from "./permissions/gate.js";
+import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable } from "./session/log.js";
@@ -103,7 +104,9 @@ async function main() {
   const taskFlag = rawArgs.includes("--task");
   const coordinatorFlag = rawArgs.includes("--coordinator");
   const flags = new Set(["--yolo", "--continue", "-c", "--task", "--coordinator"]);
-  const argvPrompt = rawArgs.filter((a) => !flags.has(a)).join(" ").trim();
+  // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
+  const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
+  const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
   const workspaceRoot = process.cwd();
   // codeds → DAO CODE 改名:一次性把旧 .codeds/ 数据(项目级+用户级)整体迁到 .dao/。
   // 必须在任何 .dao 路径被读写之前做;失败不阻塞启动(等价于全新环境)。
@@ -287,19 +290,43 @@ async function main() {
   let yolo = yoloFlag || taskFlag || coordinatorFlag || !!process.env.DAO_AUTO_APPROVE;
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
-  const baseGate = new SessionApprovalGate(
+
+  // ---- CC 风格权限:分层加载 settings.json(user < project < local)----
+  const localSettingsFile = path.join(workspaceRoot, ".dao", "settings.local.json");
+  // 优先级(低→高):user < project < local < CLI < enterprise(企业托管策略不可被下层覆盖)。
+  const lowerPerms = await loadPermissions([
+    path.join(os.homedir(), ".dao", "settings.json"),
+    path.join(workspaceRoot, ".dao", "settings.json"),
+    localSettingsFile,
+  ]);
+  const enterprisePerms = await loadPermissions([enterpriseSettingsPath()]);
+  const loadedPerms = mergePermissions([lowerPerms, cliPerms, enterprisePerms]);
+  // 本会话临时追加的 allow 规则("session"/"always" 决定产生);always 另持久化到 local。
+  const sessionAllow: string[] = [];
+  const getRules = () => ({ ...loadedPerms, allow: [...loadedPerms.allow, ...sessionAllow] });
+  // 运行时模式覆盖(/mode acceptEdits 等);null = 用 settings 的 defaultMode。
+  let permModeOverride: PermissionMode | null = null;
+  // 有效权限模式:plan 会话模式 > YOLO(=bypass)> 运行时覆盖 > settings 默认 > default。
+  const getMode = (): PermissionMode =>
+    session.mode === "plan"
+      ? "plan"
+      : yolo
+        ? "bypassPermissions"
+        : permModeOverride ?? loadedPerms.defaultMode ?? "default";
+
+  const gate: ApprovalGate = new PermissionGate(
+    getMode,
+    getRules,
     (reqs) => (inkApprovalPrompt ?? readlinePrompt)(reqs), // Ink 态用模态,否则 readline
-    alwaysApproved,
-    (name) => appendAlwaysApproved(approvalsFile, name),
+    (rule) => appendRule(localSettingsFile, rule, "allow"), // "always" 持久化
+    (rule) => { sessionAllow.push(rule); }, // "session"/"always" 本会话生效
   );
-  // YOLO 包一层:开启时一律放行(needsApproval=false,不弹审批);关闭时走正常审批门。
-  const gate: ApprovalGate = {
-    needsApproval: (tool) => (yolo ? false : baseGate.needsApproval(tool)),
-    requestBatch: (reqs) =>
-      yolo ? Promise.resolve(new Map(reqs.map((r) => [r.id, true]))) : baseGate.requestBatch(reqs),
-  };
 
   const session = new Session(systemPrompt, cfg.model);
+  // settings/CLI/企业策略指定的初始模式:plan→会话只读规划;bypassPermissions→等价 YOLO。
+  // default/acceptEdits 由 getMode 读 loadedPerms.defaultMode 处理,无需在此设置。
+  if (loadedPerms.defaultMode === "plan") session.mode = "plan";
+  else if (loadedPerms.defaultMode === "bypassPermissions") yolo = true;
   const ctx: ToolContext = {
     workspaceRoot,
     readFiles: new Set<string>(),
@@ -370,8 +397,11 @@ async function main() {
 
   // 申请访问工作区外路径(读类工具):一次授权后本会话不再追问;选"本仓库后续都用"则持久化。
   let externalReadGranted = alwaysApproved.has("external-read");
+  // CC additionalDirectories:settings 里预先授权的工作区外目录,直接放行不弹窗。
+  const extraDirs = loadedPerms.additionalDirectories.map((d) => path.resolve(workspaceRoot, d));
+  const underExtra = (abs: string) => extraDirs.some((d) => abs === d || abs.startsWith(d.endsWith("/") ? d : d + "/"));
   ctx.approveExternalRead = async (abs: string): Promise<boolean> => {
-    if (yolo || externalReadGranted) return true;
+    if (yolo || externalReadGranted || underExtra(abs)) return true;
     if (!inkApprovalPrompt) return false; // 非交互(管道/eval)默认拒绝区外访问
     const decisions = await inkApprovalPrompt([
       { id: "ext", toolName: "读取(工作区外)", capability: "read", summary: `访问工作区外路径:${abs}` },
@@ -593,7 +623,22 @@ async function main() {
           const name = line.trim().slice(1).split(/\s+/)[0];
           if (name === "yolo") {
             yolo = !yolo;
-            return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(慎用)" : "YOLO 已关闭:恢复审批门" };
+            return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(deny 规则仍拦截)" : "YOLO 已关闭:恢复审批门" };
+          }
+          if (name === "mode") {
+            const arg = line.trim().split(/\s+/)[1];
+            if (!arg) {
+              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|acceptEdits|plan|bypassPermissions>` };
+            }
+            if (arg === "plan") { session.mode = "plan"; permModeOverride = null; yolo = false; return { handled: true, output: "📋 已切到 plan(只读规划,拦写/执行)" }; }
+            if (arg === "bypassPermissions") { yolo = true; if (session.mode === "plan") session.mode = "normal"; return { handled: true, output: "⚡ bypassPermissions:跳过所有审批(deny 规则仍拦截)" }; }
+            if (arg === "default" || arg === "acceptEdits") {
+              yolo = false;
+              if (session.mode === "plan") session.mode = "normal";
+              permModeOverride = arg as PermissionMode;
+              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : "权限模式已设为 default(按需审批)" };
+            }
+            return { handled: true, output: `未知模式:${arg}(可选 default/acceptEdits/plan/bypassPermissions)` };
           }
           if (name === "task") {
             longTask = !longTask;
@@ -640,6 +685,7 @@ async function main() {
         getStatus: () => ({
           model: session.model,
           mode: session.mode,
+          permMode: getMode(),
           promptTokens: session.usage.promptTokens,
           completionTokens: session.usage.completionTokens,
           cacheHitRatio: session.cacheHitRatio(),
@@ -649,6 +695,14 @@ async function main() {
           branch: gitBranch,
           contextPct: (estimateTokens(session.messages) / CONTEXT_WINDOW) * 100,
         }),
+        cycleMode: () => {
+          const order: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+          const next = order[(order.indexOf(getMode()) + 1) % order.length]!;
+          yolo = next === "bypassPermissions";
+          session.mode = next === "plan" ? "plan" : "normal";
+          permModeOverride = next === "plan" || next === "bypassPermissions" ? null : next;
+          return next;
+        },
         register: ({ approvalPrompt, askUser }) => {
           inkApprovalPrompt = approvalPrompt;
           inkAsk = askUser;

@@ -4,7 +4,9 @@ dist-bin/
 /dao
 *.log
 .env
-.dao/
+# .dao/ 内容默认忽略,但项目级权限配置 settings.json 需随仓库共享(对标 CC:settings.json 入库、settings.local.json 不入库)
+.dao/*
+!.dao/settings.json
 .codeds/
 evals/report.md
 evals/runs/

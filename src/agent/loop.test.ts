@@ -9,7 +9,7 @@ import type { ApprovalGate } from "../approval/types.js";
 
 const config = { baseUrl: "https://x", apiKey: "sk" };
 const ctx = { workspaceRoot: "/tmp" };
-const stubGate: ApprovalGate = { needsApproval: () => false, requestBatch: async () => new Map() };
+const stubGate: ApprovalGate = { decide: () => "allow", requestBatch: async () => new Map() };
 
 function turn(deltas: StreamDelta[], message: AssistantMessage) {
   return async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
