@@ -236,6 +236,8 @@
   - **P4**:自我编辑记忆(MemGPT 式)、时序知识图谱(Zep 式)。
 - 参考:Generative Agents(reflection + 相关性/新近度/重要性检索)、MemGPT/Letta(自管理记忆)、Mem0/Zep(抽取→去重→合并→消解 管线)。
 
+> **P1 已落地并实测(2026-06-06)**:`memory/store`(JSON 文件、损坏容错、写入完全相同去重、用户级在前合并)+ `memory_write` 工具(project/user scope、capability plan + approval auto → plan 模式可用且不弹审批)+ 启动时 `loadAllMemories` 注入固定系统 prompt 的 `# 记忆` 段(§10:只启动注入一次,中途写盘不回灌、下次生效)。真网络实测:run1 `记住 vitest`→ 落盘;run2 **新进程**启动据注入记忆直接答 "vitest"、未调工具,跨 session 召回成立。延后:P2 reflection 抽取+语义合并、P3 embedding 检索(量大只注入相关子集)+衰减、记忆类型区分。
+
 ## 8. 模式
 
 - **normal**:正常工作模式。
