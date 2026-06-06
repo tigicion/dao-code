@@ -242,6 +242,10 @@
 - **plan**:只读 + 提方案,禁写/执行;用户说"开干"退出。
 - 由 `/plan` 切换;mode 状态在 agent loop 中维护。
 
+> **M5 已落地并实测(2026-06-06)**:系统 prompt(§3 正文+模式/规划/工具段)接进 loop;`Session` 持久化 messages/model/mode;一次性 CLI 升级为交互式 **REPL** + 斜杠命令(`/model /plan /clear /help /exit`;`/compact` stub 留 M7);系统 prompt 启动固定、`/model` 只改请求参数(cache 稳)。
+> **关键教训**:plan 模式的"结构性强制"**必须在执行层**——只把写/执行工具从 API 工具表移除还不够,系统 prompt 仍列全部工具,模型照样会发 write_file tool_call;真网络测出此洞后改为 **runTurn 在 plan 下对不在允许表的工具直接拒绝执行(不派发、不弹审批)**,回"不可用"消息。实测:plan 下建文件被拒、文件未创建、无审批弹窗;切 normal 后建文件经 `y` 审批成功。
+> **单一 stdin**:REPL 读行 / 审批 / ask_user 共用一个行队列(FIFO),实测管道「建文件请求 + y + /exit」按序分配正确。延后:`/compact`(M7)、子代理 prompt 段(M8)、富 TUI(M9)、项目指令文件加载。
+
 ## 9. 上下文与压缩
 
 - 正常不早压,信任满上下文(保护 cache)。
