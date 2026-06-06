@@ -1,0 +1,4 @@
+{
+  "desc": "写:实现两个导出函数",
+  "prompt": "在工作区的 math.mjs 文件里实现并导出两个函数:add(a,b) 返回两数之和;sub(a,b) 返回 a 减 b。用 ESM 的 export 语法。"
+}

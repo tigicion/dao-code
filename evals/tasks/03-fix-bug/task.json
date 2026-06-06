@@ -1,0 +1,4 @@
+{
+  "desc": "改:修复一个 bug",
+  "prompt": "工作区的 is_even.mjs 里的 isEven 有 bug——isEven(4) 现在返回 false。修复它,使偶数返回 true、奇数返回 false。"
+}
