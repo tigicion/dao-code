@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineTool } from "./types.js";
 import { resolveInWorkspace } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
+import { withFileLock } from "./file_lock.js";
 
 export const writeFileTool = defineTool({
   name: "write_file",
@@ -15,18 +16,21 @@ export const writeFileTool = defineTool({
   }),
   handler: async (args, ctx) => {
     const abs = resolveInWorkspace(ctx.workspaceRoot, args.path);
-    let exists = false;
-    try {
-      await fs.access(abs);
-      exists = true;
-    } catch {
-      exists = false;
-    }
-    if (exists && ctx.readFiles && !ctx.readFiles.has(abs)) {
-      throw new Error(`覆盖已存在文件前请先用 read_file 读过它:${args.path}`);
-    }
-    await atomicWrite(abs, args.content);
-    ctx.readFiles?.add(abs);
-    return `已写入 ${args.path}(${args.content.split("\n").length} 行)`;
+    // 同路径持锁:与并行的 edit/write 同文件排队,避免互相覆盖。
+    return withFileLock(abs, async () => {
+      let exists = false;
+      try {
+        await fs.access(abs);
+        exists = true;
+      } catch {
+        exists = false;
+      }
+      if (exists && ctx.readFiles && !ctx.readFiles.has(abs)) {
+        throw new Error(`覆盖已存在文件前请先用 read_file 读过它:${args.path}`);
+      }
+      await atomicWrite(abs, args.content);
+      ctx.readFiles?.add(abs);
+      return `已写入 ${args.path}(${args.content.split("\n").length} 行)`;
+    });
   },
 });
