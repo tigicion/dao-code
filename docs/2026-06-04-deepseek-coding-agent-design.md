@@ -223,6 +223,7 @@
 - 子代理内部仍受审批门约束。
 - 完成事件回传主 agent,主 agent 据此更新 `todo_write`。
 
+> **M8 已落地并实测(2026-06-06)**:`agent` 工具(capability plan,**派发 approval auto**,经用户拍板保持 Auto)经 `ctx.runSubagent` 派发;`agent/subagent.ts` 建**全新隔离 Session**(系统prompt+记忆+仅 task,**不带主对话历史**)、复用 `runTurn` 跑到底、返回最终 assistant 文本作为工具消息回主 agent。**审批不绕过**:子代理复用同一 gate,其写/执行仍弹审批(§4;codeds 子代理同步内联+共用 stdin,可干净弹窗——区别于 CW 因并发只能"拦截"、CC 继承权限模式)。**防递归**:`ctx.subagentDepth`,子代理内 depth=1,agent 工具在 depth≥1 直接拒绝。**模式继承**:子代理继承主 mode(plan 下只读)。真网络实测:主 agent `→ agent` 派子代理读 package.json,`[子代理开始]…→ read_file…[子代理完成]`,子代理结论(name=codeds、scripts 列表)回传主 agent 转达;主 agent 上下文只收最终结果。延后:完成事件无独立通道(靠结果消息)、子代理过程的折叠展示(M9)、调查类子代理可用 flash 省钱。
 ## 7. 记忆系统(特色,分期)
 
 - **类型**:语义(事实,最高价值)/ 情景 / 程序。
