@@ -27,8 +27,10 @@ export async function distill(p: {
   let out = ""; let r = await gen.next();
   while (!r.done) { if (r.value?.kind === "content") out += r.value.text; r = await gen.next(); }
   if (!out && typeof r.value?.content === "string") out = r.value.content;
+  const dbg = !!process.env.CODEDS_DEBUG_MEMORY;
+  if (dbg) console.error(`[distill] 模型原始输出(${out.length} 字符):\n${out || "(空)"}`);
   const arr = extractJson(out);
-  if (!Array.isArray(arr)) return [];
+  if (!Array.isArray(arr)) { if (dbg) console.error("[distill] extractJson 未解析出数组 → 返回 []"); return []; }
   const valid = new Set<MemoryType>(["user", "semantic", "procedural", "episodic"]);
   const mems: Memory[] = [];
   for (const it of arr) {
@@ -42,5 +44,6 @@ export async function distill(p: {
       source: typeof it.source === "string" ? it.source : undefined,
     }));
   }
+  if (dbg) console.error(`[distill] 解析出候选 ${mems.length} 条(importance<4 已滤)`);
   return mems;
 }

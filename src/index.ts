@@ -275,8 +275,9 @@ async function main() {
         n++;
       }
       if (n > 0) write(`\n已更新记忆:${n} 条\n`);
-    } catch {
-      // 蒸馏失败静默吞掉,不影响退出。
+    } catch (e) {
+      if (process.env.CODEDS_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
+      // 失败不阻塞退出。
     }
   };
 
