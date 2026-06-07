@@ -1,17 +1,28 @@
 import type { Capabilities } from "./capabilities.js";
+import type { Background } from "./background.js";
 
 export type Semantic = "ink" | "jade" | "vermilion" | "dim" | "gold";
 
 type RGB = [number, number, number];
 interface ColorSpec { rgb: RGB; ansi256: number; ansi16: string } // ansi16:SGR 数字串如 "36"
 
-// 一套精调默认主题(墨黑底假设):青玉强调 + 朱砂印 + 暖金点缀。
-const PALETTE: Record<Semantic, ColorSpec> = {
-  ink:       { rgb: [220, 223, 228], ansi256: 252, ansi16: "37" },
-  jade:      { rgb: [127, 183, 166], ansi256: 79,  ansi16: "36" },
-  vermilion: { rgb: [200, 68, 60],   ansi256: 167, ansi16: "31" },
-  dim:       { rgb: [128, 132, 140], ansi256: 245, ansi16: "90" },
-  gold:      { rgb: [201, 168, 106], ansi256: 179, ansi16: "33" },
+// 一套精调主题,按终端背景分两组:
+// dark 底用浅色文字(青玉强调);light 底用深色文字(深青玉),避免被白底洗白。
+const PALETTES: Record<Background, Record<Semantic, ColorSpec>> = {
+  dark: {
+    ink:       { rgb: [220, 223, 228], ansi256: 252, ansi16: "37" },
+    jade:      { rgb: [127, 183, 166], ansi256: 79,  ansi16: "36" },
+    vermilion: { rgb: [200, 68, 60],   ansi256: 167, ansi16: "31" },
+    dim:       { rgb: [128, 132, 140], ansi256: 245, ansi16: "90" },
+    gold:      { rgb: [201, 168, 106], ansi256: 179, ansi16: "33" },
+  },
+  light: {
+    ink:       { rgb: [40, 44, 52],    ansi256: 238, ansi16: "30" },
+    jade:      { rgb: [38, 110, 96],   ansi256: 29,  ansi16: "36" },
+    vermilion: { rgb: [178, 48, 42],   ansi256: 160, ansi16: "31" },
+    dim:       { rgb: [120, 126, 134], ansi256: 244, ansi16: "90" },
+    gold:      { rgb: [150, 118, 46],  ansi256: 136, ansi16: "33" },
+  },
 };
 
 const FG_RESET = "\x1b[39m";
@@ -21,8 +32,8 @@ function fg(rgb: RGB): string {
 }
 
 // 用语义色包裹一段文本(单行)。none 档返回原文。
-export function paint(text: string, sem: Semantic, caps: Capabilities): string {
-  const c = PALETTE[sem];
+export function paint(text: string, sem: Semantic, caps: Capabilities, bg: Background = "dark"): string {
+  const c = PALETTES[bg][sem];
   switch (caps.tier) {
     case "none": return text;
     case "truecolor": return `${fg(c.rgb)}${text}${FG_RESET}`;
@@ -41,12 +52,18 @@ function lerp(a: RGB, b: RGB, t: number): RGB {
 }
 
 // 对多行块做 from→to 的横向真彩渐变(按列位置插值,逐行一致)。
-// 非 truecolor 退化:整体用 from 语义单色(paint 每行);none 原样。
-export function gradientBlock(lines: string[], from: Semantic, to: Semantic, caps: Capabilities): string[] {
+// 非 truecolor 退化:整体用 from 语义单色;none 原样。
+export function gradientBlock(
+  lines: string[],
+  from: Semantic,
+  to: Semantic,
+  caps: Capabilities,
+  bg: Background = "dark",
+): string[] {
   if (caps.tier === "none") return [...lines];
-  if (caps.tier !== "truecolor") return lines.map((l) => paint(l, from, caps));
-  const a = PALETTE[from].rgb;
-  const b = PALETTE[to].rgb;
+  if (caps.tier !== "truecolor") return lines.map((l) => paint(l, from, caps, bg));
+  const a = PALETTES[bg][from].rgb;
+  const b = PALETTES[bg][to].rgb;
   const maxLen = Math.max(1, ...lines.map((l) => [...l].length));
   return lines.map((line) => {
     const chars = [...line];
