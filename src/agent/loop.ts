@@ -32,7 +32,7 @@ export interface TurnDeps {
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
 export async function runTurn(deps: TurnDeps): Promise<void> {
   const { session } = deps;
-  const maxTurns = deps.maxTurns ?? 25;
+  const maxTurns = deps.maxTurns ?? (Number(process.env.CODEDS_MAX_TURNS) || 25);
   for (let t = 0; t < maxTurns; t++) {
     const tools = apiToolsForMode(deps.registry, session.mode);
     const gen = deps.streamChat({
@@ -41,9 +41,10 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       model: session.model,
       messages: session.messages,
       ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
-      // agent 类客户端用最高思考强度(官方对 Claude Code/OpenCode 类亦自动升到 max)。
+      // agent 类客户端默认用最高思考强度(官方对 Claude Code/OpenCode 类亦自动升到 max)。
+      // 可用 CODEDS_REASONING_EFFORT 覆盖(实验:max 可能放大"过度推敲、到了正解不下手")。
       // 思考模式下 temperature/top_p 无效,故不设采样参数。
-      extra: { reasoning_effort: "max" },
+      extra: { reasoning_effort: process.env.CODEDS_REASONING_EFFORT || "max" },
     });
     const assistant = await renderStream(gen, deps.write);
     session.messages.push(assistant);

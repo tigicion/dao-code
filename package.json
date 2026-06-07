@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "verify:mem": "tsx scripts/verify-memory.ts",
-    "accept:mem": "bash scripts/accept-memory.sh"
+    "accept:mem": "bash scripts/accept-memory.sh",
+    "debug:distill": "tsx scripts/debug-distill.ts"
   },
   "dependencies": {
     "zod": "^3.23.0",
