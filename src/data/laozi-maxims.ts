@@ -1,0 +1,36 @@
+// src/data/laozi-maxims.ts
+// 精选《道德经》名句(公有领域,老子)。chapter 为章次。
+export interface Maxim { text: string; chapter: number }
+
+export const MAXIMS: Maxim[] = [
+  { text: "道可道，非常道；名可名，非常名。", chapter: 1 },
+  { text: "上善若水，水善利万物而不争。", chapter: 8 },
+  { text: "知人者智，自知者明。", chapter: 33 },
+  { text: "胜人者有力，自胜者强。", chapter: 33 },
+  { text: "千里之行，始于足下。", chapter: 64 },
+  { text: "合抱之木，生于毫末。", chapter: 64 },
+  { text: "大巧若拙，大辩若讷。", chapter: 45 },
+  { text: "大方无隅，大器晚成，大音希声，大象无形。", chapter: 41 },
+  { text: "知足不辱，知止不殆。", chapter: 44 },
+  { text: "祸兮福之所倚，福兮祸之所伏。", chapter: 58 },
+  { text: "天下难事，必作于易；天下大事，必作于细。", chapter: 63 },
+  { text: "为学日益，为道日损。", chapter: 48 },
+  { text: "无为而无不为。", chapter: 48 },
+  { text: "信言不美，美言不信。", chapter: 81 },
+  { text: "知者不言，言者不知。", chapter: 56 },
+  { text: "道生一，一生二，二生三，三生万物。", chapter: 42 },
+  { text: "人法地，地法天，天法道，道法自然。", chapter: 25 },
+  { text: "治大国，若烹小鲜。", chapter: 60 },
+  { text: "善行无辙迹，善言无瑕谪。", chapter: 27 },
+  { text: "见素抱朴，少私寡欲。", chapter: 19 },
+  { text: "致虚极，守静笃。", chapter: 16 },
+  { text: "曲则全，枉则直。", chapter: 22 },
+  { text: "夫唯不争，故天下莫能与之争。", chapter: 22 },
+  { text: "知其雄，守其雌。", chapter: 28 },
+  { text: "大成若缺，其用不弊。", chapter: 45 },
+  { text: "重为轻根，静为躁君。", chapter: 26 },
+  { text: "江海所以能为百谷王者，以其善下之。", chapter: 66 },
+  { text: "天之道，利而不害；圣人之道，为而不争。", chapter: 81 },
+  { text: "祸莫大于不知足，咎莫大于欲得。", chapter: 46 },
+  { text: "图难于其易，为大于其细。", chapter: 63 },
+];
