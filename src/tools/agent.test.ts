@@ -96,6 +96,26 @@ describe("agent tool", () => {
     expect(launched).toEqual(["耗时调查"]);
   });
 
+  it("并发限流:>10 个任务最多 10 个同时跑,其余排队,全部完成", async () => {
+    let active = 0, maxActive = 0;
+    const tasks = Array.from({ length: 15 }, (_, i) => `t${i}`);
+    const out = await agentTool.handler(
+      { tasks },
+      {
+        workspaceRoot: "/tmp",
+        runSubagent: async (t) => {
+          active++; maxActive = Math.max(maxActive, active);
+          await new Promise((r) => setTimeout(r, 10));
+          active--; return `R:${t}`;
+        },
+      },
+    );
+    expect(maxActive).toBeLessThanOrEqual(10); // 限流生效
+    expect(maxActive).toBeGreaterThan(1); // 确实并行
+    expect(out).toContain("子代理 15/15"); // 全部完成
+    expect(out).toContain("R:t14");
+  });
+
   it("并行中单个失败不影响其余", async () => {
     const out = await agentTool.handler(
       { tasks: ["ok", "bad"] },
