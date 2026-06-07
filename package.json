@@ -3,10 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "preview:welcome": "tsx scripts/preview-welcome.ts",
+    "preview:ink": "tsx scripts/welcome-ink.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -16,11 +19,14 @@
     "debug:distill": "tsx scripts/debug-distill.ts"
   },
   "dependencies": {
+    "ink": "^7.0.5",
+    "react": "^19.2.7",
     "zod": "^3.23.0",
     "zod-to-json-schema": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.17",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
