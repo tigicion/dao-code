@@ -11,6 +11,7 @@ export interface Memory {
   lastUsed: string;
   source?: string;           // "path" 或 "path#symbol"(仅从代码推导的事实)
   sourceHash?: string;       // 写入时 source 内容的 hash
+  uses: number;              // 重确认计数:每次去重命中 +1(衰减 GC 的强化信号)
   status: "active" | "superseded";
   supersededBy?: string;
   validUntil?: string;
@@ -28,6 +29,7 @@ export function newMemory(p: {
     created: p.today, lastUsed: p.today,
     ...(p.source ? { source: p.source } : {}),
     ...(p.sourceHash ? { sourceHash: p.sourceHash } : {}),
+    uses: 0,
     status: "active", locked: false,
   };
 }
