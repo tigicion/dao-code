@@ -1,29 +1,18 @@
 import type { Capabilities } from "./capabilities.js";
 import { paint, gradientBlock } from "./theme.js";
 import { randomMaxim } from "./maxim.js";
+import { renderTaiji, TAIJI_WIDTH } from "./taiji.js";
 import { displayWidth } from "./width.js";
 
 export interface WelcomeInfo {
   model: string;
   thinking: string;
-  mode: string;
-  memories: number;
   cwd: string;
   version: string;
+  branch?: string;
 }
 
-// 太极初始美术(半块字符;后续 preview 目视微调)。
-const TAIJI = [
-  "      ▄▀▀▀▀▀▄",
-  "    ▄▀  ▄▄▄  ▀▄",
-  "   █   █████   █",
-  "   █   ▀▀▀▀▀   █",
-  "   █   ▄▄▄▄▄   █",
-  "    ▀▄  ▀▀▀  ▄▀",
-  "      ▀▄▄▄▄▄▀",
-];
-
-// DAO CODE 词标(ANSI Shadow 风格,初始稿)。
+// DAO CODE 词标(ANSI Shadow 风格)。
 const WORDMARK = [
   "██████╗  █████╗  ██████╗    ██████╗ ██████╗ ██████╗ ███████╗",
   "██╔══██╗██╔══██╗██╔═══██╗  ██╔════╝██╔═══██╗██╔══██╗██╔════╝",
@@ -39,51 +28,60 @@ function centerColored(line: string, visibleLen: number, columns: number): strin
   return " ".repeat(pad) + line;
 }
 
+// 长路径缩短:超过 3 段时取末 3 段并加 …/ 前缀。
+function shortenPath(p: string): string {
+  const segs = p.split("/").filter(Boolean);
+  return segs.length <= 3 ? p : "…/" + segs.slice(-3).join("/");
+}
+
 export function buildWelcome(info: WelcomeInfo, caps: Capabilities, rng?: () => number): string {
   const cols = caps.columns;
   const out: string[] = [];
   const blank = () => out.push("");
 
   blank();
-  // 太极(灰阶 dim):按原始行宽(去 ANSI)居中
-  TAIJI.forEach((row) => out.push(centerColored(paint(row, "dim", caps), displayWidth(row), cols)));
-
-  blank();
-  // 词标(jade→ink 渐变),按原始行宽居中
+  // 太极(程序化阴阳鱼)+ 词标(jade→ink 渐变),贴在一起作 logo
+  const taiji = renderTaiji(caps);
+  const tw = TAIJI_WIDTH(caps);
+  taiji.forEach((row) => out.push(centerColored(row, tw, cols)));
   const wm = gradientBlock(WORDMARK, "jade", "ink", caps);
   WORDMARK.forEach((raw, i) => out.push(centerColored(wm[i]!, displayWidth(raw), cols)));
 
   blank();
-  // 朱砂"道"落款 + 副标题 + 品牌名
-  const seal = paint("【道】", "vermilion", caps);
-  const brand = paint("DAO CODE", "jade", caps);
-  const sub = paint("DeepSeek V4 编码之道", "dim", caps);
-  const sealLine = `${seal}  ${brand}  ${sub}`;
-  out.push(centerColored(sealLine, displayWidth("【道】  DAO CODE  DeepSeek V4 编码之道"), cols));
+  // 朱砂"道"落款 + 品牌 + 副标题 + 版本
+  const sealRaw = `【道】  DAO CODE  ·  DeepSeek V4 编码之道  ·  v${info.version}`;
+  const sealLine =
+    `${paint("【道】", "vermilion", caps)}  ${paint("DAO CODE", "jade", caps)}` +
+    `  ${paint("·", "dim", caps)}  ${paint("DeepSeek V4 编码之道", "dim", caps)}` +
+    `  ${paint("·", "dim", caps)}  ${paint(`v${info.version}`, "dim", caps)}`;
+  out.push(centerColored(sealLine, displayWidth(sealRaw), cols));
 
-  blank();
-  // 随机名句
+  // 随机名句(去掉出处,大家都知道老子)
   const m = randomMaxim(rng);
   const quoteRaw = `「${m.text}」`;
   out.push(centerColored(paint(quoteRaw, "jade", caps), displayWidth(quoteRaw), cols));
-  const byRaw = `— 老子 · 第${m.chapter}章`;
-  out.push(centerColored(paint(byRaw, "dim", caps), displayWidth(byRaw), cols));
 
   blank();
-  // 信息行(左对齐到一个统一缩进)
-  const indent = "   ";
-  const line = (label: string, value: string) =>
-    `${indent}${paint(label, "dim", caps)} ${paint(value, "ink", caps)}`;
-  out.push(line("模型", `${info.model} · ${info.thinking}`));
-  out.push(line("模式", `${info.mode}      记忆 ${info.memories} 条`));
-  out.push(line("目录", `${info.cwd}      v${info.version}`));
+  // 信息块(整块居中):模型/上下文 一行,目录/分支 一行
+  const l1Raw = `模型 ${info.model} · ${info.thinking} · 1M 上下文`;
+  const branchPart = info.branch ? `   ⎇ ${info.branch}` : "";
+  const l2Raw = `目录 ${shortenPath(info.cwd)}${branchPart}`;
+  const blockW = Math.max(displayWidth(l1Raw), displayWidth(l2Raw));
+  const indent = " ".repeat(Math.max(0, Math.floor((cols - blockW) / 2)));
+  const l1 =
+    `${paint("模型", "dim", caps)} ${paint(info.model, "ink", caps)}` +
+    ` ${paint("·", "dim", caps)} ${paint(info.thinking, "ink", caps)}` +
+    ` ${paint("·", "dim", caps)} ${paint("1M 上下文", "ink", caps)}`;
+  const l2 =
+    `${paint("目录", "dim", caps)} ${paint(shortenPath(info.cwd), "ink", caps)}` +
+    (info.branch ? `   ${paint(`⎇ ${info.branch}`, "jade", caps)}` : "");
+  out.push(indent + l1);
+  out.push(indent + l2);
 
   blank();
-  // 水墨分隔
+  // 水墨分隔 + 提示
   const ruleRaw = "╌".repeat(Math.min(48, Math.max(20, cols - 6)));
   out.push(centerColored(paint(ruleRaw, "dim", caps), displayWidth(ruleRaw), cols));
-
-  // 提示行
   const tipRaw = "输入消息开始 · /help 命令 · @ 引用文件 · Esc 打断";
   out.push(centerColored(paint(tipRaw, "dim", caps), displayWidth(tipRaw), cols));
   blank();
