@@ -35,6 +35,8 @@ export function App(deps: AppDeps) {
   const [ask, setAsk] = useState<{ question: string; resolve: (s: string) => void } | null>(null);
   const [askInput, setAskInput] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
+  const history = useRef<string[]>([]);
+  const histIdx = useRef<number>(-1); // -1 = 不在历史浏览中
 
   const pushItem = (it: TranscriptItem) => setItems((p) => [...p, it]);
 
@@ -81,6 +83,8 @@ export function App(deps: AppDeps) {
     const text = raw.trim();
     setInput("");
     if (!text) return;
+    history.current.push(text);
+    histIdx.current = -1;
     if (text.startsWith("/")) {
       const name = text.slice(1).split(/\s+/)[0];
       const res = deps.runCommand(text);
@@ -128,6 +132,23 @@ export function App(deps: AppDeps) {
     if (key.escape && busy) { controllerRef.current?.abort(); return; }
     if (key.ctrl && ch === "c") { exit(); return; }
     if (busy) return;
+    if (key.upArrow) {
+      const h = history.current;
+      if (h.length) {
+        histIdx.current = histIdx.current < 0 ? h.length - 1 : Math.max(0, histIdx.current - 1);
+        setInput(h[histIdx.current] ?? "");
+      }
+      return;
+    }
+    if (key.downArrow) {
+      const h = history.current;
+      if (histIdx.current >= 0) {
+        histIdx.current++;
+        if (histIdx.current >= h.length) { histIdx.current = -1; setInput(""); }
+        else setInput(h[histIdx.current] ?? "");
+      }
+      return;
+    }
     if (key.return) { void onSubmit(input); return; }
     if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
     if (ch && !key.ctrl && !key.meta) setInput((s) => s + ch);
