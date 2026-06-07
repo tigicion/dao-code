@@ -99,6 +99,34 @@ describe("streamChat", () => {
     expect(sentBody.stream).toBe(true);
   });
 
+  it("captures the final usage chunk (with cache hit/miss) via onUsage", async () => {
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":50,"total_tokens":1050,"prompt_cache_hit_tokens":900,"prompt_cache_miss_tokens":100}}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    let seen: any;
+    await run(
+      streamChat({
+        ...base,
+        messages: [{ role: "user", content: "hi" }],
+        onUsage: (u) => { seen = u; },
+        fetchImpl: fakeFetch(chunks),
+      }),
+    );
+    expect(seen).toMatchObject({ prompt_tokens: 1000, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 });
+  });
+
+  it("requests usage in the stream (stream_options.include_usage)", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    await run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch }));
+    expect(sentBody.stream_options).toEqual({ include_usage: true });
+  });
+
   it("throws on non-2xx responses", async () => {
     await expect(
       run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: fakeFetch([], 401) })),

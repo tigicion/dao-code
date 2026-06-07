@@ -45,6 +45,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       // 可用 CODEDS_REASONING_EFFORT 覆盖(实验:max 可能放大"过度推敲、到了正解不下手")。
       // 思考模式下 temperature/top_p 无效,故不设采样参数。
       extra: { reasoning_effort: process.env.CODEDS_REASONING_EFFORT || "max" },
+      onUsage: (u) => session.addUsage(u),
     });
     const assistant = await renderStream(gen, deps.write);
     session.messages.push(assistant);
