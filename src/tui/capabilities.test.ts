@@ -25,6 +25,9 @@ describe("detectCapabilities", () => {
   it("FORCE_COLOR=3 → truecolor(便于强制)", () => {
     expect(detectCapabilities({ FORCE_COLOR: "3" }, true).tier).toBe("truecolor");
   });
+  it("FORCE_COLOR=2 → ansi256(便于强制降级)", () => {
+    expect(detectCapabilities({ FORCE_COLOR: "2" }, true).tier).toBe("ansi256");
+  });
   it("columns 默认 80,可由 COLUMNS 覆盖", () => {
     expect(detectCapabilities({}, true).columns).toBe(80);
     expect(detectCapabilities({ COLUMNS: "120" }, true).columns).toBe(120);
