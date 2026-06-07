@@ -2,7 +2,8 @@ import type { Memory, MemoryType } from "./types.js";
 import { newMemory } from "./types.js";
 
 const SYS = `你是记忆蒸馏器。从给定对话里抽取值得跨会话长期记住的事实,**最看重"关于用户这个人"的信息**:用户的环境/技术栈/水平/习惯(信息)、喜好(偏好)、目标与背后的为什么(意图),以及你能合理推断、但用户没明说的信息或意图(这类 type=user 且 confidence 设低,如 0.4–0.6)。也可记通用可复用规则(procedural)与稳定项目事实(semantic)。
-只输出 JSON 数组,每项 {text(一句话), type(user|semantic|procedural|episodic), importance(1-10), confidence(0-1,可选), source(可选,代码出处)}。
+只输出 JSON 数组,每项 {text(一句话), type(user|semantic|procedural|episodic), importance(1-10), confidence(0-1,可选), source(可选)}。
+source 只在该事实是从某个真实文件/代码推导出来时填,且必须是文件路径(如 "package.json#packageManager");用户类事实(type=user)或任何没有代码出处的事实一律省略 source,不要填"用户告知""推断"之类的理由说明。
 只保留耐久、可泛化的;忽略一次性细节与寒暄。无可记则输出 []。只输出 JSON,不要其它文字。`;
 
 function extractJson(s: string): unknown {
