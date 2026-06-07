@@ -270,9 +270,10 @@ async function main() {
 
   try {
     if (argvPrompt) {
+      // 一次性调用(含 eval 每次跑)不蒸馏:蒸馏只属于真实的交互式工作会话,
+      // 既省掉快速查询的 flash 开销,也自动把 eval 排除在外、测量更干净。
       session.addUser(argvPrompt);
       await runOneTurn();
-      await distillOnExit();
       return;
     }
     write(`codeds —— 输入消息开始;/help 看命令,/exit 退出。\n`);
