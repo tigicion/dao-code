@@ -37,12 +37,15 @@ import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { buildSystemPrompt } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { runRepl } from "./repl.js";
+import { buildWelcome } from "./tui/banner.js";
+import { detectCapabilities } from "./tui/capabilities.js";
 import { compactMessages, shouldCompact } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
 
 const KEY_HELP =
   "获取 key:https://platform.deepseek.com/api_keys";
+const VERSION = "0.0.1"; // 与 package.json 同步;只用于欢迎 banner 显示
 
 async function main() {
   const argvPrompt = process.argv.slice(2).join(" ").trim();
@@ -293,7 +296,15 @@ async function main() {
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
       return;
     }
-    write(`codeds —— 输入消息开始;/help 看命令,/exit 退出。\n`);
+    const caps = detectCapabilities(process.env, process.stdout.isTTY ?? false);
+    write(buildWelcome({
+      model: cfg.model,
+      thinking: process.env.CODEDS_REASONING_EFFORT || "max",
+      mode: session.mode,
+      memories: memories.length,
+      cwd: workspaceRoot,
+      version: VERSION,
+    }, caps) + "\n");
     const readLine = async (): Promise<string | null> => {
       write("\n> ");
       return nextLine();
