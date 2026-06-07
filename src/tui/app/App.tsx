@@ -505,7 +505,7 @@ export function App(deps: AppDeps) {
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
-              {["model", "plan", "mode", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
+              {["model", "plan", "mode", "simplify", "remember", "debug", "skillify", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
                 .filter((cmd) => ("/" + cmd).startsWith(input))
                 .map((cmd) => "/" + cmd)
                 .join("  ") || "(无匹配命令)"}
