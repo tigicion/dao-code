@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Text, useStdout } from "ink";
 import type { Capabilities } from "./capabilities.js";
 import type { Background } from "./background.js";
@@ -14,6 +14,22 @@ function shortenPath(p: string): string {
   return segs.length <= 3 ? p : "…/" + segs.slice(-3).join("/");
 }
 
+// 订阅终端 resize,返回当前列宽(变化即触发重渲染 → 布局重排)。
+function useTermWidth(fallback: number): number {
+  const { stdout } = useStdout();
+  const [cols, setCols] = useState(stdout?.columns ?? fallback);
+  useEffect(() => {
+    if (!stdout) return;
+    const onResize = () => setCols(stdout.columns ?? fallback);
+    onResize();
+    stdout.on("resize", onResize);
+    return () => {
+      stdout.off("resize", onResize);
+    };
+  }, [stdout, fallback]);
+  return cols;
+}
+
 // 响应式欢迎屏(Ink):整宽圆角边框 + 居中 logo + 两栏页脚,随终端 resize 重排。
 export function Welcome({
   info,
@@ -26,9 +42,8 @@ export function Welcome({
   bg: Background;
   maxim: Maxim;
 }) {
-  // useStdout 的 columns 在 resize 时更新,触发重渲染。
-  const { stdout } = useStdout();
-  const columns = stdout?.columns ?? caps.columns;
+  // 订阅 resize:列宽变化触发重渲染,使整宽边框与两栏随终端重排。
+  const columns = useTermWidth(caps.columns);
   const narrow = columns < 72;
 
   const taiji = renderTaiji(caps, bg);
@@ -39,7 +54,7 @@ export function Welcome({
     <Box
       borderStyle="round"
       borderColor={c("jade")}
-      width="100%"
+      width={columns}
       flexDirection="column"
       paddingX={2}
       paddingY={1}
