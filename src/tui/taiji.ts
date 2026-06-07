@@ -1,39 +1,25 @@
 import type { Capabilities } from "./capabilities.js";
+import type { Background } from "./background.js";
 
-// 程序化生成太极(阴阳鱼),带抗锯齿。
+// 程序化生成太极(阴阳鱼),带(锐化的)抗锯齿。
 // 技法:每个字符用上半块 "▀" —— 前景=上像素、背景=下像素,把垂直分辨率翻倍。
-// 抗锯齿:每像素 SS×SS 超采样,按"圆内覆盖率"把边缘像素向背景混色(柔化棱角),
-// 按"阳/阴占比"在两色间混色(柔化阴阳 S 线)。truecolor 全抗锯齿;
-// ansi256 用两色硬边(无混色,但分辨率高也较圆);ansi16/none 退化简图。
+// 抗锯齿:每像素 SS×SS 超采样;覆盖率经 smoothstep 锐化(留薄薄一圈过渡、不糊),
+// 边缘向背景混色、阴阳按占比混色。truecolor 全抗锯齿;ansi256 两色硬边;ansi16/none 退化简图。
 
 type RGB = [number, number, number];
 
-export type Background = "light" | "dark";
-
-// 背景检测:DAO_THEME 显式 > COLORFGBG 末位(0..6,8=暗;7,9..15=亮)> 默认暗。
-export function detectBackground(env: NodeJS.ProcessEnv | Record<string, string | undefined>): Background {
-  const forced = (env.DAO_THEME ?? "").toLowerCase();
-  if (forced === "light" || forced === "dark") return forced;
-  const fgbg = env.COLORFGBG;
-  if (fgbg) {
-    const last = parseInt(fgbg.split(";").pop() ?? "", 10);
-    if (!Number.isNaN(last)) return last === 7 || last >= 9 ? "light" : "dark";
-  }
-  return "dark";
-}
-
-// 每种背景一组配色:阳鱼、阴鱼、鱼眼(对色)、用于边缘抗锯齿的"背景混合色"。
+// 每种背景一组配色:阳鱼、阴鱼、用于边缘抗锯齿的"背景混合色"。鱼眼由公式对色,自然得到。
 interface Palette { yang: RGB; yin: RGB; bgBlend: RGB }
 const PALETTES: Record<Background, Palette> = {
   dark: { yang: [236, 238, 242], yin: [70, 122, 112], bgBlend: [20, 20, 22] },
-  light: { yang: [70, 78, 90], yin: [104, 160, 146], bgBlend: [250, 250, 248] },
+  light: { yang: [60, 68, 80], yin: [104, 160, 146], bgBlend: [252, 252, 250] },
 };
 
-const DIAM = 22; // 像素直径(偶数)→ 22 列、11 字符行,较圆且不太占屏
+const DIAM = 22; // 像素直径(偶数)→ 22 列、11 字符行
 const R = DIAM / 2;
 const SS = 4; // 超采样密度
 
-type Sample = { coverage: number; yang: number }; // coverage:圆内占比;yang:阳占比(0..1)
+type Sample = { coverage: number; yang: number };
 
 // 连续坐标分类:点是否在圆内,以及属阳(true)还是阴。
 function classify(x: number, y: number): { inside: boolean; yang: boolean } {
@@ -52,7 +38,6 @@ function classify(x: number, y: number): { inside: boolean; yang: boolean } {
   return { inside: true, yang };
 }
 
-// 对单个像素(整数格)做 SS×SS 超采样。
 function sample(px: number, py: number, cx: number, cy: number): Sample {
   let inN = 0;
   let yangN = 0;
@@ -77,10 +62,15 @@ const blend = (a: RGB, b: RGB, t: number): RGB => [
   Math.round(a[2] + (b[2] - a[2]) * t),
 ];
 
-// 像素 → 最终 RGB(阳/阴混色后,再按覆盖率向背景混合做抗锯齿)。
+// smoothstep:把覆盖率向 0/1 推,锐化圆周(留薄过渡圈,不糊)。
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+
 function pixelRGB(s: Sample, pal: Palette): RGB {
   const fish = blend(pal.yin, pal.yang, s.yang);
-  return blend(pal.bgBlend, fish, s.coverage);
+  return blend(pal.bgBlend, fish, smoothstep(0.2, 0.8, s.coverage));
 }
 
 const tcFg = (c: RGB) => `\x1b[38;2;${c[0]};${c[1]};${c[2]}m`;
@@ -96,7 +86,7 @@ const FALLBACK = [
   "    `-‐‐-'",
 ];
 
-const EPS = 0.06; // 覆盖率低于此视为圆外(避免零星淡块)
+const EPS = 0.1; // 覆盖率低于此视为圆外
 
 export function renderTaiji(caps: Capabilities, bg: Background = "dark"): string[] {
   if (caps.tier === "none" || caps.tier === "ansi16") return [...FALLBACK];
@@ -108,11 +98,9 @@ export function renderTaiji(caps: Capabilities, bg: Background = "dark"): string
   const pal = PALETTES[bg];
   const truecolor = caps.tier === "truecolor";
 
-  // ansi256:两色硬边(取覆盖>0.5、阳占比定色),不混色。
-  const hard256 = (s: Sample): string | null => {
-    if (s.coverage < 0.5) return null;
-    return `\x1b[38;5;${s.yang >= 0.5 ? 254 : 65}m`;
-  };
+  // ansi256:两色硬边(覆盖>0.5、阳占比定色),不混色。
+  const hard256 = (s: Sample): string | null =>
+    s.coverage < 0.5 ? null : `\x1b[38;5;${s.yang >= 0.5 ? 254 : 65}m`;
 
   const lines: string[] = [];
   for (let r = 0; r < rows; r++) {
@@ -131,7 +119,6 @@ export function renderTaiji(caps: Capabilities, bg: Background = "dark"): string
         else if (tOn) line += `\x1b[49m${tcFg(pixelRGB(top, pal))}▀`;
         else line += `\x1b[49m${tcFg(pixelRGB(bot, pal))}▄`;
       } else {
-        // ansi256
         const tc = hard256(top);
         const bc = hard256(bot);
         if (tc && bc) line += `${tc}${bc.replace("[38", "[48")}▀`;
@@ -145,7 +132,6 @@ export function renderTaiji(caps: Capabilities, bg: Background = "dark"): string
   return lines;
 }
 
-// 渲染时的"可见宽度"(去 ANSI 后的列数),供居中用。
 export const TAIJI_WIDTH = (caps: Capabilities): number =>
   caps.tier === "none" || caps.tier === "ansi16"
     ? Math.max(...FALLBACK.map((l) => [...l].length))
