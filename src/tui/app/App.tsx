@@ -131,6 +131,9 @@ export function App(deps: AppDeps) {
   // 大段粘贴折叠:输入框/历史里显示 [粘贴#N +M行] 占位,提交时再展开成全文喂模型——保持界面与上下文清爽。
   const pasteRef = useRef<Map<string, string>>(new Map());
   const pasteSeqRef = useRef(0);
+  // 会话内 /loop:定时把 prompt 排进 queued(空闲时自动跑);退出时清理。
+  const loopRef = useRef<{ prompt: string; timer: ReturnType<typeof setInterval> } | null>(null);
+  useEffect(() => () => { if (loopRef.current) clearInterval(loopRef.current.timer); }, []);
   const expandPastes = (s: string) => {
     let out = s;
     for (const [ph, full] of pasteRef.current) out = out.split(ph).join(full);
@@ -247,6 +250,25 @@ export function App(deps: AppDeps) {
         const next = bg === "dark" ? "light" : "dark";
         setBg(next);
         pushItem({ id: nextId(), kind: "notice", text: `已切换主题:${next === "light" ? "浅色" : "深色"}` });
+        return;
+      }
+      if (name === "loop") {
+        const parts = full.trim().split(/\s+/);
+        const arg = parts[1];
+        if (!arg || arg === "off") {
+          if (loopRef.current) { clearInterval(loopRef.current.timer); loopRef.current = null; pushItem({ id: nextId(), kind: "notice", text: "已停止循环。" }); }
+          else pushItem({ id: nextId(), kind: "notice", text: "用法:/loop <间隔如 30s/5m/1h> <要周期跑的 prompt>;/loop off 停止" });
+          return;
+        }
+        const m = /^(\d+)(s|m|h)$/.exec(arg);
+        const loopPrompt = parts.slice(2).join(" ").trim();
+        if (!m || !loopPrompt) { pushItem({ id: nextId(), kind: "notice", text: "用法:/loop <间隔如 30s/5m/1h> <prompt>" }); return; }
+        const ms = Number(m[1]) * (m[2] === "h" ? 3600000 : m[2] === "m" ? 60000 : 1000);
+        if (loopRef.current) clearInterval(loopRef.current.timer);
+        // 到点把 prompt 排队(去重:同一 prompt 未消费完不重复排),空闲时自动跑。
+        const timer = setInterval(() => setQueued((q) => (q.includes(loopPrompt) ? q : [...q, loopPrompt])), ms);
+        loopRef.current = { prompt: loopPrompt, timer };
+        pushItem({ id: nextId(), kind: "notice", text: `已开启循环:每 ${arg} 跑一次「${loopPrompt.slice(0, 40)}」(/loop off 停止)` });
         return;
       }
       const res = deps.runCommand(full);
@@ -410,6 +432,9 @@ export function App(deps: AppDeps) {
     if (key.rightArrow) { setField((f) => ({ ...f, cursor: Math.min(f.text.length, f.cursor + 1) })); return; }
     if (key.ctrl && ch === "a") { setField((f) => ({ ...f, cursor: 0 })); return; } // 行首
     if (key.ctrl && ch === "e") { setField((f) => ({ ...f, cursor: f.text.length })); return; } // 行尾
+    if (key.ctrl && ch === "u") { setField((f) => ({ text: f.text.slice(f.cursor), cursor: 0 })); return; } // 删到行首
+    if (key.ctrl && ch === "k") { setField((f) => ({ ...f, text: f.text.slice(0, f.cursor) })); return; } // 删到行尾
+    if (key.ctrl && ch === "d") { if (field.text === "") { exit(); } return; } // 空行 Ctrl-D 退出
     if (key.ctrl && ch === "w") { // 删前一个词
       setField((f) => {
         const m = f.text.slice(0, f.cursor).match(/\s*\S+\s*$/);
@@ -521,7 +546,7 @@ export function App(deps: AppDeps) {
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
-              {["model", "plan", "mode", "simplify", "remember", "debug", "skillify", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
+              {["model", "plan", "mode", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
                 .filter((cmd) => ("/" + cmd).startsWith(input))
                 .map((cmd) => "/" + cmd)
                 .join("  ") || "(无匹配命令)"}
