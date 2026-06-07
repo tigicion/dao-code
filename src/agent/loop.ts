@@ -10,7 +10,7 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { ApprovalGate } from "../approval/types.js";
 import type { Session } from "../session/session.js";
 import { apiToolsForMode } from "../tools/tools_for_mode.js";
-import { renderStream } from "../tui/render.js";
+import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
 
 export interface TurnDeps {
   session: Session;
@@ -26,6 +26,9 @@ export interface TurnDeps {
     gate: ApprovalGate,
   ) => Promise<ToolMessage[]>;
   write: (s: string) => void;
+  // 渲染事件汇:省略则用 plainEvents(write) 复刻终端 ANSI 输出(eval/子代理/非 TTY)。
+  // Ink 路径传入自己的适配器,把流式喂进 React state。
+  events?: TurnEvents;
   maxTurns?: number;
   // 中途取消信号(ESC/超时):透传给 streamChat 与工具 ctx;abort 后本回合优雅停止。
   signal?: AbortSignal;
@@ -34,6 +37,7 @@ export interface TurnDeps {
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
 export async function runTurn(deps: TurnDeps): Promise<void> {
   const { session, signal } = deps;
+  const events = deps.events ?? plainEvents(deps.write);
   // 工具 ctx 透传取消信号(exec_shell 据此 SIGTERM);不改原 ctx 引用,按需补 signal。
   const toolCtx = signal ? { ...deps.ctx, signal } : deps.ctx;
   const maxTurns = deps.maxTurns ?? (Number(process.env.CODEDS_MAX_TURNS) || 50);
@@ -53,7 +57,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       onUsage: (u) => session.addUsage(u),
       signal,
     });
-    const assistant = await renderStream(gen, deps.write);
+    const assistant = await consumeStream(gen, events);
     session.messages.push(assistant);
     // 流被 abort:streamChat 返回的是部分消息,已入库;不再发起工具执行,优雅停止。
     if (signal?.aborted) return;
@@ -65,25 +69,32 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       const allowed = new Set(tools.map((t) => t.function.name));
       const runnable = assistant.tool_calls.filter((tc) => allowed.has(tc.function.name));
       for (const tc of assistant.tool_calls) {
-        if (!allowed.has(tc.function.name)) deps.write(`\n[plan 模式:拒绝 ${tc.function.name}]\n`);
+        if (!allowed.has(tc.function.name)) events.notice(`\n[plan 模式:拒绝 ${tc.function.name}]\n`);
       }
       const ran = runnable.length
         ? await deps.executeToolCalls(runnable, deps.registry, toolCtx, deps.gate)
         : [];
       const byId = new Map(ran.map((m) => [m.tool_call_id, m]));
-      session.messages.push(
-        ...assistant.tool_calls.map((tc) =>
-          byId.get(tc.id) ?? {
-            role: "tool" as const,
-            tool_call_id: tc.id,
-            content: `工具 ${tc.function.name} 在 plan 模式下不可用(只读+提方案)。如需修改请让用户切回 normal 模式。`,
-          },
-        ),
+      const toolMessages = assistant.tool_calls.map((tc) =>
+        byId.get(tc.id) ?? {
+          role: "tool" as const,
+          tool_call_id: tc.id,
+          content: `工具 ${tc.function.name} 在 plan 模式下不可用(只读+提方案)。如需修改请让用户切回 normal 模式。`,
+        },
       );
+      for (const tc of assistant.tool_calls) {
+        const m = toolMessages.find((tm) => tm.tool_call_id === tc.id);
+        if (m) events.toolResult(tc, m);
+      }
+      session.messages.push(...toolMessages);
     } else {
       const toolMessages = await deps.executeToolCalls(assistant.tool_calls, deps.registry, toolCtx, deps.gate);
+      for (const tc of assistant.tool_calls) {
+        const m = toolMessages.find((tm) => tm.tool_call_id === tc.id);
+        if (m) events.toolResult(tc, m);
+      }
       session.messages.push(...toolMessages);
     }
   }
-  deps.write("\n[已达最大轮数,停止]\n");
+  events.notice("\n[已达最大轮数,停止]\n");
 }
