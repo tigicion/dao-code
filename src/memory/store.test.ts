@@ -1,55 +1,37 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadMemoryFile, loadAllMemories, addMemory } from "./store.js";
+import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy } from "./store.js";
+import { newMemory } from "./types.js";
 
-let dir: string;
-let projectFile: string;
-let userFile: string;
+const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "memstore-"));
 
-beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-mem-"));
-  projectFile = path.join(dir, "proj", ".codeds", "memory", "memories.json");
-  userFile = path.join(dir, "user", ".codeds", "memory", "memories.json");
-});
-afterEach(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
-});
-
-describe("memory store", () => {
-  it("returns [] when the file is missing", async () => {
-    expect(await loadMemoryFile(projectFile)).toEqual([]);
+describe("store md dir", () => {
+  it("upsert dedups near-duplicates, updates existing", async () => {
+    const d = await tmp();
+    await upsertMemory(d, newMemory({ name: "pnpm", text: "项目用 pnpm 安装依赖", type: "procedural", today: "2026-06-07" }), []);
+    const all1 = await loadAllMemories(d, d + "-none");
+    const r = await upsertMemory(d, newMemory({ name: "pnpm2", text: "项目用 pnpm 安装依赖包", type: "procedural", today: "2026-06-08" }), all1);
+    expect(r.action).toBe("updated");
+    const all2 = await loadAllMemories(d, d + "-none");
+    expect(all2.length).toBe(1); // 没新增第二条
   });
-
-  it("adds a memory and loads it back", async () => {
-    const added = await addMemory(projectFile, "本项目用 vitest");
-    expect(added).toBe(true);
-    expect(await loadMemoryFile(projectFile)).toEqual([{ text: "本项目用 vitest" }]);
+  it("supersede keeps old file but load skips it", async () => {
+    const d = await tmp();
+    await upsertMemory(d, newMemory({ name: "api", text: "API 用 v1", type: "semantic", today: "2026-06-07" }), []);
+    await upsertMemory(d, newMemory({ name: "api-v2", text: "API 用 v2", type: "semantic", today: "2026-06-08" }), []);
+    await supersedeMemory(d, "api", "api-v2", "2026-06-08");
+    const all = await loadAllMemories(d, d + "-none");
+    expect(all.map((m) => m.name)).toEqual(["api-v2"]); // 旧的被跳过
+    expect(await fs.readFile(path.join(d, "api.md"), "utf8")).toMatch(/status: superseded/); // 但文件还在
   });
-
-  it("dedups an identical memory (trim-equal)", async () => {
-    await addMemory(projectFile, "fact A");
-    const again = await addMemory(projectFile, "  fact A  ");
-    expect(again).toBe(false);
-    expect(await loadMemoryFile(projectFile)).toHaveLength(1);
-  });
-
-  it("rejects empty text", async () => {
-    expect(await addMemory(projectFile, "   ")).toBe(false);
-    expect(await loadMemoryFile(projectFile)).toEqual([]);
-  });
-
-  it("loadAllMemories merges user then project", async () => {
-    await addMemory(userFile, "user fact");
-    await addMemory(projectFile, "project fact");
-    const all = await loadAllMemories(projectFile, userFile);
-    expect(all.map((m) => m.text)).toEqual(["user fact", "project fact"]);
-  });
-
-  it("tolerates a corrupt file", async () => {
-    await fs.mkdir(path.dirname(projectFile), { recursive: true });
-    await fs.writeFile(projectFile, "{not json", "utf8");
-    expect(await loadMemoryFile(projectFile)).toEqual([]);
+  it("migrates legacy memories.json", async () => {
+    const d = await tmp();
+    await fs.writeFile(path.join(d, "memories.json"), JSON.stringify([{ text: "偏好 TypeScript" }]));
+    await migrateLegacy(d, "2026-06-07");
+    const all = await loadAllMemories(d, d + "-none");
+    expect(all[0]?.text).toBe("偏好 TypeScript");
+    expect(all[0]?.type).toBe("semantic");
   });
 });

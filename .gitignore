@@ -4,3 +4,4 @@ dist/
 .env
 .codeds/
 evals/report.md
+evals/runs/

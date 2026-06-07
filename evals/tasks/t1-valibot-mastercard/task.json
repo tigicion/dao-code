@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "valibot creditCard:Mastercard 号码长度校验缺失",
+  "repo": "https://github.com/fabian-hiller/valibot",
+  "ref": "9de9cbf8664e283a43668b2c034ffb31dd8b8270",
+  "fix_ref": "0cb97f72b3163829758eb33e5cbfa6e33568ee39",
+  "test_files": ["library/src/actions/creditCard/creditCard.test.ts"],
+  "install": ["pnpm install"],
+  "prompt": "valibot 的 creditCard() action 用一组正则(PROVIDER_REGEX_LIST)来判断卡号属于哪个发卡机构。其中 Mastercard 的正则没有锁定卡号长度,导致一些长度明显不对(过长或过短)的 Mastercard 卡号也被当成合法卡号通过校验。请修正 Mastercard 的识别规则,使其只接受正确长度的卡号,同时不要影响其它发卡机构(Visa、Amex 等)以及现有合法卡号的判定。",
+  "fail2pass": "pnpm --filter ./library exec vitest run src/actions/creditCard/creditCard.test.ts",
+  "pass2pass": "pnpm --filter ./library exec vitest run --exclude '**/creditCard.test.ts'",
+  "_pass2pass_scope": "整个 library 测试套件(265 文件/约2913用例),排除 creditCard 本身;够广,能抓任何对共享校验逻辑的回归。",
+  "_validated": true,
+  "_validation_note": "本机实跑:base 注入test后 fail2pass 失败(1 mastercard用例),checkout fix 的 creditCard.ts 后 fail2pass exit=0,pass2pass 2913 通过。pnpm install 正常。"
+}

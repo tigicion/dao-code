@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "date-fns 中文 locale:十月/10月解析错误",
+  "repo": "https://github.com/date-fns/date-fns",
+  "ref": "39d1e14200cead9e4be5df88695b5e82082875ed",
+  "fix_ref": "b9c5865edb7610c59e6b3694ed1e1691f4807688",
+  "test_files": ["pkgs/core/src/locale/zh-CN/test.ts"],
+  "install": ["pnpm install"],
+  "prompt": "用中文 locale(zh-CN/zh-HK/zh-TW)解析月份时,十月、十一月、十二月(以及 10月/11月/12月 形式)无法被正确解析。比如解析“十月”会被错误地当成一月(1月),10/11/12 月都被错配成前面的月份。请修复中文 locale 的月份匹配逻辑,使 10、11、12 月能被正确解析,且不影响 1–9 月的现有解析。",
+  "fail2pass": "cd pkgs/core && pnpm exec vitest run src/locale/zh-CN/test.ts",
+  "pass2pass": "cd pkgs/core && TZ=utc pnpm exec vitest run src/parse/test.ts src/format/test.ts",
+  "_pass2pass_scope": "locale 目录下除了本次新增的 zh-CN/test.ts 没有其它 *.test.ts,因此用 core 包的 parse 与 format 核心测试(共673稳定用例,需 TZ=utc)作为回归护栏——它们直接走月份匹配/格式化逻辑。注意:整包 vitest run 会有约78个时区相关用例在非 UTC 环境 flaky,故 pass2pass 限定到稳定文件并固定 TZ=utc。",
+  "_validated": true,
+  "_validation_note": "本机实跑:PR #4194 未走merge按钮,fix_ref 用 main 上的 squash 提交 b9c5865(parent 正是 ref 39d1e14,均为 pkgs/core 布局)。base 注入新test后 fail2pass 失败(2用例),checkout fix 的3个 _lib/match/index.ts(zh-CN/HK/TW)后 fail2pass exit=0、pass2pass(TZ=utc)exit=0。修正:test 路径确实带 pkgs/core 前缀(PR files API 显示的 src/ 是PR分支旧布局)。"
+}

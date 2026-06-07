@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "sqlglot 转写 SQLite:AUTOINCREMENT 约束顺序错误",
+  "repo": "https://github.com/tobymao/sqlglot",
+  "ref": "3685465fc2b02b2459f744b466670af62b5c859a",
+  "fix_ref": "dbc316cd126bed5311552e5dce7703ec693f4771",
+  "test_files": ["tests/dialects/test_sqlite.py", "tests/dialects/test_mysql.py"],
+  "install": ["python3 -m pip install -e .", "python3 -m pip install pytest"],
+  "prompt": "把建表语句转写(transpile)成 SQLite 方言时,自增列的生成不正确。SQLite 要求 AUTOINCREMENT 必须紧跟在 PRIMARY KEY 之后(即 INTEGER PRIMARY KEY AUTOINCREMENT),但 sqlglot 生成时约束顺序不对,导致 AUTOINCREMENT 位置错误甚至被丢弃(例如从 MySQL 的 a INTEGER PRIMARY KEY AUTO_INCREMENT 转成 SQLite 时丢了 AUTOINCREMENT)。请修复 SQLite 生成器,使 AUTOINCREMENT 紧随 PRIMARY KEY 正确输出。",
+  "fail2pass": "python3 -m pytest tests/dialects/test_sqlite.py tests/dialects/test_mysql.py -q",
+  "pass2pass": "python3 -m pytest tests/dialects/test_sqlite.py tests/dialects/test_mysql.py tests/test_parser.py tests/test_transpile.py -q",
+  "_pass2pass_scope": "改动在 generators/sqlite.py。fail2pass 必须同时跑 sqlite 与 mysql 两个测试文件(两者都新增了 ->sqlite 转写断言,base 下都失败)。pass2pass 在其上再加 parser/transpile 单测(156文件/1650子用例)作回归。未用整个 tests/dialects/ 同 t6(test_bigquery 缺 pytz)。",
+  "_validated": true,
+  "_validation_note": "本机实跑(HELD-OUT 仍自检):ref 是 squash-merge dbc316c 的直接 parent。base 注入两个test后,sqlite 与 mysql 各有1个 subtest 失败(AUTOINCREMENT 丢失/错位),checkout fix 的 sqlite.py 后 fail2pass exit=0(62用例)、pass2pass 156通过。"
+}
