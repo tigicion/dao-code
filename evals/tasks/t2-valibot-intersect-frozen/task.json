@@ -1,0 +1,18 @@
+{
+  "kind": "oss",
+  "desc": "valibot intersect:合并冻结对象/数组时崩溃",
+  "repo": "https://github.com/fabian-hiller/valibot",
+  "ref": "17cd7ed5b8851ff5006dcf85bf9fa6c53da3cb72",
+  "fix_ref": "b16fdf9ba6d84fffc3b71fdbac554126258f9a4a",
+  "test_files": [
+    "library/src/schemas/intersect/utils/_merge/_merge.test.ts",
+    "library/src/schemas/intersect/intersect.test.ts"
+  ],
+  "install": ["pnpm install"],
+  "prompt": "用 intersect() 组合多个 schema 校验数据时,如果被校验的值是被 Object.freeze 冻结过的对象或数组,校验会直接抛出 TypeError(无法给只读属性赋值),而不是正常返回结果。根因是 intersect 内部用于合并两个输入的 _merge 工具会原地修改(就地写入)其中一个输入。请修复:合并逻辑不应改动传入的值,使得对冻结的对象/数组也能正常完成 intersect 校验。注意保持非冻结输入下的现有行为不变。",
+  "fail2pass": "pnpm --filter ./library exec vitest run src/schemas/intersect/utils/_merge/_merge.test.ts src/schemas/intersect/intersect.test.ts",
+  "pass2pass": "pnpm --filter ./library exec vitest run --exclude '**/_merge.test.ts' --exclude '**/intersect.test.ts'",
+  "_pass2pass_scope": "整个 library 测试套件,排除被注入的 _merge 与 intersect 两个测试文件;够广能抓回归。",
+  "_validated": true,
+  "_validation_note": "本机实跑:base 注入两个test后 fail2pass 失败(4 frozen用例),checkout fix 的 _merge.ts 后 fail2pass exit=0、pass2pass exit=0。"
+}

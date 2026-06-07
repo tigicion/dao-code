@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "node-semver subset:预发布版本边界判断错误",
+  "repo": "https://github.com/npm/node-semver",
+  "ref": "efa4be6096c1f9b77d9d27d6132f6220c43b4e31",
+  "fix_ref": "5f3ca133e040210b6ea80c350a1d61d9da02e722",
+  "test_files": ["test/ranges/subset.js"],
+  "install": ["npm install"],
+  "prompt": "semver 的 subset(sub, dom) 判断一个范围是否是另一个范围的子集。当两个范围都带预发布(prerelease)下界时会判断错误,例如 subset('^10.2.0-beta.2', '^10.2.0-beta.1') 应当返回 true(beta.2 落在以 beta.1 为下界的范围内),实际却返回了 false。问题出在 ranges/subset.js 里对预发布下界的比较逻辑。请修复预发布边界的处理,使这类子集判断返回正确结果,且不破坏非预发布范围与其它已有用例。",
+  "fail2pass": "npx tap --no-coverage test/ranges/subset.js",
+  "pass2pass": "npx tap --no-coverage test/",
+  "_pass2pass_scope": "整个 test/ 目录(post-fix 共66文件全过,含 subset.js;tap16 不支持 --exclude，故跑全量并加 --no-coverage 避免覆盖率阈值噪声)。零运行时依赖,跑得快。",
+  "_validated": true,
+  "_validation_note": "本机实跑(零依赖,最轻):明确测过退出码——base 注入test后 fail2pass exit=1(not ok 1,prerelease用例),checkout fix 的 ranges/subset.js 后 fail2pass exit=0、pass2pass(整个 test/)exit=0。注意 tap16 必须用 --no-coverage,否则默认覆盖率收集会干扰。"
+}

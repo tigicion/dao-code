@@ -189,6 +189,8 @@ async function main() {
         { role: "system", content: "你是对话压缩器。把给定的早期对话压缩成简洁中文摘要,保留:关键事实与用户偏好、已做的文件改动与命令、做出的决定、未完成事项。只输出摘要正文,不要寒暄。" },
         { role: "user", content: rendered },
       ],
+      // 摘要不需要深推理:关思考更快更省,温度 0 让压缩结果可复现。
+      extra: { thinking: { type: "disabled" }, temperature: 0 },
     });
     let out = "";
     let r = await gen.next();

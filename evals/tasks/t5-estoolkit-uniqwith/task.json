@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "es-toolkit compat/uniqWith:比较器参数顺序与 lodash 相反",
+  "repo": "https://github.com/toss/es-toolkit",
+  "ref": "8a978e3c8baab0f6badf0d2ef288bd18bb40cd69",
+  "fix_ref": "03ca6ea1e4c8c0341247d7dbb54f59ab1e3848f0",
+  "test_files": ["src/compat/array/uniqWith.spec.ts"],
+  "install": ["corepack enable", "yarn install"],
+  "prompt": "es-toolkit 的 compat 版 uniqWith 调用用户传入的比较器函数时,参数顺序写反了:它以 (已保留的元素, 候选元素) 的顺序调用比较器,而 lodash 的 uniqWith 是以 (候选元素, 已保留的元素) 的顺序调用。这会让依赖参数位置的非对称比较器(asymmetric comparator)得到错误的去重结果。请修复 compat/uniqWith,使比较器的调用参数顺序与 lodash 一致。",
+  "fail2pass": "yarn vitest run src/compat/array/uniqWith.spec.ts",
+  "pass2pass": "yarn vitest run src/compat/array --exclude '**/uniqWith.spec.ts'",
+  "_pass2pass_scope": "compat/array 目录全部 spec(88文件/981用例),排除 uniqWith 本身。",
+  "_validated": true,
+  "_validation_note": "本机实跑(HELD-OUT 仍做了 SWE-bench 自检):base 注入test后 fail2pass 失败(2用例),checkout fix 的 uniqWith.ts 后 fail2pass exit=0、pass2pass 981通过。yarn install 同 t4。"
+}

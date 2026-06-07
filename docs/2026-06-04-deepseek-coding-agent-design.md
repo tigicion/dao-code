@@ -226,16 +226,40 @@
 > **M8 已落地并实测(2026-06-06)**:`agent` 工具(capability plan,**派发 approval auto**,经用户拍板保持 Auto)经 `ctx.runSubagent` 派发;`agent/subagent.ts` 建**全新隔离 Session**(系统prompt+记忆+仅 task,**不带主对话历史**)、复用 `runTurn` 跑到底、返回最终 assistant 文本作为工具消息回主 agent。**审批不绕过**:子代理复用同一 gate,其写/执行仍弹审批(§4;codeds 子代理同步内联+共用 stdin,可干净弹窗——区别于 CW 因并发只能"拦截"、CC 继承权限模式)。**防递归**:`ctx.subagentDepth`,子代理内 depth=1,agent 工具在 depth≥1 直接拒绝。**模式继承**:子代理继承主 mode(plan 下只读)。真网络实测:主 agent `→ agent` 派子代理读 package.json,`[子代理开始]…→ read_file…[子代理完成]`,子代理结论(name=codeds、scripts 列表)回传主 agent 转达;主 agent 上下文只收最终结果。延后:完成事件无独立通道(靠结果消息)、子代理过程的折叠展示(M9)、调查类子代理可用 flash 省钱。
 ## 7. 记忆系统(特色,分期)
 
-- **类型**:语义(事实,最高价值)/ 情景 / 程序。
-- **产生**:用户手动("记住 X")+ 模型主动(发现稳定事实时,克制地记)。
-- **范围**:项目级 `.codeds/memory/` + 用户级 `~/.codeds/memory/`。
-- **召回**:session 启动时注入(见 §9 cache 约束:**只在启动注入一次**)。
-- **分期**:
-  - **P1(MVP)**:文件式 + 手动/主动写 + 启动全量注入 + 写入时简单去重。**架构接口按 P2/P3 预留。**
-  - **P2**:session 结束 reflection 抽取 + 合并更新。
-  - **P3**:embedding 检索(量大时只注入相关子集)+ 重要性衰减/遗忘。
+> **定位修正(2026-06-07)**:① 记忆的重心是**理解用户这个人**(用户模型),不只是项目代码事实;② codeds 是**通用终端 agent**,不止写生产代码——设计与示例去 SWE 中心化。
+
+**数据单元**(P2 起:一事一文件 md + frontmatter;P1 是 JSON 数组,P2 迁移):
+```yaml
+---
+name: uses-pnpm
+type: user | semantic | procedural | episodic   # user=用户模型(最高价值)
+importance: 7            # 1–10,salience 门(LLM 写入时评)
+confidence: 0.6          # 用户模型/推断类用;证实↑、矛盾↓
+created / last_used: <date>            # last_used 喂衰减与 GC
+source: package.json#packageManager    # 证据指针(仅"从代码推导"的事实有)
+status: active | superseded            # 矛盾时作废不删除
+superseded_by / valid_until: ...
+locked: false            # 人工事实,agent 不得改写
+---
+正文:一句话事实/规则。
+```
+
+**完整链路**(每环标注 **[确定性/LLM]** 与 **[会话级/回合级]** —— 成本纪律见末):
+
+- **何时记(WHEN)**:① 显式"记住 X" ② 热路径自写(memory_write,克制)③ **会话结束蒸馏**——把对话蒸馏成几条原子事实 + 更新用户模型("这次对用户多了解了什么")**[LLM·会话级,+1/会话]** ④ **失败反思 → procedural 规则** **[LLM·仅失败时,+1/失败]**。原则:**绝不每回合写**。
+- **记什么(WHAT)**:① **用户模型(最高价值)**——用户信息(是谁/环境/技术栈/水平/习惯,省沟通成本)、偏好(风格/详略/工具取向)、意图(目标/背后的为什么),并**推断未明说的信息与意图**(标低 confidence,行为证实就升、矛盾就降)→ "懂我"的智能体验来源。② **通用 procedural**(任何"此语境下怎么做 X"的可复用规则,学习/数据/写作/运维/coding 皆可,不止 build/test)。③ **项目 semantic**。门槛:耐久 + 可泛化 + importance 门 + 原子化 + 带 provenance/时间戳。
+- **怎么读(HOW READ)**:索引必注入 → 小规模全量注入(P1 现状,够用)→ **大规模才切 top-k 多信号检索**(score = recency `0.995^Δd` + importance + relevance;打分是 **[确定性·会话级]**;relevance 关键词 [确定性] 或 embedding [写入时算好缓存,读取 0 推理])→ **读时按类型验权威**(下条)。命中刷新 last_used。
+- **机械化权威规则(HOW READ 的验证,成本敏感)**:把"别信过期记忆"从 prompt 软嘱咐升级成**读取时的程序检查** **[确定性·会话级·0 token]**——"从代码推导"的事实带 `source`,**注入前对照 live code**(文件存在 + 内容 hash/符号比对),失配就**不喂给模型**(=Copilot citation 复验);**用户模型类无代码出处**,改用 confidence + 矛盾降权 + 偶尔复确认。⚠️ **严禁**逐条 LLM 验证(N 次/轮)。
+- **怎么更新(HOW UPDATE)**:① 写入去重——相似度分带 **[确定性]**:≥0.95 原地更新 / <0.85 新建 / 仅 0.85–0.95 灰区可选 1 次 LLM 裁定 ② 矛盾**作废不删**(标 superseded_by/valid_until;state 用 recency-wins、用户偏好用 confidence)③ **衰减 GC** `R=e^(−t/S)`,命中 `S+=1`,久未用且 importance 低且非 locked 才剪 **[确定性·后台]** ④ locked 不改写。
+
+**成本纪律(核心)**:能用确定性代码做的(打分/hash 验证/阈值去重/GC)**绝不**用 LLM;LLM 只留给"把一段经历蒸馏成事实"(会话结束 +1、失败 +1,皆可用 flash+关思考+温度0)。**稳态每回合 0 额外 LLM 调用**,只多一笔注入记忆的缓存价 token。**记忆选择 + 验证只在会话开始做一次、整会话固定**(中途只追加、不重排),以保 §10 prefix cache 不 miss——这也是 §10 既有约束。
+
+**分期**:
+  - **P1(MVP,已落地)**:JSON 文件 + 手动/主动写 + 启动全量注入 + 写入完全相同去重。
+  - **P2(下一步)**:迁移 md+frontmatter 数据单元;**会话结束蒸馏 → 用户模型更新**;**读时确定性权威验证**;写入相似度分带去重 + 矛盾作废不删。
+  - **P3**:embedding 检索(量大只注入 top-k)+ 衰减 GC;失败反思 → 规则。
   - **P4**:自我编辑记忆(MemGPT 式)、时序知识图谱(Zep 式)。
-- 参考:Generative Agents(reflection + 相关性/新近度/重要性检索)、MemGPT/Letta(自管理记忆)、Mem0/Zep(抽取→去重→合并→消解 管线)。
+- 参考(均已二轮 deep-research 核实):CoALA 四类记忆;Generative Agents(recency 0.995/importance 1–10/relevance 检索打分 + reflection 阈值);MemGPT/Letta(core block 自编辑);MemoryBank(R=e^(−t/S) 衰减);Zep/Graphiti(作废不删 + 双时间戳);Copilot Memory(citation 复验 = 机械化权威);Mem0(存蒸馏事实非对话);LangMem(后台非热路径抽取);评测 LongMemEval/SWE-Exp(memory lift ablation)。
 
 > **P1 已落地并实测(2026-06-06)**:`memory/store`(JSON 文件、损坏容错、写入完全相同去重、用户级在前合并)+ `memory_write` 工具(project/user scope、capability plan + approval auto → plan 模式可用且不弹审批)+ 启动时 `loadAllMemories` 注入固定系统 prompt 的 `# 记忆` 段(§10:只启动注入一次,中途写盘不回灌、下次生效)。真网络实测:run1 `记住 vitest`→ 落盘;run2 **新进程**启动据注入记忆直接答 "vitest"、未调工具,跨 session 召回成立。延后:P2 reflection 抽取+语义合并、P3 embedding 检索(量大只注入相关子集)+衰减、记忆类型区分。
 

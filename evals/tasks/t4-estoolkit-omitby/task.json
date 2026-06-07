@@ -1,0 +1,15 @@
+{
+  "kind": "oss",
+  "desc": "es-toolkit compat/omitBy:误把带 length 的普通对象当数组",
+  "repo": "https://github.com/toss/es-toolkit",
+  "ref": "0e8656da6afbe08952e78dcf2cd53d326d12c2f6",
+  "fix_ref": "6e449e4ead85e12ce4b5bb68559e3daf5d60f7ca",
+  "test_files": ["src/compat/object/omitBy.spec.ts"],
+  "install": ["corepack enable", "yarn install"],
+  "prompt": "es-toolkit 的 compat 版 omitBy 在处理一个带有数字类型 length 属性的普通对象(例如 { 0: 'a', 1: 'b', length: 2, name: 'x' } 这种并非真正数组的对象)时,会把它误判为类数组(array-like)并按下标遍历,结果丢掉了像 name 这样的真实键,返回的对象不正确。请修复:只有真正的数组/类数组才走数组路径,普通对象(即便恰好有数字 length 属性)应按对象的全部自有键来处理。与 lodash 的 omitBy 行为保持一致。",
+  "fail2pass": "yarn vitest run src/compat/object/omitBy.spec.ts",
+  "pass2pass": "yarn vitest run src/compat/object --exclude '**/omitBy.spec.ts'",
+  "_pass2pass_scope": "compat/object 目录全部 spec(49文件/742用例),排除 omitBy 本身;同目录兄弟测试覆盖共享的对象遍历逻辑。",
+  "_validated": true,
+  "_validation_note": "本机实跑:yarn install 走仓库内置 Yarn4(.yarnrc.yml 的 yarnPath),corepack 本机虽不存在但 yarn shim 仍生效。base 注入test后 fail2pass 失败(2用例),checkout fix 的 omitBy.ts 后 fail2pass exit=0、pass2pass 742通过。"
+}
