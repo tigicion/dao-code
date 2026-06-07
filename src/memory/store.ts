@@ -13,12 +13,16 @@ function shingles(s: string): Set<string> {
   for (let i = 0; i < chars.length - 1; i++) out.add((chars[i] ?? "") + (chars[i + 1] ?? ""));
   return out;
 }
-function jaccard(a: string, b: string): number {
+export function textSimilarity(a: string, b: string): number {
   const A = shingles(a), B = shingles(b); if (!A.size && !B.size) return 1;
   let inter = 0; for (const t of A) if (B.has(t)) inter++;
   return inter / (A.size + B.size - inter);
 }
+// ≥DUP_THRESHOLD:确定性自动合并(无 LLM)。
+// [GRAY_LOW, DUP_THRESHOLD):灰区——只对最相似的那一条喊 flash 裁判判是否同一事实(每候选至多 1 次)。
+// <GRAY_LOW:确定性判为新(不喊 LLM,省钱)。0.2 floor 让无关项(只共享"用户"之类)被跳过。
 export const DUP_THRESHOLD = 0.9;
+export const GRAY_LOW = 0.2;
 
 async function readDir(dir: string): Promise<Memory[]> {
   let names: string[]; try { names = await fs.readdir(dir); } catch { return []; }
@@ -43,18 +47,29 @@ export async function writeMemory(dir: string, m: Memory): Promise<void> {
   await fs.writeFile(path.join(dir, `${m.name}.md`), serializeMemory(m), "utf8");
 }
 
-// 相似度分带去重:≥阈值 → 更新最相近旧文件正文+lastUsed;否则写新文件。
-export async function upsertMemory(dir: string, cand: Memory, existing: Memory[]): Promise<{ action: "added" | "updated"; name: string }> {
+// 相似度分带去重:≥DUP_THRESHOLD 确定性合并;灰区交 adjudicate(flash 裁判,可选)判;否则写新文件。
+// adjudicate 仅对最相似的那一条、且相似度落在 [GRAY_LOW, DUP_THRESHOLD) 时被调用(每次 upsert 至多 1 次)。
+export async function upsertMemory(
+  dir: string,
+  cand: Memory,
+  existing: Memory[],
+  adjudicate?: (cand: Memory, existing: Memory) => Promise<boolean>,
+): Promise<{ action: "added" | "updated"; name: string }> {
   let best: Memory | undefined; let bestS = 0;
   for (const m of existing) {
     if (m.type !== cand.type) continue;
-    const s = jaccard(m.text, cand.text);
+    const s = textSimilarity(m.text, cand.text);
     if (s > bestS) { bestS = s; best = m; }
   }
-  if (best && bestS >= DUP_THRESHOLD && !best.locked) {
-    const updated: Memory = { ...best, text: cand.text, lastUsed: cand.lastUsed, importance: Math.max(best.importance, cand.importance), uses: (best.uses ?? 0) + 1 };
-    await writeMemory(dir, updated);
-    return { action: "updated", name: best.name };
+  if (best && !best.locked) {
+    const isDup =
+      bestS >= DUP_THRESHOLD ||
+      (bestS >= GRAY_LOW && !!adjudicate && (await adjudicate(cand, best)));
+    if (isDup) {
+      const updated: Memory = { ...best, text: cand.text, lastUsed: cand.lastUsed, importance: Math.max(best.importance, cand.importance), uses: (best.uses ?? 0) + 1 };
+      await writeMemory(dir, updated);
+      return { action: "updated", name: best.name };
+    }
   }
   await writeMemory(dir, cand);
   return { action: "added", name: cand.name };
