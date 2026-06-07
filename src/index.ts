@@ -40,6 +40,7 @@ import { Session } from "./session/session.js";
 import { runRepl } from "./repl.js";
 import { buildWelcome } from "./tui/banner.js";
 import { detectCapabilities } from "./tui/capabilities.js";
+import { detectBackground } from "./tui/taiji.js";
 import { compactMessages, shouldCompact } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
@@ -297,7 +298,7 @@ async function main() {
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
       return;
     }
-    const caps = detectCapabilities(process.env, process.stdout.isTTY ?? false);
+    const caps = detectCapabilities(process.env, process.stdout.isTTY ?? false, process.stdout.columns);
     let gitBranch: string | undefined;
     try {
       const head = readFileSync(path.join(workspaceRoot, ".git", "HEAD"), "utf8");
@@ -309,7 +310,7 @@ async function main() {
       cwd: workspaceRoot,
       version: VERSION,
       branch: gitBranch,
-    }, caps) + "\n");
+    }, caps, undefined, detectBackground(process.env)) + "\n");
     const readLine = async (): Promise<string | null> => {
       write("\n> ");
       return nextLine();
