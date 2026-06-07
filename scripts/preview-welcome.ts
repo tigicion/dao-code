@@ -16,10 +16,9 @@ process.stdout.write(
     {
       model: "deepseek-v4-pro",
       thinking: "max",
-      mode: "normal",
-      memories: 4,
       cwd: process.cwd(),
       version: "0.1.0",
+      branch: "dao-code-p1",
     },
     caps,
   ) + "\n",
