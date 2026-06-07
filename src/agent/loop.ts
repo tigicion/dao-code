@@ -32,7 +32,7 @@ export interface TurnDeps {
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
 export async function runTurn(deps: TurnDeps): Promise<void> {
   const { session } = deps;
-  const maxTurns = deps.maxTurns ?? (Number(process.env.CODEDS_MAX_TURNS) || 25);
+  const maxTurns = deps.maxTurns ?? (Number(process.env.CODEDS_MAX_TURNS) || 50);
   for (let t = 0; t < maxTurns; t++) {
     const tools = apiToolsForMode(deps.registry, session.mode);
     const gen = deps.streamChat({

@@ -25,4 +25,24 @@ describe("distill", () => {
     const mems = await distill({ streamChat: () => fakeStream("抱歉无法"), config: {}, model: "x", messages: [], today: "2026-06-07" } as any);
     expect(mems).toEqual([]);
   });
+
+  it("excludes system messages from the rendered transcript (so the huge system prompt can't crowd out / derail)", async () => {
+    let sent = "";
+    const capture = (opts: any) => {
+      sent = String(opts.messages[1]?.content ?? ""); // [0]=蒸馏器 system,[1]=渲染的对话
+      return fakeStream("[]");
+    };
+    await distill({
+      streamChat: capture,
+      config: { baseUrl: "x", apiKey: "x" }, model: "x",
+      messages: [
+        { role: "system", content: "SYSTEM_PROMPT_SENTINEL_应被排除" },
+        { role: "user", content: "我用 pnpm" },
+        { role: "assistant", content: "好的" },
+      ],
+      today: "2026-06-07",
+    } as any);
+    expect(sent).not.toContain("SYSTEM_PROMPT_SENTINEL");
+    expect(sent).toContain("我用 pnpm");
+  });
 });
