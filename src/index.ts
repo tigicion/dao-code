@@ -38,9 +38,13 @@ import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { buildSystemPrompt } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { runRepl } from "./repl.js";
+import { dispatchCommand } from "./commands/commands.js";
 import { buildWelcome } from "./tui/banner.js";
 import { detectCapabilities } from "./tui/capabilities.js";
-import { resolveBackground } from "./tui/background.js";
+import { bgFromEnv } from "./tui/background.js";
+import { randomMaxim } from "./tui/maxim.js";
+import { runInkApp } from "./tui/app/run.js";
+import type { ApprovalPrompt } from "./approval/types.js";
 import { VERSION } from "./version.js";
 import { compactMessages, shouldCompact } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
@@ -57,8 +61,9 @@ async function main() {
 
   const write = (s: string) => process.stdout.write(s);
 
-  // 背景(亮/暗)检测要在 readline 接管 stdin 之前做(OSC 11 需短暂 raw + 读 stdin)。
-  const bg = await resolveBackground(process.env);
+  // 背景(亮/暗):用 env 线索(DAO_THEME / COLORFGBG),默认 dark。
+  // (OSC 11 主动探测会与 readline/Ink 抢 stdin,暂不在启动路径用;可 export DAO_THEME=light 强制。)
+  const bg = bgFromEnv(process.env) ?? "dark";
 
   // 单一 readline:'line' 事件喂一个共享行队列;REPL 读行 / 审批 / ask_user / key 引导
   // 都从这一个 nextLine() 拉,保证管道里的行按 FIFO 分配,不会两个消费者抢 stdin。
@@ -170,23 +175,32 @@ async function main() {
     platform: process.platform,
   });
 
+  // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
+  let inkApprovalPrompt: ApprovalPrompt | null = null;
+  let inkAsk: ((q: string) => Promise<string>) | null = null;
+
   // CODEDS_AUTO_APPROVE=1 时跳过所有审批(用于 eval / CI 在抛弃式工作区里无人值守运行)。
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
+  const readlinePrompt = makeApprovalPrompt(ask);
   const gate: ApprovalGate = process.env.CODEDS_AUTO_APPROVE
     ? { needsApproval: () => false, requestBatch: async () => new Map() }
-    : new SessionApprovalGate(makeApprovalPrompt(ask), alwaysApproved, (name) =>
-        appendAlwaysApproved(approvalsFile, name),
+    : new SessionApprovalGate(
+        (reqs) => (inkApprovalPrompt ?? readlinePrompt)(reqs), // Ink 态用模态,否则 readline
+        alwaysApproved,
+        (name) => appendAlwaysApproved(approvalsFile, name),
       );
 
   const session = new Session(systemPrompt, cfg.model);
   const ctx: ToolContext = {
     workspaceRoot,
     readFiles: new Set<string>(),
-    ask: (q: string) => ask(`\n${q}\n> `),
+    ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     fetchImpl: fetch,
     today,
   };
 
+  // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
+  let subagentWrite: (s: string) => void = write;
   ctx.runSubagent = (task: string) =>
     runSubagent({
       task,
@@ -199,7 +213,7 @@ async function main() {
       gate,
       streamChat,
       executeToolCalls,
-      write,
+      write: subagentWrite,
       runTurn,
     });
 
@@ -264,6 +278,11 @@ async function main() {
     }
   };
 
+  // Ink 态压缩:不向 stdout 写(会冲渲染),只压缩消息;提示由 App 通过 events/notice 给出。
+  const inkCompact = async (): Promise<void> => {
+    session.messages = await compactMessages(session.messages, { keepRecentTurns: KEEP_RECENT_TURNS, summarize });
+  };
+
   // 会话结束蒸馏:独立一次 flash + 关思考(distill 内部已设)抽取原子事实/用户模型,
   // 去重后 upsert 到项目记忆。全程 try/catch,失败绝不阻塞退出。仅当有 ≥1 轮真实用户对话时触发。
   const distillOnExit = async (): Promise<void> => {
@@ -307,18 +326,62 @@ async function main() {
       const head = readFileSync(path.join(workspaceRoot, ".git", "HEAD"), "utf8");
       gitBranch = head.match(/ref: refs\/heads\/(.+)/)?.[1]?.trim();
     } catch {}
-    write(buildWelcome({
+    const welcomeInfo = {
       model: cfg.model,
       thinking: process.env.CODEDS_REASONING_EFFORT || "max",
       cwd: workspaceRoot,
       version: VERSION,
       branch: gitBranch,
-    }, caps, undefined, bg) + "\n");
-    const readLine = async (): Promise<string | null> => {
-      write("\n> ");
-      return nextLine();
     };
-    await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction });
+
+    if (process.stdout.isTTY) {
+      // 交互态:Ink REPL(inline)。先关 readline 释放 stdin 给 Ink(raw mode)。
+      subagentWrite = () => {}; // Ink 态静默子代理直接输出
+      rl.close();
+      await runInkApp({
+        welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
+        submit: async (text, { events, signal }) => {
+          session.addUser(text);
+          await runTurn({
+            session,
+            config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
+            registry,
+            ctx,
+            gate,
+            streamChat,
+            executeToolCalls,
+            write: () => {},
+            events,
+            signal,
+          });
+          if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
+            events.notice("[接近上限,自动压缩…]");
+            await inkCompact();
+          }
+        },
+        runCommand: (line) => dispatchCommand(line, session),
+        compact: inkCompact,
+        getStatus: () => ({
+          model: session.model,
+          mode: session.mode,
+          promptTokens: session.usage.promptTokens,
+          completionTokens: session.usage.completionTokens,
+          cacheHitRatio: session.cacheHitRatio(),
+        }),
+        register: ({ approvalPrompt, askUser }) => {
+          inkApprovalPrompt = approvalPrompt;
+          inkAsk = askUser;
+        },
+      });
+    } else {
+      // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。
+      write(buildWelcome(welcomeInfo, caps, undefined, bg) + "\n");
+      const readLine = async (): Promise<string | null> => {
+        write("\n> ");
+        return nextLine();
+      };
+      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction });
+    }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
     await distillOnExit();
   } finally {
