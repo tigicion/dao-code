@@ -1,23 +1,47 @@
 {
-  "name": "codeds",
-  "version": "0.0.1",
-  "private": true,
+  "name": "dao-code",
+  "version": "0.1.0",
+  "description": "DAO CODE —— 道家美学的 DeepSeek V4 终端编码 agent(Ink TUI · 太极欢迎屏 · 流式+工具+审批 · 持久记忆 · prompt-cache 感知)",
   "type": "module",
+  "bin": {
+    "dao": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
     "preview:welcome": "tsx scripts/preview-welcome.ts",
     "preview:ink": "tsx scripts/welcome-ink.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
     "verify:mem": "tsx scripts/verify-memory.ts",
     "accept:mem": "bash scripts/accept-memory.sh",
     "accept:cache": "bash scripts/accept-cache.sh",
     "debug:distill": "tsx scripts/debug-distill.ts"
   },
+  "keywords": [
+    "ai",
+    "agent",
+    "coding-agent",
+    "deepseek",
+    "terminal",
+    "tui",
+    "ink",
+    "cli",
+    "llm"
+  ],
+  "license": "MIT",
   "dependencies": {
     "ink": "^7.0.5",
     "react": "^19.2.7",
