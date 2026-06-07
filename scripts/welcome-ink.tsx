@@ -4,10 +4,10 @@
 //   npm run preview:ink -- --bg light   # 强制背景(light/dark)
 //   npm run preview:ink -- --tier ansi256
 import React from "react";
-import { render } from "ink";
+import { render, useApp, useInput } from "ink";
 import { Welcome } from "../src/tui/Welcome.js";
 import { detectCapabilities, type ColorTier } from "../src/tui/capabilities.js";
-import { resolveBackground, bgFromEnv, type Background } from "../src/tui/background.js";
+import { bgFromEnv, type Background } from "../src/tui/background.js";
 import { randomMaxim } from "../src/tui/maxim.js";
 
 const flag = (name: string): string | undefined => {
@@ -17,25 +17,45 @@ const flag = (name: string): string | undefined => {
 const forcedTier = flag("--tier") as ColorTier | undefined;
 const forcedBg = flag("--bg") as Background | undefined;
 
-const bg: Background = forcedBg ?? bgFromEnv(process.env) ?? (await resolveBackground(process.env));
+// 不在 render 前做 OSC 探测(会和 Ink 抢 stdin 致闪退)。用 --bg / DAO_THEME / COLORFGBG / 默认。
+const bg: Background = forcedBg ?? bgFromEnv(process.env) ?? "dark";
 const real = detectCapabilities(process.env, !!process.stdout.isTTY, process.stdout.columns);
 const caps = forcedTier ? { ...real, tier: forcedTier } : real;
 
-const app = render(
-  <Welcome
-    info={{
-      model: "deepseek-v4-pro",
-      thinking: "max",
-      cwd: process.cwd(),
-      version: "0.1.0",
-      branch: "dao-code-p1",
-    }}
-    caps={caps}
-    bg={bg}
-    maxim={randomMaxim()}
-  />,
-);
+// 关键:① interactive=isTTY 绕过 Ink 对 CI 的误判;② alternateScreen 全屏缓冲——
+// 按固定网格整屏重绘,resize 不残留旧帧(stock Ink inline 模式 resize 会变形,ink#907)。
+const renderOpts = {
+  interactive: !!process.stdout.isTTY,
+  alternateScreen: !!process.stdout.isTTY,
+} as unknown as Parameters<typeof render>[1];
 
-// 管道/非 TTY:渲染一帧后退出(便于脚本核对);真终端则常驻直到 Ctrl-C。
+const maxim = randomMaxim();
+
+// 预览包一层:useInput 让 stdin 进入 flowing 态(keep-alive,否则事件循环空了进程会直接退出)
+// 并处理 q / Ctrl-C 退出。真实 app 里由 REPL 输入循环 keep-alive,不需要这层。
+function Preview() {
+  const { exit } = useApp();
+  useInput((input, key) => {
+    if (input === "q" || (key.ctrl && input === "c") || key.escape) exit();
+  });
+  return (
+    <Welcome
+      info={{
+        model: "deepseek-v4-pro",
+        thinking: "max",
+        cwd: process.cwd(),
+        version: "0.1.0",
+        branch: "dao-code-p1",
+      }}
+      caps={caps}
+      bg={bg}
+      maxim={maxim}
+    />
+  );
+}
+
+const app = render(<Preview />, renderOpts);
+
+// 管道/非 TTY:渲染一帧后退出(便于脚本核对);真终端则常驻直到 q / Ctrl-C / Esc。
 if (!process.stdout.isTTY) setTimeout(() => app.unmount(), 120);
 await app.waitUntilExit();
