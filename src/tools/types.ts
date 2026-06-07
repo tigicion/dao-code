@@ -18,6 +18,8 @@ export interface ToolContext {
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
   today?: string;
+  // 中途取消信号(ESC/超时):工具据此提前终止(如 exec_shell 给子进程发 SIGTERM)。
+  signal?: AbortSignal;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。

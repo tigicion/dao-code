@@ -119,6 +119,77 @@ describe("runTurn", () => {
     expect(written.join("")).toContain("最大轮数");
   });
 
+  it("forwards the signal to streamChat", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("hi");
+    const controller = new AbortController();
+    let sentSignal: AbortSignal | undefined;
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      streamChat: ((opts: StreamChatOptions) => {
+        sentSignal = opts.signal;
+        return turn([{ kind: "content", text: "ok" }], { role: "assistant", content: "ok" })();
+      }) as any,
+      executeToolCalls: async () => [],
+      write: () => {},
+      signal: controller.signal,
+    });
+    expect(sentSignal).toBe(controller.signal);
+  });
+
+  it("stops gracefully when aborted mid-stream: pushes partial reply, does not run tools", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const controller = new AbortController();
+    let executed = 0;
+    // 模拟 streamChat:流到一半触发 abort,返回部分消息(带 tool_calls)。
+    const partialWithTool: AssistantMessage = {
+      role: "assistant", content: "partial",
+      tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+    };
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      streamChat: (() =>
+        (async function* () {
+          controller.abort();
+          return partialWithTool;
+        })()) as any,
+      executeToolCalls: (async (cs: any) => { executed += cs.length; return []; }) as any,
+      write: () => {},
+      signal: controller.signal,
+    });
+    expect(executed).toBe(0); // abort 后不执行工具
+    expect(s.messages.at(-1)).toEqual(partialWithTool); // 部分回复已入库
+  });
+
+  it("returns immediately without calling streamChat when already aborted", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("hi");
+    const controller = new AbortController();
+    controller.abort();
+    let called = 0;
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      streamChat: (() => { called++; return turn([], { role: "assistant", content: "x" })(); }) as any,
+      executeToolCalls: async () => [],
+      write: () => {},
+      signal: controller.signal,
+    });
+    expect(called).toBe(0);
+  });
+
   it("blocks write/exec tool calls at execution in plan mode (does not dispatch them)", async () => {
     const r = new ToolRegistry();
     r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));

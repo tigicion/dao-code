@@ -31,6 +31,7 @@ export async function* streamChat(
       Authorization: `Bearer ${opts.apiKey}`,
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
 
   if (!res.ok) {
@@ -89,26 +90,40 @@ export async function* streamChat(
     return out;
   }
 
+  // abort(ESC/超时)判定:fetch 中断后 reader.read() 会 reject AbortError——
+  // 不向上抛,跳出读取循环,返回此刻已累积的 content + tool_calls(部分消息),让上层优雅停。
+  const isAbort = (e: unknown): boolean =>
+    opts.signal?.aborted === true ||
+    (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError"));
+
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const { payloads, rest } = parseSSEChunk(buffer);
-    buffer = rest;
-    for (const payload of payloads) {
-      for (const d of processPayload(payload)) yield d;
+  let aborted = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const { payloads, rest } = parseSSEChunk(buffer);
+      buffer = rest;
+      for (const payload of payloads) {
+        for (const d of processPayload(payload)) yield d;
+      }
     }
+  } catch (err) {
+    if (!isAbort(err)) throw err;
+    aborted = true;
   }
 
-  // 流末 flush:处理可能残留的、未以 \n\n 收尾的最后一个事件。
-  buffer += decoder.decode();
-  if (buffer.trim()) {
-    const { payloads } = parseSSEChunk(buffer.endsWith("\n\n") ? buffer : buffer + "\n\n");
-    for (const payload of payloads) {
-      for (const d of processPayload(payload)) yield d;
+  // 流末 flush:处理可能残留的、未以 \n\n 收尾的最后一个事件(被 abort 时跳过,残留可能是半个事件)。
+  if (!aborted) {
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      const { payloads } = parseSSEChunk(buffer.endsWith("\n\n") ? buffer : buffer + "\n\n");
+      for (const payload of payloads) {
+        for (const d of processPayload(payload)) yield d;
+      }
     }
   }
 

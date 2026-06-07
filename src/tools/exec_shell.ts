@@ -8,15 +8,36 @@ interface ForegroundResult {
   stderr: string;
   code: number;
   timedOut: boolean;
+  aborted: boolean;
 }
 
-function runForeground(command: string, cwd: string, timeout: number): Promise<ForegroundResult> {
+function runForeground(
+  command: string,
+  cwd: string,
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<ForegroundResult> {
   return new Promise((resolve) => {
-    exec(command, { cwd, timeout, maxBuffer: 10 * 1024 * 1024 }, (err: any, stdout, stderr) => {
-      const timedOut = Boolean(err?.killed) && err?.signal === "SIGTERM";
-      const code = typeof err?.code === "number" ? err.code : err ? 1 : 0;
-      resolve({ stdout: String(stdout), stderr: String(stderr), code, timedOut });
-    });
+    // abort(ESC)时给子进程发 SIGTERM;靠 aborted 标志把这次结束与"超时终止"区分开。
+    let aborted = false;
+    const child = exec(
+      command,
+      { cwd, timeout, maxBuffer: 10 * 1024 * 1024 },
+      (err: any, stdout, stderr) => {
+        if (signal) signal.removeEventListener("abort", onAbort);
+        const timedOut = !aborted && Boolean(err?.killed) && err?.signal === "SIGTERM";
+        const code = typeof err?.code === "number" ? err.code : err ? 1 : 0;
+        resolve({ stdout: String(stdout), stderr: String(stderr), code, timedOut, aborted });
+      },
+    );
+    function onAbort() {
+      aborted = true;
+      child.kill("SIGTERM");
+    }
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    }
   });
 }
 
@@ -36,11 +57,11 @@ export const execShellTool = defineTool({
       const id = processManager.start(args.command, ctx.workspaceRoot);
       return `已在后台启动(id=${id})。用 exec_shell_poll 读取输出,exec_shell_kill 结束。`;
     }
-    const r = await runForeground(args.command, ctx.workspaceRoot, args.timeout ?? 120000);
+    const r = await runForeground(args.command, ctx.workspaceRoot, args.timeout ?? 120000, ctx.signal);
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
-    parts.push(r.timedOut ? `[超时,已终止]` : `[exit ${r.code}]`);
+    parts.push(r.aborted ? `[已中断]` : r.timedOut ? `[超时,已终止]` : `[exit ${r.code}]`);
     return parts.join("\n");
   },
 });
