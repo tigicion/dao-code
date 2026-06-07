@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Box, Text, useStdout } from "ink";
 import type { Capabilities } from "./capabilities.js";
 import type { Background } from "./background.js";
@@ -14,24 +14,10 @@ function shortenPath(p: string): string {
   return segs.length <= 3 ? p : "…/" + segs.slice(-3).join("/");
 }
 
-// 订阅终端 resize,返回当前列宽(变化即触发重渲染 → 布局重排)。
-// 在 alternate screen(全屏缓冲)下,Ink 按固定网格整屏重绘,resize 不会残留旧帧 → 不变形。
+// 读一次当前列宽(inline 模式下欢迎屏作为顶部 banner 提交到 <Static>,渲染一次即可,无需随 resize 重排)。
 function useTermWidth(fallback: number): number {
   const { stdout } = useStdout();
-  const [cols, setCols] = useState(stdout?.columns ?? fallback);
-  useEffect(() => {
-    if (!stdout) return;
-    const onResize = () => {
-      // 清整屏再重排:alt-screen 下安全(不丢 scrollback),消除 Ink 放大时不清屏残留的旧边框。
-      stdout.write("\x1b[2J\x1b[H");
-      setCols(stdout.columns ?? fallback);
-    };
-    stdout.on("resize", onResize);
-    return () => {
-      stdout.off("resize", onResize);
-    };
-  }, [stdout, fallback]);
-  return cols;
+  return stdout?.columns || fallback; // 0/undefined 回退(终端偶尔报 0)
 }
 
 // 响应式欢迎屏(Ink):整宽圆角边框 + 居中 logo + 两栏页脚,随终端 resize 重排。
