@@ -52,7 +52,7 @@ export async function upsertMemory(dir: string, cand: Memory, existing: Memory[]
     if (s > bestS) { bestS = s; best = m; }
   }
   if (best && bestS >= DUP_THRESHOLD && !best.locked) {
-    const updated: Memory = { ...best, text: cand.text, lastUsed: cand.lastUsed, importance: Math.max(best.importance, cand.importance) };
+    const updated: Memory = { ...best, text: cand.text, lastUsed: cand.lastUsed, importance: Math.max(best.importance, cand.importance), uses: (best.uses ?? 0) + 1 };
     await writeMemory(dir, updated);
     return { action: "updated", name: best.name };
   }
