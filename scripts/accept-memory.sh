@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # 记忆 P2/P3 真网络验收编排:在隔离的临时工作区跑两段会话,产出"蒸馏记忆 + 跨会话召回"
 # 两类证据,供人/模型判定效果。需 DeepSeek key、会产生少量费用。
-#   跑:  DS_API_KEY=sk-... npm run accept:mem
+#   跑:  DEEPSEEK_API_KEY=sk-... npm run accept:mem
 #   然后把本脚本的【全部输出】贴回给 Claude,由它确认效果(蒸馏质量 / 是否纯靠记忆作答)。
 set -uo pipefail
-: "${DS_API_KEY:?请先 export DS_API_KEY=你的key}"
+: "${DEEPSEEK_API_KEY:?请先 export DEEPSEEK_API_KEY=你的key}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TSX="$REPO/node_modules/.bin/tsx"
 WS="$(mktemp -d)"
 strip() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 # 同一工作区 WS 跑 codeds:project 记忆落在 WS/.codeds/memory,run2 能读到 run1 蒸馏的记忆。
-run() { ( cd "$WS" && DEEPSEEK_API_KEY="$DS_API_KEY" CODEDS_AUTO_APPROVE=1 "$TSX" "$REPO/src/index.ts" ); }
+run() { ( cd "$WS" && DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" CODEDS_AUTO_APPROVE=1 "$TSX" "$REPO/src/index.ts" ); }
 
 echo "=== 临时工作区: $WS ==="
 
