@@ -24,7 +24,10 @@ import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
 import { runSubagent } from "./agent/subagent.js";
 import { agentTool } from "./tools/agent.js";
-import { loadAllMemories } from "./memory/store.js";
+import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
+import { validateMemory, type Verdict } from "./memory/validate.js";
+import { buildMemorySection } from "./memory/inject.js";
+import { distill } from "./memory/distill.js";
 import { SessionApprovalGate } from "./approval/gate.js";
 import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
@@ -128,10 +131,21 @@ async function main() {
     .map((t) => `- ${t.function.name}:${t.function.description}`)
     .join("\n");
 
-  const projectMemoryFile = path.join(workspaceRoot, ".codeds", "memory", "memories.json");
-  const userMemoryFile = path.join(os.homedir(), ".codeds", "memory", "memories.json");
-  const memories = await loadAllMemories(projectMemoryFile, userMemoryFile);
-  const memoryText = memories.map((m) => `- ${m.text}`).join("\n");
+  // ---- 记忆读路径(会话启动一次性):迁移旧 JSON → 加载 → 确定性权威验证 → 注入固定前缀 ----
+  const projectMemoryDir = path.join(workspaceRoot, ".codeds", "memory");
+  const userMemoryDir = path.join(os.homedir(), ".codeds", "memory");
+  const today = new Date().toISOString().slice(0, 10);
+  // 一次性把旧 memories.json 迁移成 md(已迁移则跳过;目录不存在也容错)。
+  await migrateLegacy(projectMemoryDir, today);
+  await migrateLegacy(userMemoryDir, today);
+  const memories = await loadAllMemories(projectMemoryDir, userMemoryDir);
+  // 逐条对照 live code 做确定性验证(stale 剔除 / changed 标注 / ok 注入)。
+  const validated: { mem: (typeof memories)[number]; verdict: Verdict }[] = [];
+  for (const mem of memories) {
+    const { verdict } = await validateMemory(mem, workspaceRoot, today);
+    validated.push({ mem, verdict });
+  }
+  const memoryText = buildMemorySection(validated);
 
   const systemPrompt = buildSystemPrompt({ modelId: cfg.model, toolSummaries, memories: memoryText });
 
@@ -149,6 +163,7 @@ async function main() {
     readFiles: new Set<string>(),
     ask: (q: string) => ask(`\n${q}\n> `),
     fetchImpl: fetch,
+    today,
   };
 
   ctx.runSubagent = (task: string) =>
@@ -228,10 +243,36 @@ async function main() {
     }
   };
 
+  // 会话结束蒸馏:独立一次 flash + 关思考(distill 内部已设)抽取原子事实/用户模型,
+  // 去重后 upsert 到项目记忆。全程 try/catch,失败绝不阻塞退出。仅当有 ≥1 轮真实用户对话时触发。
+  const distillOnExit = async (): Promise<void> => {
+    const hasRealTurn = session.messages.some((m) => m.role === "user");
+    if (!hasRealTurn) return;
+    try {
+      const cands = await distill({
+        streamChat,
+        config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
+        model: "deepseek-v4-flash", // 蒸馏一律用便宜的 flash,与会话所选模型无关
+        messages: session.messages,
+        today,
+      });
+      let n = 0;
+      for (const cand of cands) {
+        const existing = await loadAllMemories(projectMemoryDir, userMemoryDir);
+        await upsertMemory(projectMemoryDir, cand, existing);
+        n++;
+      }
+      if (n > 0) write(`\n已更新记忆:${n} 条\n`);
+    } catch {
+      // 蒸馏失败静默吞掉,不影响退出。
+    }
+  };
+
   try {
     if (argvPrompt) {
       session.addUser(argvPrompt);
       await runOneTurn();
+      await distillOnExit();
       return;
     }
     write(`codeds —— 输入消息开始;/help 看命令,/exit 退出。\n`);
@@ -240,6 +281,7 @@ async function main() {
       return nextLine();
     };
     await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction });
+    await distillOnExit();
   } finally {
     rl.close();
   }
