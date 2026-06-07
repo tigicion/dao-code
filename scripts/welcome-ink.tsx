@@ -22,12 +22,8 @@ const bg: Background = forcedBg ?? bgFromEnv(process.env) ?? "dark";
 const real = detectCapabilities(process.env, !!process.stdout.isTTY, process.stdout.columns);
 const caps = forcedTier ? { ...real, tier: forcedTier } : real;
 
-// 关键:① interactive=isTTY 绕过 Ink 对 CI 的误判;② alternateScreen 全屏缓冲——
-// 按固定网格整屏重绘,resize 不残留旧帧(stock Ink inline 模式 resize 会变形,ink#907)。
-const renderOpts = {
-  interactive: !!process.stdout.isTTY,
-  alternateScreen: !!process.stdout.isTTY,
-} as unknown as Parameters<typeof render>[1];
+// interactive=isTTY 绕过 Ink 对 CI 的误判(否则不挂键盘→无 keep-alive→闪退)。inline 模式,与真实 app 一致。
+const renderOpts = { interactive: !!process.stdout.isTTY } as unknown as Parameters<typeof render>[1];
 
 const maxim = randomMaxim();
 
