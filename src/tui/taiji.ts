@@ -1,79 +1,143 @@
 import type { Capabilities } from "./capabilities.js";
 
-// 程序化生成太极(阴阳鱼)。
-// 技法:每个终端字符用上半块 "▀" —— 前景色画"上像素"、背景色画"下像素",
-// 把垂直分辨率翻倍(一行字符 = 两行像素),从而画出圆与 S 曲线。
-// truecolor/ansi256 走两色阴阳鱼;ansi16/none 退化为简图。
+// 程序化生成太极(阴阳鱼),带抗锯齿。
+// 技法:每个字符用上半块 "▀" —— 前景=上像素、背景=下像素,把垂直分辨率翻倍。
+// 抗锯齿:每像素 SS×SS 超采样,按"圆内覆盖率"把边缘像素向背景混色(柔化棱角),
+// 按"阳/阴占比"在两色间混色(柔化阴阳 S 线)。truecolor 全抗锯齿;
+// ansi256 用两色硬边(无混色,但分辨率高也较圆);ansi16/none 退化简图。
 
 type RGB = [number, number, number];
 
-// 阳(浅,暖墨)/ 阴(深,带一点青玉)。在墨黑底上都可见。
-const YANG: RGB = [230, 232, 236];
-const YIN: RGB = [58, 92, 86];
+export type Background = "light" | "dark";
 
-// 直径(像素)。需为偶数以便半块成对。15 列、16 像素高 → 8 字符行,近似正圆。
-const DIAM = 16;
-const R = DIAM / 2; // 8
+// 背景检测:DAO_THEME 显式 > COLORFGBG 末位(0..6,8=暗;7,9..15=亮)> 默认暗。
+export function detectBackground(env: NodeJS.ProcessEnv | Record<string, string | undefined>): Background {
+  const forced = (env.DAO_THEME ?? "").toLowerCase();
+  if (forced === "light" || forced === "dark") return forced;
+  const fgbg = env.COLORFGBG;
+  if (fgbg) {
+    const last = parseInt(fgbg.split(";").pop() ?? "", 10);
+    if (!Number.isNaN(last)) return last === 7 || last >= 9 ? "light" : "dark";
+  }
+  return "dark";
+}
 
-// 某像素(以圆心为原点,y 向上)属于:外部 / 阳 / 阴。
-type Cell = "out" | "yang" | "yin";
-function pixel(x: number, y: number): Cell {
-  if (x * x + y * y > R * R) return "out";
+// 每种背景一组配色:阳鱼、阴鱼、鱼眼(对色)、用于边缘抗锯齿的"背景混合色"。
+interface Palette { yang: RGB; yin: RGB; bgBlend: RGB }
+const PALETTES: Record<Background, Palette> = {
+  dark: { yang: [236, 238, 242], yin: [70, 122, 112], bgBlend: [20, 20, 22] },
+  light: { yang: [70, 78, 90], yin: [104, 160, 146], bgBlend: [250, 250, 248] },
+};
+
+const DIAM = 22; // 像素直径(偶数)→ 22 列、11 字符行,较圆且不太占屏
+const R = DIAM / 2;
+const SS = 4; // 超采样密度
+
+type Sample = { coverage: number; yang: number }; // coverage:圆内占比;yang:阳占比(0..1)
+
+// 连续坐标分类:点是否在圆内,以及属阳(true)还是阴。
+function classify(x: number, y: number): { inside: boolean; yang: boolean } {
+  const inside = x * x + y * y <= R * R;
+  if (!inside) return { inside: false, yang: false };
   const half = R / 2;
-  const eyeR2 = (R / 5) * (R / 5);
-  const dUp = x * x + (y - half) * (y - half); // 上半圆(圆心 0,+R/2)
-  const dLo = x * x + (y + half) * (y + half); // 下半圆(圆心 0,-R/2)
-  if (dUp <= eyeR2) return "yin"; // 阳鱼中的阴眼
-  if (dLo <= eyeR2) return "yang"; // 阴鱼中的阳眼
-  if (dUp <= half * half) return "yang"; // 上鱼头:阳
-  if (dLo <= half * half) return "yin"; // 下鱼头:阴
-  return x < 0 ? "yang" : "yin"; // 左阳右阴
+  const eyeR2 = (R / 6) * (R / 6);
+  const dUp = x * x + (y - half) * (y - half);
+  const dLo = x * x + (y + half) * (y + half);
+  let yang: boolean;
+  if (dUp <= eyeR2) yang = false; // 阳鱼中的阴眼
+  else if (dLo <= eyeR2) yang = true; // 阴鱼中的阳眼
+  else if (dUp <= half * half) yang = true; // 上鱼头:阳
+  else if (dLo <= half * half) yang = false; // 下鱼头:阴
+  else yang = x < 0; // 左阳右阴
+  return { inside: true, yang };
+}
+
+// 对单个像素(整数格)做 SS×SS 超采样。
+function sample(px: number, py: number, cx: number, cy: number): Sample {
+  let inN = 0;
+  let yangN = 0;
+  for (let i = 0; i < SS; i++) {
+    for (let j = 0; j < SS; j++) {
+      const sx = px + (i + 0.5) / SS - 0.5 - cx;
+      const sy = cy - (py + (j + 0.5) / SS - 0.5);
+      const c = classify(sx, sy);
+      if (c.inside) {
+        inN++;
+        if (c.yang) yangN++;
+      }
+    }
+  }
+  const tot = SS * SS;
+  return { coverage: inN / tot, yang: inN ? yangN / inN : 0 };
+}
+
+const blend = (a: RGB, b: RGB, t: number): RGB => [
+  Math.round(a[0] + (b[0] - a[0]) * t),
+  Math.round(a[1] + (b[1] - a[1]) * t),
+  Math.round(a[2] + (b[2] - a[2]) * t),
+];
+
+// 像素 → 最终 RGB(阳/阴混色后,再按覆盖率向背景混合做抗锯齿)。
+function pixelRGB(s: Sample, pal: Palette): RGB {
+  const fish = blend(pal.yin, pal.yang, s.yang);
+  return blend(pal.bgBlend, fish, s.coverage);
 }
 
 const tcFg = (c: RGB) => `\x1b[38;2;${c[0]};${c[1]};${c[2]}m`;
 const tcBg = (c: RGB) => `\x1b[48;2;${c[0]};${c[1]};${c[2]}m`;
-// ansi256 近似:阳=254(近白)、阴=238(深灰)。
-const c256 = (cell: "yang" | "yin") => (cell === "yang" ? 254 : 238);
 
 // 简图退化(none/ansi16):无半块、无背景色依赖。
 const FALLBACK = [
-  "   .-‐‐-.",
-  "  / ·   \\",
-  " |  (·)  |",
-  " |  (·)  |",
-  "  \\   · /",
-  "   `-‐‐-'",
+  "    .-‐‐-.",
+  "  /   ·   \\",
+  " |   (·)   |",
+  " |   (·)   |",
+  "  \\   ·   /",
+  "    `-‐‐-'",
 ];
 
-export function renderTaiji(caps: Capabilities): string[] {
+const EPS = 0.06; // 覆盖率低于此视为圆外(避免零星淡块)
+
+export function renderTaiji(caps: Capabilities, bg: Background = "dark"): string[] {
   if (caps.tier === "none" || caps.tier === "ansi16") return [...FALLBACK];
 
-  const cols = DIAM - 1; // 15 列
-  const rows = DIAM / 2; // 8 行
-  const cx = (cols - 1) / 2;
-  const cyTop = (rows * 2 - 1) / 2; // 像素纵向中心
-
+  const cols = DIAM;
+  const rows = DIAM / 2;
+  const cx = (DIAM - 1) / 2;
+  const cy = (DIAM - 1) / 2;
+  const pal = PALETTES[bg];
   const truecolor = caps.tier === "truecolor";
-  const fg = (cell: Cell) =>
-    cell === "out" ? "" : truecolor ? tcFg(cell === "yang" ? YANG : YIN) : `\x1b[38;5;${c256(cell)}m`;
-  const bg = (cell: Cell) =>
-    cell === "out" ? "" : truecolor ? tcBg(cell === "yang" ? YANG : YIN) : `\x1b[48;5;${c256(cell)}m`;
+
+  // ansi256:两色硬边(取覆盖>0.5、阳占比定色),不混色。
+  const hard256 = (s: Sample): string | null => {
+    if (s.coverage < 0.5) return null;
+    return `\x1b[38;5;${s.yang >= 0.5 ? 254 : 65}m`;
+  };
 
   const lines: string[] = [];
   for (let r = 0; r < rows; r++) {
     let line = "";
     for (let c = 0; c < cols; c++) {
-      const x = c - cx;
-      const top = pixel(x, cyTop - r * 2); // 上像素
-      const bot = pixel(x, cyTop - (r * 2 + 1)); // 下像素
-      if (top === "out" && bot === "out") {
+      const top = sample(c, r * 2, cx, cy);
+      const bot = sample(c, r * 2 + 1, cx, cy);
+      const tOn = top.coverage >= EPS;
+      const bOn = bot.coverage >= EPS;
+      if (!tOn && !bOn) {
         line += "\x1b[0m ";
-      } else if (top !== "out" && bot !== "out") {
-        line += `${fg(top)}${bg(bot)}▀`; // 上=前景、下=背景
-      } else if (top !== "out") {
-        line += `\x1b[49m${fg(top)}▀`; // 仅上像素:背景透明
+        continue;
+      }
+      if (truecolor) {
+        if (tOn && bOn) line += `${tcFg(pixelRGB(top, pal))}${tcBg(pixelRGB(bot, pal))}▀`;
+        else if (tOn) line += `\x1b[49m${tcFg(pixelRGB(top, pal))}▀`;
+        else line += `\x1b[49m${tcFg(pixelRGB(bot, pal))}▄`;
       } else {
-        line += `\x1b[49m${fg(bot)}▄`; // 仅下像素
+        // ansi256
+        const tc = hard256(top);
+        const bc = hard256(bot);
+        if (tc && bc) line += `${tc}${bc.replace("[38", "[48")}▀`;
+        else if (tc) line += `\x1b[49m${tc}▀`;
+        else if (bc) line += `\x1b[49m${bc}▄`;
+        else line += "\x1b[0m ";
       }
     }
     lines.push(line + "\x1b[0m");
@@ -85,4 +149,4 @@ export function renderTaiji(caps: Capabilities): string[] {
 export const TAIJI_WIDTH = (caps: Capabilities): number =>
   caps.tier === "none" || caps.tier === "ansi16"
     ? Math.max(...FALLBACK.map((l) => [...l].length))
-    : DIAM - 1;
+    : DIAM;
