@@ -8,7 +8,9 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:mem": "tsx scripts/verify-memory.ts",
+    "accept:mem": "bash scripts/accept-memory.sh"
   },
   "dependencies": {
     "zod": "^3.23.0",
