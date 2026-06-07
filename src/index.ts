@@ -290,6 +290,7 @@ async function main() {
       // 既省掉快速查询的 flash 开销,也自动把 eval 排除在外、测量更干净。
       session.addUser(argvPrompt);
       await runOneTurn();
+      if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
       return;
     }
     write(`codeds —— 输入消息开始;/help 看命令,/exit 退出。\n`);
@@ -298,6 +299,7 @@ async function main() {
       return nextLine();
     };
     await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction });
+    if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
     await distillOnExit();
   } finally {
     rl.close();

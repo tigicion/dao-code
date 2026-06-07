@@ -30,6 +30,15 @@ export type StreamDelta =
   | { kind: "content"; text: string }
   | { kind: "tool_call"; index: number; name: string };
 
+// ---- token 用量(含 DeepSeek 扁平 cache 字段;prompt_tokens = hit + miss)----
+export interface Usage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
+}
+
 // ---- 发给 API 的工具声明 ----
 export interface ApiTool {
   type: "function";
@@ -49,4 +58,6 @@ export interface StreamChatOptions {
   fetchImpl?: typeof fetch;
   // 透传给 API 的额外字段(如 thinking、reasoning_effort)。
   extra?: Record<string, unknown>;
+  // 流式 usage 回调:收到 [DONE] 前那个 usage chunk 时调用(cache 命中率埋点用)。
+  onUsage?: (usage: Usage) => void;
 }
