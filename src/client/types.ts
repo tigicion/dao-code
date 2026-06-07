@@ -60,4 +60,6 @@ export interface StreamChatOptions {
   extra?: Record<string, unknown>;
   // 流式 usage 回调:收到 [DONE] 前那个 usage chunk 时调用(cache 命中率埋点用)。
   onUsage?: (usage: Usage) => void;
+  // 中途取消信号(ESC/超时):abort 后 fetch 与流读取被中断,生成器返回已累积的部分消息而非抛错。
+  signal?: AbortSignal;
 }
