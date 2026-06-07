@@ -307,15 +307,17 @@ async function main() {
     path.join(workspaceRoot, ".dao", "skills"),
     path.join(os.homedir(), ".dao", "skills"),
   );
-  // 并入 dao 自带的默认技能(磁盘同名优先,可覆盖)。dir 标识来源:""=内置、项目根下=项目、否则=用户。
   const diskNames = new Set(diskSkills.map((s) => s.name));
-  const allSkills = [...diskSkills, ...BUNDLED_SKILLS.filter((b) => !diskNames.has(b.name)).map((b) => ({ ...b, dir: "" }))];
-  // 禁用集(~/.dao/skills-disabled.json):被禁用的技能不注入上下文(省 token),/skills 可开关。
+  // 内置【核心】技能:描述固定加载进模型上下文(可自动触发),但不进用户的 /skills 列表、不可关。
+  const coreBundled = BUNDLED_SKILLS.filter((b) => b.core && !diskNames.has(b.name)).map((b) => ({ ...b, dir: "" }));
+  // 禁用集(~/.dao/skills-disabled.json):被禁用的【磁盘】技能不注入上下文(省 token),/skills 可开关。
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
-  const skillSource = (s: { dir: string }) => (!s.dir ? "内置" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
+  const skillSource = (s: { dir: string }) => (s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
-  const skills = allSkills.filter((s) => !disabledSet.has(s.name)); // 注入用:仅启用的
+  const enabledDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
+  // 模型可见 = 核心内置(固定) + 启用的磁盘技能;ctx.skills 据此,skill 工具按需加载正文。
+  const skills = [...coreBundled, ...enabledDisk];
   const skillsSection =
     skills.length > 0
       ? `\n\n# 可用 skill(任务匹配时用 skill 工具加载其正文指令再照做)\n` +
@@ -682,16 +684,18 @@ async function main() {
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
+            const coreNote = coreBundled.length ? `\n(另有 ${coreBundled.length} 个内置核心技能固定加载、不在此列、不可关)` : "";
             if (sub === "off" || sub === "on") {
               const target = rest[1];
-              if (!target || !allSkills.some((s) => s.name === target)) return { handled: true, output: `未知技能:${target ?? "(空)"}` };
+              if (target && coreBundled.some((s) => s.name === target)) return { handled: true, output: `${target} 是内置核心技能,固定加载、不可开关。` };
+              if (!target || !diskSkills.some((s) => s.name === target)) return { handled: true, output: `未知技能:${target ?? "(空)"}(只能开关项目/用户技能)` };
               if (sub === "off") disabledSet.add(target); else disabledSet.delete(target);
               try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch {}
               return { handled: true, output: `已${sub === "off" ? "禁用" : "启用"}技能 ${target}(重启 dao 生效)` };
             }
-            if (allSkills.length === 0) return { handled: true, output: "暂无技能。内置随 dao 自带;项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。" };
-            const rows = allSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
-            return { handled: true, output: `技能(${allSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") };
+            if (diskSkills.length === 0) return { handled: true, output: `暂无项目/用户技能。项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。${coreNote}` };
+            const rows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
+            return { handled: true, output: `技能(${diskSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") + coreNote };
           }
           if (name === "yolo") {
             yolo = !yolo;
