@@ -20,7 +20,7 @@ function makeDeps(over: Partial<AppDeps> = {}): AppDeps {
     runCommand: (line) =>
       line.startsWith("/help") ? { handled: true, output: "命令:/help /exit" } : { handled: true, output: "未知" },
     compact: async () => {},
-    getStatus: () => ({ model: "deepseek-v4-pro", mode: "normal", promptTokens: 12, completionTokens: 3, cacheHitRatio: 0.5 }),
+    getStatus: () => ({ model: "deepseek-v4-pro", mode: "normal", promptTokens: 12, completionTokens: 3, cacheHitRatio: 0.5, yolo: false }),
     register: () => {},
     ...over,
   };
@@ -32,7 +32,7 @@ describe("App", () => {
     const f = lastFrame()!;
     expect(f).toContain("DAO CODE");
     expect(f).toContain("deepseek-v4-pro");
-    expect(f).toContain("cache 50%");
+    expect(f).toContain("缓存命中 50%");
   });
 
   it("输入消息回车 → 用户条目 + 助手回复进 transcript", async () => {

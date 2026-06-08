@@ -42,7 +42,7 @@ import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
 import { buildWelcome } from "./tui/banner.js";
 import { detectCapabilities } from "./tui/capabilities.js";
-import { bgFromEnv } from "./tui/background.js";
+import { resolveBackground } from "./tui/background.js";
 import { randomMaxim } from "./tui/maxim.js";
 import { runInkApp } from "./tui/app/run.js";
 import type { ApprovalPrompt } from "./approval/types.js";
@@ -55,16 +55,18 @@ const KEY_HELP =
   "获取 key:https://platform.deepseek.com/api_keys";
 
 async function main() {
-  const argvPrompt = process.argv.slice(2).join(" ").trim();
+  const rawArgs = process.argv.slice(2);
+  const yoloFlag = rawArgs.includes("--yolo");
+  const argvPrompt = rawArgs.filter((a) => a !== "--yolo").join(" ").trim();
   const workspaceRoot = process.cwd();
   const approvalsFile = path.join(workspaceRoot, ".codeds", "approvals.json");
   const keyFile = path.join(os.homedir(), ".codeds", "config.json");
 
   const write = (s: string) => process.stdout.write(s);
 
-  // 背景(亮/暗):用 env 线索(DAO_THEME / COLORFGBG),默认 dark。
-  // (OSC 11 主动探测会与 readline/Ink 抢 stdin,暂不在启动路径用;可 export DAO_THEME=light 强制。)
-  const bg = bgFromEnv(process.env) ?? "dark";
+  // 背景(亮/暗)检测:env 显式(DAO_THEME/COLORFGBG)> OSC 11 向终端查背景色 > 默认 dark。
+  // 在 readline(懒创建)与 Ink 之前做,stdin 干净;OSC 完成即恢复。非 TTY 立即回退,不阻塞 eval。
+  const bg = await resolveBackground(process.env);
 
   // 懒创建 readline:仅「key 引导 / 非 TTY 纯文本 REPL」需要。
   // Ink 交互态绝不创建 readline——readline 会接管 stdin,其 create+close 周期会破坏 stdin 状态,
@@ -190,16 +192,21 @@ async function main() {
   let inkApprovalPrompt: ApprovalPrompt | null = null;
   let inkAsk: ((q: string) => Promise<string>) | null = null;
 
-  // CODEDS_AUTO_APPROVE=1 时跳过所有审批(用于 eval / CI 在抛弃式工作区里无人值守运行)。
+  // YOLO:自动批准一切写/执行(慎用)。来源:--yolo 启动 flag / CODEDS_AUTO_APPROVE 环境变量(eval 用)/ 运行时 /yolo 切换。
+  let yolo = yoloFlag || !!process.env.CODEDS_AUTO_APPROVE;
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
-  const gate: ApprovalGate = process.env.CODEDS_AUTO_APPROVE
-    ? { needsApproval: () => false, requestBatch: async () => new Map() }
-    : new SessionApprovalGate(
-        (reqs) => (inkApprovalPrompt ?? readlinePrompt)(reqs), // Ink 态用模态,否则 readline
-        alwaysApproved,
-        (name) => appendAlwaysApproved(approvalsFile, name),
-      );
+  const baseGate = new SessionApprovalGate(
+    (reqs) => (inkApprovalPrompt ?? readlinePrompt)(reqs), // Ink 态用模态,否则 readline
+    alwaysApproved,
+    (name) => appendAlwaysApproved(approvalsFile, name),
+  );
+  // YOLO 包一层:开启时一律放行(needsApproval=false,不弹审批);关闭时走正常审批门。
+  const gate: ApprovalGate = {
+    needsApproval: (tool) => (yolo ? false : baseGate.needsApproval(tool)),
+    requestBatch: (reqs) =>
+      yolo ? Promise.resolve(new Map(reqs.map((r) => [r.id, true]))) : baseGate.requestBatch(reqs),
+  };
 
   const session = new Session(systemPrompt, cfg.model);
   const ctx: ToolContext = {
@@ -371,7 +378,14 @@ async function main() {
             await inkCompact();
           }
         },
-        runCommand: (line) => dispatchCommand(line, session),
+        runCommand: (line) => {
+          const name = line.trim().slice(1).split(/\s+/)[0];
+          if (name === "yolo") {
+            yolo = !yolo;
+            return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(慎用)" : "YOLO 已关闭:恢复审批门" };
+          }
+          return dispatchCommand(line, session);
+        },
         compact: inkCompact,
         getStatus: () => ({
           model: session.model,
@@ -379,6 +393,7 @@ async function main() {
           promptTokens: session.usage.promptTokens,
           completionTokens: session.usage.completionTokens,
           cacheHitRatio: session.cacheHitRatio(),
+          yolo,
         }),
         register: ({ approvalPrompt, askUser }) => {
           inkApprovalPrompt = approvalPrompt;
