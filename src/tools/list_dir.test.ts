@@ -36,7 +36,13 @@ describe("list_dir tool", () => {
     expect(listDirTool.name).toBe("list_dir");
   });
 
-  it("rejects paths escaping the workspace", async () => {
-    await expect(listDirTool.handler({ path: ".." }, { workspaceRoot: root })).rejects.toThrow(/越界/);
+  it("工作区外路径:未授权返回 Error(不再硬抛)", async () => {
+    const out = await listDirTool.handler({ path: ".." }, { workspaceRoot: root });
+    expect(out).toContain("工作区之外");
+  });
+
+  it("工作区外路径:授权后可列", async () => {
+    const out = await listDirTool.handler({ path: ".." }, { workspaceRoot: root, approveExternalRead: async () => true });
+    expect(out).not.toContain("工作区之外"); // 列出了父目录内容
   });
 });
