@@ -128,6 +128,21 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 
 ---
 
+## 🪢 长任务稳健性
+
+面向"自主跑很久、不漂移、可恢复、能验收"的长任务:
+
+- **会话日志 + 崩溃恢复**:每回合把事件写 `.codeds/sessions/<id>/events.jsonl`、状态快照写 `state.json`;崩溃/异常退出后 `dao -c` 恢复上次会话(`src/session/log.ts`)。
+- **影子 git 检查点**:独立 `.codeds/shadow.git` 对工作区快照(不碰你的 `.git`/不改你的历史);`/restore` 一键回退上一回合改动(`src/session/checkpoint.ts`)。
+- **任务清单穿越压缩**:`todo_write` 维护的清单在压缩后作为 system 消息重注入,防长任务目标漂移。
+- **验证驱动完成(DoD)**:`/dod <命令>`(或 `DAO_VERIFY_CMD`)设可执行验收命令,`verify_done` 跑它——通过(exit 0)才算完成;没设则模型据证据自判。
+- **卡死检测 + 止损**:重复同一工具调用/反复同一错误达阈值 → 先提醒换思路、再卡则停止,防空转烧预算(`src/agent/stuck.ts`)。
+- **超大输出落盘**:工具输出超阈值时全量落 `.codeds/spill/`、上下文只留截断+指针,按需 `read_file` 取回。
+- **并行子代理**:`agent` 工具传 `tasks[]` 并行派多个独立子代理并汇总。
+- **长任务自主模式**:`dao --task` 或 `/task` —— 自动批准 + 自主连续推进 + 更高轮数 + 末尾给总结;仅真卡住才问你。
+
+---
+
 ## 🛠️ 工具一览
 
 注册表见 `src/index.ts`,实现在 `src/tools/`。
