@@ -33,8 +33,11 @@ export const grepFilesTool = defineTool({
     const contentLines: string[] = [];
     const fileHits: string[] = [];
     let truncated = false;
+    let scanned = 0;
 
     outer: for await (const { abs, rel } of walkFiles(root)) {
+      if (ctx.signal?.aborted) break; // 尊重 ESC/超时
+      if (++scanned > 50000) { truncated = true; break; } // 巨型树扫描上限
       const base = rel.split(/[/\\]/).pop()!;
       if (nameRe && !nameRe.test(base)) continue;
       let raw: string;
