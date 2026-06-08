@@ -14,6 +14,8 @@ export interface ToolContext {
   fetchImpl?: typeof fetch;
   // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
   runSubagent?: (task: string, signal?: AbortSignal) => Promise<string>;
+  // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
+  runBackgroundAgent?: (task: string) => string;
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
