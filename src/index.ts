@@ -53,6 +53,19 @@ import { VERSION } from "./version.js";
 import { compactMessages, shouldCompact, estimateTokens } from "./agent/compact.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
+import type { TranscriptItem } from "./tui/app/types.js";
+
+// 续跑时,把历史消息重建成可见的 transcript(只回放 user/assistant 文本;工具细节在日志里)。
+function transcriptFromMessages(messages: ChatMessage[]): TranscriptItem[] {
+  const out: TranscriptItem[] = [];
+  let id = 1;
+  for (const m of messages) {
+    if (m.role === "user" && typeof m.content === "string") out.push({ id: id++, kind: "user", text: m.content });
+    else if (m.role === "assistant" && typeof m.content === "string" && m.content.trim())
+      out.push({ id: id++, kind: "assistant", text: m.content });
+  }
+  return out;
+}
 
 const KEY_HELP =
   "获取 key:https://platform.deepseek.com/api_keys";
@@ -60,7 +73,9 @@ const KEY_HELP =
 async function main() {
   const rawArgs = process.argv.slice(2);
   const yoloFlag = rawArgs.includes("--yolo");
-  const argvPrompt = rawArgs.filter((a) => a !== "--yolo").join(" ").trim();
+  const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
+  const flags = new Set(["--yolo", "--continue", "-c"]);
+  const argvPrompt = rawArgs.filter((a) => !flags.has(a)).join(" ").trim();
   const workspaceRoot = process.cwd();
   const approvalsFile = path.join(workspaceRoot, ".codeds", "approvals.json");
   const keyFile = path.join(os.homedir(), ".codeds", "config.json");
@@ -369,7 +384,26 @@ async function main() {
         }
       } catch {}
       // 长任务地基:会话日志/状态快照(崩溃恢复)+ 影子 git 检查点(回滚)。
-      const store = createSessionStore(path.join(workspaceRoot, ".codeds", "sessions"));
+      const sessionsDir = path.join(workspaceRoot, ".codeds", "sessions");
+      let resumeId: string | undefined;
+      let initialItems: TranscriptItem[] = [];
+      if (continueFlag) {
+        const prev = findResumable(sessionsDir, workspaceRoot);
+        if (prev) {
+          session.messages = prev.messages;
+          session.setModel(prev.model);
+          session.mode = prev.mode;
+          session.usage.promptTokens += prev.usage.promptTokens;
+          session.usage.completionTokens += prev.usage.completionTokens;
+          session.usage.cacheHitTokens += prev.usage.cacheHitTokens;
+          session.usage.cacheMissTokens += prev.usage.cacheMissTokens;
+          resumeId = prev.id; // 续写同一会话文件
+          const recap = transcriptFromMessages(prev.messages);
+          recap.unshift({ id: 0, kind: "notice", text: "[已恢复上次会话]" });
+          initialItems = recap.map((it, i) => ({ ...it, id: i + 1 })); // 统一编号(welcome 占 0)
+        }
+      }
+      const store = createSessionStore(sessionsDir, resumeId);
       const ckpt = createCheckpointer(workspaceRoot);
       const persist = () =>
         store.saveState({
@@ -439,6 +473,7 @@ async function main() {
         },
         completeFiles: (prefix) =>
           (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),
+        initialItems,
       });
       store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
     } else {
