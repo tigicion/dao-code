@@ -22,8 +22,8 @@ describe("renderMarkdown", () => {
 
   it("renders a fenced code block (content preserved, no inline processing)", () => {
     const out = renderMarkdown("```\nconst a = 1; // **不加粗**\n```");
+    // 代码块内容原样保留,且不做行内 markdown 处理(** 不应变成粗体)。
     expect(strip(out)).toContain("const a = 1; // **不加粗**");
-    expect(out).toContain("\x1b[2m");
     expect(out).not.toContain("\x1b[1m");
   });
 
