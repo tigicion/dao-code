@@ -334,7 +334,8 @@ function StatusBar({
       <Text color={c("dim")}>
         {busy ? `${spin} ${elapsed}s · ` : ""}
         {status.yolo ? <Text color={c("vermilion")}>⚡YOLO · </Text> : ""}
-        {status.mode} · {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}%
+        {status.mode} · {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}% · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
+        {status.branch ? ` · ⎇ ${status.branch}` : ""}
       </Text>
     </Box>
   );
