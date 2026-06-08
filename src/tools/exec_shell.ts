@@ -28,7 +28,12 @@ function runForeground(
         if (signal) signal.removeEventListener("abort", onAbort);
         const timedOut = !aborted && Boolean(err?.killed) && err?.signal === "SIGTERM";
         const code = typeof err?.code === "number" ? err.code : err ? 1 : 0;
-        resolve({ stdout: String(stdout), stderr: String(stderr), code, timedOut, aborted });
+        // maxBuffer 溢出:exec 会截断输出并报错,明说而非让模型以为命令空跑失败。
+        const overflow =
+          err?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+            ? "\n[输出超过 10MB 上限被截断,请用更精确的命令或把输出重定向到文件后再 grep/read_file]"
+            : "";
+        resolve({ stdout: String(stdout), stderr: String(stderr) + overflow, code, timedOut, aborted });
       },
     );
     function onAbort() {

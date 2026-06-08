@@ -50,4 +50,15 @@ describe("read_file tool", () => {
     await readFileTool.handler({ path: "a.txt" }, { workspaceRoot: root, readFiles: seen });
     expect(seen.has(path.join(root, "a.txt"))).toBe(true);
   });
+
+  it("二进制文件(含 NUL)→ 返回 Error 不读乱码", async () => {
+    await fs.writeFile(path.join(root, "bin.dat"), Buffer.from([0x41, 0x00, 0x42]));
+    const out = await readFileTool.handler({ path: "bin.dat" }, { workspaceRoot: root });
+    expect(out).toContain("二进制");
+  });
+
+  it("offset 超过总行数 → 明确提示", async () => {
+    const out = await readFileTool.handler({ path: "a.txt", offset: 999 }, { workspaceRoot: root });
+    expect(out).toContain("超过文件总行数");
+  });
 });

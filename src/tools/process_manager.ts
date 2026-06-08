@@ -1,5 +1,15 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
+// 杀整个进程组(detached 下 child 是组长,-pid 杀它及其 shell 派生的所有孙进程,避免孤儿)。
+function killTree(child: ChildProcess, sig: NodeJS.Signals): void {
+  try {
+    if (child.pid) process.kill(-child.pid, sig);
+    else child.kill(sig);
+  } catch {
+    try { child.kill(sig); } catch {}
+  }
+}
+
 interface BgProc {
   id: string;
   command: string;
@@ -25,7 +35,7 @@ class ProcessManager {
 
   start(command: string, cwd: string): string {
     const id = `proc-${++this.counter}`;
-    const child = spawn(command, { cwd, shell: true });
+    const child = spawn(command, { cwd, shell: true, detached: true });
     const proc: BgProc = {
       id,
       command,
@@ -69,11 +79,11 @@ class ProcessManager {
   kill(id: string): void {
     const p = this.procs.get(id);
     if (!p) throw new Error(`未知后台进程:${id}`);
-    p.child.kill("SIGTERM");
+    killTree(p.child, "SIGTERM");
   }
 
   reset(): void {
-    for (const p of this.procs.values()) p.child.kill("SIGKILL");
+    for (const p of this.procs.values()) killTree(p.child, "SIGKILL");
     this.procs.clear();
     this.counter = 0;
   }

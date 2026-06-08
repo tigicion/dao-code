@@ -46,13 +46,13 @@ describe("web_search tool", () => {
     expect(out).toBe("(无搜索结果)");
   });
 
-  it("throws on non-2xx", async () => {
-    await expect(
-      webSearchTool.handler(
-        { query: "x" },
-        { workspaceRoot: "/tmp", fetchImpl: fetchReturning("x", 503) },
-      ),
-    ).rejects.toThrow(/503/);
+  it("非2xx → 返回 Error 信息(不抛,便于模型读)", async () => {
+    const out = await webSearchTool.handler(
+      { query: "x" },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning("x", 503) },
+    );
+    expect(out).toContain("503");
+    expect(out).toContain("Error");
   });
 
   it("does not misattribute snippets when a result has none", async () => {

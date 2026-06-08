@@ -35,8 +35,16 @@ export const webSearchTool = defineTool({
   handler: async (args, ctx) => {
     const fetchImpl = ctx.fetchImpl ?? fetch;
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(args.query)}`;
-    const res = await fetchImpl(url, { headers: { "User-Agent": "Mozilla/5.0" } });
-    if (!res.ok) throw new Error(`搜索失败 HTTP ${res.status}`);
+    // 超时 30s + 尊重 ctx.signal:搜索引擎慢/挂不会卡死整个回合。
+    const signals = [AbortSignal.timeout(30000), ...(ctx.signal ? [ctx.signal] : [])];
+    let res: Response;
+    try {
+      res = await fetchImpl(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.any(signals) });
+    } catch (e) {
+      const msg = e instanceof Error && e.name === "TimeoutError" ? "搜索超时(30s)" : e instanceof Error ? e.message : String(e);
+      return `Error: 搜索失败(${msg})`;
+    }
+    if (!res.ok) return `Error: 搜索失败 HTTP ${res.status}`;
     const html = await res.text();
     const max = args.max_results ?? 5;
 
