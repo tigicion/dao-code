@@ -116,7 +116,7 @@ export function App(deps: AppDeps) {
   useInput((ch, key) => {
     if (approval) {
       const d: ApprovalDecision | null =
-        ch === "y" ? "once" : ch === "s" ? "session" : ch === "a" ? "always" : ch === "n" ? "deny" : null;
+        ch === "y" ? "once" : ch === "a" ? "always" : ch === "n" ? "deny" : null;
       if (d) {
         approval.resolve(new Map(approval.requests.map((r) => [r.id, d])));
         setApproval(null);
@@ -200,7 +200,7 @@ export function App(deps: AppDeps) {
           {approval.requests.map((r) => (
             <Text key={r.id} color={c("ink")}>  {r.summary.slice(0, 100)}</Text>
           ))}
-          <Text color={c("dim")}>[y]本次 [s]本会话 [a]永久 [n]拒绝</Text>
+          <Text color={c("dim")}>[y]本次 [a]本仓库后续都用 [n]拒绝</Text>
         </Box>
       )}
 
@@ -271,11 +271,13 @@ function StatusBar({
   c: (s: Parameters<typeof semHex>[0]) => string;
 }) {
   const pct = (status.cacheHitRatio * 100).toFixed(0);
+  const fmt = (n: number) => (n < 1000 ? String(n) : (n / 1000).toFixed(n < 10000 ? 1 : 0) + "k");
   return (
     <Box marginTop={1}>
       <Text color={c("dim")}>
         {busy ? `${spin} ${elapsed}s · ` : ""}
-        {status.mode} · {status.model} · ↑{status.promptTokens} ↓{status.completionTokens} · cache {pct}%
+        {status.yolo ? <Text color={c("vermilion")}>⚡YOLO · </Text> : ""}
+        {status.mode} · {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}%
       </Text>
     </Box>
   );

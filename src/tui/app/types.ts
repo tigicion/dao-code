@@ -25,6 +25,7 @@ export interface StatusInfo {
   promptTokens: number;
   completionTokens: number;
   cacheHitRatio: number;
+  yolo: boolean;
 }
 
 export interface AppDeps {
