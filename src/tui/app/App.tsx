@@ -53,6 +53,8 @@ export function App(deps: AppDeps) {
   const [tick, setTick] = useState(0);
   const [startedAt, setStartedAt] = useState(0);
   const [approval, setApproval] = useState<{ requests: ApprovalRequest[]; resolve: (m: Map<string, ApprovalDecision>) => void } | null>(null);
+  const [apIdx, setApIdx] = useState(0); // 审批进行到第几项(多个 gated 工具逐项决定)
+  const apDecisions = useRef(new Map<string, ApprovalDecision>());
   const [ask, setAsk] = useState<{ question: string; resolve: (s: string) => void } | null>(null);
   const [askInput, setAskInput] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
@@ -71,7 +73,11 @@ export function App(deps: AppDeps) {
   // 注册审批 / 提问模态,供 index 的 gate 与 ctx.ask 委派。
   useEffect(() => {
     const approvalPrompt: ApprovalPrompt = (requests) =>
-      new Promise((resolve) => setApproval({ requests, resolve }));
+      new Promise((resolve) => {
+        apDecisions.current = new Map();
+        setApIdx(0);
+        setApproval({ requests, resolve });
+      });
     const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
     deps.register({ approvalPrompt, askUser });
   }, [deps]);
@@ -159,8 +165,14 @@ export function App(deps: AppDeps) {
       const d: ApprovalDecision | null =
         ch === "y" ? "once" : ch === "a" ? "always" : ch === "n" ? "deny" : null;
       if (d) {
-        approval.resolve(new Map(approval.requests.map((r) => [r.id, d])));
-        setApproval(null);
+        const req = approval.requests[apIdx];
+        if (req) apDecisions.current.set(req.id, d);
+        if (apIdx + 1 < approval.requests.length) {
+          setApIdx(apIdx + 1); // 还有下一项,继续逐个决定
+        } else {
+          approval.resolve(new Map(apDecisions.current));
+          setApproval(null);
+        }
       }
       return;
     }
@@ -254,10 +266,10 @@ export function App(deps: AppDeps) {
 
       {approval && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("vermilion")} paddingX={1}>
-          <Text color={c("vermilion")}>需要批准:</Text>
-          {approval.requests.map((r) => (
-            <Text key={r.id} color={c("ink")}>  {r.summary.slice(0, 100)}</Text>
-          ))}
+          <Text color={c("vermilion")}>
+            需要批准{approval.requests.length > 1 ? ` (${apIdx + 1}/${approval.requests.length})` : ""}:
+          </Text>
+          <Text color={c("ink")}>  {approval.requests[apIdx]?.summary.slice(0, 120)}</Text>
           <Text color={c("dim")}>[y]本次 [a]本仓库后续都用 [n]拒绝</Text>
         </Box>
       )}
