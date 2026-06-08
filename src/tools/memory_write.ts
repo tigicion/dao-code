@@ -15,6 +15,14 @@ function slug(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";
 }
 
+// 串行锁:并发 memory_write 的"读全部→合并→写回"必须串行,否则后写覆盖先写丢记忆。
+let memLock: Promise<unknown> = Promise.resolve();
+function withMemLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = memLock.then(fn, fn);
+  memLock = run.catch(() => {});
+  return run;
+}
+
 export const memoryWriteTool = defineTool({
   name: "memory_write",
   description:
@@ -45,8 +53,10 @@ export const memoryWriteTool = defineTool({
       name: slug(args.text), text: args.text, type: args.type ?? "semantic", today,
       importance: args.importance, confidence: args.confidence, source: args.source, sourceHash,
     });
-    const existing = await loadAllMemories(dir, memDir("user", ctx.workspaceRoot));
-    const r = await upsertMemory(dir, cand, existing);
+    const r = await withMemLock(async () => {
+      const existing = await loadAllMemories(dir, memDir("user", ctx.workspaceRoot));
+      return upsertMemory(dir, cand, existing);
+    });
     const label = scope === "user" ? "用户级" : "项目级";
     return r.action === "updated"
       ? `已更新(${label}):${args.text.trim()}`
