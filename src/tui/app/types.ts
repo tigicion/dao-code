@@ -27,6 +27,8 @@ export interface StatusInfo {
   completionTokens: number;
   cacheHitRatio: number;
   yolo: boolean;
+  branch?: string;
+  contextPct: number; // 当前上下文占 1M 窗口的百分比
 }
 
 export interface AppDeps {
