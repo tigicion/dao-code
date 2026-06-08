@@ -2,6 +2,7 @@ import { appendFileSync, writeFileSync, mkdirSync, readFileSync, readdirSync, ex
 import path from "node:path";
 import type { ChatMessage, Usage } from "../client/types.js";
 import type { Mode } from "../tools/tools_for_mode.js";
+import type { TurnEvents } from "../tui/render.js";
 
 // 会话事件日志(append-only,可观测/可重放)+ 状态快照(崩溃恢复/续跑)。
 // events.jsonl 逐事件追加(真相流);state.json 每回合覆盖一份最新快照(快速恢复)。
@@ -74,6 +75,33 @@ export function loadState(baseDir: string, id: string): PersistedState | null {
   } catch {
     return null;
   }
+}
+
+// 把一组 TurnEvents 包一层:在转发给内层(渲染)的同时,把关键事件写进会话日志。
+export function logEvents(inner: TurnEvents, store: SessionStore): TurnEvents {
+  return {
+    reasoning: (c) => inner.reasoning(c),
+    content: (c) => inner.content(c),
+    toolStart: (call) => inner.toolStart(call),
+    assistantDone: (msg) => {
+      inner.assistantDone(msg);
+      store.append({
+        t: "assistant",
+        content: msg.content,
+        toolCalls: msg.tool_calls?.map((tc) => ({ name: tc.function.name, args: tc.function.arguments })),
+      });
+    },
+    toolResult: (call, msg) => {
+      inner.toolResult(call, msg);
+      const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
+      store.append({ t: "tool_result", name: call.function.name, ok, content: msg.content });
+    },
+    notice: (text) => {
+      inner.notice(text);
+      const t = text.trim();
+      if (t) store.append({ t: "notice", text: t });
+    },
+  };
 }
 
 // 找出可恢复的会话:未完成(done:false)、同一工作区、至少有过一轮真实用户对话;取最近一个。
