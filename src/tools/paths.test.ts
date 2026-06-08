@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
+import os from "node:os";
 import { resolveInWorkspace } from "./paths.js";
 
 const root = path.resolve("/tmp/ws");
@@ -25,5 +27,16 @@ describe("resolveInWorkspace", () => {
 
   it("rejects absolute paths outside the workspace", () => {
     expect(() => resolveInWorkspace(root, "/etc/passwd")).toThrow(/越界/);
+  });
+
+  it("拒绝经区内符号链接逃逸到区外(M8)", () => {
+    const base = realpathSync(mkdtempSync(path.join(os.tmpdir(), "dao-sym-")));
+    const ws = path.join(base, "ws");
+    const outside = path.join(base, "outside");
+    mkdirSync(ws);
+    mkdirSync(outside);
+    writeFileSync(path.join(outside, "secret.txt"), "x");
+    symlinkSync(outside, path.join(ws, "link")); // ws/link → ../outside
+    expect(() => resolveInWorkspace(ws, "link/secret.txt")).toThrow(/逃逸|越界/);
   });
 });
