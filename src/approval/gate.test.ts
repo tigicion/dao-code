@@ -31,8 +31,8 @@ describe("SessionApprovalGate", () => {
     expect(gate.needsApproval(writeTool)).toBe(true);
   });
 
-  it("a tool in the always set does not need approval", () => {
-    const gate = new SessionApprovalGate(promptReturning({}), new Set(["write_file"]), async () => {});
+  it("能力类在 always 集合里则该类工具都不需审批", () => {
+    const gate = new SessionApprovalGate(promptReturning({}), new Set(["write"]), async () => {});
     expect(gate.needsApproval(writeTool)).toBe(false);
   });
 
@@ -54,8 +54,28 @@ describe("SessionApprovalGate", () => {
     const gate = new SessionApprovalGate(promptReturning({ a: "always" }), new Set(), async (n) => { persisted.push(n); });
     const res = await gate.requestBatch([req("a", "write_file")]);
     expect(res.get("a")).toBe(true);
-    expect(persisted).toEqual(["write_file"]);
+    expect(persisted).toEqual(["write"]); // 按能力类持久化
     expect(gate.needsApproval(writeTool)).toBe(false);
+  });
+
+  it("按能力类授权:批准一个写工具,同类写工具一并放行", async () => {
+    const editTool = defineTool({ name: "edit_file", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "" });
+    const gate = new SessionApprovalGate(promptReturning({ a: "always" }), new Set(), async () => {});
+    await gate.requestBatch([req("a", "write_file")]);
+    expect(gate.needsApproval(editTool)).toBe(false); // 同 write 类,免审批
+  });
+
+  it("同一批同能力类只问一次", async () => {
+    let asked = 0;
+    const prompt = async (reqs: ApprovalRequest[]) => {
+      asked = reqs.length;
+      return new Map(reqs.map((x) => [x.id, "once" as ApprovalDecision]));
+    };
+    const gate = new SessionApprovalGate(prompt, new Set(), async () => {});
+    const res = await gate.requestBatch([req("a", "write_file"), req("b", "edit_file")]); // 都是 write 类
+    expect(asked).toBe(1); // 去重为一次
+    expect(res.get("a")).toBe(true);
+    expect(res.get("b")).toBe(true);
   });
 
   it("deny returns false and missing decisions default to deny", async () => {

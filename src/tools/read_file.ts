@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { resolveInWorkspace } from "./paths.js";
+import { classifyPath } from "./paths.js";
 
 export const readFileTool = defineTool({
   name: "read_file",
@@ -15,7 +15,10 @@ export const readFileTool = defineTool({
     limit: z.number().int().min(1).optional().describe("最多读取的行数"),
   }),
   handler: async (args, ctx) => {
-    const abs = resolveInWorkspace(ctx.workspaceRoot, args.path);
+    const { abs, external } = classifyPath(ctx.workspaceRoot, args.path);
+    if (external && !(await (ctx.approveExternalRead?.(abs) ?? Promise.resolve(false)))) {
+      return `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`;
+    }
     // 大小护栏:超大文件不整读(防 OOM/爆上下文),提示用 offset/limit 或 grep_files。
     const st = await fs.stat(abs);
     const MAX_BYTES = 5 * 1024 * 1024;

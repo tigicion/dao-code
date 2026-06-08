@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { resolveInWorkspace } from "./paths.js";
+import { classifyPath } from "./paths.js";
 
 export const listDirTool = defineTool({
   name: "list_dir",
@@ -12,7 +12,10 @@ export const listDirTool = defineTool({
     path: z.string().optional().describe("相对工作区根目录的目录路径,默认根目录"),
   }),
   handler: async (args, ctx) => {
-    const abs = resolveInWorkspace(ctx.workspaceRoot, args.path ?? ".");
+    const { abs, external } = classifyPath(ctx.workspaceRoot, args.path ?? ".");
+    if (external && !(await (ctx.approveExternalRead?.(abs) ?? Promise.resolve(false)))) {
+      return `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`;
+    }
     const entries = await fs.readdir(abs, { withFileTypes: true });
     if (entries.length === 0) return "(空目录)";
     const sorted = [...entries]

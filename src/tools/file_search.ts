@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { resolveInWorkspace } from "./paths.js";
+import { classifyPath } from "./paths.js";
 import { walkFiles } from "./walk.js";
 import { globToRegExp } from "./glob.js";
 
@@ -17,7 +17,10 @@ export const fileSearchTool = defineTool({
     path: z.string().optional().describe("搜索子目录,默认工作区根"),
   }),
   handler: async (args, ctx) => {
-    const root = resolveInWorkspace(ctx.workspaceRoot, args.path ?? ".");
+    const { abs: root, external } = classifyPath(ctx.workspaceRoot, args.path ?? ".");
+    if (external && !(await (ctx.approveExternalRead?.(root) ?? Promise.resolve(false)))) {
+      return `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`;
+    }
     const re = globToRegExp(args.glob);
     const hits: { rel: string; mtime: number }[] = [];
     let scanned = 0;

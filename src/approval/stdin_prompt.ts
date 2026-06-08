@@ -5,7 +5,7 @@ export function makeApprovalPrompt(ask: (prompt: string) => Promise<string>): Ap
   return async (requests: ApprovalRequest[]) => {
     const out = new Map<string, ApprovalDecision>();
     for (const req of requests) {
-      const ans = (await ask(`\n需要批准:${req.summary}\n  [y]本次  [a]本仓库后续都用  [n]拒绝 > `))
+      const ans = (await ask(`\n需要批准:${req.summary}\n  [y]本次  [a]本仓库该类后续都用  [n]拒绝 > `))
         .trim()
         .toLowerCase();
       const decision: ApprovalDecision =

@@ -39,10 +39,18 @@ describe("read_file tool", () => {
     expect(readFileTool.name).toBe("read_file");
   });
 
-  it("rejects paths escaping the workspace", async () => {
-    await expect(
-      readFileTool.handler({ path: "../escape.txt" }, { workspaceRoot: root }),
-    ).rejects.toThrow(/越界/);
+  it("工作区外路径:未授权返回 Error(不再硬抛)", async () => {
+    const out = await readFileTool.handler({ path: "../escape.txt" }, { workspaceRoot: root });
+    expect(out).toContain("工作区之外");
+  });
+
+  it("工作区外路径:授权后可读", async () => {
+    await fs.writeFile(path.join(root, "..", "outside-read.txt"), "外部内容", "utf8");
+    const out = await readFileTool.handler(
+      { path: "../outside-read.txt" },
+      { workspaceRoot: root, approveExternalRead: async () => true },
+    );
+    expect(out).toContain("外部内容");
   });
 
   it("records the read file's absolute path in ctx.readFiles", async () => {

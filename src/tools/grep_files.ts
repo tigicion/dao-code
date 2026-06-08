@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { resolveInWorkspace } from "./paths.js";
+import { classifyPath } from "./paths.js";
 import { walkFiles } from "./walk.js";
 import { globToRegExp } from "./glob.js";
 
@@ -21,7 +21,10 @@ export const grepFilesTool = defineTool({
     ignore_case: z.boolean().optional().describe("忽略大小写"),
   }),
   handler: async (args, ctx) => {
-    const root = resolveInWorkspace(ctx.workspaceRoot, args.path ?? ".");
+    const { abs: root, external } = classifyPath(ctx.workspaceRoot, args.path ?? ".");
+    if (external && !(await (ctx.approveExternalRead?.(root) ?? Promise.resolve(false)))) {
+      return `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`;
+    }
     let re: RegExp;
     try {
       re = new RegExp(args.pattern, args.ignore_case ? "i" : "");
