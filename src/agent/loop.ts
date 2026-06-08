@@ -11,6 +11,7 @@ import type { ApprovalGate } from "../approval/types.js";
 import type { Session } from "../session/session.js";
 import { apiToolsForMode } from "../tools/tools_for_mode.js";
 import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
+import { createStuckDetector } from "./stuck.js";
 
 export interface TurnDeps {
   session: Session;
@@ -41,6 +42,29 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 工具 ctx 透传取消信号(exec_shell 据此 SIGTERM);不改原 ctx 引用,按需补 signal。
   const toolCtx = signal ? { ...deps.ctx, signal } : deps.ctx;
   const maxTurns = deps.maxTurns ?? (Number(process.env.CODEDS_MAX_TURNS) || 50);
+  // 卡死检测:重复同一工具调用/同一错误达阈值 → 先注入"换思路"提醒;再卡则止损停止。
+  const detector = createStuckDetector();
+  let nudged = false;
+  const handleStuck = (calls: ToolCall[], results: ToolMessage[]): boolean => {
+    detector.record(
+      calls.map((c) => ({ name: c.function.name, args: c.function.arguments })),
+      results.map((r) => ({ content: r.content })),
+    );
+    const reason = detector.stuck();
+    if (!reason) return false;
+    if (!nudged) {
+      nudged = true;
+      detector.reset();
+      session.messages.push({
+        role: "system",
+        content: `[防卡死]${reason}。换个思路或定位根因;若确实卡住,用 ask_user 问用户或说明卡点,不要重复同样的操作/撞同样的错。`,
+      });
+      events.notice(`[防卡死提醒]${reason}`);
+      return false;
+    }
+    events.notice(`[已止损停止:持续卡死]${reason}`);
+    return true;
+  };
   for (let t = 0; t < maxTurns; t++) {
     if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
     const tools = apiToolsForMode(deps.registry, session.mode);
@@ -87,6 +111,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
+      if (handleStuck(assistant.tool_calls, toolMessages)) return;
     } else {
       const toolMessages = await deps.executeToolCalls(assistant.tool_calls, deps.registry, toolCtx, deps.gate);
       for (const tc of assistant.tool_calls) {
@@ -94,6 +119,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
+      if (handleStuck(assistant.tool_calls, toolMessages)) return;
     }
   }
   events.notice("\n[已达最大轮数,停止]\n");
