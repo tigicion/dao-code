@@ -197,6 +197,17 @@ export interface SystemPromptOptions {
 // 需要当前时间的让模型用工具拿(见正文「行动纪律」)。易变内容只能作为尾部消息追加,不进前缀。
 // 占位符里:{memory} 放在 BODY 末尾(最易变的放最后,变了只失效尾部);{model_id}/{cwd}/{platform}/{tools}
 // 启动时定一次、整会话固定。改这里前先想清楚会不会让前缀逐请求变化。
+// 长任务自主模式指令。作为尾部 system 消息按需追加(不进固定前缀,不破坏 prefix cache)。
+export const LONG_TASK_DIRECTIVE = `[长任务自主模式已开启]
+你将自主、连续地把这个长任务推进到完成。准则:
+- 用 todo_write 拆解任务并维护清单,边做边更新状态(同一时刻只一个 in_progress)。
+- 自主推进,不要每步都停下问用户;能自行决定的就按合理默认做并简述理由。
+- 善用并行:相互独立的调查/分析用 agent 的 tasks[] 并行派子代理。
+- 声称完成前必须调用 verify_done;若配了验收命令,必须通过(exit 0)才算完成,失败就继续修再验。
+- 仅在真正卡住(反复失败、缺必要外部信息或需要用户决策)时才用 ask_user 求助。
+- 大输出会自动落盘,需要时用 read_file/grep_files 取回,别把无关大块塞进推理。
+- 全部完成后给一段简明总结:做了什么、验收结果、剩余风险/后续建议。`;
+
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   return BODY
     .replaceAll("{model_id}", opts.modelId)
