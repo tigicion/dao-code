@@ -20,6 +20,8 @@ export interface ToolContext {
   today?: string;
   // 中途取消信号(ESC/超时):工具据此提前终止(如 exec_shell 给子进程发 SIGTERM)。
   signal?: AbortSignal;
+  // 可执行验收命令(DoD):设了则 verify_done 跑它判完成;未设则模型据证据自判。运行时可改。
+  verifyCommand?: string;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。
