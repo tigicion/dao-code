@@ -8,12 +8,27 @@ import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../ap
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const MAX_LIVE_LINES = 12; // 流式动态区只显示尾部这么多行,防止动态区高度≥终端高触发 Ink 整屏闪烁(ink#359)
 
 function preview(s: string, lines = 6): string {
   const all = s.split("\n");
   if (all.length <= lines) return s.trimEnd();
   return all.slice(0, lines).join("\n") + `\n  … +${all.length - lines} 行`;
 }
+
+// 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。
+function tail(s: string, n: number): string {
+  const all = s.split("\n");
+  return all.length <= n ? s : "…\n" + all.slice(-n).join("\n");
+}
+
+const LANG: Record<string, string> = {
+  ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", mjs: "javascript",
+  json: "json", py: "python", md: "markdown", sh: "bash", bash: "bash", go: "go", rs: "rust",
+  java: "java", c: "c", h: "c", cpp: "cpp", css: "css", html: "html", yml: "yaml", yaml: "yaml", sql: "sql",
+};
+const langFromPath = (p: string): string => LANG[p.split(".").pop()?.toLowerCase() ?? ""] ?? "";
+const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
 
 export function App(deps: AppDeps) {
   const { exit } = useApp();
@@ -62,8 +77,22 @@ export function App(deps: AppDeps) {
       toolStart: (call) => setLive((l) => (l ? { ...l, tools: [...l.tools, call.name] } : l)),
       toolResult: (call, msg) => {
         const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
-        pushItem({ id: nextId(), kind: "tool", name: call.function.name, preview: preview(msg.content), ok });
-        setLive((l) => (l ? { ...l, tools: l.tools.filter((n) => n !== call.function.name) } : l));
+        const name = call.function.name;
+        let pushed = false;
+        if (ok && (name === "edit_file" || name === "write_file")) {
+          try {
+            const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string; content?: string };
+            const path = String(a.path ?? "");
+            const removed = name === "edit_file" ? toLines(String(a.old_string ?? "")) : [];
+            const added = toLines(String(name === "edit_file" ? a.new_string ?? "" : a.content ?? ""));
+            pushItem({ id: nextId(), kind: "diff", path, removed, added, lang: langFromPath(path) });
+            pushed = true;
+          } catch {
+            /* 参数非 JSON,退回普通工具卡片 */
+          }
+        }
+        if (!pushed) pushItem({ id: nextId(), kind: "tool", name, preview: preview(msg.content), ok });
+        setLive((l) => (l ? { ...l, tools: l.tools.filter((n) => n !== name) } : l));
       },
       assistantDone: (msg) => {
         if (typeof msg.content === "string" && msg.content.trim()) {
@@ -188,7 +217,7 @@ export function App(deps: AppDeps) {
           {live.reasoning ? (
             <Text color={c("dim")}>{spin} 悟… {live.reasoning.split("\n").pop()?.slice(0, 80)}</Text>
           ) : null}
-          {live.content ? <Text>{live.content}</Text> : null}
+          {live.content ? <Text>{tail(live.content, MAX_LIVE_LINES)}</Text> : null}
           {live.tools.map((t, i) => (
             <Text key={i} color={c("jade")}>● {t}</Text>
           ))}
@@ -251,6 +280,27 @@ function Row({ item, c }: { item: TranscriptItem; c: (s: Parameters<typeof semHe
         <Text color={c("dim")}>
           {item.preview.split("\n").map((l, i) => (i === 0 ? "  ⎿ " : "    ") + l).join("\n")}
         </Text>
+      </Box>
+    );
+  }
+  if (item.kind === "diff") {
+    const cap = 40;
+    const rows: Array<["-" | "+", string]> = [
+      ...item.removed.map((l) => ["-", l] as ["-" | "+", string]),
+      ...item.added.map((l) => ["+", l] as ["-" | "+", string]),
+    ];
+    const shown = rows.slice(0, cap);
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text color={c("jade")}>
+          ● {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
+        </Text>
+        {shown.map(([sign, l], i) => (
+          <Text key={i} color={sign === "+" ? c("jade") : c("vermilion")}>
+            {"  "}{sign} {l}
+          </Text>
+        ))}
+        {rows.length > cap ? <Text color={c("dim")}>{"  "}… +{rows.length - cap} 行</Text> : null}
       </Box>
     );
   }

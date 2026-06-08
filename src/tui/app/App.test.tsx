@@ -59,6 +59,35 @@ describe("App", () => {
     expect(lastFrame()!).toContain("命令:/help /exit");
   });
 
+  it("edit_file 工具结果渲染红绿 diff(路径 + 增删行)", async () => {
+    const { lastFrame, stdin } = render(
+      <App
+        {...makeDeps({
+          submit: async (_t, { events }) => {
+            events.toolResult(
+              {
+                id: "c1",
+                type: "function" as const,
+                function: { name: "edit_file", arguments: JSON.stringify({ path: "a.ts", old_string: "旧行", new_string: "新行A\n新行B" }) },
+              },
+              { role: "tool", tool_call_id: "c1", content: "已编辑 a.ts(替换 1 处)" },
+            );
+            events.assistantDone({ role: "assistant", content: "完成" });
+          },
+        })}
+      />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("a.ts");
+    expect(f).toContain("- 旧行");
+    expect(f).toContain("+ 新行A");
+    expect(f).toContain("+ 新行B");
+  });
+
   it("submit 抛错 → 显示出错 notice,不崩", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ submit: async () => { throw new Error("boom"); } })} />,
