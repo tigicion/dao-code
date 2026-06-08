@@ -1,4 +1,4 @@
-import { exec } from "node:child_process";
+import { spawn } from "node:child_process";
 import { z } from "zod";
 import { defineTool } from "./types.js";
 import { processManager } from "./process_manager.js";
@@ -12,6 +12,8 @@ interface ForegroundResult {
   aborted: boolean;
 }
 
+const OUT_CAP = 10 * 1024 * 1024; // 内存中累积输出上限,超出截断(防 OOM)
+
 function runForeground(
   command: string,
   cwd: string,
@@ -19,31 +21,47 @@ function runForeground(
   signal?: AbortSignal,
 ): Promise<ForegroundResult> {
   return new Promise((resolve) => {
-    // abort(ESC)时给子进程发 SIGTERM;靠 aborted 标志把这次结束与"超时终止"区分开。
+    // 用 spawn + detached(进程组)+ 杀整组:exec/kill 只杀 shell,Linux 下子进程(如 sleep)会存活,
+    // 导致 ESC/超时无法真正中断前台命令。杀进程组才能连同 shell 的所有孙进程一起结束。
     let aborted = false;
-    const child = exec(
-      command,
-      { cwd, timeout, maxBuffer: 10 * 1024 * 1024 },
-      (err: any, stdout, stderr) => {
-        if (signal) signal.removeEventListener("abort", onAbort);
-        const timedOut = !aborted && Boolean(err?.killed) && err?.signal === "SIGTERM";
-        const code = typeof err?.code === "number" ? err.code : err ? 1 : 0;
-        // maxBuffer 溢出:exec 会截断输出并报错,明说而非让模型以为命令空跑失败。
-        const overflow =
-          err?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
-            ? "\n[输出超过 10MB 上限被截断,请用更精确的命令或把输出重定向到文件后再 grep/read_file]"
-            : "";
-        resolve({ stdout: String(stdout), stderr: String(stderr) + overflow, code, timedOut, aborted });
-      },
-    );
-    function onAbort() {
-      aborted = true;
-      child.kill("SIGTERM");
-    }
+    let timedOut = false;
+    let done = false;
+    let stdout = "";
+    let stderr = "";
+    let capped = false;
+    const child = spawn(command, { cwd, shell: true, detached: true });
+    const killGroup = (sig: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, sig);
+        else child.kill(sig);
+      } catch {
+        try { child.kill(sig); } catch {}
+      }
+    };
+    const append = (buf: Buffer, which: "o" | "e") => {
+      if (capped) return;
+      const s = buf.toString();
+      if (which === "o") stdout += s; else stderr += s;
+      if (stdout.length + stderr.length > OUT_CAP) { capped = true; killGroup("SIGTERM"); }
+    };
+    child.stdout?.on("data", (d: Buffer) => append(d, "o"));
+    child.stderr?.on("data", (d: Buffer) => append(d, "e"));
+    const timer = setTimeout(() => { timedOut = true; killGroup("SIGTERM"); }, timeout);
+    function onAbort() { aborted = true; killGroup("SIGTERM"); }
     if (signal) {
       if (signal.aborted) onAbort();
       else signal.addEventListener("abort", onAbort, { once: true });
     }
+    const finish = (code: number) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", onAbort);
+      if (capped) stderr += "\n[输出超过 10MB 上限被截断,请用更精确的命令或重定向到文件后再 grep/read_file]";
+      resolve({ stdout, stderr, code, timedOut, aborted });
+    };
+    child.on("error", (e) => { stderr += String((e as Error).message ?? e); finish(1); });
+    child.on("close", (code) => finish(typeof code === "number" ? code : 1));
   });
 }
 
