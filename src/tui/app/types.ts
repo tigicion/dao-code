@@ -9,7 +9,7 @@ import type { ApprovalPrompt } from "../../approval/types.js";
 export type TranscriptItem =
   | { id: number; kind: "user"; text: string }
   | { id: number; kind: "assistant"; text: string }
-  | { id: number; kind: "tool"; name: string; preview: string; ok: boolean }
+  | { id: number; kind: "tool"; label: string; detail: string; ok: boolean }
   | { id: number; kind: "diff"; path: string; removed: string[]; added: string[]; lang: string }
   | { id: number; kind: "notice"; text: string };
 
