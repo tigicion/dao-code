@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-bin/
+/dao
 *.log
 .env
 .codeds/
