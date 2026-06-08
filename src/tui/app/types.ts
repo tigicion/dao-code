@@ -18,6 +18,8 @@ export interface LiveState {
   reasoning: string;
   content: string;
   tools: string[];
+  toolCount: number; // 本回合累计工具调用数(进度可见性)
+  lastActivity: string; // 最近一次工具的意图标签,如「读取 src/foo.ts」
 }
 
 export interface StatusInfo {
