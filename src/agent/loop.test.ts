@@ -46,6 +46,25 @@ describe("runTurn", () => {
     ]);
   });
 
+  it("空 assistant(无内容无工具)不入库,防下一轮 DeepSeek 400", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      streamChat: scripted([turn([], { role: "assistant", content: "" })]),
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(s.messages).toEqual([
+      { role: "system", content: "SYS" },
+      { role: "user", content: "hi" },
+    ]); // 空 assistant 被丢弃,不入库
+  });
+
   it("sends session.model and runs tools then loops", async () => {
     const s = new Session("SYS", "deepseek-v4-flash");
     s.addUser("go");

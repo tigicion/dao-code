@@ -82,44 +82,48 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       signal,
     });
     const assistant = await consumeStream(gen, events);
+    const toolCalls = assistant.tool_calls ?? [];
+    const hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+    // 防御:空内容且无工具调用的回合(只有 reasoning、或被打断)不能入库——否则下一轮
+    // DeepSeek 会 400「content or tool_calls must be set」直接崩会话。空回合直接结束。
+    if (toolCalls.length === 0 && !hasContent) return;
     session.messages.push(assistant);
-    // 流被 abort:streamChat 返回的是部分消息,已入库;不再发起工具执行,优雅停止。
-    if (signal?.aborted) return;
-    if (!assistant.tool_calls || assistant.tool_calls.length === 0) return;
+    if (signal?.aborted) return; // 流被 abort:部分消息已入库,不再执行工具,优雅停止。
+    if (toolCalls.length === 0) return;
 
     if (session.mode === "plan") {
       // plan 模式的结构性强制:系统 prompt 仍列出全部工具,模型可能调用写/执行工具,
       // 但它们不在本轮允许表里——直接拒绝执行(不派发、不弹审批),回一条"不可用"消息。
       const allowed = new Set(tools.map((t) => t.function.name));
-      const runnable = assistant.tool_calls.filter((tc) => allowed.has(tc.function.name));
-      for (const tc of assistant.tool_calls) {
+      const runnable = toolCalls.filter((tc) => allowed.has(tc.function.name));
+      for (const tc of toolCalls) {
         if (!allowed.has(tc.function.name)) events.notice(`\n[plan 模式:拒绝 ${tc.function.name}]\n`);
       }
       const ran = runnable.length
         ? await deps.executeToolCalls(runnable, deps.registry, toolCtx, deps.gate)
         : [];
       const byId = new Map(ran.map((m) => [m.tool_call_id, m]));
-      const toolMessages = assistant.tool_calls.map((tc) =>
+      const toolMessages = toolCalls.map((tc) =>
         byId.get(tc.id) ?? {
           role: "tool" as const,
           tool_call_id: tc.id,
           content: `工具 ${tc.function.name} 在 plan 模式下不可用(只读+提方案)。如需修改请让用户切回 normal 模式。`,
         },
       );
-      for (const tc of assistant.tool_calls) {
+      for (const tc of toolCalls) {
         const m = toolMessages.find((tm) => tm.tool_call_id === tc.id);
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
-      if (handleStuck(assistant.tool_calls, toolMessages)) return;
+      if (handleStuck(toolCalls, toolMessages)) return;
     } else {
-      const toolMessages = await deps.executeToolCalls(assistant.tool_calls, deps.registry, toolCtx, deps.gate);
-      for (const tc of assistant.tool_calls) {
+      const toolMessages = await deps.executeToolCalls(toolCalls, deps.registry, toolCtx, deps.gate);
+      for (const tc of toolCalls) {
         const m = toolMessages.find((tm) => tm.tool_call_id === tc.id);
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
-      if (handleStuck(assistant.tool_calls, toolMessages)) return;
+      if (handleStuck(toolCalls, toolMessages)) return;
     }
   }
   events.notice("\n[已达最大轮数,停止]\n");
