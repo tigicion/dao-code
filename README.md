@@ -77,11 +77,14 @@ npm i -g dao-code
 |---|---|
 | `/model [id]` | 切换模型(不带参数在 `deepseek-v4-pro` / `deepseek-v4-flash` 间切换) |
 | `/plan` | 切换 plan(只读+提方案)/ normal 模式 |
+| `/yolo` | 开/关 YOLO:自动批准所有写/执行操作(慎用;状态栏会显示 ⚡YOLO) |
 | `/clear` | 清空对话(保留系统设定) |
 | `/compact` | 手动压缩对话 |
 | `/cost`(亦 `/cache`) | 查看 token 用量与缓存命中率 |
 | `/help` | 列出可用命令 |
 | `/exit`(亦 `/quit`) | 退出 |
+
+> 启动时加 `--yolo`(如 `dao --yolo` / `dao --yolo "任务"`)可一开始就进入自动批准;运行中用 `/yolo` 随时开关。
 
 ---
 
@@ -173,7 +176,7 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
 | `DEEPSEEK_API_KEY` | API key(env / `.env` / `~/.codeds/config.json` / 首次引导) | — |
 | `DEEPSEEK_BASE_URL` | API 端点 | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | 默认模型 | `deepseek-v4-pro` |
-| `DAO_THEME` | `light` / `dark` 强制终端背景 | 据 `COLORFGBG`,否则 `dark` |
+| `DAO_THEME` | `light` / `dark` 强制终端背景 | 据 `COLORFGBG` / OSC 11 探测,否则 `dark` |
 | `CODEDS_REASONING_EFFORT` | 思考强度 | `max` |
 | `CODEDS_MAX_TURNS` | 单回合最大工具轮数 | `50` |
 | `CODEDS_AUTO_APPROVE` | 跳过所有审批(**仅限沙箱/eval**) | 关 |
