@@ -41,4 +41,6 @@ export interface AppDeps {
   getStatus: () => StatusInfo;
   // App 挂载后注册自己的审批/提问模态,供 index 的 gate 与 ctx.ask 委派。
   register: (ui: { approvalPrompt: ApprovalPrompt; askUser: (q: string) => Promise<string> }) => void;
+  // @文件补全:给前缀(子串),返回匹配的工作区相对路径(已截断);省略则不补全。
+  completeFiles?: (prefix: string) => string[];
 }

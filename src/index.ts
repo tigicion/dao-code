@@ -45,6 +45,7 @@ import { detectCapabilities } from "./tui/capabilities.js";
 import { resolveBackground } from "./tui/background.js";
 import { randomMaxim } from "./tui/maxim.js";
 import { runInkApp } from "./tui/app/run.js";
+import { walkFiles } from "./tools/walk.js";
 import type { ApprovalPrompt } from "./approval/types.js";
 import { VERSION } from "./version.js";
 import { compactMessages, shouldCompact, estimateTokens } from "./agent/compact.js";
@@ -357,6 +358,14 @@ async function main() {
       // 仅当首次运行做过 key 引导才存在 rl,此时关掉让出 stdin。
       subagentWrite = () => {}; // Ink 态静默子代理直接输出
       closeRl();
+      // @文件补全的文件缓存:启动时遍历一次工作区(上限 5000,沿用 walkFiles 的忽略规则)。
+      const fileCache: string[] = [];
+      try {
+        for await (const { rel } of walkFiles(workspaceRoot)) {
+          fileCache.push(rel);
+          if (fileCache.length >= 5000) break;
+        }
+      } catch {}
       await runInkApp({
         welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
         submit: async (text, { events, signal }) => {
@@ -401,6 +410,8 @@ async function main() {
           inkApprovalPrompt = approvalPrompt;
           inkAsk = askUser;
         },
+        completeFiles: (prefix) =>
+          (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),
       });
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。

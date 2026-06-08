@@ -138,6 +138,25 @@ describe("App", () => {
     expect(lastFrame()).toContain("已切换主题");
   });
 
+  it("@文件补全:Tab 补全第一个匹配", async () => {
+    let submitted = "";
+    const { stdin } = render(
+      <App
+        {...makeDeps({
+          completeFiles: (p) => ["src/index.ts", "docs/x.md"].filter((f) => f.includes(p)),
+          submit: async (t, { events }) => { submitted = t; events.assistantDone({ role: "assistant", content: "ok" }); },
+        })}
+      />,
+    );
+    for (const ch of "看 @src") stdin.write(ch);
+    await delay();
+    stdin.write("\t"); // Tab 补全
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(submitted).toContain("@src/index.ts");
+  });
+
   it("submit 抛错 → 显示出错 notice,不崩", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ submit: async () => { throw new Error("boom"); } })} />,
