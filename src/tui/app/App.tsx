@@ -17,7 +17,7 @@ function preview(s: string, lines = 6): string {
 
 export function App(deps: AppDeps) {
   const { exit } = useApp();
-  const bg = deps.welcome.bg;
+  const [bg, setBg] = useState(deps.welcome.bg); // /theme 运行时可切浅/深
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
 
   const idRef = useRef(1);
@@ -87,6 +87,12 @@ export function App(deps: AppDeps) {
     histIdx.current = -1;
     if (text.startsWith("/")) {
       const name = text.slice(1).split(/\s+/)[0];
+      if (name === "theme") {
+        const next = bg === "dark" ? "light" : "dark";
+        setBg(next);
+        pushItem({ id: nextId(), kind: "notice", text: `已切换主题:${next === "light" ? "浅色" : "深色"}` });
+        return;
+      }
       const res = deps.runCommand(text);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
