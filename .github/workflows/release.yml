@@ -1,0 +1,35 @@
+name: release
+
+# 打 v* 标签时,用 bun --compile 产出五平台独立二进制(无需 Node),挂到 GitHub Release。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      - name: Build standalone binaries (bun --compile, cross-target)
+        run: |
+          mkdir -p dist-bin
+          for t in bun-linux-x64 bun-linux-arm64 bun-darwin-x64 bun-darwin-arm64 bun-windows-x64; do
+            out="dao-${t#bun-}"
+            [ "$t" = "bun-windows-x64" ] && out="$out.exe"
+            echo "→ $out"
+            bun build ./src/index.ts --compile --target="$t" --outfile "dist-bin/$out"
+          done
+          ls -lh dist-bin
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist-bin/*
+          generate_release_notes: true
