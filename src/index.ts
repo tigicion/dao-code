@@ -38,6 +38,8 @@ import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { buildSystemPrompt } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
+import { createSessionStore, logEvents, findResumable } from "./session/log.js";
+import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
 import { buildWelcome } from "./tui/banner.js";
@@ -366,9 +368,22 @@ async function main() {
           if (fileCache.length >= 5000) break;
         }
       } catch {}
+      // 长任务地基:会话日志/状态快照(崩溃恢复)+ 影子 git 检查点(回滚)。
+      const store = createSessionStore(path.join(workspaceRoot, ".codeds", "sessions"));
+      const ckpt = createCheckpointer(workspaceRoot);
+      const persist = () =>
+        store.saveState({
+          cwd: workspaceRoot,
+          model: session.model,
+          mode: session.mode,
+          messages: session.messages,
+          usage: { ...session.usage },
+        });
       await runInkApp({
         welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
         submit: async (text, { events, signal }) => {
+          ckpt.snapshot(`回合前: ${text.slice(0, 60)}`); // 回合前快照,便于 /restore 回退本回合
+          store.append({ t: "user", text });
           session.addUser(text);
           await runTurn({
             session,
@@ -379,19 +394,31 @@ async function main() {
             streamChat,
             executeToolCalls,
             write: () => {},
-            events,
+            events: logEvents(events, store), // 渲染的同时写日志
             signal,
           });
+          store.append({ t: "turn_end" });
           if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
+            const before = session.messages.length;
             events.notice("[接近上限,自动压缩…]");
             await inkCompact();
+            store.append({ t: "compaction", before, after: session.messages.length });
           }
+          persist(); // 回合末存档(崩溃可恢复)
         },
         runCommand: (line) => {
           const name = line.trim().slice(1).split(/\s+/)[0];
           if (name === "yolo") {
             yolo = !yolo;
             return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(慎用)" : "YOLO 已关闭:恢复审批门" };
+          }
+          if (name === "restore") {
+            if (!ckpt.enabled) return { handled: true, output: "检查点不可用(无 git)" };
+            const snaps = ckpt.list();
+            const target = snaps[1] ?? snaps[0]; // 回退到上一个回合前的快照
+            if (!target) return { handled: true, output: "暂无可回退的检查点" };
+            const ok = ckpt.restore(target.ref);
+            return { handled: true, output: ok ? `已回退工作区到检查点:${target.label}` : "回退失败" };
           }
           return dispatchCommand(line, session);
         },
@@ -413,6 +440,7 @@ async function main() {
         completeFiles: (prefix) =>
           (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),
       });
+      store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。
       write(buildWelcome(welcomeInfo, caps, undefined, bg) + "\n");
