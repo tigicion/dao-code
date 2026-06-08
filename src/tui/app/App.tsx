@@ -44,7 +44,10 @@ export function App(deps: AppDeps) {
     { id: 0, kind: "welcome" },
   ]);
   const [live, setLive] = useState<LiveState | null>(null);
-  const [input, setInput] = useState("");
+  // 输入框:text + 光标位置合成一个 state,用函数式更新(避免同步连打/批处理下读到旧闭包值而丢字符)。
+  const [field, setField] = useState<{ text: string; cursor: number }>({ text: "", cursor: 0 });
+  const input = field.text;
+  const cursor = field.cursor;
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<StatusInfo>(deps.getStatus());
   const [tick, setTick] = useState(0);
@@ -113,7 +116,7 @@ export function App(deps: AppDeps) {
 
   async function onSubmit(raw: string) {
     const text = raw.trim();
-    setInput("");
+    setField({ text: "", cursor: 0 });
     if (!text) return;
     history.current.push(text);
     histIdx.current = -1;
@@ -170,11 +173,12 @@ export function App(deps: AppDeps) {
     if (key.escape && busy) { controllerRef.current?.abort(); return; }
     if (key.ctrl && ch === "c") { exit(); return; }
     if (busy) return;
+    const recall = (v: string) => setField({ text: v, cursor: v.length });
     if (key.upArrow) {
       const h = history.current;
       if (h.length) {
         histIdx.current = histIdx.current < 0 ? h.length - 1 : Math.max(0, histIdx.current - 1);
-        setInput(h[histIdx.current] ?? "");
+        recall(h[histIdx.current] ?? "");
       }
       return;
     }
@@ -182,14 +186,32 @@ export function App(deps: AppDeps) {
       const h = history.current;
       if (histIdx.current >= 0) {
         histIdx.current++;
-        if (histIdx.current >= h.length) { histIdx.current = -1; setInput(""); }
-        else setInput(h[histIdx.current] ?? "");
+        if (histIdx.current >= h.length) { histIdx.current = -1; recall(""); }
+        else recall(h[histIdx.current] ?? "");
       }
       return;
     }
     if (key.return) { void onSubmit(input); return; }
-    if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return; }
-    if (ch && !key.ctrl && !key.meta) setInput((s) => s + ch);
+    if (key.leftArrow) { setField((f) => ({ ...f, cursor: Math.max(0, f.cursor - 1) })); return; }
+    if (key.rightArrow) { setField((f) => ({ ...f, cursor: Math.min(f.text.length, f.cursor + 1) })); return; }
+    if (key.ctrl && ch === "a") { setField((f) => ({ ...f, cursor: 0 })); return; } // 行首
+    if (key.ctrl && ch === "e") { setField((f) => ({ ...f, cursor: f.text.length })); return; } // 行尾
+    if (key.ctrl && ch === "w") { // 删前一个词
+      setField((f) => {
+        const m = f.text.slice(0, f.cursor).match(/\s*\S+\s*$/);
+        const cut = m ? m[0].length : f.cursor;
+        return { text: f.text.slice(0, f.cursor - cut) + f.text.slice(f.cursor), cursor: f.cursor - cut };
+      });
+      return;
+    }
+    if (key.backspace) { // 删光标前一字符
+      setField((f) => (f.cursor > 0 ? { text: f.text.slice(0, f.cursor - 1) + f.text.slice(f.cursor), cursor: f.cursor - 1 } : f));
+      return;
+    }
+    if (key.delete) { setField((f) => ({ ...f, text: f.text.slice(0, f.cursor) + f.text.slice(f.cursor + 1) })); return; } // 删光标处
+    if (ch && !key.ctrl && !key.meta) {
+      setField((f) => ({ text: f.text.slice(0, f.cursor) + ch + f.text.slice(f.cursor), cursor: f.cursor + ch.length }));
+    }
   });
 
   // 粘贴:bracketed paste 下整段作一个字符串进来(不经 useInput),原样追加进输入框、不自动提交。
@@ -197,7 +219,7 @@ export function App(deps: AppDeps) {
     if (approval) return;
     if (ask) { setAskInput((s) => s + text); return; }
     if (busy) return;
-    setInput((s) => s + text);
+    setField((f) => ({ text: f.text.slice(0, f.cursor) + text + f.text.slice(f.cursor), cursor: f.cursor + text.length }));
   });
 
   const elapsed = busy ? ((Date.now() - startedAt) / 1000).toFixed(1) : "0.0";
@@ -248,10 +270,22 @@ export function App(deps: AppDeps) {
       )}
 
       {!busy && !approval && !ask && (
-        <Box marginTop={1}>
-          <Text color={c("jade")}>› </Text>
-          <Text>{input}</Text>
-          <Text color={c("jade")}>▎</Text>
+        <Box flexDirection="column" marginTop={1}>
+          <Text>
+            <Text color={c("jade")}>› </Text>
+            {input.slice(0, cursor)}
+            <Text color={c("jade")}>▎</Text>
+            {input.slice(cursor)}
+          </Text>
+          {input.startsWith("/") && !input.includes(" ") ? (
+            <Text color={c("dim")}>
+              {"  "}
+              {["model", "plan", "theme", "yolo", "clear", "compact", "cost", "help", "exit"]
+                .filter((cmd) => ("/" + cmd).startsWith(input))
+                .map((cmd) => "/" + cmd)
+                .join("  ") || "(无匹配命令)"}
+            </Text>
+          ) : null}
         </Box>
       )}
 

@@ -88,6 +88,23 @@ describe("App", () => {
     expect(f).toContain("+ 新行B");
   });
 
+  it("光标行内编辑:左移两次后插入字符", async () => {
+    let submitted = "";
+    const { stdin } = render(
+      <App {...makeDeps({ submit: async (t, { events }) => { submitted = t; events.assistantDone({ role: "assistant", content: "ok" }); } })} />,
+    );
+    for (const ch of "abc") stdin.write(ch);
+    await delay();
+    stdin.write("\x1B[D"); // ←
+    stdin.write("\x1B[D"); // ← 光标到 a|bc
+    await delay();
+    stdin.write("X"); // aXbc
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(submitted).toBe("aXbc");
+  });
+
   it("submit 抛错 → 显示出错 notice,不崩", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ submit: async () => { throw new Error("boom"); } })} />,
