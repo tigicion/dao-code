@@ -24,6 +24,7 @@ import { fetchUrlTool } from "./tools/fetch_url.js";
 import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
+import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
@@ -168,7 +169,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, agentTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, verifyDoneTool, agentTool,
   ]) {
     registry.register(t);
   }
@@ -234,6 +235,7 @@ async function main() {
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     fetchImpl: fetch,
     today,
+    verifyCommand: process.env.DAO_VERIFY_CMD?.trim() || undefined,
   };
 
   // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
@@ -451,6 +453,14 @@ async function main() {
           if (name === "yolo") {
             yolo = !yolo;
             return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(慎用)" : "YOLO 已关闭:恢复审批门" };
+          }
+          if (name === "dod") {
+            const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
+            if (!arg) {
+              return { handled: true, output: ctx.verifyCommand ? `当前验收命令:${ctx.verifyCommand}(/dod off 清除)` : "未设验收命令。用法:/dod <命令>(如 /dod npm test);设了则 verify_done 跑它判完成" };
+            }
+            ctx.verifyCommand = arg === "off" ? undefined : arg;
+            return { handled: true, output: ctx.verifyCommand ? `验收命令已设:${ctx.verifyCommand}` : "已清除验收命令(改为模型自判)" };
           }
           if (name === "restore") {
             if (!ckpt.enabled) return { handled: true, output: "检查点不可用(无 git)" };
