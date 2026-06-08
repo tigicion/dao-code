@@ -26,6 +26,7 @@ import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
+import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
@@ -73,6 +74,13 @@ const KEY_HELP =
   "获取 key:https://platform.deepseek.com/api_keys";
 
 async function main() {
+  // 退出/中断时清理所有后台进程,避免孤儿(长任务里模型常起 dev server/watch)。
+  let cleaned = false;
+  const cleanup = () => { if (!cleaned) { cleaned = true; try { processManager.reset(); } catch {} } };
+  process.on("exit", cleanup);
+  process.on("SIGINT", () => { cleanup(); process.exit(130); });
+  process.on("SIGTERM", () => { cleanup(); process.exit(143); });
+
   const rawArgs = process.argv.slice(2);
   const yoloFlag = rawArgs.includes("--yolo");
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
@@ -243,7 +251,7 @@ async function main() {
 
   // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
   let subagentWrite: (s: string) => void = write;
-  ctx.runSubagent = (task: string) =>
+  ctx.runSubagent = (task: string, signal?: AbortSignal) =>
     runSubagent({
       task,
       systemPrompt,
@@ -257,6 +265,7 @@ async function main() {
       executeToolCalls,
       write: subagentWrite,
       runTurn,
+      signal,
     });
 
   const KEEP_RECENT_TURNS = 2;

@@ -27,8 +27,16 @@ export const fetchUrlTool = defineTool({
   }),
   handler: async (args, ctx) => {
     const fetchImpl = ctx.fetchImpl ?? fetch;
-    const res = await fetchImpl(args.url);
-    if (!res.ok) throw new Error(`抓取失败 HTTP ${res.status}`);
+    // 超时 30s + 尊重 ctx.signal(ESC):坏 URL/慢站不会永久挂死整个回合。
+    const signals = [AbortSignal.timeout(30000), ...(ctx.signal ? [ctx.signal] : [])];
+    let res: Response;
+    try {
+      res = await fetchImpl(args.url, { signal: AbortSignal.any(signals) });
+    } catch (e) {
+      const msg = e instanceof Error && e.name === "TimeoutError" ? "抓取超时(30s)" : e instanceof Error ? e.message : String(e);
+      return `Error: 抓取失败(${msg})`;
+    }
+    if (!res.ok) return `Error: 抓取失败 HTTP ${res.status}`;
     const html = await res.text();
     const text = htmlToText(html);
     const max = args.max_chars ?? 20000;
