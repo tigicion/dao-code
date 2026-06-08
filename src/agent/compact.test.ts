@@ -6,6 +6,26 @@ const sys: ChatMessage = { role: "system", content: "SYSTEM PREFIX" };
 function user(t: string): ChatMessage { return { role: "user", content: t }; }
 function asst(t: string): ChatMessage { return { role: "assistant", content: t }; }
 
+describe("compactMessages pinned 重注入", () => {
+  it("压缩后把任务清单作为 system 消息重注入(穿越压缩)", async () => {
+    const msgs: ChatMessage[] = [sys, user("a"), asst("ra"), user("b"), asst("rb"), user("c"), asst("rc")];
+    const out = await compactMessages(
+      msgs,
+      { keepRecentTurns: 1, summarize: async () => "早期摘要内容" },
+      "☐ 任务A\n▶ 任务B",
+    );
+    const joined = out.map((m) => (typeof m.content === "string" ? m.content : "")).join("\n");
+    expect(joined).toContain("当前任务清单");
+    expect(joined).toContain("任务A");
+    expect(joined).toContain("早期摘要内容");
+  });
+  it("无 pinned 时不注入任务清单", async () => {
+    const msgs: ChatMessage[] = [sys, user("a"), asst("ra"), user("b"), asst("rb"), user("c"), asst("rc")];
+    const out = await compactMessages(msgs, { keepRecentTurns: 1, summarize: async () => "x" });
+    expect(out.map((m) => m.content).join("\n")).not.toContain("当前任务清单");
+  });
+});
+
 describe("estimateTokens", () => {
   it("scales with content length and counts tool_calls args", () => {
     const t1 = estimateTokens([user("abc")]);
