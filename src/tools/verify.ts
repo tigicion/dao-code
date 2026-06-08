@@ -1,7 +1,7 @@
 import { exec } from "node:child_process";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { clampOutput } from "./output.js";
+import { spillOutput } from "./spill.js";
 
 // 验证驱动的"完成定义"(DoD):
 // - 若配置了可执行验收命令(ctx.verifyCommand,经 /dod 或 DAO_VERIFY_CMD 设置)→ 跑它,exit 0 = 通过。
@@ -26,7 +26,7 @@ export const verifyDoneTool = defineTool({
         (err, stdout, stderr) => {
           const code = err && typeof (err as { code?: number }).code === "number" ? (err as { code: number }).code : err ? 1 : 0;
           const body = [stdout, stderr].filter((s) => s && s.trim()).join("\n").trimEnd();
-          resolve(`$ ${cmd}\n${clampOutput(body)}\n[验收${code === 0 ? "通过" : "失败"} exit ${code}]`);
+          resolve(`$ ${cmd}\n${spillOutput(body, ctx.workspaceRoot)}\n[验收${code === 0 ? "通过" : "失败"} exit ${code}]`);
         },
       );
       ctx.signal?.addEventListener("abort", () => { try { child.kill("SIGTERM"); } catch {} }, { once: true });
