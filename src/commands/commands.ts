@@ -1,4 +1,5 @@
 import type { Session } from "../session/session.js";
+import { todoStore } from "../tools/todo_store.js";
 
 export interface CommandResult {
   handled: boolean;
@@ -33,6 +34,7 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
     }
     case "clear":
       session.clear();
+      todoStore.reset();
       return { handled: true, output: "已清空对话(保留系统设定)" };
     case "compact":
       return { handled: true, compact: true };
