@@ -43,4 +43,6 @@ export interface AppDeps {
   register: (ui: { approvalPrompt: ApprovalPrompt; askUser: (q: string) => Promise<string> }) => void;
   // @文件补全:给前缀(子串),返回匹配的工作区相对路径(已截断);省略则不补全。
   completeFiles?: (prefix: string) => string[];
+  // 续跑:用上次会话重建的 transcript 初始条目(已带 id)。
+  initialItems?: TranscriptItem[];
 }

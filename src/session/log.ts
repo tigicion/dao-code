@@ -1,5 +1,10 @@
-import { appendFileSync, writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync } from "node:fs";
+import { appendFileSync, writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, realpathSync } from "node:fs";
 import path from "node:path";
+
+// 规范化路径(解符号链接,如 macOS /var→/private/var),失败则原样返回,用于 cwd 比较。
+const canon = (p: string): string => {
+  try { return realpathSync(p); } catch { return p; }
+};
 import type { ChatMessage, Usage } from "../client/types.js";
 import type { Mode } from "../tools/tools_for_mode.js";
 import type { TurnEvents } from "../tui/render.js";
@@ -107,10 +112,11 @@ export function logEvents(inner: TurnEvents, store: SessionStore): TurnEvents {
 // 找出可恢复的会话:未完成(done:false)、同一工作区、至少有过一轮真实用户对话;取最近一个。
 export function findResumable(baseDir: string, cwd: string): PersistedState | null {
   if (!existsSync(baseDir)) return null;
+  const want = canon(cwd);
   let best: PersistedState | null = null;
   for (const sid of readdirSync(baseDir)) {
     const st = loadState(baseDir, sid);
-    if (!st || st.done || st.cwd !== cwd) continue;
+    if (!st || st.done || canon(st.cwd) !== want) continue;
     if (!st.messages.some((m) => m.role === "user")) continue;
     if (!best || st.updatedAt > best.updatedAt) best = st;
   }

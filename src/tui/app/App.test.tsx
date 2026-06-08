@@ -157,6 +157,24 @@ describe("App", () => {
     expect(submitted).toContain("@src/index.ts");
   });
 
+  it("续跑:initialItems 渲染进 transcript", () => {
+    const { lastFrame } = render(
+      <App
+        {...makeDeps({
+          initialItems: [
+            { id: 1, kind: "notice", text: "[已恢复上次会话]" },
+            { id: 2, kind: "user", text: "上次的问题" },
+            { id: 3, kind: "assistant", text: "上次的回答" },
+          ],
+        })}
+      />,
+    );
+    const f = lastFrame()!;
+    expect(f).toContain("已恢复上次会话");
+    expect(f).toContain("上次的问题");
+    expect(f).toContain("上次的回答");
+  });
+
   it("submit 抛错 → 显示出错 notice,不崩", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ submit: async () => { throw new Error("boom"); } })} />,

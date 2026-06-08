@@ -38,10 +38,12 @@ export function App(deps: AppDeps) {
   const [bg, setBg] = useState(deps.welcome.bg); // /theme 运行时可切浅/深
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
 
-  const idRef = useRef(1);
+  const initial = deps.initialItems ?? [];
+  const idRef = useRef(initial.reduce((m, it) => Math.max(m, it.id), 0) + 1);
   const nextId = () => idRef.current++;
   const [items, setItems] = useState<({ id: number; kind: "welcome" } | TranscriptItem)[]>([
     { id: 0, kind: "welcome" },
+    ...initial,
   ]);
   const [live, setLive] = useState<LiveState | null>(null);
   // 输入框:text + 光标位置合成一个 state,用函数式更新(避免同步连打/批处理下读到旧闭包值而丢字符)。
