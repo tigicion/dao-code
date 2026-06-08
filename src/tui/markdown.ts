@@ -1,4 +1,5 @@
 import { displayWidth, padEnd } from "./width.js";
+import { highlight } from "cli-highlight";
 
 // 行内格式:`码`(青)、**粗**、*斜*。先按反引号切出代码段保护,其余做粗/斜替换。
 function inline(text: string): string {
@@ -56,13 +57,23 @@ export function renderMarkdown(md: string): string {
   while (i < lines.length) {
     const line = lines[i]!;
 
-    if (/^\s*```/.test(line)) {
+    const fence = /^\s*```(\w+)?/.exec(line);
+    if (fence) {
+      const lang = fence[1] ?? "";
       i++;
+      const code: string[] = [];
       while (i < lines.length && !/^\s*```/.test(lines[i]!)) {
-        out.push(`\x1b[2m  ${lines[i]}\x1b[22m`);
+        code.push(lines[i]!);
         i++;
       }
-      i++;
+      i++; // 跳过收尾 ```
+      let body = code.join("\n");
+      try {
+        body = highlight(body, { language: lang || undefined, ignoreIllegals: true }); // 语法高亮
+      } catch {
+        body = `\x1b[2m${body}\x1b[22m`; // 未知语言/失败 → 整体灰显
+      }
+      for (const cl of body.split("\n")) out.push("  " + cl); // 缩进 2 空格
       continue;
     }
 
