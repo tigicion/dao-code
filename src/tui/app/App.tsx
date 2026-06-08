@@ -109,6 +109,10 @@ export function App(deps: AppDeps) {
   const [ask, setAsk] = useState<{ question: string; resolve: (s: string) => void } | null>(null);
   const [askInput, setAskInput] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
+  const busyRef = useRef(false);
+  useEffect(() => { busyRef.current = busy; }, [busy]);
+  const [taskTick, setTaskTick] = useState(0); // 后台任务状态变化计数(驱动通知处理/计数刷新)
+  const [bgRunning, setBgRunning] = useState(0);
   const history = useRef<string[]>([]);
   const histIdx = useRef<number>(-1); // -1 = 不在历史浏览中
 
@@ -198,6 +202,11 @@ export function App(deps: AppDeps) {
       return;
     }
     pushItem({ id: nextId(), kind: "user", text });
+    await runAgentTurn(text);
+  }
+
+  // 跑一个回合(用户输入 / 后台任务通知共用):管理 busy/live/中断/出错。
+  async function runAgentTurn(text: string) {
     setBusy(true);
     setStartedAt(Date.now());
     setLive({ reasoning: "", content: "", tools: [], toolCount: 0, lastActivity: "" });
@@ -214,6 +223,32 @@ export function App(deps: AppDeps) {
       controllerRef.current = null;
     }
   }
+
+  // 后台任务完成 → 空闲时把 <task-notification> 作为新回合自动喂给模型继续处理。
+  const procRef = useRef(false);
+  async function processNotifications() {
+    if (procRef.current || busyRef.current) return;
+    const notes = deps.drainNotifications?.() ?? [];
+    if (notes.length === 0) return;
+    procRef.current = true;
+    try {
+      pushItem({ id: nextId(), kind: "notice", text: `↩ 收到 ${notes.length} 个后台任务结果,继续处理…` });
+      await runAgentTurn(notes.join("\n\n"));
+    } finally {
+      procRef.current = false;
+    }
+  }
+
+  // 订阅后台任务变化:bump taskTick(驱动下面的 effect)。
+  useEffect(() => {
+    deps.subscribeTasks?.(() => setTaskTick((t) => t + 1));
+  }, []);
+  // 任务变化或回合结束时:刷新运行计数;空闲则处理待注入的通知(自动续跑)。
+  useEffect(() => {
+    setBgRunning(deps.runningTasks?.() ?? 0);
+    if (!busy) void processNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, taskTick]);
 
   useInput((ch, key) => {
     if (approval) {
@@ -373,6 +408,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
+      {bgRunning > 0 ? <Text color={c("gold")}>🪢 {bgRunning} 个后台任务运行中…</Text> : null}
       <StatusBar status={status} busy={busy} elapsed={elapsed} spin={spin} c={c} />
     </Box>
   );

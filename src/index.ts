@@ -26,6 +26,7 @@ import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
+import { createTaskManager } from "./agent/tasks.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
@@ -267,6 +268,11 @@ async function main() {
       runTurn,
       signal,
     });
+
+  // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
+  const taskManager = createTaskManager();
+  ctx.runBackgroundAgent = (task: string) =>
+    taskManager.launch(task.slice(0, 60), (signal) => ctx.runSubagent!(task, signal));
 
   // 申请访问工作区外路径(读类工具):一次授权后本会话不再追问;选"本仓库后续都用"则持久化。
   let externalReadGranted = alwaysApproved.has("external-read");
@@ -533,7 +539,11 @@ async function main() {
         completeFiles: (prefix) =>
           (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),
         initialItems,
+        drainNotifications: () => taskManager.drainNotifications(),
+        subscribeTasks: (cb) => taskManager.onChange(cb),
+        runningTasks: () => taskManager.running().length,
       });
+      taskManager.cancelAll(); // 退出时中止所有后台任务
       store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。

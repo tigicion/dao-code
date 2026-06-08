@@ -44,6 +44,17 @@ describe("agent tool", () => {
     expect(out).toContain("R:C");
   });
 
+  it("background → 后台启动返回 id,不阻塞", async () => {
+    const launched: string[] = [];
+    const out = await agentTool.handler(
+      { task: "耗时调查", background: true },
+      { workspaceRoot: "/tmp", runSubagent: async () => "x", runBackgroundAgent: (t) => { launched.push(t); return "task-1"; } },
+    );
+    expect(out).toContain("后台启动");
+    expect(out).toContain("task-1");
+    expect(launched).toEqual(["耗时调查"]);
+  });
+
   it("并行中单个失败不影响其余", async () => {
     const out = await agentTool.handler(
       { tasks: ["ok", "bad"] },

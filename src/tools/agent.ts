@@ -18,6 +18,10 @@ export const agentTool = defineTool({
       .max(6)
       .optional()
       .describe("多个相互独立的子任务,将并行派发并汇总(最多 6 个)"),
+    background: z
+      .boolean()
+      .optional()
+      .describe("后台运行:立即返回任务 id 不阻塞,完成后结果会自动通知你。适合耗时长、你可同时做别的事的任务。"),
   }),
   handler: async (args, ctx) => {
     if ((ctx.subagentDepth ?? 0) >= 1) {
@@ -25,6 +29,13 @@ export const agentTool = defineTool({
     }
     if (!ctx.runSubagent) {
       return "当前环境不支持子代理。";
+    }
+    // 后台模式:每个任务后台启动,立即返回 id;完成后经通知队列回灌(主循环不阻塞)。
+    if (args.background && ctx.runBackgroundAgent) {
+      const list = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
+      if (list.length === 0) return "请提供 task 或 tasks。";
+      const ids = list.map((t) => ctx.runBackgroundAgent!(t));
+      return `已后台启动 ${ids.length} 个子代理(${ids.join(", ")});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
     }
     const run = ctx.runSubagent;
     const tasks = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];

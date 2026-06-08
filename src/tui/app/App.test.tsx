@@ -199,6 +199,25 @@ describe("App", () => {
     expect(f).not.toContain("read_file");
   });
 
+  it("后台任务通知 → 自动作为新回合处理(注入结果)", async () => {
+    const notes = ["<task-notification>结果ABC</task-notification>"];
+    const submitted: string[] = [];
+    const { lastFrame } = render(
+      <App
+        {...makeDeps({
+          drainNotifications: () => notes.splice(0),
+          subscribeTasks: () => {},
+          runningTasks: () => 0,
+          submit: async (t, { events }) => { submitted.push(t); events.assistantDone({ role: "assistant", content: "已处理" }); },
+        })}
+      />,
+    );
+    await delay();
+    await delay();
+    expect(submitted.some((s) => s.includes("结果ABC"))).toBe(true);
+    expect(lastFrame()).toContain("收到");
+  });
+
   it("submit 抛错 → 显示出错 notice,不崩", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ submit: async () => { throw new Error("boom"); } })} />,

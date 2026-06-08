@@ -48,4 +48,10 @@ export interface AppDeps {
   completeFiles?: (prefix: string) => string[];
   // 续跑:用上次会话重建的 transcript 初始条目(已带 id)。
   initialItems?: TranscriptItem[];
+  // 异步后台任务:取出待注入的 <task-notification>(空闲时自动作为新回合喂给模型)。
+  drainNotifications?: () => string[];
+  // 订阅后台任务状态变化(完成/失败/取消)→ 触发 UI 刷新与通知处理。
+  subscribeTasks?: (cb: () => void) => void;
+  // 当前运行中的后台任务数(状态栏展示)。
+  runningTasks?: () => number;
 }
