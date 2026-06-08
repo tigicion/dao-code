@@ -32,9 +32,13 @@ export const readFileTool = defineTool({
       return `(offset ${args.offset} 超过文件总行数 ${lines.length})`;
     }
     const end = args.limit !== undefined ? start + args.limit : lines.length;
+    const LINE_CAP = 2000; // 单行上限:压缩代码/内联 base64 sourcemap 等超长行截断,防污染上下文
     return lines
       .slice(start, end)
-      .map((line, i) => `${start + i + 1}\t${line}`)
+      .map((line, i) => {
+        const l = line.length > LINE_CAP ? `${line.slice(0, LINE_CAP)}…(本行共 ${line.length} 字符,已截断)` : line;
+        return `${start + i + 1}\t${l}`;
+      })
       .join("\n");
   },
 });
