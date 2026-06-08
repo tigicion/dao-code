@@ -158,6 +158,8 @@ npm run test:watch
 npm run typecheck
 ```
 
+> `npm audit` 的告警均来自 **dev 测试工具链**(vitest / vite / esbuild),不随发布产物(`dist`)分发,不影响 `dao` 运行时;其中的 critical 是 `vitest --ui` 服务器漏洞(本项目不使用)。CI 见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。
+
 agent 端到端评测在 `evals/`:SWE-bench 风格,取材真实开源近期 bug-fix,**fail2pass / pass2pass 双轨验证**(改完后目标测试由失败转通过,且既有功能测试不被改坏),测试文件对 agent 隐藏、跑完才注入,以防 reward-hacking。
 
 ```bash
