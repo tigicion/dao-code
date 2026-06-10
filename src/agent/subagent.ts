@@ -21,6 +21,7 @@ export interface SubagentDeps {
   runTurn: (deps: TurnDeps) => Promise<void>;
   signal?: AbortSignal; // 父代理 abort 时一并停子代理
   writeTranscript?: (messages: ChatMessage[]) => void; // 子代理转录落盘(sidechain 观测/可恢复)
+  drainPending?: () => string[]; // SendMessage:回合边界消费父代理追加的指令
 }
 
 // 一次性派发:全新隔离会话(系统 prompt + task)跑到底,返回最终 assistant 文本。
@@ -40,6 +41,7 @@ export async function runSubagent(deps: SubagentDeps): Promise<string> {
     executeToolCalls: deps.executeToolCalls,
     write: deps.write,
     signal: deps.signal,
+    drainPending: deps.drainPending,
   });
   deps.write("\n[子代理完成]\n");
   try { deps.writeTranscript?.(sub.messages); } catch { /* 落盘失败不影响结果 */ }
