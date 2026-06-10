@@ -43,7 +43,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const events = deps.events ?? plainEvents(deps.write);
   // 工具 ctx 透传取消信号(exec_shell 据此 SIGTERM);不改原 ctx 引用,按需补 signal。
   const toolCtx = signal ? { ...deps.ctx, signal } : deps.ctx;
-  const maxTurns = deps.maxTurns ?? (Number(process.env.CODEDS_MAX_TURNS) || 50);
+  const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || 50);
   // 卡死检测:重复同一工具调用/同一错误达阈值 → 先注入"换思路"提醒;再卡则止损停止。
   const detector = createStuckDetector();
   let nudged = false;
@@ -81,9 +81,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       messages: session.messages,
       ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
       // agent 类客户端默认用最高思考强度(官方对 Claude Code/OpenCode 类亦自动升到 max)。
-      // 可用 CODEDS_REASONING_EFFORT 覆盖(实验:max 可能放大"过度推敲、到了正解不下手")。
+      // 可用 DAO_REASONING_EFFORT 覆盖(实验:max 可能放大"过度推敲、到了正解不下手")。
       // 思考模式下 temperature/top_p 无效,故不设采样参数。
-      extra: { reasoning_effort: process.env.CODEDS_REASONING_EFFORT || "max" },
+      extra: { reasoning_effort: process.env.DAO_REASONING_EFFORT || "max" },
       onUsage: (u) => session.addUsage(u),
       signal,
     });

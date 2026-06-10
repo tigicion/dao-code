@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-// 影子 git:用独立的 git 目录(.codeds/shadow.git)对工作区做快照/回滚,
+// 影子 git:用独立的 git 目录(.dao/shadow.git)对工作区做快照/回滚,
 // 完全不碰用户自己的 .git、不改用户提交历史。每个回合前后 snapshot 一个点,/restore 回退文件。
-// add -A 会自动尊重工作区的 .gitignore(node_modules/.codeds 等已被排除)。
+// add -A 会自动尊重工作区的 .gitignore(node_modules/.dao 等已被排除)。
 
 export interface Checkpointer {
   enabled: boolean;
@@ -16,7 +16,7 @@ export interface Checkpointer {
 const noop: Checkpointer = { enabled: false, snapshot: () => null, restore: () => false, list: () => [] };
 
 export function createCheckpointer(workspaceRoot: string): Checkpointer {
-  const gitDir = path.join(workspaceRoot, ".codeds", "shadow.git");
+  const gitDir = path.join(workspaceRoot, ".dao", "shadow.git");
   const run = (args: string[], opts: { gitOnly?: boolean } = {}) =>
     execFileSync("git", ["--git-dir", gitDir, ...args], {
       cwd: workspaceRoot,
@@ -35,7 +35,7 @@ export function createCheckpointer(workspaceRoot: string): Checkpointer {
       mkdirSync(path.join(gitDir, "info"), { recursive: true });
       writeFileSync(
         path.join(gitDir, "info", "exclude"),
-        ["node_modules/", ".git/", ".codeds/", "dist/", "dist-bin/", "*.log", ""].join("\n"),
+        ["node_modules/", ".git/", ".dao/", ".codeds/", "dist/", "dist-bin/", "*.log", ""].join("\n"),
       );
     }
   } catch {

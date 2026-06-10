@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-// 自定义 slash 命令:.codeds/commands/<name>.md(+ 用户 ~/.codeds/commands/)。
+// 自定义 slash 命令:.dao/commands/<name>.md(+ 用户 ~/.dao/commands/)。
 // 文件正文是一个 prompt 模板;调用 /name 参数 时,$ARGUMENTS 替换为全部参数、$1/$2.. 替换为第 n 个。
 // frontmatter 可选(description)。项目同名覆盖用户。
 

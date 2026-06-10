@@ -7,7 +7,7 @@ import { listDirTool } from "./list_dir.js";
 let root: string;
 
 beforeAll(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-listdir-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-listdir-"));
   await fs.writeFile(path.join(root, "file.txt"), "x", "utf8");
   await fs.mkdir(path.join(root, "sub"));
 });

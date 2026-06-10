@@ -1,7 +1,7 @@
 // 单独调试"会话结束蒸馏":用固定对话跑一次 flash 蒸馏,把模型原始输出、报错、解析候选全打出来。
 // 隔离 distill 与 REPL 接线,定位"为什么没产出记忆"。便宜(一次 flash 调用)。
 //   跑:  DEEPSEEK_API_KEY=你的key npm run debug:distill
-process.env.CODEDS_DEBUG_MEMORY = "1"; // 让 distill 把原始输出/候选数打到 stderr
+process.env.DAO_DEBUG_MEMORY = "1"; // 让 distill 把原始输出/候选数打到 stderr
 import { readConfig } from "../src/config/config.js";
 import { streamChat } from "../src/client/client.js";
 import { distill } from "../src/memory/distill.js";

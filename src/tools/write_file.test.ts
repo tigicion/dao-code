@@ -6,7 +6,7 @@ import { writeFileTool } from "./write_file.js";
 
 let root: string;
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-writefile-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-writefile-"));
 });
 afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });

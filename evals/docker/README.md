@@ -1,30 +1,30 @@
-# codeds eval —— 容器镜像(kind:"docker")
+# dao eval —— 容器镜像(kind:"docker")
 
 重工具链(Java / C++ / 数据科学)的 OSS 评测任务,把 `install` / `fail2pass` / `pass2pass` 跑在容器里,宿主不必装一堆 SDK。每个语言一个基础镜像。
 
 ## host-agent + bind-mount 模型
 
-codeds **本体仍在宿主跑**,直接编辑挂载进容器的工作区文件;只有 install/测试命令进容器。runner 把抛弃式临时工作区 `tmp` 以 `-v <tmp>:/work -w /work` 挂进容器:
+dao **本体仍在宿主跑**,直接编辑挂载进容器的工作区文件;只有 install/测试命令进容器。runner 把抛弃式临时工作区 `tmp` 以 `-v <tmp>:/work -w /work` 挂进容器:
 
 ```
 docker run --rm -v <tmp>:/work -w /work <image> bash -lc "<cmd>"
 ```
 
-这样 agent 用的还是宿主上的 codeds,容器只负责"重环境里跑构建与测试"。
+这样 agent 用的还是宿主上的 dao,容器只负责"重环境里跑构建与测试"。
 
 ## 怎么 build
 
 在仓库根目录执行(`.` 是构建上下文):
 
 ```bash
-docker build -f evals/docker/node.Dockerfile      -t codeds-eval/node      .
-docker build -f evals/docker/python.Dockerfile    -t codeds-eval/python    .
-docker build -f evals/docker/python-ds.Dockerfile -t codeds-eval/python-ds .   # 重镜像
-docker build -f evals/docker/java.Dockerfile      -t codeds-eval/java      .
-docker build -f evals/docker/cpp.Dockerfile       -t codeds-eval/cpp       .
+docker build -f evals/docker/node.Dockerfile      -t dao-eval/node      .
+docker build -f evals/docker/python.Dockerfile    -t dao-eval/python    .
+docker build -f evals/docker/python-ds.Dockerfile -t dao-eval/python-ds .   # 重镜像
+docker build -f evals/docker/java.Dockerfile      -t dao-eval/java      .
+docker build -f evals/docker/cpp.Dockerfile       -t dao-eval/cpp       .
 ```
 
-task.json 里 `"image"` 填这个 tag(如 `"image": "codeds-eval/python"`)。
+task.json 里 `"image"` 填这个 tag(如 `"image": "dao-eval/python"`)。
 
 ## 网络规则:装依赖联网、跑测试断网
 

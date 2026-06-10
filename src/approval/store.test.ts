@@ -8,8 +8,8 @@ let dir: string;
 let file: string;
 
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-approvals-"));
-  file = path.join(dir, ".codeds", "approvals.json");
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "dao-approvals-"));
+  file = path.join(dir, ".dao", "approvals.json");
 });
 afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });

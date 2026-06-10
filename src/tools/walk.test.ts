@@ -6,7 +6,7 @@ import { walkFiles } from "./walk.js";
 
 let root: string;
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-walk-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-walk-"));
   await fs.writeFile(path.join(root, "a.txt"), "x", "utf8");
   await fs.mkdir(path.join(root, "sub"));
   await fs.writeFile(path.join(root, "sub", "b.txt"), "y", "utf8");

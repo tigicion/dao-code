@@ -17,7 +17,7 @@ export function createWorktree(repoRoot: string, id: string): Worktree | null {
     return null; // 不是 git 仓库
   }
   const branch = `dao-wt-${id}`;
-  const root = path.join(repoRoot, ".codeds", "worktrees", id);
+  const root = path.join(repoRoot, ".dao", "worktrees", id);
   try {
     execFileSync("git", ["worktree", "add", "-b", branch, root, "HEAD"], { cwd: repoRoot, stdio: "ignore" });
   } catch {

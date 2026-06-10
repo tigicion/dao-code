@@ -5,7 +5,7 @@ import type { Capabilities } from "./capabilities.js";
 const info: WelcomeInfo = {
   model: "deepseek-v4-pro",
   thinking: "max",
-  cwd: "/Users/x/code/codeds",
+  cwd: "/Users/x/code/dao-code",
   version: "0.1.0",
   branch: "dao-code-p1",
 };

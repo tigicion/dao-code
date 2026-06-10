@@ -9,8 +9,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TSX="$REPO/node_modules/.bin/tsx"
 WS="$(mktemp -d)"
 strip() { sed $'s/\x1b\\[[0-9;]*m//g'; }
-# 同一工作区 WS 跑 codeds:project 记忆落在 WS/.codeds/memory,run2 能读到 run1 蒸馏的记忆。
-run() { ( cd "$WS" && DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" CODEDS_AUTO_APPROVE=1 CODEDS_DEBUG_MEMORY=1 "$TSX" "$REPO/src/index.ts" ); }
+# 同一工作区 WS 跑 dao:project 记忆落在 WS/.dao/memory,run2 能读到 run1 蒸馏的记忆。
+run() { ( cd "$WS" && DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" DAO_AUTO_APPROVE=1 DAO_DEBUG_MEMORY=1 "$TSX" "$REPO/src/index.ts" ); }
 
 echo "=== 临时工作区: $WS ==="
 
@@ -21,9 +21,9 @@ printf '%s\n' "$MSG1" | run 2>&1 | strip > "$WS/run1.out"
 echo "--- run1 输出尾部(应见『已更新记忆:N 条』)---"; tail -n 6 "$WS/run1.out"
 echo "--- run1 蒸馏诊断([distill] 行)---"; grep '\[distill\]' "$WS/run1.out" || echo "(无 [distill] 行 → distillOnExit 没跑到)"
 
-echo; echo "=== run1 蒸馏产物:.codeds/memory/*.md ==="
-if compgen -G "$WS/.codeds/memory/*.md" > /dev/null; then
-  for f in "$WS"/.codeds/memory/*.md; do echo "----- $f -----"; cat "$f"; echo; done
+echo; echo "=== run1 蒸馏产物:.dao/memory/*.md ==="
+if compgen -G "$WS/.dao/memory/*.md" > /dev/null; then
+  for f in "$WS"/.dao/memory/*.md; do echo "----- $f -----"; cat "$f"; echo; done
 else
   echo "(未生成记忆文件 —— 蒸馏可能没产出,需排查)"
 fi
