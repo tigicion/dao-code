@@ -92,6 +92,11 @@ async function main() {
   process.on("SIGTERM", () => { cleanup(); process.exit(143); });
 
   const rawArgs = process.argv.slice(2);
+  // --version/-v 必须在任何初始化(读配置/连 API)之前拦下,否则整句会被当 prompt 发给模型。
+  if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
+    process.stdout.write(`dao-code v${VERSION}\n`);
+    return;
+  }
   const yoloFlag = rawArgs.includes("--yolo");
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
   const taskFlag = rawArgs.includes("--task");
