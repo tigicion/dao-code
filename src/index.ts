@@ -30,6 +30,8 @@ import { runSubagent } from "./agent/subagent.js";
 import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
+import { loadSkills } from "./skills/skills.js";
+import { skillTool } from "./tools/skill.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
@@ -183,7 +185,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, agentTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, agentTool,
   ]) {
     registry.register(t);
   }
@@ -229,6 +231,16 @@ async function main() {
       ? `\n\n# 可用子代理类型(派 agent 时用 agent_type 指定,各有专属角色与工具)\n` +
         agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
       : "";
+  // 开箱即用 skill(.codeds/skills/):启动只列 name+description,模型用 skill 工具按需取正文。
+  const skills = await loadSkills(
+    path.join(workspaceRoot, ".codeds", "skills"),
+    path.join(os.homedir(), ".codeds", "skills"),
+  );
+  const skillsSection =
+    skills.length > 0
+      ? `\n\n# 可用 skill(任务匹配时用 skill 工具加载其正文指令再照做)\n` +
+        skills.map((s) => `- ${s.name}:${s.description}`).join("\n")
+      : "";
 
   const systemPrompt =
     buildSystemPrompt({
@@ -237,7 +249,7 @@ async function main() {
       memories: memoryText,
       cwd: workspaceRoot,
       platform: process.platform,
-    }) + agentTypesSection;
+    }) + agentTypesSection + skillsSection;
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
   let inkApprovalPrompt: ApprovalPrompt | null = null;
@@ -276,6 +288,7 @@ async function main() {
   // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
   let subagentWrite: (s: string) => void = write;
   ctx.agentTypes = agentDefs.map((d) => ({ name: d.name, description: d.description }));
+  ctx.skills = skills;
   ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string) => {
     const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
