@@ -28,6 +28,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { weightedCompletion } from "./score.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
@@ -186,8 +187,34 @@ async function judge(task, tmp, daoOut, exitCode) {
   }
   // double / oss / docker:双轨。缺验证器直接判失败(防"空双轨默默判过"的假阳性)。
   const isOss = task.kind === "oss" || task.kind === "docker";
+
+  // 长任务:checkpoints 模式(加权完成度)。每条 {id, cmd, weight?};
+  // cmd 语义随 kind——oss/docker 是 shell 命令,double 是 tests/ 下脚本相对路径。
+  // pass2pass 仍可选,单独判"没改坏既有功能"。二元 pass = 完成度 100% 且 pass2pass 过(喂 pass^k)。
+  if (Array.isArray(task.checkpoints) && task.checkpoints.length) {
+    const passedIds = [];
+    const logs = [];
+    for (const c of task.checkpoints) {
+      const r = isOss ? await ossCmd(task, tmp, c.cmd, "test") : await runTest(task.dir, c.cmd, tmp);
+      const ok = isOss ? r.code === 0 : r.pass;
+      if (ok) passedIds.push(c.id);
+      logs.push(`### checkpoint ${c.id} (w=${c.weight ?? 1}) ${ok ? "✓ 通过" : "✗ 未过"}\n${r.out ?? ""}`);
+    }
+    let p2pPass = true, p2pOut = "";
+    if (task.pass2pass) {
+      const p2p = isOss ? await ossCmd(task, tmp, task.pass2pass, "test") : await runTest(task.dir, task.pass2pass, tmp);
+      p2pPass = isOss ? p2p.code === 0 : p2p.pass;
+      p2pOut = p2p.out ?? "";
+    }
+    const wc = weightedCompletion(task.checkpoints, passedIds);
+    const pass = wc.completion === 1 && p2pPass;
+    const pctNote = `完成度 ${(wc.completion * 100).toFixed(0)}%(${wc.passed}/${wc.total})`;
+    const note = pass ? "" : p2pPass ? pctNote : `${pctNote} · pass2pass 改坏了既有功能`;
+    return { pass, note, completion: wc.completion, checkpoints: wc, f2pOut: logs.join("\n\n"), p2pOut };
+  }
+
   if (!task.fail2pass && !task.pass2pass) {
-    return { pass: false, note: "验证器缺失(double/oss/docker 任务必须配 fail2pass/pass2pass)" };
+    return { pass: false, note: "验证器缺失(double/oss/docker 任务必须配 fail2pass/pass2pass 或 checkpoints)" };
   }
   const f2p = task.fail2pass
     ? isOss
@@ -203,8 +230,9 @@ async function judge(task, tmp, daoOut, exitCode) {
   const p2pPass = isOss ? p2p.code === 0 : p2p.pass;
   const pass = f2pPass && p2pPass;
   const note = pass ? "" : !f2pPass ? "fail2pass 未通过(没真正解决)" : "pass2pass 未通过(改坏了既有功能)";
-  // 把两轨原始输出带出去落盘(看哪个 subtest 怎么挂的)
-  return { pass, note, f2pOut: f2p.out ?? "", p2pOut: p2p.out ?? "" };
+  // 把两轨原始输出带出去落盘(看哪个 subtest 怎么挂的)。
+  // completion:无 checkpoints 的任务是二元的,完成度即 0/1,供 horizon 统一读。
+  return { pass, note, completion: pass ? 1 : 0, f2pOut: f2p.out ?? "", p2pOut: p2p.out ?? "" };
 }
 
 // 捕获 agent 实际改了什么(在注入隐藏测试之前调,diff 才干净):
@@ -232,7 +260,7 @@ async function persistRun(task, i, { agentOut, diff, v, tools, ms }) {
   if (v.p2pOut != null) await fs.writeFile(path.join(dir, "pass2pass.log"), v.p2pOut, "utf8");
   await fs.writeFile(
     path.join(dir, "meta.json"),
-    JSON.stringify({ id: task.id, kind: task.kind, run: i + 1, pass: v.pass, note: v.note, tools, ms }, null, 2),
+    JSON.stringify({ id: task.id, kind: task.kind, run: i + 1, pass: v.pass, note: v.note, completion: v.completion ?? (v.pass ? 1 : 0), humanMinutes: task.humanMinutes ?? null, tools, ms }, null, 2),
     "utf8",
   );
 }
@@ -271,7 +299,7 @@ async function runOnce(task, i = 0) {
     const v = await judge(task, tmp, r.out, r.code);
     const tools = countTools(r.out);
     await persistRun(task, i, { agentOut: r.out, diff, v, tools, ms: r.ms ?? 0 });
-    return { pass: v.pass, note: v.note, tools, ms: r.ms ?? 0, daoMs: r.ms };
+    return { pass: v.pass, note: v.note, completion: v.completion ?? (v.pass ? 1 : 0), tools, ms: r.ms ?? 0, daoMs: r.ms };
   } catch (e) {
     return { pass: false, note: `runner error: ${e.message}`, tools: 0, ms: 0 };
   } finally {
@@ -302,8 +330,9 @@ async function main() {
     const passK = solved === RUNS;
     const avgTools = (runs.reduce((a, r) => a + r.tools, 0) / RUNS).toFixed(1);
     const avgS = ((Date.now() - t0) / RUNS / 1000).toFixed(0);
+    const avgCompletion = runs.reduce((a, r) => a + (r.completion ?? (r.pass ? 1 : 0)), 0) / RUNS;
     const note = runs.find((r) => !r.pass)?.note || "";
-    rows.push({ id: task.id, kind: KIND_LABEL[task.kind] || task.kind, desc: task.desc || "", solved: `${solved}/${RUNS}`, passK, avgTools, avgS, note });
+    rows.push({ id: task.id, kind: KIND_LABEL[task.kind] || task.kind, desc: task.desc || "", solved: `${solved}/${RUNS}`, passK, avgTools, avgS, comp: `${(avgCompletion * 100).toFixed(0)}%`, note });
     console.log(`  ${solved}/${RUNS}${note ? "  · " + note : ""}`);
   }
 
@@ -318,9 +347,9 @@ async function main() {
     `- 模型:\`${MODEL}\`    每题跑:${RUNS} 次`,
     `- **${headline}**`,
     ``,
-    `| 任务 | 类型 | pass^${RUNS} | 通过 | 工具/次 | 秒/次 | 失败原因 |`,
-    `|---|---|:---:|:---:|---:|---:|---|`,
-    ...rows.map((r) => `| ${r.id} | ${r.kind} | ${r.passK ? "✅" : "❌"} | ${r.solved} | ${r.avgTools} | ${r.avgS} | ${r.note} |`),
+    `| 任务 | 类型 | pass^${RUNS} | 通过 | 完成度 | 工具/次 | 秒/次 | 失败原因 |`,
+    `|---|---|:---:|:---:|:---:|---:|---:|---|`,
+    ...rows.map((r) => `| ${r.id} | ${r.kind} | ${r.passK ? "✅" : "❌"} | ${r.solved} | ${r.comp} | ${r.avgTools} | ${r.avgS} | ${r.note} |`),
     ``,
     `> pass^${RUNS} = 连续 ${RUNS} 次全过(可靠);只过几次说明不稳定。`,
     `> "能力·双轨/OSS" = fail2pass(真解决)+ pass2pass(没改坏)双轨判定;"安全/红队" = 行为/状态硬判定。`,
