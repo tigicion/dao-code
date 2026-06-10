@@ -142,6 +142,7 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 - **异步后台子代理 + 通知队列**:`agent` 传 `background:true` 后台跑、立即返回、主循环不阻塞;完成后结果作为 `<task-notification>` 自动注入续跑(`src/agent/tasks.ts`)。状态栏显示运行中的后台任务数。
 - **按需记忆检索**:`memory_search` 让模型主动检索跨会话记忆(启动只注入 top-K,被截断/刚写的也查得到)。
 - **长任务自主模式**:`dao --task` 或 `/task` —— 自动批准 + 自主连续推进 + 更高轮数 + 末尾给总结;仅真卡住才问你。
+- **Coordinator 协作编排**:`dao --coordinator` 或 `/coordinator` —— 把较大任务做成多 agent 工作流(研究并行 → 综合 → 实现 → 验证),坐在异步后台子代理 + 通知队列之上:派出研究 worker → 结束本轮 → 结果回灌 → 综合实现 → `verify_done` 验收。
 
 ---
 

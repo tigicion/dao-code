@@ -40,7 +40,7 @@ import { SessionApprovalGate } from "./approval/gate.js";
 import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
-import { buildSystemPrompt, LONG_TASK_DIRECTIVE } from "./prompt/system_prompt.js";
+import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable } from "./session/log.js";
 import { createCheckpointer } from "./session/checkpoint.js";
@@ -87,7 +87,8 @@ async function main() {
   const yoloFlag = rawArgs.includes("--yolo");
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
   const taskFlag = rawArgs.includes("--task");
-  const flags = new Set(["--yolo", "--continue", "-c", "--task"]);
+  const coordinatorFlag = rawArgs.includes("--coordinator");
+  const flags = new Set(["--yolo", "--continue", "-c", "--task", "--coordinator"]);
   const argvPrompt = rawArgs.filter((a) => !flags.has(a)).join(" ").trim();
   const workspaceRoot = process.cwd();
   const approvalsFile = path.join(workspaceRoot, ".codeds", "approvals.json");
@@ -225,8 +226,10 @@ async function main() {
 
   // 长任务自主模式(--task / 运行时 /task):自主连续推进 + 自动批准 + 更高轮数上限。
   let longTask = taskFlag;
-  // YOLO:自动批准一切写/执行(慎用)。来源:--yolo / CODEDS_AUTO_APPROVE / 运行时 /yolo;长任务模式默认开。
-  let yolo = yoloFlag || taskFlag || !!process.env.CODEDS_AUTO_APPROVE;
+  // Coordinator 编排模式(--coordinator / 运行时 /coordinator):研究→综合→实现→验证多 agent 工作流。
+  let coordinator = coordinatorFlag;
+  // YOLO:自动批准一切写/执行(慎用)。来源:--yolo / CODEDS_AUTO_APPROVE / 运行时 /yolo;长任务/Coordinator 默认开。
+  let yolo = yoloFlag || taskFlag || coordinatorFlag || !!process.env.CODEDS_AUTO_APPROVE;
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
   const baseGate = new SessionApprovalGate(
@@ -452,6 +455,7 @@ async function main() {
       const store = createSessionStore(sessionsDir, resumeId);
       const ckpt = createCheckpointer(workspaceRoot);
       if (longTask && !continueFlag) session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
+      if (coordinator && !continueFlag) session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
       const persist = () =>
         store.saveState({
           cwd: workspaceRoot,
@@ -476,7 +480,7 @@ async function main() {
             executeToolCalls,
             write: () => {},
             events: logEvents(events, store), // 渲染的同时写日志
-            maxTurns: longTask ? 120 : undefined, // 长任务给更高轮数上限
+            maxTurns: longTask || coordinator ? 120 : undefined, // 长任务/Coordinator 给更高轮数上限
             signal,
           });
           store.append({ t: "turn_end" });
@@ -502,6 +506,15 @@ async function main() {
               return { handled: true, output: "🪢 长任务自主模式已开启:自动批准 + 自主连续推进 + 更高轮数;直接说出要做的长任务即可。" };
             }
             return { handled: true, output: "长任务模式已关闭(YOLO 仍按当前状态,可用 /yolo 切)。" };
+          }
+          if (name === "coordinator") {
+            coordinator = !coordinator;
+            if (coordinator) {
+              yolo = true;
+              session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
+              return { handled: true, output: "🧭 Coordinator 模式已开启:研究(并行)→综合→实现→验证 多 agent 编排;直接说出要做的较大任务即可。" };
+            }
+            return { handled: true, output: "Coordinator 模式已关闭。" };
           }
           if (name === "dod") {
             const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
@@ -530,6 +543,7 @@ async function main() {
           cacheHitRatio: session.cacheHitRatio(),
           yolo,
           longTask,
+          coordinator,
           branch: gitBranch,
           contextPct: (estimateTokens(session.messages) / CONTEXT_WINDOW) * 100,
         }),
