@@ -199,6 +199,17 @@ describe("App", () => {
     expect(f).not.toContain("read_file");
   });
 
+  it("Coordinator 模式 → 状态栏显示标识", () => {
+    const { lastFrame } = render(
+      <App
+        {...makeDeps({
+          getStatus: () => ({ model: "m", mode: "normal", promptTokens: 0, completionTokens: 0, cacheHitRatio: 0, yolo: true, coordinator: true, contextPct: 0 }),
+        })}
+      />,
+    );
+    expect(lastFrame()).toContain("Coordinator");
+  });
+
   it("后台任务通知 → 自动作为新回合处理(注入结果)", async () => {
     const notes = ["<task-notification>结果ABC</task-notification>"];
     const submitted: string[] = [];

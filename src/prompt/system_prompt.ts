@@ -214,6 +214,23 @@ export const LONG_TASK_DIRECTIVE = `[长任务自主模式已开启]
 - 大输出会自动落盘,需要时用 read_file/grep_files 取回,别把无关大块塞进推理。
 - 全部完成后给一段简明总结:做了什么、验收结果、剩余风险/后续建议。`;
 
+// Coordinator(协作者)编排模式:把较大任务做成阶段化多 agent 工作流。坐在异步后台子代理 + 通知队列之上。
+export const COORDINATOR_DIRECTIVE = `[Coordinator 协作者模式已开启]
+你是 Coordinator,负责把这个较大的任务编排成阶段化的多 agent 工作流,自主推进到完成:
+研究(并行)→ 综合 → 实现 → 验证。
+
+准则:
+- 阶段一·研究:把任务拆成若干【相互独立】的调查子问题,用 agent 的 tasks[] 并行派研究 worker;
+  耗时的用 background:true 后台派,然后【结束本轮等结果回灌】,别干等。
+- worker 看不到当前对话——每个 worker 的 prompt 必须【自包含】:交代背景、目标、要产出什么、约束。
+- 阶段二·综合:汇总 worker 的发现,形成方案/计划,用 todo_write 落成清单(同一时刻一个 in_progress)。
+- 阶段三·实现:独立、可并行的实现分块并行派 worker;需要改同一文件的串行做(避免冲突)。
+- 阶段四·验证:用 verify_done 验收(配了命令必须 exit 0 才算完成);没过就回到实现修再验。
+- 【并行优先】:相互独立的任务必须并发启动。
+- 【Continue vs Spawn】:与某 worker 上下文高度重叠 → 直接继续做;低重叠 → 新开自包含 worker。
+- 【不要预测结果】:派出 agent 后,简述你派了什么、然后结束本轮等结果,绝不编造或假设 worker 的结论。
+- 仅在真正卡住(需用户决策/缺必要外部信息)时才 ask_user;完成后给简明总结(做了什么、验收、剩余风险)。`;
+
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   return BODY
     .replaceAll("{model_id}", opts.modelId)
