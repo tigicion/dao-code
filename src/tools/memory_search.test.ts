@@ -18,20 +18,20 @@ const add = async (text: string) => {
 
 describe("memory_search", () => {
   it("无记忆 → 提示", async () => {
-    const out = await memorySearchTool.handler({ query: "x" }, { workspaceRoot: root });
+    const out = await memorySearchTool.handler({ query: "x" }, { workspaceRoot: root, homeDir: root });
     expect(out).toContain("暂无记忆");
   });
 
   it("按相关度返回命中", async () => {
     await add("用户在做 deepseek-v4-pro coding agent");
     await add("用户喜欢简洁回复");
-    const out = await memorySearchTool.handler({ query: "deepseek agent" }, { workspaceRoot: root });
+    const out = await memorySearchTool.handler({ query: "deepseek agent" }, { workspaceRoot: root, homeDir: root });
     expect(out).toContain("deepseek-v4-pro");
   });
 
   it("无相关 → 明确提示", async () => {
     await add("用户喜欢简洁回复");
-    const out = await memorySearchTool.handler({ query: "完全无关的量子物理" }, { workspaceRoot: root });
+    const out = await memorySearchTool.handler({ query: "完全无关的量子物理" }, { workspaceRoot: root, homeDir: root });
     expect(out).toContain("无相关记忆");
   });
 });
