@@ -32,6 +32,9 @@ export interface ToolContext {
   // 申请访问工作区外路径(读类工具用):返回是否获批。未注入(非交互)默认拒绝。
   // 一次授权后同会话/本仓库后续外部读不再追问(减少阻塞)。
   approveExternalRead?: (absPath: string) => Promise<boolean>;
+  // 生命周期钩子(hooks):工具执行前/后触发用户配置的命令。pre 返回 block 则拦截该工具。
+  preToolHook?: (toolName: string, argsJson: string) => Promise<{ block: boolean; reason: string }>;
+  postToolHook?: (toolName: string, argsJson: string, result: string) => Promise<void>;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。
