@@ -12,7 +12,7 @@ beforeEach(() => {
 describe("spillOutput", () => {
   it("小输出原样返回,不落盘", () => {
     expect(spillOutput("hi", root, 100)).toBe("hi");
-    expect(existsSync(path.join(root, ".codeds", "spill"))).toBe(false);
+    expect(existsSync(path.join(root, ".dao", "spill"))).toBe(false);
   });
 
   it("大输出:截断 + 指针,全量落盘且可读回", () => {
@@ -20,8 +20,8 @@ describe("spillOutput", () => {
     const out = spillOutput(full, root, 100);
     expect(out.length).toBeLessThan(full.length);
     expect(out).toContain("已落盘");
-    expect(out).toContain(".codeds/spill/");
-    const dir = path.join(root, ".codeds", "spill");
+    expect(out).toContain(".dao/spill/");
+    const dir = path.join(root, ".dao", "spill");
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
     expect(readFileSync(path.join(dir, files[0]!), "utf8")).toBe(full); // 落盘的是全量

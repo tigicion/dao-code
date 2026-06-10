@@ -6,6 +6,7 @@ import os from "node:os";
 import { readConfig } from "./config/config.js";
 import { loadDotenv } from "./config/env_file.js";
 import { loadStoredKey, saveKey } from "./config/key_store.js";
+import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat } from "./client/client.js";
 import { runTurn } from "./agent/loop.js";
 import { executeToolCalls } from "./tools/execute.js";
@@ -104,8 +105,14 @@ async function main() {
   const flags = new Set(["--yolo", "--continue", "-c", "--task", "--coordinator"]);
   const argvPrompt = rawArgs.filter((a) => !flags.has(a)).join(" ").trim();
   const workspaceRoot = process.cwd();
-  const approvalsFile = path.join(workspaceRoot, ".codeds", "approvals.json");
-  const keyFile = path.join(os.homedir(), ".codeds", "config.json");
+  // codeds → DAO CODE 改名:一次性把旧 .codeds/ 数据(项目级+用户级)整体迁到 .dao/。
+  // 必须在任何 .dao 路径被读写之前做;失败不阻塞启动(等价于全新环境)。
+  for (const base of [workspaceRoot, os.homedir()]) {
+    const r = await migrateLegacyDir(path.join(base, ".codeds"), path.join(base, ".dao")).catch(() => "absent" as const);
+    if (r === "migrated") process.stdout.write(`✓ 已迁移旧数据:${path.join(base, ".codeds")} → ${path.join(base, ".dao")}\n`);
+  }
+  const approvalsFile = path.join(workspaceRoot, ".dao", "approvals.json");
+  const keyFile = path.join(os.homedir(), ".dao", "config.json");
 
   const write = (s: string) => process.stdout.write(s);
 
@@ -201,8 +208,8 @@ async function main() {
 
   // MCP:连配置的 server,把其工具注册进来(名字 mcp__server__tool)。失败的 server 不影响其余/启动。
   const mcpConfig = await loadMcpConfig([
-    path.join(os.homedir(), ".codeds", "mcp.json"),
-    path.join(workspaceRoot, ".codeds", "mcp.json"),
+    path.join(os.homedir(), ".dao", "mcp.json"),
+    path.join(workspaceRoot, ".dao", "mcp.json"),
   ]);
   const mcp = await connectMcpServers(mcpConfig);
   for (const t of mcp.tools) registry.register(t);
@@ -213,8 +220,8 @@ async function main() {
     .join("\n");
 
   // ---- 记忆读路径(会话启动一次性):迁移旧 JSON → 加载 → 确定性权威验证 → 注入固定前缀 ----
-  const projectMemoryDir = path.join(workspaceRoot, ".codeds", "memory");
-  const userMemoryDir = path.join(os.homedir(), ".codeds", "memory");
+  const projectMemoryDir = path.join(workspaceRoot, ".dao", "memory");
+  const userMemoryDir = path.join(os.homedir(), ".dao", "memory");
   const today = new Date().toISOString().slice(0, 10);
   // 一次性把旧 memories.json 迁移成 md(已迁移则跳过;目录不存在也容错)。
   await migrateLegacy(projectMemoryDir, today);
@@ -233,25 +240,25 @@ async function main() {
   // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
   const memoryText = buildMemorySection(selectForInjection(validated, today));
 
-  // 自定义子代理类型(.codeds/agents/*.md):专属 prompt/工具白名单/模型。
+  // 自定义子代理类型(.dao/agents/*.md):专属 prompt/工具白名单/模型。
   const agentDefs = await loadAgentDefs(
-    path.join(workspaceRoot, ".codeds", "agents"),
-    path.join(os.homedir(), ".codeds", "agents"),
+    path.join(workspaceRoot, ".dao", "agents"),
+    path.join(os.homedir(), ".dao", "agents"),
   );
-  // 自定义 slash 命令(.codeds/commands/*.md):/name 展开成 prompt。
+  // 自定义 slash 命令(.dao/commands/*.md):/name 展开成 prompt。
   const customCommands = await loadCustomCommands(
-    path.join(workspaceRoot, ".codeds", "commands"),
-    path.join(os.homedir(), ".codeds", "commands"),
+    path.join(workspaceRoot, ".dao", "commands"),
+    path.join(os.homedir(), ".dao", "commands"),
   );
   const agentTypesSection =
     agentDefs.length > 0
       ? `\n\n# 可用子代理类型(派 agent 时用 agent_type 指定,各有专属角色与工具)\n` +
         agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
       : "";
-  // 开箱即用 skill(.codeds/skills/):启动只列 name+description,模型用 skill 工具按需取正文。
+  // 开箱即用 skill(.dao/skills/):启动只列 name+description,模型用 skill 工具按需取正文。
   const skills = await loadSkills(
-    path.join(workspaceRoot, ".codeds", "skills"),
-    path.join(os.homedir(), ".codeds", "skills"),
+    path.join(workspaceRoot, ".dao", "skills"),
+    path.join(os.homedir(), ".dao", "skills"),
   );
   const skillsSection =
     skills.length > 0
@@ -276,8 +283,8 @@ async function main() {
   let longTask = taskFlag;
   // Coordinator 编排模式(--coordinator / 运行时 /coordinator):研究→综合→实现→验证多 agent 工作流。
   let coordinator = coordinatorFlag;
-  // YOLO:自动批准一切写/执行(慎用)。来源:--yolo / CODEDS_AUTO_APPROVE / 运行时 /yolo;长任务/Coordinator 默认开。
-  let yolo = yoloFlag || taskFlag || coordinatorFlag || !!process.env.CODEDS_AUTO_APPROVE;
+  // YOLO:自动批准一切写/执行(慎用)。来源:--yolo / DAO_AUTO_APPROVE / 运行时 /yolo;长任务/Coordinator 默认开。
+  let yolo = yoloFlag || taskFlag || coordinatorFlag || !!process.env.DAO_AUTO_APPROVE;
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
   const baseGate = new SessionApprovalGate(
@@ -307,10 +314,10 @@ async function main() {
   ctx.agentTypes = agentDefs.map((d) => ({ name: d.name, description: d.description }));
   ctx.skills = skills;
 
-  // 生命周期钩子(.codeds/hooks.json + 用户级):工具前/后、用户提交、会话起止。
+  // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
   const hooks = await loadHooks([
-    path.join(os.homedir(), ".codeds", "hooks.json"),
-    path.join(workspaceRoot, ".codeds", "hooks.json"),
+    path.join(os.homedir(), ".dao", "hooks.json"),
+    path.join(workspaceRoot, ".dao", "hooks.json"),
   ]);
   ctx.preToolHook = async (toolName, argsJson) => {
     const r = await runHooks(hooks, "PreToolUse", { cwd: workspaceRoot, toolName, payload: { tool: toolName, args: argsJson } });
@@ -344,7 +351,7 @@ async function main() {
       drainPending,
       writeTranscript: (messages) => {
         try {
-          const dir = path.join((wsRoot ?? workspaceRoot), ".codeds", "subagents");
+          const dir = path.join((wsRoot ?? workspaceRoot), ".dao", "subagents");
           mkdirSync(dir, { recursive: true });
           const name = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
           writeFileSync(path.join(dir, name), messages.map((m) => JSON.stringify(m)).join("\n"));
@@ -477,7 +484,7 @@ async function main() {
       }
       if (n > 0) write(`\n已更新记忆:${n} 条\n`);
     } catch (e) {
-      if (process.env.CODEDS_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
+      if (process.env.DAO_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
       // 失败不阻塞退出。
     }
   };
@@ -499,7 +506,7 @@ async function main() {
     } catch {}
     const welcomeInfo = {
       model: cfg.model,
-      thinking: process.env.CODEDS_REASONING_EFFORT || "max",
+      thinking: process.env.DAO_REASONING_EFFORT || "max",
       cwd: workspaceRoot,
       version: VERSION,
       branch: gitBranch,
@@ -519,7 +526,7 @@ async function main() {
         }
       } catch {}
       // 长任务地基:会话日志/状态快照(崩溃恢复)+ 影子 git 检查点(回滚)。
-      const sessionsDir = path.join(workspaceRoot, ".codeds", "sessions");
+      const sessionsDir = path.join(workspaceRoot, ".dao", "sessions");
       let resumeId: string | undefined;
       let initialItems: TranscriptItem[] = [];
       if (continueFlag) {

@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-// 从 ~/.codeds/config.json 读已保存的 apiKey;缺失/损坏 → undefined。
+// 从 ~/.dao/config.json 读已保存的 apiKey;缺失/损坏 → undefined。
 export async function loadStoredKey(file: string): Promise<string | undefined> {
   try {
     const obj = JSON.parse(await fs.readFile(file, "utf8"));

@@ -22,7 +22,7 @@ describe("parseDotenv", () => {
 describe("loadDotenv", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-dotenv-"));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "dao-dotenv-"));
   });
   afterEach(async () => {
     await fs.rm(dir, { recursive: true, force: true });

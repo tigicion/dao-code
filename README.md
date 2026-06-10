@@ -56,7 +56,7 @@ npm install && npm run build && npm link   # 之后可全局 dao
    # 或在项目根写 .env: DEEPSEEK_API_KEY=sk-...
    ```
 
-   首次在真终端运行且未检测到 key 时,会引导你粘贴并可保存到 `~/.codeds/config.json`。
+   首次在真终端运行且未检测到 key 时,会引导你粘贴并可保存到 `~/.dao/config.json`。
    获取 key:<https://platform.deepseek.com/api_keys>
 
 2. 启动:
@@ -132,12 +132,12 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 
 面向"自主跑很久、不漂移、可恢复、能验收"的长任务:
 
-- **会话日志 + 崩溃恢复**:每回合把事件写 `.codeds/sessions/<id>/events.jsonl`、状态快照写 `state.json`;崩溃/异常退出后 `dao -c` 恢复上次会话(`src/session/log.ts`)。
-- **影子 git 检查点**:独立 `.codeds/shadow.git` 对工作区快照(不碰你的 `.git`/不改你的历史);`/restore` 一键回退上一回合改动(`src/session/checkpoint.ts`)。
+- **会话日志 + 崩溃恢复**:每回合把事件写 `.dao/sessions/<id>/events.jsonl`、状态快照写 `state.json`;崩溃/异常退出后 `dao -c` 恢复上次会话(`src/session/log.ts`)。
+- **影子 git 检查点**:独立 `.dao/shadow.git` 对工作区快照(不碰你的 `.git`/不改你的历史);`/restore` 一键回退上一回合改动(`src/session/checkpoint.ts`)。
 - **任务清单穿越压缩**:`todo_write` 维护的清单在压缩后作为 system 消息重注入,防长任务目标漂移。
 - **验证驱动完成(DoD)**:`/dod <命令>`(或 `DAO_VERIFY_CMD`)设可执行验收命令,`verify_done` 跑它——通过(exit 0)才算完成;没设则模型据证据自判。
 - **卡死检测 + 止损**:重复同一工具调用/反复同一错误达阈值 → 先提醒换思路、再卡则停止,防空转烧预算(`src/agent/stuck.ts`)。
-- **超大输出落盘**:工具输出超阈值时全量落 `.codeds/spill/`、上下文只留截断+指针,按需 `read_file` 取回。
+- **超大输出落盘**:工具输出超阈值时全量落 `.dao/spill/`、上下文只留截断+指针,按需 `read_file` 取回。
 - **并行子代理**:`agent` 工具传 `tasks[]` 并行派多个独立子代理并汇总。
 - **异步后台子代理 + 通知队列**:`agent` 传 `background:true` 后台跑、立即返回、主循环不阻塞;完成后结果作为 `<task-notification>` 自动注入续跑(`src/agent/tasks.ts`)。状态栏显示运行中的后台任务数。
 - **按需记忆检索**:`memory_search` 让模型主动检索跨会话记忆(启动只注入 top-K,被截断/刚写的也查得到)。
@@ -148,12 +148,12 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 
 ## 🧩 扩展系统(对标 Claude Code)
 
-- **自定义子代理类型**:`.codeds/agents/<name>.md`(frontmatter:name/description/tools 白名单/model + 正文 prompt)。`agent` 工具 `agent_type` 指定;各有专属角色与工具。
-- **自定义 slash 命令**:`.codeds/commands/<name>.md`(正文为 prompt 模板,`$ARGUMENTS`/`$1`)。`/<name> 参数` 展开成一个回合跑。
-- **Skill(开箱即用技能)**:`.codeds/skills/<name>/SKILL.md`。渐进式披露:启动只列 name+description,模型用 `skill` 工具按需加载正文。
-- **Hooks(生命周期钩子)**:`.codeds/hooks.json`。PreToolUse(可阻断)/PostToolUse(如自动格式化)/UserPromptSubmit(注入上下文/阻断)/SessionStart/End。
-- **MCP**:`.codeds/mcp.json`(Claude Desktop 同格式)。连 stdio MCP server,工具自动注册为 `mcp__<server>__<tool>`。
-- **子代理编排**:并行 `tasks[]`、`background:true` 异步后台、`isolate:true` git worktree 隔离、`task_send` 给运行中任务追加指令、前台超时自动转后台、转录落盘 `.codeds/subagents/`。
+- **自定义子代理类型**:`.dao/agents/<name>.md`(frontmatter:name/description/tools 白名单/model + 正文 prompt)。`agent` 工具 `agent_type` 指定;各有专属角色与工具。
+- **自定义 slash 命令**:`.dao/commands/<name>.md`(正文为 prompt 模板,`$ARGUMENTS`/`$1`)。`/<name> 参数` 展开成一个回合跑。
+- **Skill(开箱即用技能)**:`.dao/skills/<name>/SKILL.md`。渐进式披露:启动只列 name+description,模型用 `skill` 工具按需加载正文。
+- **Hooks(生命周期钩子)**:`.dao/hooks.json`。PreToolUse(可阻断)/PostToolUse(如自动格式化)/UserPromptSubmit(注入上下文/阻断)/SessionStart/End。
+- **MCP**:`.dao/mcp.json`(Claude Desktop 同格式)。连 stdio MCP server,工具自动注册为 `mcp__<server>__<tool>`。
+- **子代理编排**:并行 `tasks[]`、`background:true` 异步后台、`isolate:true` git worktree 隔离、`task_send` 给运行中任务追加指令、前台超时自动转后台、转录落盘 `.dao/subagents/`。
 - **steering**:回合运行中也能打字,回车排队,当前回合结束后自动处理。
 
 ## 🛠️ 工具一览
@@ -199,7 +199,7 @@ DEEPSEEK_API_KEY=sk-... node evals/run.mjs            # 默认每题 3 次,看 p
 DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
 ```
 
-> 评测真实调用模型、产生费用;每题在抛弃式临时目录跑,无人值守时设 `CODEDS_AUTO_APPROVE=1` 自动放行。详见 [`evals/README.md`](evals/README.md)。
+> 评测真实调用模型、产生费用;每题在抛弃式临时目录跑,无人值守时设 `DAO_AUTO_APPROVE=1` 自动放行。详见 [`evals/README.md`](evals/README.md)。
 
 ---
 
@@ -207,13 +207,13 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | API key(env / `.env` / `~/.codeds/config.json` / 首次引导) | — |
+| `DEEPSEEK_API_KEY` | API key(env / `.env` / `~/.dao/config.json` / 首次引导) | — |
 | `DEEPSEEK_BASE_URL` | API 端点 | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | 默认模型 | `deepseek-v4-pro` |
 | `DAO_THEME` | `light` / `dark` 强制终端背景 | 据 `COLORFGBG` / OSC 11 探测,否则 `dark` |
-| `CODEDS_REASONING_EFFORT` | 思考强度 | `max` |
-| `CODEDS_MAX_TURNS` | 单回合最大工具轮数 | `50` |
-| `CODEDS_AUTO_APPROVE` | 跳过所有审批(**仅限沙箱/eval**) | 关 |
+| `DAO_REASONING_EFFORT` | 思考强度 | `max` |
+| `DAO_MAX_TURNS` | 单回合最大工具轮数 | `50` |
+| `DAO_AUTO_APPROVE` | 跳过所有审批(**仅限沙箱/eval**) | 关 |
 
 ---
 

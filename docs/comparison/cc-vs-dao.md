@@ -293,7 +293,7 @@ export function registerBundledSkill(definition: BundledSkillDefinition) {
 | **缓存杀手防护** | 无显式测试 | ✅ **有专门测试**（`cache_prefix.test.ts` 验证 prefix 逐字节不变） |
 | **自动压缩** | `autoCompact.ts` + `microCompact.ts`（多种策略） | `compact.ts`（保留最近 N 轮 + LLM 摘要） |
 | **文件缓存** | `FileStateCache`（LRU, 100条目/25MB, 路径归一化） | 无 |
-| **超大输出落盘** | 5GB 上限（`MAX_TASK_OUTPUT_BYTES`） | ✅ `tools/spill.ts`（超阈值落 `.codeds/spill/`，上下文只留指针） |
+| **超大输出落盘** | 5GB 上限（`MAX_TASK_OUTPUT_BYTES`） | ✅ `tools/spill.ts`（超阈值落 `.dao/spill/`，上下文只留指针） |
 | **Cost 追踪** | `cost-tracker.ts`（按模型定价算费用） | `session.usage`（token 统计 + 缓存命中率） |
 
 ### 4.2 🔥 借鉴 CC 的点

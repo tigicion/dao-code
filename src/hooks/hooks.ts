@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import { exec } from "node:child_process";
 
 // 生命周期钩子(对标 CC):在关键点跑用户配置的命令,用于校验/注入上下文/阻断/审计/格式化。
-// 配置:.codeds/hooks.json(+ 用户 ~/.codeds/hooks.json)。形如:
+// 配置:.dao/hooks.json(+ 用户 ~/.dao/hooks.json)。形如:
 // { "PreToolUse": [{ "matcher": "write_file|edit_file", "command": "..." }],
 //   "PostToolUse": [...], "UserPromptSubmit": [...], "SessionStart": [...], "SessionEnd": [...] }
 // 命令收到 JSON payload(stdin)+ 环境变量(DAO_HOOK_EVENT / DAO_TOOL_NAME);

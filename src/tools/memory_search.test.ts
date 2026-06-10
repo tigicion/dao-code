@@ -9,11 +9,11 @@ import { newMemory } from "./../memory/types.js";
 let root: string;
 beforeEach(() => {
   root = mkdtempSync(path.join(os.tmpdir(), "dao-memsearch-"));
-  mkdirSync(path.join(root, ".codeds", "memory"), { recursive: true });
+  mkdirSync(path.join(root, ".dao", "memory"), { recursive: true });
 });
 
 const add = async (text: string) => {
-  await writeMemory(path.join(root, ".codeds", "memory"), newMemory({ name: text.slice(0, 8), text, type: "user", today: "2026-06-09" }));
+  await writeMemory(path.join(root, ".dao", "memory"), newMemory({ name: text.slice(0, 8), text, type: "user", today: "2026-06-09" }));
 };
 
 describe("memory_search", () => {

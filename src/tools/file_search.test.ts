@@ -9,7 +9,7 @@ function ctx() {
   return { workspaceRoot: root };
 }
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-filesearch-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-filesearch-"));
   await fs.writeFile(path.join(root, "old.ts"), "x", "utf8");
   await fs.writeFile(path.join(root, "new.ts"), "y", "utf8");
   await fs.mkdir(path.join(root, "sub"));

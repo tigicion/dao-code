@@ -327,7 +327,7 @@ ${args ? `额外指示: ${args}` : ''}`
 
 ### 3.2 从 Markdown 文件加载 Skill
 
-**目标**：支持用户把 skill 写成 `.md` 文件放到 `.codeds/skills/`。
+**目标**：支持用户把 skill 写成 `.md` 文件放到 `.dao/skills/`。
 
 **CC 参考文件**：`skills/loadSkillsDir.ts`（`getSkillsPath`、`loadMarkdownFilesForSubdir`）
 

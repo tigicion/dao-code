@@ -3,7 +3,7 @@ import path from "node:path";
 
 // 开箱即用 Skill(对标 CC):markdown(frontmatter name/description + 正文指令)。
 // 渐进式披露:启动只把 name+description 列进上下文,模型用 skill 工具按需加载正文。
-// 来源:.codeds/skills/<name>.md 或 .codeds/skills/<name>/SKILL.md(+ 用户 ~/.codeds/skills/)。
+// 来源:.dao/skills/<name>.md 或 .dao/skills/<name>/SKILL.md(+ 用户 ~/.dao/skills/)。
 
 export interface Skill {
   name: string;

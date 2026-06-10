@@ -4,6 +4,7 @@ dist-bin/
 /dao
 *.log
 .env
+.dao/
 .codeds/
 evals/report.md
 evals/runs/

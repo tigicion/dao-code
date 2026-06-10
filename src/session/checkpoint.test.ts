@@ -29,10 +29,10 @@ describe("createCheckpointer(影子 git)", () => {
     expect(existsSync(path.join(root, "b.txt"))).toBe(false); // turn2 新增文件被移除
   });
 
-  it("不污染用户 .git(只用 .codeds/shadow.git)", () => {
+  it("不污染用户 .git(只用 .dao/shadow.git)", () => {
     const cp = createCheckpointer(root);
     cp.snapshot("x");
     expect(existsSync(path.join(root, ".git"))).toBe(false);
-    expect(existsSync(path.join(root, ".codeds", "shadow.git"))).toBe(true);
+    expect(existsSync(path.join(root, ".dao", "shadow.git"))).toBe(true);
   });
 });

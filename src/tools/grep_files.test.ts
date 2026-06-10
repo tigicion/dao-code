@@ -9,7 +9,7 @@ function ctx() {
   return { workspaceRoot: root };
 }
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-grep-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-grep-"));
   await fs.writeFile(path.join(root, "a.ts"), "const foo = 1;\nconst bar = 2;\n", "utf8");
   await fs.writeFile(path.join(root, "b.md"), "foo appears here\n", "utf8");
 });

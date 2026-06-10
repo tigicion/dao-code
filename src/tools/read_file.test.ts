@@ -7,7 +7,7 @@ import { readFileTool } from "./read_file.js";
 let root: string;
 
 beforeAll(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-readfile-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-readfile-"));
   await fs.writeFile(path.join(root, "a.txt"), "line1\nline2\nline3\n", "utf8");
 });
 afterAll(async () => {

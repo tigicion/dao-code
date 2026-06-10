@@ -10,10 +10,10 @@ function ctx(): ToolContext {
   return { workspaceRoot: root, today: "2026-06-07", homeDir: root };
 }
 function memDir() {
-  return path.join(root, ".codeds", "memory");
+  return path.join(root, ".dao", "memory");
 }
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "codeds-memwrite-"));
+  root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-memwrite-"));
 });
 afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
