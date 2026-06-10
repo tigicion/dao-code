@@ -146,6 +146,16 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 
 ---
 
+## 🧩 扩展系统(对标 Claude Code)
+
+- **自定义子代理类型**:`.codeds/agents/<name>.md`(frontmatter:name/description/tools 白名单/model + 正文 prompt)。`agent` 工具 `agent_type` 指定;各有专属角色与工具。
+- **自定义 slash 命令**:`.codeds/commands/<name>.md`(正文为 prompt 模板,`$ARGUMENTS`/`$1`)。`/<name> 参数` 展开成一个回合跑。
+- **Skill(开箱即用技能)**:`.codeds/skills/<name>/SKILL.md`。渐进式披露:启动只列 name+description,模型用 `skill` 工具按需加载正文。
+- **Hooks(生命周期钩子)**:`.codeds/hooks.json`。PreToolUse(可阻断)/PostToolUse(如自动格式化)/UserPromptSubmit(注入上下文/阻断)/SessionStart/End。
+- **MCP**:`.codeds/mcp.json`(Claude Desktop 同格式)。连 stdio MCP server,工具自动注册为 `mcp__<server>__<tool>`。
+- **子代理编排**:并行 `tasks[]`、`background:true` 异步后台、`isolate:true` git worktree 隔离、`task_send` 给运行中任务追加指令、前台超时自动转后台、转录落盘 `.codeds/subagents/`。
+- **steering**:回合运行中也能打字,回车排队,当前回合结束后自动处理。
+
 ## 🛠️ 工具一览
 
 注册表见 `src/index.ts`,实现在 `src/tools/`。
