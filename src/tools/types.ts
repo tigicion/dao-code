@@ -20,6 +20,8 @@ export interface ToolContext {
   createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
   runBackgroundAgent?: (task: string, agentType?: string) => string;
+  // 接管一个已在运行的子代理 promise 转入后台(前台超时自动后台化用)。
+  adoptBackground?: (description: string, promise: Promise<string>) => string;
   // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。
   agentTypes?: { name: string; description: string }[];
   // 可用 skill(名字+描述+正文+目录),供 skill 工具按需加载正文。

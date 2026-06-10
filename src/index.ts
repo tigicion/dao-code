@@ -343,6 +343,7 @@ async function main() {
     taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal) =>
       ctx.runSubagent!(task, signal, agentType),
     );
+  ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
 
   // 申请访问工作区外路径(读类工具):一次授权后本会话不再追问;选"本仓库后续都用"则持久化。
   let externalReadGranted = alwaysApproved.has("external-read");
