@@ -33,6 +33,7 @@ import { createWorktree } from "./agent/worktree.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { skillTool } from "./tools/skill.js";
+import { taskSendTool } from "./tools/task_send.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { loadMcpConfig, connectMcpServers } from "./mcp/mcp.js";
 import { processManager } from "./tools/process_manager.js";
@@ -188,7 +189,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, agentTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, taskSendTool, agentTool,
   ]) {
     registry.register(t);
   }
@@ -315,7 +316,8 @@ async function main() {
   };
   await runHooks(hooks, "SessionStart", { cwd: workspaceRoot }); // 会话开始钩子
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
-  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string) => {
+  ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
+  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[]) => {
     const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
     const reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
@@ -334,6 +336,7 @@ async function main() {
       write: subagentWrite,
       runTurn,
       signal,
+      drainPending,
       writeTranscript: (messages) => {
         try {
           const dir = path.join((wsRoot ?? workspaceRoot), ".codeds", "subagents");
@@ -348,8 +351,8 @@ async function main() {
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
-    taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal) =>
-      ctx.runSubagent!(task, signal, agentType),
+    taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
+      ctx.runSubagent!(task, signal, agentType, undefined, () => taskManager.drainPending(id)),
     );
   ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
 

@@ -15,7 +15,16 @@ export interface ToolContext {
   // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
   // agentType 指定自定义子代理类型(用其专属 prompt/工具白名单/模型);省略则用通用子代理。
   // workspaceRoot 覆盖子代理的工作区根(worktree 隔离用);省略则与父代理同根。
-  runSubagent?: (task: string, signal?: AbortSignal, agentType?: string, workspaceRoot?: string) => Promise<string>;
+  // drainPending:后台子代理在回合边界消费 SendMessage 的来源。
+  runSubagent?: (
+    task: string,
+    signal?: AbortSignal,
+    agentType?: string,
+    workspaceRoot?: string,
+    drainPending?: () => string[],
+  ) => Promise<string>;
+  // 给运行中的后台子代理追加指令(SendMessage);返回是否送达(任务在跑)。
+  sendToTask?: (id: string, message: string) => boolean;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
   createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
