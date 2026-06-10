@@ -113,6 +113,7 @@ export function App(deps: AppDeps) {
   useEffect(() => { busyRef.current = busy; }, [busy]);
   const [taskTick, setTaskTick] = useState(0); // 后台任务状态变化计数(驱动通知处理/计数刷新)
   const [bgRunning, setBgRunning] = useState(0);
+  const [queued, setQueued] = useState<string[]>([]); // 运行中排队的用户输入(steering)
   const history = useRef<string[]>([]);
   const histIdx = useRef<number>(-1); // -1 = 不在历史浏览中
 
@@ -234,6 +235,19 @@ export function App(deps: AppDeps) {
   const procRef = useRef(false);
   async function processNotifications() {
     if (procRef.current || busyRef.current) return;
+    // 优先处理排队的用户输入(steering),再处理后台任务通知。
+    if (queued.length > 0) {
+      const next = queued[0]!;
+      procRef.current = true;
+      try {
+        setQueued((q) => q.slice(1));
+        pushItem({ id: nextId(), kind: "user", text: next });
+        await runAgentTurn(next);
+      } finally {
+        procRef.current = false;
+      }
+      return;
+    }
     const notes = deps.drainNotifications?.() ?? [];
     if (notes.length === 0) return;
     procRef.current = true;
@@ -254,7 +268,7 @@ export function App(deps: AppDeps) {
     setBgRunning(deps.runningTasks?.() ?? 0);
     if (!busy) void processNotifications();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busy, taskTick]);
+  }, [busy, taskTick, queued]);
 
   useInput((ch, key) => {
     if (approval) {
@@ -280,7 +294,23 @@ export function App(deps: AppDeps) {
     }
     if (key.escape && busy) { controllerRef.current?.abort(); return; }
     if (key.ctrl && ch === "c") { exit(); return; }
-    if (busy) return;
+    if (busy) {
+      // 运行中:支持排队输入(steering)。回车排队,当前回合结束后按序处理。
+      if (key.return) {
+        const v = field.text.trim();
+        if (v) { setQueued((q) => [...q, v]); pushItem({ id: nextId(), kind: "notice", text: `⏎ 已排队:${v.slice(0, 50)}` }); }
+        setField({ text: "", cursor: 0 });
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setField((f) => (f.cursor > 0 ? { text: f.text.slice(0, f.cursor - 1) + f.text.slice(f.cursor), cursor: f.cursor - 1 } : f));
+        return;
+      }
+      if (ch && !key.ctrl && !key.meta) {
+        setField((f) => ({ text: f.text.slice(0, f.cursor) + ch + f.text.slice(f.cursor), cursor: f.cursor + ch.length }));
+      }
+      return;
+    }
     const recall = (v: string) => setField({ text: v, cursor: v.length });
     if (key.upArrow) {
       const h = history.current;
@@ -387,13 +417,14 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!busy && !approval && !ask && (
+      {!approval && !ask && (
         <Box flexDirection="column" marginTop={1}>
           <Text>
-            <Text color={c("jade")}>› </Text>
+            <Text color={busy ? c("dim") : c("jade")}>{busy ? "⏎ " : "› "}</Text>
             {input.slice(0, cursor)}
             <Text color={c("jade")}>▎</Text>
             {input.slice(cursor)}
+            {busy ? <Text color={c("dim")}>  (运行中,回车排队{queued.length ? ` · 已排 ${queued.length}` : ""})</Text> : null}
           </Text>
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>

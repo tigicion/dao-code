@@ -199,6 +199,34 @@ describe("App", () => {
     expect(f).not.toContain("read_file");
   });
 
+  it("运行中回车排队 → 当前回合结束后按序处理(steering)", async () => {
+    let resolveFirst!: () => void;
+    const submitted: string[] = [];
+    const { stdin } = render(
+      <App
+        {...makeDeps({
+          submit: async (t, { events }) => {
+            submitted.push(t);
+            if (submitted.length === 1) await new Promise<void>((r) => { resolveFirst = r; });
+            events.assistantDone({ role: "assistant", content: "done" });
+          },
+        })}
+      />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 第一回合开始(busy)
+    await delay();
+    for (const ch of "next") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 运行中 → 排队
+    await delay();
+    resolveFirst(); // 第一回合结束 → 处理排队
+    await delay();
+    await delay();
+    expect(submitted).toEqual(["go", "next"]);
+  });
+
   it("Coordinator 模式 → 状态栏显示标识", () => {
     const { lastFrame } = render(
       <App
