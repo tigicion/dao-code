@@ -32,6 +32,7 @@ import { loadAgentDefs } from "./agent/agent_defs.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { skillTool } from "./tools/skill.js";
+import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
@@ -289,6 +290,20 @@ async function main() {
   let subagentWrite: (s: string) => void = write;
   ctx.agentTypes = agentDefs.map((d) => ({ name: d.name, description: d.description }));
   ctx.skills = skills;
+
+  // 生命周期钩子(.codeds/hooks.json + 用户级):工具前/后、用户提交、会话起止。
+  const hooks = await loadHooks([
+    path.join(os.homedir(), ".codeds", "hooks.json"),
+    path.join(workspaceRoot, ".codeds", "hooks.json"),
+  ]);
+  ctx.preToolHook = async (toolName, argsJson) => {
+    const r = await runHooks(hooks, "PreToolUse", { cwd: workspaceRoot, toolName, payload: { tool: toolName, args: argsJson } });
+    return { block: r.block, reason: r.reason };
+  };
+  ctx.postToolHook = async (toolName, argsJson, result) => {
+    await runHooks(hooks, "PostToolUse", { cwd: workspaceRoot, toolName, payload: { tool: toolName, args: argsJson, result } });
+  };
+  await runHooks(hooks, "SessionStart", { cwd: workspaceRoot }); // 会话开始钩子
   ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string) => {
     const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
@@ -506,9 +521,13 @@ async function main() {
       await runInkApp({
         welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
         submit: async (text, { events, signal }) => {
+          // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。
+          const up = await runHooks(hooks, "UserPromptSubmit", { cwd: workspaceRoot, payload: { prompt: text } });
+          if (up.block) { events.notice(`[提交被 hook 阻止] ${up.reason || ""}`); return; }
           ckpt.snapshot(`回合前: ${text.slice(0, 60)}`); // 回合前快照,便于 /restore 回退本回合
           store.append({ t: "user", text });
           session.addUser(text);
+          if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
           await runTurn({
             session,
             config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
@@ -603,6 +622,7 @@ async function main() {
         runningTasks: () => taskManager.running().length,
       });
       taskManager.cancelAll(); // 退出时中止所有后台任务
+      await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子
       store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。
