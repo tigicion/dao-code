@@ -29,6 +29,7 @@ import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
 import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
+import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
@@ -217,6 +218,11 @@ async function main() {
   const agentDefs = await loadAgentDefs(
     path.join(workspaceRoot, ".codeds", "agents"),
     path.join(os.homedir(), ".codeds", "agents"),
+  );
+  // 自定义 slash 命令(.codeds/commands/*.md):/name 展开成 prompt。
+  const customCommands = await loadCustomCommands(
+    path.join(workspaceRoot, ".codeds", "commands"),
+    path.join(os.homedir(), ".codeds", "commands"),
   );
   const agentTypesSection =
     agentDefs.length > 0
@@ -543,6 +549,11 @@ async function main() {
             }
             ctx.verifyCommand = arg === "off" ? undefined : arg;
             return { handled: true, output: ctx.verifyCommand ? `验收命令已设:${ctx.verifyCommand}` : "已清除验收命令(改为模型自判)" };
+          }
+          // 自定义命令:/name [args] → 展开成 prompt 跑一个回合。
+          if (name && customCommands.has(name)) {
+            const args = line.trim().slice(1).split(/\s+/).slice(1).join(" ");
+            return { handled: true, prompt: expandCommand(customCommands.get(name)!.body, args) };
           }
           if (name === "restore") {
             if (!ckpt.enabled) return { handled: true, output: "检查点不可用(无 git)" };
