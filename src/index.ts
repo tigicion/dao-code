@@ -464,7 +464,10 @@ async function main() {
       let n = 0;
       for (const cand of cands) {
         const existing = await loadAllMemories(projectMemoryDir, userMemoryDir);
-        await upsertMemory(projectMemoryDir, cand, existing, adjudicate);
+        // user/feedback 关于用户本人与其工作方式,跨项目有效 → 用户级目录;
+        // 其余(项目事实/进展/规则)留在项目级。否则换个目录跑就"失忆"。
+        const dir = cand.type === "user" || cand.type === "feedback" ? userMemoryDir : projectMemoryDir;
+        await upsertMemory(dir, cand, existing, adjudicate);
         n++;
       }
       if (n > 0) write(`\n已更新记忆:${n} 条\n`);

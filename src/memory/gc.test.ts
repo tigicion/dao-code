@@ -59,6 +59,9 @@ describe("shouldPrune", () => {
   it("user 模型不剪", () => {
     expect(shouldPrune(mem({ name: "a", importance: 3, type: "user", lastUsed: STALE }), TODAY)).toBe(false);
   });
+  it("feedback 不剪", () => {
+    expect(shouldPrune(mem({ name: "a", importance: 3, type: "feedback", lastUsed: STALE }), TODAY)).toBe(false);
+  });
   it("locked 不剪", () => {
     expect(shouldPrune(mem({ name: "a", importance: 3, type: "semantic", lastUsed: STALE, locked: true }), TODAY)).toBe(false);
   });

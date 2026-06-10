@@ -1,5 +1,5 @@
 export type MemoryScope = "project" | "user";
-export type MemoryType = "user" | "semantic" | "procedural" | "episodic";
+export type MemoryType = "user" | "feedback" | "semantic" | "procedural" | "episodic";
 
 export interface Memory {
   name: string;              // slug = 文件名(不含 .md)
