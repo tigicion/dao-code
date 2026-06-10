@@ -33,6 +33,7 @@ import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { skillTool } from "./tools/skill.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
+import { loadMcpConfig, connectMcpServers } from "./mcp/mcp.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
@@ -190,6 +191,14 @@ async function main() {
   ]) {
     registry.register(t);
   }
+
+  // MCP:连配置的 server,把其工具注册进来(名字 mcp__server__tool)。失败的 server 不影响其余/启动。
+  const mcpConfig = await loadMcpConfig([
+    path.join(os.homedir(), ".codeds", "mcp.json"),
+    path.join(workspaceRoot, ".codeds", "mcp.json"),
+  ]);
+  const mcp = await connectMcpServers(mcpConfig);
+  for (const t of mcp.tools) registry.register(t);
 
   const toolSummaries = registry
     .toApiTools()
@@ -623,6 +632,7 @@ async function main() {
       });
       taskManager.cancelAll(); // 退出时中止所有后台任务
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子
+      await mcp.close(); // 关闭 MCP 连接
       store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。
@@ -632,6 +642,7 @@ async function main() {
         return nextLine();
       };
       await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction });
+      await mcp.close();
     }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
     await distillOnExit();

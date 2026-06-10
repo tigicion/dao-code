@@ -29,7 +29,7 @@ export class ToolRegistry implements ToolDispatcher {
         function: {
           name: t.name,
           description: t.description,
-          parameters: toJsonSchema(t.schema),
+          parameters: t.apiParameters ?? toJsonSchema(t.schema),
         },
       }));
   }
