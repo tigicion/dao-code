@@ -13,9 +13,12 @@ export interface ToolContext {
   // 网络抓取(web_search/fetch_url 用);注入,默认全局 fetch。
   fetchImpl?: typeof fetch;
   // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
-  runSubagent?: (task: string, signal?: AbortSignal) => Promise<string>;
+  // agentType 指定自定义子代理类型(用其专属 prompt/工具白名单/模型);省略则用通用子代理。
+  runSubagent?: (task: string, signal?: AbortSignal, agentType?: string) => Promise<string>;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
-  runBackgroundAgent?: (task: string) => string;
+  runBackgroundAgent?: (task: string, agentType?: string) => string;
+  // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。
+  agentTypes?: { name: string; description: string }[];
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
