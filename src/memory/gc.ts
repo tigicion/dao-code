@@ -26,7 +26,7 @@ function addDays(date: string, n: number): string {
   return new Date(t + n * DAY_MS).toISOString().slice(0, 10);
 }
 
-// 是否应剪除。保护:user 模型 / importance≥6 / locked / 频繁重确认(高 uses 抬高留存)。
+// 是否应剪除。保护:user 模型 / feedback(用户给的工作方式指导,丢了会重蹈覆辙)/ importance≥6 / locked / 频繁重确认(高 uses 抬高留存)。
 export function shouldPrune(mem: Memory, today: string): boolean {
   // (a) 已被取代且 validUntil + 7 天宽限期已过。
   if (mem.status === "superseded" && mem.validUntil && addDays(mem.validUntil, 7) < today) return true;
@@ -35,6 +35,7 @@ export function shouldPrune(mem: Memory, today: string): boolean {
     retention(mem, today) < 0.3 &&
     mem.importance < 6 &&
     mem.type !== "user" &&
+    mem.type !== "feedback" &&
     mem.locked !== true
   ) return true;
   return false;

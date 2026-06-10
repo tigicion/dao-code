@@ -21,6 +21,19 @@ describe("distill", () => {
     expect(mems[0]?.created).toBe("2026-06-07");
   });
 
+  it("accepts feedback type (用户工作方式指导)", async () => {
+    const json = JSON.stringify([
+      { text: "先答原理再动手。为什么:用户在学机制。怎么用:问题先给结论与原理。", type: "feedback", importance: 8 },
+    ]);
+    const mems = await distill({
+      streamChat: () => fakeStream(json),
+      config: { baseUrl: "x", apiKey: "x" }, model: "x",
+      messages: [{ role: "user", content: "..." }], today: "2026-06-07",
+    } as any);
+    expect(mems.length).toBe(1);
+    expect(mems[0]).toMatchObject({ type: "feedback", importance: 8 });
+  });
+
   it("returns [] on non-JSON", async () => {
     const mems = await distill({ streamChat: () => fakeStream("抱歉无法"), config: {}, model: "x", messages: [], today: "2026-06-07" } as any);
     expect(mems).toEqual([]);

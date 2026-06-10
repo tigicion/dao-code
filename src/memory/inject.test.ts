@@ -61,6 +61,14 @@ describe("selectForInjection", () => {
     expect(names).not.toContain("junk");
   });
 
+  it("over cap → feedback 与 user 同等必留", () => {
+    const items: { mem: Memory; verdict: "ok" }[] = [];
+    items.push({ mem: mk({ name: "fb", type: "feedback", importance: 1, lastUsed: "2025-01-01" }), verdict: "ok" });
+    for (let i = 0; i < 50; i++) items.push({ mem: mk({ name: `n-${i}`, type: "semantic", importance: 9, lastUsed: TODAY }), verdict: "ok" });
+    const out = selectForInjection(items, TODAY, 10);
+    expect(out.map((x) => x.mem.name)).toContain("fb");
+  });
+
   it("over cap 时 stale 不计数也不注入", () => {
     const items: { mem: Memory; verdict: "ok" | "stale" }[] = [];
     for (let i = 0; i < 200; i++) items.push({ mem: mk({ name: `s-${i}` }), verdict: "stale" });

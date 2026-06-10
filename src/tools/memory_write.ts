@@ -26,19 +26,19 @@ function withMemLock<T>(fn: () => Promise<T>): Promise<T> {
 export const memoryWriteTool = defineTool({
   name: "memory_write",
   description:
-    "记录一条跨 session 的稳定记忆。最高价值是【用户模型】:用户信息(环境/技术栈/水平/习惯)、偏好、意图,以及你推断出的、用户没明说的信息/意图(这类把 confidence 设低、type=user)。也可记通用规则(procedural)与项目事实(semantic)。只记耐久且可泛化的,克制使用。若该事实是从某个文件/代码推导出来的,务必填 source(如 'package.json#packageManager'),以便日后对照实时文件验证是否过期。",
+    "记录一条跨 session 的稳定记忆。最高价值是【用户模型】:用户信息(环境/技术栈/水平/习惯)、偏好、意图,以及你推断出的、用户没明说的信息/意图(这类把 confidence 设低、type=user)。用户纠正你的做法或确认某个非显然做法可行时,记 type=feedback:正文先写规则,再接'为什么:…'和'怎么用:…'。也可记通用规则(procedural)、项目事实(semantic)与项目进展(episodic)。只记耐久且可泛化的,克制使用。若该事实是从某个文件/代码推导出来的,务必填 source(如 'package.json#packageManager'),以便日后对照实时文件验证是否过期。",
   capability: "plan",
   approval: "auto",
   schema: z.object({
     text: z.string().min(1).describe("要记住的事实(一句话)"),
-    type: z.enum(["user", "semantic", "procedural", "episodic"]).optional().describe("user=用户模型(默认 semantic)"),
+    type: z.enum(["user", "feedback", "semantic", "procedural", "episodic"]).optional().describe("user=用户模型,feedback=用户对工作方式的指导(默认 semantic)"),
     importance: z.number().int().min(1).max(10).optional().describe("1–10 重要度,默认 5"),
     confidence: z.number().min(0).max(1).optional().describe("用户模型/推断类填,0–1"),
     source: z.string().optional().describe("该事实的代码出处 path 或 path#symbol"),
-    scope: z.enum(["project", "user"]).optional().describe("project(默认)或 user"),
+    scope: z.enum(["project", "user"]).optional().describe("不填则按类型定:user/feedback→user(跨项目),其余→project"),
   }),
   handler: async (args, ctx) => {
-    const scope = args.scope ?? "project";
+    const scope = args.scope ?? (args.type === "user" || args.type === "feedback" ? "user" : "project");
     const dir = memDir(scope, ctx.workspaceRoot);
     const today = ctx.today ?? new Date().toISOString().slice(0, 10);
     let sourceHash: string | undefined;
