@@ -39,6 +39,8 @@ function runOne(command: string, cwd: string, payload: unknown, env: Record<stri
         resolve({ code, out: (String(stdout) + String(stderr)).trim() });
       },
     );
+    // 命令可能不读 stdin 就退出 → 写入触发异步 EPIPE;监听 error 忽略之,避免未处理错误。
+    child.stdin?.on("error", () => {});
     try {
       child.stdin?.end(JSON.stringify(payload ?? {}));
     } catch {
