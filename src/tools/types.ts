@@ -14,7 +14,10 @@ export interface ToolContext {
   fetchImpl?: typeof fetch;
   // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
   // agentType 指定自定义子代理类型(用其专属 prompt/工具白名单/模型);省略则用通用子代理。
-  runSubagent?: (task: string, signal?: AbortSignal, agentType?: string) => Promise<string>;
+  // workspaceRoot 覆盖子代理的工作区根(worktree 隔离用);省略则与父代理同根。
+  runSubagent?: (task: string, signal?: AbortSignal, agentType?: string, workspaceRoot?: string) => Promise<string>;
+  // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
+  createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
   runBackgroundAgent?: (task: string, agentType?: string) => string;
   // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。

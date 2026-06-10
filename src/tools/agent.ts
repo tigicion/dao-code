@@ -26,6 +26,10 @@ export const agentTool = defineTool({
       .string()
       .optional()
       .describe("指定自定义子代理类型(见系统 prompt 的'可用子代理类型');省略则用通用子代理。"),
+    isolate: z
+      .boolean()
+      .optional()
+      .describe("git worktree 隔离:子代理在独立工作树+分支里改文件,并行改文件互不冲突。改动留在分支供事后 review/merge。"),
   }),
   handler: async (args, ctx) => {
     if ((ctx.subagentDepth ?? 0) >= 1) {
@@ -47,15 +51,27 @@ export const agentTool = defineTool({
       return `已后台启动 ${ids.length} 个子代理${type ? `(类型 ${type})` : ""}(${ids.join(", ")});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
     }
     const run = ctx.runSubagent;
+    const isolate = !!args.isolate && !!ctx.createWorktree;
+    // 隔离运行:为该子代理建 worktree,在其中跑;改动留在分支供 review。非 git 仓库则回退共享。
+    const runOne = async (t: string): Promise<string> => {
+      if (isolate) {
+        const wt = ctx.createWorktree!(`a${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`);
+        if (wt) {
+          const r = await run(t, ctx.signal, type, wt.root);
+          return `${r}\n[隔离:改动在分支 ${wt.branch}]`;
+        }
+      }
+      return run(t, ctx.signal, type);
+    };
     const tasks = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
     if (tasks.length === 0) return "请提供 task 或 tasks。";
-    if (tasks.length === 1) return run(tasks[0]!, ctx.signal, type);
+    if (tasks.length === 1) return runOne(tasks[0]!);
 
     // 并行 scatter-gather:各子代理独立会话并发跑,单个失败不影响其余,最后汇总。
     const results = await Promise.all(
       tasks.map(async (t, i) => {
         try {
-          return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n${await run(t, ctx.signal, type)}`;
+          return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n${await runOne(t)}`;
         } catch (e) {
           return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n[失败] ${e instanceof Error ? e.message : String(e)}`;
         }
