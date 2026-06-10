@@ -55,12 +55,9 @@ export function buildWelcome(
   WORDMARK.forEach((raw, i) => out.push(centerColored(wm[i]!, displayWidth(raw), cols)));
 
   blank();
-  // 朱砂"道"落款 + 品牌 + 副标题 + 版本
-  const sealRaw = `【道】  DAO CODE  ·  DeepSeek V4 编码之道  ·  v${info.version}`;
-  const sealLine =
-    `${P("【道】", "vermilion")}  ${P("DAO CODE", "jade")}` +
-    `  ${P("·", "dim")}  ${P("DeepSeek V4 编码之道", "dim")}` +
-    `  ${P("·", "dim")}  ${P(`v${info.version}`, "dim")}`;
+  // 品牌 + 版本落款(「道」已由朱印承担)
+  const sealRaw = `DAO CODE  ·  v${info.version}`;
+  const sealLine = `${P("DAO CODE", "jade")}  ${P("·", "dim")}  ${P(`v${info.version}`, "dim")}`;
   out.push(centerColored(sealLine, displayWidth(sealRaw), cols));
 
   // 随机名句(去掉出处,大家都知道老子)

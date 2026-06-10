@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Text, useStdout } from "ink";
 import type { Capabilities } from "./capabilities.js";
 import type { Background } from "./background.js";
@@ -14,10 +14,18 @@ function shortenPath(p: string): string {
   return segs.length <= 3 ? p : "…/" + segs.slice(-3).join("/");
 }
 
-// 读一次当前列宽(inline 模式下欢迎屏作为顶部 banner 提交到 <Static>,渲染一次即可,无需随 resize 重排)。
+// 订阅终端列宽:resize 时触发重渲染。会话开始前欢迎屏在动态区,跟随窗口重排;
+// 固化进 <Static> 后(首条消息起)Ink 不再重绘它,订阅自然失效。
 function useTermWidth(fallback: number): number {
   const { stdout } = useStdout();
-  return stdout?.columns || fallback; // 0/undefined 回退(终端偶尔报 0)
+  const [cols, setCols] = useState(stdout?.columns || fallback);
+  useEffect(() => {
+    if (!stdout) return;
+    const onResize = () => setCols(stdout.columns || fallback);
+    stdout.on("resize", onResize);
+    return () => { stdout.off("resize", onResize); };
+  }, [stdout, fallback]);
+  return cols || fallback; // 0/undefined 回退(终端偶尔报 0)
 }
 
 // 响应式欢迎屏(Ink):整宽圆角边框 + 居中 logo + 两栏页脚,随终端 resize 重排。
@@ -35,10 +43,21 @@ export function Welcome({
   // 订阅 resize:列宽变化触发重渲染,使整宽边框与两栏随终端重排。
   const columns = useTermWidth(caps.columns);
   const narrow = columns < 72;
+  // 太极(16)+ 间距(5)+ 词标(60)+ 边框与 padding(6)≈ 87,留点余量。
+  const sideBySide = columns >= 92;
 
   const taiji = renderTaiji(caps, bg);
   const wm = gradientBlock(WORDMARK, "jade", "ink", caps, bg);
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
+
+  // 落款 + 名句合一行(紧凑;「道」已由朱印承担,不再重复)。
+  const sealLine = (
+    <Text>
+      <Text color={c("jade")}>DAO CODE</Text>
+      <Text color={c("dim")}>{"  ·  "}v{info.version}{"  ·  "}</Text>
+      <Text color={c("jade")}>「{maxim.text}」</Text>
+    </Text>
+  );
 
   return (
     <Box
@@ -49,28 +68,32 @@ export function Welcome({
       paddingX={2}
       paddingY={1}
     >
-      {/* logo:太极 + 词标,整体居中 */}
-      <Box flexDirection="column" alignItems="center">
-        {taiji.map((line, i) => (
-          <Text key={`t${i}`}>{line}</Text>
-        ))}
-        {wm.map((line, i) => (
-          <Text key={`w${i}`}>{line}</Text>
-        ))}
-      </Box>
-
-      {/* 落款 + 名句,居中 */}
-      <Box flexDirection="column" alignItems="center" marginTop={1}>
-        <Text>
-          <Text color={c("vermilion")}>【道】</Text>
-          {"  "}
-          <Text color={c("jade")}>DAO CODE</Text>
-          <Text color={c("dim")}>
-            {"  ·  "}DeepSeek V4 编码之道{"  ·  "}v{info.version}
-          </Text>
-        </Text>
-        <Text color={c("jade")}>「{maxim.text}」</Text>
-      </Box>
+      {/* logo:宽屏太极居左、词标+落款居右(垂直居中);窄屏退化为上下堆叠 */}
+      {sideBySide ? (
+        <Box justifyContent="center" alignItems="center">
+          <Box flexDirection="column" marginRight={5}>
+            {taiji.map((line, i) => (
+              <Text key={`t${i}`}>{line}</Text>
+            ))}
+          </Box>
+          <Box flexDirection="column" alignItems="center">
+            {wm.map((line, i) => (
+              <Text key={`w${i}`}>{line}</Text>
+            ))}
+            <Box marginTop={1}>{sealLine}</Box>
+          </Box>
+        </Box>
+      ) : (
+        <Box flexDirection="column" alignItems="center">
+          {taiji.map((line, i) => (
+            <Text key={`t${i}`}>{line}</Text>
+          ))}
+          {wm.map((line, i) => (
+            <Text key={`w${i}`}>{line}</Text>
+          ))}
+          <Box marginTop={1}>{sealLine}</Box>
+        </Box>
+      )}
 
       {/* 页脚两栏:左信息 / 右快速开始(窄屏堆叠) */}
       <Box marginTop={1} flexDirection={narrow ? "column" : "row"}>

@@ -22,6 +22,7 @@
     "bundle:install": "npm run bundle && cp dao \"$HOME/.local/bin/dao\" && echo \"已安装 → $HOME/.local/bin/dao\"",
     "start": "node dist/index.js",
     "preview:welcome": "tsx scripts/preview-welcome.ts",
+    "preview:taiji": "tsx scripts/preview-taiji.ts",
     "preview:ink": "tsx scripts/welcome-ink.tsx",
     "test": "vitest run",
     "test:watch": "vitest",

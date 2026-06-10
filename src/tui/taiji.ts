@@ -1,11 +1,21 @@
 import type { Capabilities } from "./capabilities.js";
 import type { Background } from "./background.js";
 
-// 程序化生成太极(阴阳鱼)—— 硬边、纯色、清晰。
-// 圆周与阴阳 S 线:超采样多数表决判像素(更圆),颜色实心(不混色,不模糊)。
-// 鱼眼:不再用公式画(会糊成一团),而是在两个鱼头中心"盖"一个精确的单格实心点(参考 CC 手绘块元素的可控性)。
-// 技法:每个字符用上半块 "▀" —— 前景=上像素、背景=下像素,垂直分辨率翻倍。
-// truecolor/ansi256 双色阴阳鱼;ansi16/none 退化简图。
+// 程序化像素风太极(阴阳鱼)—— 纯背景色渲染,零字形依赖。
+//
+// 关键决策:Apple Terminal 等终端里,块字形(▀▄█ 及象限块)按字体字形绘制,
+// 字形与字符格边缘之间可能有缝(行距/覆盖不准)——白缝/漏色/突刺皆源于此。
+// 唯一像素级精确的原语是"背景色整格涂"(按格子矩形涂,与字体无关)。
+// 因此:像素一律用"空格 + 背景色"画,整幅图只由纯色矩形构成——
+// 突刺/漏色/白缝在构造上不可能出现。
+//
+// 尺寸:8 行高(与右侧 DAO CODE 词标块齐平)× 16 列;
+// 横向用 1 列细像素(16×8 像素网格,横向分辨率不因高度减半而损失)。
+//
+// 形状质量:
+// - 逐行解析光栅化:圆的弦宽、S 线分界点逐行用公式精确求出,每行 yang→yin
+//   只有一次转折,台阶渐进单调;
+// - classify 对 180° 旋转严格反对称 → 两条鱼的台阶逐像素一致。
 
 type RGB = [number, number, number];
 
@@ -15,42 +25,28 @@ const PALETTES: Record<Background, Palette> = {
   light: { yang: [54, 62, 74], yin: [104, 162, 146] },
 };
 
-const DIAM = 20; // 像素直径(偶数)→ 20 列、10 字符行
-const R = DIAM / 2;
-const SS = 3;
+const ROWS = 8; // 行数 = 纵向像素数(与词标块同高)
+const COLS = 16; // 列数 = 横向像素数(每像素 1 列,宽 0.5 行高单位)
+const R = ROWS / 2; // 圆半径(单位 = 行高)
 
-type Cell = "out" | "yang" | "yin";
+type Cls = "out" | "yang" | "yin";
 
-// 圆 + 左阳右阴 + 上下鱼头(不含鱼眼)。
-function classify(x: number, y: number): Cell {
+// 单像素分类:中心点解析判定(圆按半径,S 线按每行唯一分界点,眼按菱形)。
+function pixel(px: number, py: number): Cls {
+  const x = (px + 0.5) * 0.5 - R; // 横向像素宽 0.5 单位
+  const y = R - (py + 0.5);
   if (x * x + y * y > R * R) return "out";
   const half = R / 2;
-  const dUp = x * x + (y - half) * (y - half);
-  const dLo = x * x + (y + half) * (y + half);
-  if (dUp <= half * half) return "yang"; // 上鱼头:阳
-  if (dLo <= half * half) return "yin"; // 下鱼头:阴
-  return x < 0 ? "yang" : "yin"; // 左阳右阴
+  const re = 0.6; // 菱形眼"半径";眼心对齐行中心(half+0.5)→ 恰为 2 列×1 行的方点
+  if (Math.abs(x) + Math.abs(y - (half + 0.5)) <= re) return "yin"; // 阳鱼中的阴眼
+  if (Math.abs(x) + Math.abs(y + (half + 0.5)) <= re) return "yang"; // 阴鱼中的阳眼
+  // S 线:该行 yang/yin 的唯一分界点(上半=上鱼头右缘,下半=下鱼头左缘)。
+  const xb =
+    y >= 0
+      ? Math.sqrt(Math.max(0, half * half - (y - half) * (y - half)))
+      : -Math.sqrt(Math.max(0, half * half - (y + half) * (y + half)));
+  return x < xb ? "yang" : "yin";
 }
-
-function votePixel(px: number, py: number, cx: number, cy: number): Cell {
-  let inN = 0;
-  let yangN = 0;
-  for (let i = 0; i < SS; i++) {
-    for (let j = 0; j < SS; j++) {
-      const c = classify(px + (i + 0.5) / SS - 0.5 - cx, cy - (py + (j + 0.5) / SS - 0.5));
-      if (c !== "out") {
-        inN++;
-        if (c === "yang") yangN++;
-      }
-    }
-  }
-  if (inN * 2 < SS * SS) return "out";
-  return yangN * 2 >= inN ? "yang" : "yin";
-}
-
-const tcFg = (c: RGB) => `\x1b[38;2;${c[0]};${c[1]};${c[2]}m`;
-const tcBg = (c: RGB) => `\x1b[48;2;${c[0]};${c[1]};${c[2]}m`;
-const c256 = (cell: "yang" | "yin") => (cell === "yang" ? 254 : 65);
 
 const FALLBACK = [
   "    .-‐‐-.",
@@ -63,52 +59,30 @@ const FALLBACK = [
 
 export function renderTaiji(caps: Capabilities, bg: Background = "dark"): string[] {
   if (caps.tier === "none" || caps.tier === "ansi16") return [...FALLBACK];
-
-  const cols = DIAM;
-  const rows = DIAM / 2;
-  const cx = (DIAM - 1) / 2;
-  const cy = (DIAM - 1) / 2;
   const pal = PALETTES[bg];
   const truecolor = caps.tier === "truecolor";
+  const bgc = (c: Exclude<Cls, "out">) =>
+    truecolor
+      ? `\x1b[48;2;${pal[c][0]};${pal[c][1]};${pal[c][2]}m`
+      : `\x1b[48;5;${c === "yang" ? 254 : 65}m`;
 
-  // 先建 cell 网格(每格上/下两像素)。
-  const grid: { top: Cell; bot: Cell }[][] = [];
-  for (let r = 0; r < rows; r++) {
-    const row: { top: Cell; bot: Cell }[] = [];
-    for (let c = 0; c < cols; c++) {
-      row.push({ top: votePixel(c, r * 2, cx, cy), bot: votePixel(c, r * 2 + 1, cx, cy) });
-    }
-    grid.push(row);
-  }
-
-  // 盖鱼眼:单格实心点。上鱼头(阳)里盖阴眼,下鱼头(阴)里盖阳眼。
-  const eyeCol = Math.round(cx); // 中心列
-  const upRow = Math.round((cy - R / 2) / 2); // 上鱼头中心所在字符行
-  const loRow = Math.round((cy + R / 2) / 2); // 下鱼头中心所在字符行
-  const stamp = (r: number, c: number, v: "yang" | "yin") => {
-    if (grid[r]?.[c]) grid[r]![c] = { top: v, bot: v };
-  };
-  stamp(upRow, eyeCol, "yin"); // 阳鱼中的阴眼
-  stamp(loRow, eyeCol, "yang"); // 阴鱼中的阳眼
-
-  const fg = (cell: Cell) =>
-    cell === "out" ? "" : truecolor ? tcFg(cell === "yang" ? pal.yang : pal.yin) : `\x1b[38;5;${c256(cell)}m`;
-  const bgc = (cell: Cell) =>
-    cell === "out" ? "" : truecolor ? tcBg(cell === "yang" ? pal.yang : pal.yin) : `\x1b[48;5;${c256(cell)}m`;
-
-  return grid.map((row) => {
+  const out: string[] = [];
+  for (let py = 0; py < ROWS; py++) {
     let line = "";
-    for (const { top, bot } of row) {
-      if (top === "out" && bot === "out") line += "\x1b[0m ";
-      else if (top !== "out" && bot !== "out") line += `${fg(top)}${bgc(bot)}▀`;
-      else if (top !== "out") line += `\x1b[49m${fg(top)}▀`;
-      else line += `\x1b[49m${fg(bot)}▄`;
+    let cur: Cls | "" = ""; // 当前已生效的背景色(同色连续像素不重复发转义)
+    for (let px = 0; px < COLS; px++) {
+      const c = pixel(px, py);
+      if (c === "out") {
+        if (cur !== "out") { line += "\x1b[0m"; cur = "out"; }
+      } else if (cur !== c) { line += bgc(c); cur = c; }
+      line += " ";
     }
-    return line + "\x1b[0m";
-  });
+    out.push(line + "\x1b[0m");
+  }
+  return out;
 }
 
 export const TAIJI_WIDTH = (caps: Capabilities): number =>
   caps.tier === "none" || caps.tier === "ansi16"
     ? Math.max(...FALLBACK.map((l) => [...l].length))
-    : DIAM;
+    : COLS;
