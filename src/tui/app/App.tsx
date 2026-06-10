@@ -198,6 +198,12 @@ export function App(deps: AppDeps) {
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
       if (name === "clear") setItems([{ id: 0, kind: "welcome" }]);
       if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
+      // 自定义命令:展开成 prompt → 当作一个回合跑。
+      if (res.prompt) {
+        pushItem({ id: nextId(), kind: "user", text });
+        await runAgentTurn(res.prompt);
+        return;
+      }
       setStatus(deps.getStatus());
       return;
     }
