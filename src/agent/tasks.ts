@@ -14,6 +14,8 @@ export interface BgTask {
 export interface TaskManager {
   // 后台启动一个任务(run 收到 signal 用于取消),立即返回 task id。
   launch(description: string, run: (signal: AbortSignal) => Promise<string>): string;
+  // 接管一个已在运行的 promise(前台超时自动转后台用):完成/失败时入队通知。不可取消。
+  adopt(description: string, promise: Promise<string>): string;
   drainNotifications(): string[]; // 取出并清空待通知(已完成/失败任务的 XML 通知)
   hasPending(): boolean;
   running(): BgTask[];
@@ -75,6 +77,29 @@ export function createTaskManager(): TaskManager {
         },
         (e) => {
           if (t.status !== "running") return;
+          t.status = "failed";
+          t.error = e instanceof Error ? e.message : String(e);
+          t.endedAt = Date.now();
+          notifications.push(notificationXml(t));
+          notify();
+        },
+      );
+      return id;
+    },
+    adopt(description, promise) {
+      const id = `task-${++counter}`;
+      const t: BgTask = { id, description, status: "running", startedAt: Date.now() };
+      tasks.set(id, t);
+      notify();
+      promise.then(
+        (result) => {
+          t.status = "completed";
+          t.result = result;
+          t.endedAt = Date.now();
+          notifications.push(notificationXml(t));
+          notify();
+        },
+        (e) => {
           t.status = "failed";
           t.error = e instanceof Error ? e.message : String(e);
           t.endedAt = Date.now();
