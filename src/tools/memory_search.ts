@@ -19,7 +19,8 @@ export const memorySearchTool = defineTool({
   handler: async (args, ctx) => {
     const projectDir = path.join(ctx.workspaceRoot, ".dao", "memory");
     const userDir = path.join(ctx.homeDir ?? os.homedir(), ".dao", "memory");
-    const mems = await loadAllMemories(projectDir, userDir);
+    const knowledgeDir = path.join(ctx.homeDir ?? os.homedir(), ".dao", "knowledge");
+    const mems = await loadAllMemories(projectDir, userDir, knowledgeDir);
     if (mems.length === 0) return "(暂无记忆)";
     const scored = mems
       .map((m) => ({ m, s: textSimilarity(m.text, args.query) + (m.text.includes(args.query) ? 0.5 : 0) }))

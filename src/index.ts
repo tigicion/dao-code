@@ -226,6 +226,8 @@ async function main() {
   // ---- 记忆读路径(会话启动一次性):迁移旧 JSON → 加载 → 确定性权威验证 → 注入固定前缀 ----
   const projectMemoryDir = path.join(workspaceRoot, ".dao", "memory");
   const userMemoryDir = path.join(os.homedir(), ".dao", "memory");
+  // 三层记忆:项目级(本项目事实/进展)、用户级(用户信息+偏好)、知识库(跨项目可复用技术知识 procedural)。
+  const knowledgeMemoryDir = path.join(os.homedir(), ".dao", "knowledge");
   const today = new Date().toISOString().slice(0, 10);
   // 一次性把旧 memories.json 迁移成 md(已迁移则跳过;目录不存在也容错)。
   await migrateLegacy(projectMemoryDir, today);
@@ -234,7 +236,8 @@ async function main() {
   // 使它们既不被加载也不被注入。确定性,无 LLM。
   await gcMemories(projectMemoryDir, today);
   await gcMemories(userMemoryDir, today);
-  const memories = await loadAllMemories(projectMemoryDir, userMemoryDir);
+  await gcMemories(knowledgeMemoryDir, today);
+  const memories = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
   // 逐条对照 live code 做确定性验证(stale 剔除 / changed 标注 / ok 注入)。
   const validated: { mem: (typeof memories)[number]; verdict: Verdict }[] = [];
   for (const mem of memories) {
@@ -507,10 +510,13 @@ async function main() {
       const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
       let n = 0;
       for (const cand of cands) {
-        const existing = await loadAllMemories(projectMemoryDir, userMemoryDir);
-        // user/feedback 关于用户本人与其工作方式,跨项目有效 → 用户级目录;
-        // 其余(项目事实/进展/规则)留在项目级。否则换个目录跑就"失忆"。
-        const dir = cand.type === "user" || cand.type === "feedback" ? userMemoryDir : projectMemoryDir;
+        const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
+        // 三层路由:procedural=跨项目可复用知识→知识库;user/feedback=关于用户本人与合作方式→用户级;
+        // 其余(semantic 项目事实 / episodic 项目进展)→项目级。
+        const dir =
+          cand.type === "procedural" ? knowledgeMemoryDir
+          : cand.type === "user" || cand.type === "feedback" ? userMemoryDir
+          : projectMemoryDir;
         await upsertMemory(dir, cand, existing, adjudicate);
         n++;
       }
