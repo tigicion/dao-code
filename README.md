@@ -78,7 +78,8 @@ npm install && npm run build && npm link   # 之后可全局 dao
 |---|---|
 | `/model [id]` | 切换模型(不带参数在 `deepseek-v4-pro` / `deepseek-v4-flash` 间切换) |
 | `/plan` | 切换 plan(只读+提方案)/ normal 模式 |
-| `/yolo` | 开/关 YOLO:自动批准所有写/执行操作(慎用;状态栏会显示 ⚡YOLO) |
+| `/mode [x]` | 切换权限模式 `default`/`acceptEdits`/`plan`/`bypassPermissions`(亦 **Shift+Tab** 循环) |
+| `/yolo` | 开/关 YOLO(=bypassPermissions):自动批准所有写/执行操作(deny 规则仍拦截) |
 | `/clear` | 清空对话(保留系统设定) |
 | `/compact` | 手动压缩对话 |
 | `/cost`(亦 `/cache`) | 查看 token 用量与缓存命中率 |
@@ -100,7 +101,7 @@ dao
 - 输入消息回车发送;`↑/↓` 翻历史;`Esc` 打断当前回合;`/` 开头走斜杠命令(带补全提示)。
 - 行内编辑:`←/→` 移光标、`Ctrl-A/E` 行首尾、`Ctrl-W` 删词、`Backspace/Delete` 按光标删;支持粘贴(不自动提交)。
 - `@` 引用文件:输入 `@` + 路径片段,列出匹配文件,`Tab` 补全。
-- 写/执行类操作经审批门(`[y]本次 [a]本仓库后续都用 [n]拒绝`);`/yolo` 或 `--yolo` 可全自动批准。
+- 写/执行类操作经审批门(`[y]本次 [a]记住(写 allow 规则) [n]拒绝`);也可在 `.dao/settings.json` 用 allow/ask/deny 规则预先放行或拦截(见「扩展系统 · 权限控制」);`/yolo` 或 `--yolo` 全自动批准(deny 仍拦)。
 
 **一次性模式**(把任务作为参数,跑完即退,不蒸馏记忆,适合脚本):
 
@@ -148,6 +149,13 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 
 ## 🧩 扩展系统(对标 Claude Code)
 
+- **权限控制(1:1 复刻 CC)**:规则三态 `allow / ask / deny`,语法 `Tool(specifier)`——`Bash(npm run test:*)`(命令前缀)、`Edit(src/**)`/`Read(//etc/**)`(gitignore 式路径 glob)、`WebFetch(domain:example.com)`、裸工具名、`mcp__server__tool`。优先级 **deny > ask > allow > 模式/能力默认**(deny 是硬黑名单,YOLO 下也拦)。工具名自动映射(exec_shell↔Bash、read_file↔Read、edit_file↔Edit、fetch_url↔WebFetch…),CC 的 settings.json 规则可原样生效。
+  - **分层**(低→高优先级):`~/.dao/settings.json`(用户)< `.dao/settings.json`(项目,入库)< `.dao/settings.local.json`(本地,不入库)< **CLI**(`--allow`/`--deny`/`--add-dir`/`--permission-mode`)< **企业托管策略**(`/etc/dao/managed-settings.json` 等,不可被下层覆盖)。
+  - **复合命令逐段检查**:`cd /tmp && rm -rf x` 会按 `&&`/`||`/`;`/`|` 拆开,任一子命令命中 deny 即整条拦截(杜绝绕过)。
+  - **权限模式**(`/mode <x>` 或 **Shift+Tab** 循环;状态栏显示):`default`(按需审批)/ `acceptEdits`(自动批准文件编辑)/ `plan`(只读规划)/ `bypassPermissions`(=YOLO,跳过审批但 deny 仍拦)。
+  - **审批四档**:`[y]` 本次 / `[s]` 本会话 / `[a]` 记住(写 allow 规则到 `.dao/settings.local.json`)/ `[n]` 拒绝。
+  - `additionalDirectories`:预授权的工作区外目录,读取不弹窗。
+  - 引擎:`src/permissions/`(rules / identity / settings / engine / gate),含端到端测试。
 - **自定义子代理类型**:`.dao/agents/<name>.md`(frontmatter:name/description/tools 白名单/model + 正文 prompt)。`agent` 工具 `agent_type` 指定;各有专属角色与工具。
 - **自定义 slash 命令**:`.dao/commands/<name>.md`(正文为 prompt 模板,`$ARGUMENTS`/`$1`)。`/<name> 参数` 展开成一个回合跑。
 - **Skill(开箱即用技能)**:`.dao/skills/<name>/SKILL.md`。渐进式披露:启动只列 name+description,模型用 `skill` 工具按需加载正文。

@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run test:*)",
+      "Bash(npm run typecheck)",
+      "Bash(npx vitest run:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "ask": [],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/*.pem)",
+      "Read(//etc/**)",
+      "Read(~/.ssh/**)",
+      "Bash(rm -rf:*)"
+    ],
+    "additionalDirectories": [],
+    "defaultMode": "default"
+  }
+}

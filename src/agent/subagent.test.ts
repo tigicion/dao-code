@@ -4,7 +4,7 @@ import { ToolRegistry } from "../tools/registry.js";
 import type { ApprovalGate } from "../approval/types.js";
 import type { TurnDeps } from "./loop.js";
 
-const stubGate: ApprovalGate = { needsApproval: () => false, requestBatch: async () => new Map() };
+const stubGate: ApprovalGate = { decide: () => "allow", requestBatch: async () => new Map() };
 
 function baseDeps(overrides: Partial<SubagentDeps>): SubagentDeps {
   return {
