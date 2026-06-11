@@ -65,4 +65,8 @@ export interface StreamChatOptions {
   // 流空闲看门狗:超过这么多毫秒没收到任何数据(连接挂起/模型停滞)→ 中断本次流并抛清晰错误,
   // 防止单回合永久卡死(只能靠 ESC 手动停)。默认 DAO_STREAM_IDLE_MS 或 120000。
   idleTimeoutMs?: number;
+  // 连接瞬断重试:产出任何内容之前遇到可重试网络错误(socket 断开等)时,最多重试几次。默认 2。
+  maxRetries?: number;
+  // 重试退避基数(毫秒);第 n 次等待 retryDelayMs*n。默认 600。
+  retryDelayMs?: number;
 }
