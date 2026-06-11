@@ -490,12 +490,15 @@ export function App(deps: AppDeps) {
 
       {!approval && !ask && (
         <Box flexDirection="column" marginTop={1}>
-          <Text>
-            <Text color={busy ? c("dim") : c("jade")}>{busy ? "⏎ " : "› "}</Text>
-            {input.slice(0, cursor)}
-            <Text color={c("jade")}>▎</Text>
-            {input.slice(cursor)}
-          </Text>
+          {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
+          <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
+            <Text>
+              <Text color={busy ? c("dim") : c("jade")}>{busy ? "⏎ " : "› "}</Text>
+              {input.slice(0, cursor)}
+              <Text color={c("jade")}>▎</Text>
+              {input.slice(cursor)}
+            </Text>
+          </Box>
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
@@ -525,7 +528,7 @@ export function App(deps: AppDeps) {
       )}
 
       {bgRunning > 0 ? <Text color={c("gold")}>🪢 {bgRunning} 个后台任务运行中…</Text> : null}
-      <StatusBar status={status} busy={busy} elapsed={elapsed} spin={spin} c={c} />
+      <StatusBar status={status} c={c} />
     </Box>
   );
 }
@@ -671,15 +674,9 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
 
 function StatusBar({
   status,
-  busy,
-  elapsed,
-  spin,
   c,
 }: {
   status: StatusInfo;
-  busy: boolean;
-  elapsed: string;
-  spin: string;
   c: (s: Parameters<typeof semHex>[0]) => string;
 }) {
   const pct = (status.cacheHitRatio * 100).toFixed(0);
@@ -687,7 +684,7 @@ function StatusBar({
   return (
     <Box marginTop={1}>
       <Text color={c("dim")}>
-        {busy ? `${spin} ${elapsed}s · ` : ""}
+        {/* 耗时只在上方 live 行显示一次,这里不再重复 */}
         {status.coordinator ? <Text color={c("gold")}>🧭Coordinator · </Text> : ""}
         {status.longTask ? <Text color={c("gold")}>🪢长任务 · </Text> : ""}
         {status.yolo ? <Text color={c("vermilion")}>⚡YOLO · </Text> : ""}
