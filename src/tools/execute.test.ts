@@ -95,6 +95,33 @@ describe("executeToolCalls (approval-aware)", () => {
     expect(calls).toHaveLength(0); // deny 不进入审批询问
   });
 
+  it("按 capability 并发:read(安全)并行,write(屏障)串行", async () => {
+    const timedReg = (capability: "read" | "write") => {
+      let active = 0, maxActive = 0;
+      const r = new ToolRegistry();
+      r.register(defineTool({
+        name: "t", description: "", capability, approval: "auto",
+        schema: z.object({}),
+        handler: async () => {
+          active++; maxActive = Math.max(maxActive, active);
+          await new Promise((res) => setTimeout(res, 15));
+          active--; return "ok";
+        },
+      }));
+      return { r, getMax: () => maxActive };
+    };
+    const allowGate: ApprovalGate = { decide: () => "allow", requestBatch: async () => new Map() };
+    const calls = [call("a", "t"), call("b", "t"), call("c", "t")];
+
+    const rd = timedReg("read");
+    await executeToolCalls(calls, rd.r, ctx, allowGate);
+    expect(rd.getMax()).toBeGreaterThan(1); // 只读 → 并行
+
+    const wr = timedReg("write");
+    await executeToolCalls(calls, wr.r, ctx, allowGate);
+    expect(wr.getMax()).toBe(1); // 写 → 屏障,独占
+  });
+
   it("isolates a dispatch error as an Error message", async () => {
     const r = new ToolRegistry();
     r.register(
