@@ -494,6 +494,7 @@ async function main() {
   const distillOnExit = async (): Promise<void> => {
     const hasRealTurn = session.messages.some((m) => m.role === "user");
     if (!hasRealTurn) return;
+    write("\n正在更新记忆(蒸馏本次对话,需几秒)…\n"); // 退出后蒸馏要时间,先告知用户别以为卡住
     try {
       const cands = await distill({
         streamChat,
@@ -513,7 +514,7 @@ async function main() {
         await upsertMemory(dir, cand, existing, adjudicate);
         n++;
       }
-      if (n > 0) write(`\n已更新记忆:${n} 条\n`);
+      write(n > 0 ? `✓ 已更新记忆:${n} 条\n` : `✓ 记忆无需更新\n`);
     } catch (e) {
       if (process.env.DAO_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
       // 失败不阻塞退出。
