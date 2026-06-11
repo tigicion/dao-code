@@ -89,6 +89,114 @@ describe("App", () => {
     expect(f).toContain("+ 新行B");
   });
 
+  it("edit_file 带 ```diff 块:渲染行号 + 上下文 + 增删", async () => {
+    const diff = "```diff\n    1 import x\n-   2   return 1\n+   2   return 2\n    3 }\n```";
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (_t, { events }) => {
+          events.toolResult(
+            { id: "c1", type: "function" as const, function: { name: "edit_file", arguments: JSON.stringify({ path: "a.ts", old_string: "  return 1", new_string: "  return 2" }) } },
+            { role: "tool", tool_call_id: "c1", content: `已编辑 a.ts(替换 1 处,行 2)\n${diff}` },
+          );
+          events.assistantDone({ role: "assistant", content: "ok" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("import x"); // 上下文行
+    expect(f).toContain("return 1"); // 删除行
+    expect(f).toContain("return 2"); // 新增行
+    expect(f).toContain("2"); // 行号
+  });
+
+  it("推理思考留历史:assistantDone 时提交 ✻ 思考块", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (_t, { events }) => {
+          events.reasoning("先看下结构");
+          events.assistantDone({ role: "assistant", content: "好了" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("✻ 思考");
+    expect(f).toContain("先看下结构");
+  });
+
+  it("工具 ⎿ 子块:exec_shell 展示截断真实输出", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (_t, { events }) => {
+          events.toolResult(
+            { id: "c1", type: "function" as const, function: { name: "exec_shell", arguments: JSON.stringify({ command: "echo hi" }) } },
+            { role: "tool", tool_call_id: "c1", content: "hi\nbye" },
+          );
+          events.assistantDone({ role: "assistant", content: "ok" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("⎿");
+    expect(f).toContain("hi");
+    expect(f).toContain("bye");
+  });
+
+  it("todo_write 渲染成复选框清单", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (_t, { events }) => {
+          events.toolResult(
+            { id: "c1", type: "function" as const, function: { name: "todo_write", arguments: "{}" } },
+            { role: "tool", tool_call_id: "c1", content: "☑ 读代码\n▶ 写实现\n☐ 测试" },
+          );
+          events.assistantDone({ role: "assistant", content: "ok" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("☑ 读代码");
+    expect(f).toContain("▶ 写实现");
+    expect(f).toContain("☐ 测试");
+  });
+
+  it("verbose:工具结果显示原样参数", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        verbose: true,
+        submit: async (_t, { events }) => {
+          events.toolResult(
+            { id: "c1", type: "function" as const, function: { name: "read_file", arguments: JSON.stringify({ path: "src/foo.ts" }) } },
+            { role: "tool", tool_call_id: "c1", content: "line1\nline2" },
+          );
+          events.assistantDone({ role: "assistant", content: "ok" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("参数");
+    expect(f).toContain("src/foo.ts");
+  });
+
   it("光标行内编辑:左移两次后插入字符", async () => {
     let submitted = "";
     const { stdin } = render(

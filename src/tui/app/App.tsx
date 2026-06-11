@@ -1,14 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, Static, useApp, useInput, usePaste } from "ink";
+import { highlight } from "cli-highlight";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
+import { daoVerb, DAO_VERBS } from "../spinner_words.js";
+import { clampLines, parseTodoResult } from "./format.js";
 import type { TurnEvents } from "../render.js";
 import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../approval/types.js";
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const MAX_LIVE_LINES = 12; // 流式动态区只显示尾部这么多行,防止动态区高度≥终端高触发 Ink 整屏闪烁(ink#359)
+const MAX_LIVE_LINES = 24; // 流式动态区显示尾部行数;完成后整段进 <Static>。比旧值大,流式更完整(仍小于常见终端高,避免 ink#359 整屏闪)。
+const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(verbose 全显)
+const REASONING_CAP = 6; // 思考块默认最多显示几行(verbose 全显)
+// 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
+const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
 
 // 运行中轮流展示的提示(CC 风格):不每次硬塞同一句,降低噪音。首条是排队说明(最该让人知道的)。
 const BUSY_TIPS = [
@@ -31,9 +38,6 @@ const LANG: Record<string, string> = {
 };
 const langFromPath = (p: string): string => LANG[p.split(".").pop()?.toLowerCase() ?? ""] ?? "";
 const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
-
-// 连续的工具/diff 行紧凑堆叠(去掉行间空隙),压缩并发/连续工具调用的展示。
-const isToolish = (it?: { kind: string }): boolean => !!it && (it.kind === "tool" || it.kind === "diff");
 
 // 工具动作词(toolStart 时参数尚在流式中,只有名字)——用于 live 进度行。
 const VERB: Record<string, string> = {
@@ -119,6 +123,7 @@ export function App(deps: AppDeps) {
   const [ask, setAsk] = useState<{ question: string; resolve: (s: string) => void } | null>(null);
   const [askInput, setAskInput] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
+  const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
   const busyRef = useRef(false);
   useEffect(() => { busyRef.current = busy; }, [busy]);
   const [taskTick, setTaskTick] = useState(0); // 后台任务状态变化计数(驱动通知处理/计数刷新)
@@ -166,24 +171,45 @@ export function App(deps: AppDeps) {
       toolResult: (call, msg) => {
         const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
         const name = call.function.name;
+        const verbose = !!deps.verbose;
         let pushed = false;
         if (ok && name === "edit_file") {
-          // 仅 edit 保留红绿 diff(唯一值得看的富展示);write 等改为轻量意图行。
+          // edit:红绿 diff(行号来自工具结果"行 N",高亮在 Row 渲染)。
           try {
             const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string };
             const path = String(a.path ?? "");
-            pushItem({ id: nextId(), kind: "diff", path, removed: toLines(String(a.old_string ?? "")), added: toLines(String(a.new_string ?? "")), lang: langFromPath(path) });
+            const lm = /行\s*(\d+)/.exec(msg.content);
+            // 工具结果里的 ```diff 块(带行号+上下文)→ 直接渲染;无则退回 old/new 构造。
+            const dm = /```diff\n([\s\S]*?)\n```/.exec(msg.content);
+            const rows = dm ? dm[1]!.split("\n") : undefined;
+            pushItem({ id: nextId(), kind: "diff", path, removed: toLines(String(a.old_string ?? "")), added: toLines(String(a.new_string ?? "")), lang: langFromPath(path), startLine: lm ? Number(lm[1]) : undefined, rows });
             pushed = true;
-          } catch {
-            /* 参数非 JSON,退回轻量工具行 */
-          }
+          } catch { /* 参数非 JSON,退回轻量工具行 */ }
+        }
+        if (!pushed && ok && name === "todo_write") {
+          // todo:渲染成复选框清单(对标 CC),就地体现进度。
+          pushItem({ id: nextId(), kind: "todo", items: parseTodoResult(msg.content) });
+          pushed = true;
         }
         if (!pushed) {
-          pushItem({ id: nextId(), kind: "tool", label: activityLabel(name, call.function.arguments), detail: resultDetail(name, ok, msg.content), ok });
+          // ⎿ 子块:Bash/Grep 等展示截断真实输出;verbose 下所有工具全量 + 原样参数。
+          const wantOutput = verbose || ECHO_OUTPUT.has(name);
+          const output = wantOutput && msg.content.trim() ? msg.content.split("\n") : undefined;
+          pushItem({
+            id: nextId(), kind: "tool",
+            label: activityLabel(name, call.function.arguments),
+            detail: resultDetail(name, ok, msg.content), ok, output,
+            rawArgs: verbose ? call.function.arguments : undefined,
+          });
         }
         setLive((l) => (l ? { ...l, tools: l.tools.filter((n) => n !== name) } : l));
       },
       assistantDone: (msg) => {
+        // 思考留历史(暗色块,复刻 CC):回合内有推理就在收尾时提交一条 reasoning。
+        setLive((l) => {
+          if (l && l.reasoning.trim()) pushItem({ id: nextId(), kind: "reasoning", text: l.reasoning });
+          return l;
+        });
         if (typeof msg.content === "string" && msg.content.trim()) {
           pushItem({ id: nextId(), kind: "assistant", text: msg.content });
         }
@@ -233,6 +259,7 @@ export function App(deps: AppDeps) {
   async function runAgentTurn(text: string) {
     setBusy(true);
     setStartedAt(Date.now());
+    wordBaseRef.current = Math.floor(Math.random() * DAO_VERBS.length); // 每回合换一个道家动词起点
     setLive({ reasoning: "", content: "", tools: [], toolCount: 0, lastActivity: "" });
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -397,6 +424,8 @@ export function App(deps: AppDeps) {
 
   const elapsed = busy ? ((Date.now() - startedAt) / 1000).toFixed(1) : "0.0";
   const spin = SPINNER[tick % SPINNER.length] ?? "⠋";
+  // 思考/做事 spinner 词:本回合随机起点 + 随时间缓慢轮换(约 1.8s 换一个)。
+  const verb = daoVerb(wordBaseRef.current + Math.floor(tick / 20));
 
   return (
     <Box flexDirection="column">
@@ -409,7 +438,7 @@ export function App(deps: AppDeps) {
           item.kind === "welcome" ? (
             <Welcome key={item.id} info={deps.welcome.info} caps={deps.welcome.caps} bg={bg} maxim={deps.welcome.maxim} />
           ) : (
-            <Row key={item.id} item={item} c={c} tight={isToolish(item) && isToolish(items[index - 1])} />
+            <Row key={item.id} item={item} c={c} verbose={!!deps.verbose} />
           )
         }
       </Static>
@@ -417,12 +446,12 @@ export function App(deps: AppDeps) {
       {live && (
         <Box flexDirection="column" marginTop={1}>
           {live.reasoning && !live.content ? (
-            <Text color={c("dim")}>{spin} 悟… {live.reasoning.split("\n").pop()?.slice(0, 80)}</Text>
+            <Text color={c("dim")}>{spin} {verb}… {tail(live.reasoning, MAX_LIVE_LINES)}</Text>
           ) : null}
           {live.content ? <Text>{tail(live.content, MAX_LIVE_LINES)}</Text> : null}
           {/* 进度可见性:当前活动 + 已用工具数 + 耗时(始终一行,长任务也看得见在干嘛)。 */}
           <Text color={c("dim")}>
-            {spin} {live.lastActivity || (live.content ? "生成回答" : "思考中")}…{" "}
+            {spin} {live.lastActivity || (live.content ? "生成回答" : verb)}…{" "}
             ({elapsed}s{live.toolCount > 0 ? ` · ${live.toolCount} 次工具` : ""} · Esc 打断)
           </Text>
         </Box>
@@ -487,7 +516,13 @@ export function App(deps: AppDeps) {
   );
 }
 
-function Row({ item, c, tight }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string; tight?: boolean }) {
+const TODO_ICON = { pending: "☐", in_progress: "▶", completed: "☑" } as const;
+const hl = (line: string, lang: string): string => {
+  if (!lang) return line;
+  try { return highlight(line, { language: lang, ignoreIllegals: true }); } catch { return line; }
+};
+
+function Row({ item, c, verbose }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string; verbose?: boolean }) {
   if (item.kind === "user") {
     return (
       <Box marginTop={1}>
@@ -503,34 +538,96 @@ function Row({ item, c, tight }: { item: TranscriptItem; c: (s: Parameters<typeo
       </Box>
     );
   }
-  if (item.kind === "tool") {
-    // 轻量:一行意图 + 灰色一行小结(报错标红);连续工具紧凑(tight→无行间空隙)。
+  if (item.kind === "reasoning") {
+    // 思考块(暗色,复刻 CC):默认截断到末 REASONING_CAP 行,verbose 全量。
+    const lines = item.text.split("\n").filter((l) => l.trim());
+    const { shown, hidden } = clampLines(verbose ? lines : lines.slice(-REASONING_CAP), Infinity);
+    const cut = verbose ? 0 : Math.max(0, lines.length - REASONING_CAP);
     return (
-      <Box marginTop={tight ? 0 : 1}>
-        <Text color={item.ok ? c("jade") : c("vermilion")}>● </Text>
-        <Text color={c("ink")}>{item.label}</Text>
-        {item.detail ? <Text color={item.ok ? c("dim") : c("vermilion")}>  {item.detail}</Text> : null}
+      <Box flexDirection="column" marginTop={1}>
+        <Text color={c("dim")}>✻ 思考{cut > 0 ? `(共 ${lines.length} 行,--verbose 看全)` : ""}</Text>
+        {shown.map((l, i) => <Text key={i} color={c("dim")}>  {l}</Text>)}
+      </Box>
+    );
+  }
+  if (item.kind === "todo") {
+    // 复选框清单(复刻 CC):完成项划淡,进行中高亮。
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text color={c("jade")}>● 任务清单</Text>
+        {item.items.map((t, i) => (
+          <Text
+            key={i}
+            color={t.status === "completed" ? c("dim") : t.status === "in_progress" ? c("gold") : c("ink")}
+            strikethrough={t.status === "completed"}
+          >
+            {"  "}{TODO_ICON[t.status]} {t.content}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
+  if (item.kind === "tool") {
+    // ● 意图 + 小结;⎿ 子块展示截断真实输出(verbose 全量 + 原样参数)。各工具自成一组(对标 CC)。
+    const out = item.output ?? [];
+    const { shown, hidden } = clampLines(out, verbose ? Infinity : TOOL_OUT_CAP);
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Box>
+          <Text color={item.ok ? c("jade") : c("vermilion")}>● </Text>
+          <Text color={c("ink")}>{item.label}</Text>
+          {item.detail ? <Text color={item.ok ? c("dim") : c("vermilion")}>  {item.detail}</Text> : null}
+        </Box>
+        {verbose && item.rawArgs ? <Text color={c("dim")}>  ⎿ 参数 {item.rawArgs}</Text> : null}
+        {shown.map((l, i) => (
+          <Text key={i} color={c("dim")}>  {i === 0 ? "⎿ " : "  "}{l}</Text>
+        ))}
+        {hidden > 0 ? <Text color={c("dim")}>  … +{hidden} 行(--verbose 看全)</Text> : null}
       </Box>
     );
   }
   if (item.kind === "diff") {
-    const cap = 40;
-    const rows: Array<["-" | "+", string]> = [
-      ...item.removed.map((l) => ["-", l] as ["-" | "+", string]),
-      ...item.added.map((l) => ["+", l] as ["-" | "+", string]),
+    // 优先用工具给的 ```diff 行(带行号+上下文);上下文空格前缀=暗色,- 红 + 绿,正文语法高亮。
+    if (item.rows && item.rows.length) {
+      const { shown, hidden } = clampLines(item.rows, verbose ? Infinity : 40);
+      const col = (sign: string) => (sign === "+" ? c("jade") : sign === "-" ? c("vermilion") : c("dim"));
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={c("jade")}>
+            ● 编辑 {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
+          </Text>
+          {shown.map((r, i) => {
+            const sign = r[0] ?? " ";
+            return (
+              <Text key={i} color={col(sign)}>
+                {"  "}{sign}{hl(r.slice(1), item.lang)}
+              </Text>
+            );
+          })}
+          {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(--verbose 看全)</Text> : null}
+        </Box>
+      );
+    }
+    // 退回:无 ```diff 块时用 old/new 构造(行号可选)。
+    const cap = verbose ? Infinity : 40;
+    const start = item.startLine ?? 0;
+    const rows: Array<["-" | "+", string, number]> = [
+      ...item.removed.map((l, i) => ["-", l, start + i] as ["-" | "+", string, number]),
+      ...item.added.map((l, i) => ["+", l, start + i] as ["-" | "+", string, number]),
     ];
-    const shown = rows.slice(0, cap);
+    const { shown, hidden } = clampLines(rows, cap);
+    const num = (n: number) => (start ? String(n).padStart(4) + " " : "");
     return (
-      <Box flexDirection="column" marginTop={tight ? 0 : 1}>
+      <Box flexDirection="column" marginTop={1}>
         <Text color={c("jade")}>
           ● 编辑 {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
         </Text>
-        {shown.map(([sign, l], i) => (
+        {shown.map(([sign, l, n], i) => (
           <Text key={i} color={sign === "+" ? c("jade") : c("vermilion")}>
-            {"  "}{sign} {l}
+            {"  "}{sign} <Text color={c("dim")}>{num(n)}</Text>{hl(l, item.lang)}
           </Text>
         ))}
-        {rows.length > cap ? <Text color={c("dim")}>{"  "}… +{rows.length - cap} 行</Text> : null}
+        {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(--verbose 看全)</Text> : null}
       </Box>
     );
   }
