@@ -1,12 +1,22 @@
 import type { Memory, MemoryType } from "./types.js";
 import { newMemory } from "./types.js";
 
-const SYS = `你是记忆蒸馏器。从给定对话里抽取值得跨会话长期记住的事实,**最看重"关于用户这个人"的信息**:用户的环境/技术栈/水平/习惯(信息)、喜好(偏好)、目标与背后的为什么(意图),以及你能合理推断、但用户没明说的信息或意图(这类 type=user 且 confidence 设低,如 0.4–0.6)。也可记通用可复用规则(procedural)与稳定项目事实(semantic)。
-另有两类高价值记忆,出现时必须抽取:
-- type=feedback:用户对你工作方式的指导——纠正(说了别这么做/不满意)或确认(说了这么做对)。text 先写规则本身,再接"为什么:…"和"怎么用:…"(知道为什么,边界情况才能自行判断是否适用)。importance 给 7–9。
-- 项目进展(type=episodic):用户项目当前推进到哪一步、做了什么关键决定、下一步计划。text 要含项目名、能独立读懂(如"DAO CODE 已完成 X,下一步 Y")。importance 给 6–8。
+const SYS = `你是记忆蒸馏器。从对话里抽取值得【跨会话长期记住】的事实,按下面 5 种 type 准确归类——type 决定它存到哪一层(用户级 / 知识库 / 项目级),选错会污染全局,务必慎重。
+
+- type=user(关于用户本人,最高价值):用户的环境/技术栈/水平/习惯、喜好、目标与背后的为什么;也可记你合理推断、用户没明说的(confidence 设低,如 0.4–0.6)。必须是【跨项目对这个人都成立】的,不是某项目里的一次现象。
+- type=feedback(对你工作方式的【通用】指导):用户纠正(别这么做)或确认(这么做对)的协作方式。text 先写规则,再接"为什么:…"和"怎么用:…"。importance 7–9。必须跨项目通用,不是某项目的一次性要求。
+- type=procedural(跨项目可复用的技术知识):框架/工具链/平台的通用坑或定式,换个项目仍适用(如"macOS 无 bundle 启 GUI 需 setActivationPolicy")。
+- type=semantic(本项目的稳定事实):仅适用于当前项目——架构、技术选型、关键决定、目录/数据流。
+- type=episodic(本项目的进展):推进到哪步、做了什么决定、下一步。text 含项目名、能独立读懂。importance 6–8。
+
+【绝不要记】(噪音或会污染全局):
+- 一次性/瞬时状态与情绪(如"用户对某功能反复失败不满")、本次会话的临时调试过程。
+- 把【某项目专属】的事实写成 user/feedback——那应是 semantic/episodic。
+- 把【dao 自身(你这个 coding agent)的实现细节/bug/工具行为】当成"用户偏好"——那不是关于用户的事实,不要记。
+- 显而易见、或项目代码里已写明、读一眼就知道的。
+
 只输出 JSON 数组,每项 {text(一句话), type(user|feedback|semantic|procedural|episodic), importance(1-10), confidence(0-1,可选), source(可选)}。
-source 只在该事实是从某个真实文件/代码推导出来时填,且必须是文件路径(如 "package.json#packageManager");用户类事实(type=user)或任何没有代码出处的事实一律省略 source,不要填"用户告知""推断"之类的理由说明。
+source 只在该事实从某真实文件/代码推导出来时填路径(如 "package.json#packageManager");user 类或无代码出处的一律省略,不要填"用户告知""推断"之类。
 只保留耐久、可泛化的;忽略一次性细节与寒暄。无可记则输出 []。只输出 JSON,不要其它文字。`;
 
 function extractJson(s: string): unknown {

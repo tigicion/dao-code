@@ -37,9 +37,10 @@ async function readDir(dir: string): Promise<Memory[]> {
 }
 
 // user 在前,只返回 active。
-export async function loadAllMemories(projectDir: string, userDir: string): Promise<Memory[]> {
-  const [u, p] = await Promise.all([readDir(userDir), readDir(projectDir)]);
-  return [...u, ...p].filter((m) => m.status === "active");
+// 从任意多个目录加载并合并(项目级 / 用户级 / 知识库)。去重/注入会各自再排序,合并顺序不影响结果。
+export async function loadAllMemories(...dirs: string[]): Promise<Memory[]> {
+  const lists = await Promise.all(dirs.map((d) => readDir(d)));
+  return lists.flat().filter((m) => m.status === "active");
 }
 
 export async function writeMemory(dir: string, m: Memory): Promise<void> {

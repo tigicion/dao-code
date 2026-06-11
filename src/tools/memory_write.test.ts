@@ -31,15 +31,19 @@ describe("memory_write tool", () => {
     expect(raw).toContain("本项目用 vitest");
   });
 
-  it("stores sourceHash when source given", async () => {
+  it("procedural(跨项目知识)落知识库目录 + 存 sourceHash", async () => {
     await fs.writeFile(path.join(root, "package.json"), '{"packageManager":"pnpm@9"}');
     const out = await memoryWriteTool.handler(
       { text: "项目用 pnpm", type: "procedural", source: "package.json" },
       ctx(),
     );
     expect(out).toMatch(/已记住/);
-    const files = (await fs.readdir(memDir())).filter((f) => f.endsWith(".md"));
-    const raw = await fs.readFile(path.join(memDir(), files[0] ?? ""), "utf8");
+    expect(out).toContain("知识库");
+    const knowledgeDir = path.join(root, ".dao", "knowledge");
+    const files = (await fs.readdir(knowledgeDir)).filter((f) => f.endsWith(".md"));
+    expect(files.length).toBe(1);
+    const raw = await fs.readFile(path.join(knowledgeDir, files[0] ?? ""), "utf8");
+    expect(raw).toMatch(/type: procedural/);
     expect(raw).toMatch(/source: package.json/);
     expect(raw).toMatch(/sourceHash: [0-9a-f]{16}/);
   });
