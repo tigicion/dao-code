@@ -10,7 +10,7 @@ export type TranscriptItem =
   | { id: number; kind: "user"; text: string }
   | { id: number; kind: "assistant"; text: string }
   | { id: number; kind: "reasoning"; text: string } // 模型思考(暗色,留历史,复刻 CC)
-  | { id: number; kind: "tool"; label: string; detail: string; ok: boolean; output?: string[]; rawArgs?: string }
+  | { id: number; kind: "tool"; label: string; detail: string; ok: boolean; output?: string[]; rawArgs?: string; echo?: boolean }
   | { id: number; kind: "diff"; path: string; removed: string[]; added: string[]; lang: string; startLine?: number; rows?: string[] }
   | { id: number; kind: "todo"; items: { status: "pending" | "in_progress" | "completed"; content: string }[] }
   | { id: number; kind: "notice"; text: string };

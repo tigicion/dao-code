@@ -113,6 +113,32 @@ describe("App", () => {
     expect(f).toContain("2"); // 行号
   });
 
+  it("ctrl+o:默认折叠 read_file 输出,按键后展开完整内容", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (_t, { events }) => {
+          events.toolResult(
+            { id: "c1", type: "function" as const, function: { name: "read_file", arguments: JSON.stringify({ path: "a.ts" }) } },
+            { role: "tool", tool_call_id: "c1", content: "L1\nL2\nL3" },
+          );
+          events.assistantDone({ role: "assistant", content: "ok" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    let f = lastFrame()!;
+    expect(f).toContain("读取 a.ts");
+    expect(f).toContain("ctrl+o 展开"); // 折叠提示
+    expect(f).not.toContain("L2"); // 默认不显示正文
+    stdin.write("\x0f"); // Ctrl+O
+    await delay();
+    f = lastFrame()!;
+    expect(f).toContain("L2"); // 展开后追加完整内容
+  });
+
   it("推理思考留历史:assistantDone 时提交 ✻ 思考块", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({
@@ -129,6 +155,8 @@ describe("App", () => {
     const f = lastFrame()!;
     expect(f).toContain("✻ 思考");
     expect(f).toContain("先看下结构");
+    // 顺序:思考必须在答案之前
+    expect(f.indexOf("先看下结构")).toBeLessThan(f.indexOf("好了"));
   });
 
   it("工具 ⎿ 子块:exec_shell 展示截断真实输出", async () => {

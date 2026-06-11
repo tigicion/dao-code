@@ -12,17 +12,18 @@ import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js"
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const MAX_LIVE_LINES = 24; // 流式动态区显示尾部行数;完成后整段进 <Static>。比旧值大,流式更完整(仍小于常见终端高,避免 ink#359 整屏闪)。
-const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(verbose 全显)
-const REASONING_CAP = 6; // 思考块默认最多显示几行(verbose 全显)
+const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
+const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose 全显)
 // 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
 const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
 
-// 运行中轮流展示的提示(CC 风格):不每次硬塞同一句,降低噪音。首条是排队说明(最该让人知道的)。
-const BUSY_TIPS = [
-  "当前命令运行中,可以再输入其他命令排队执行",
-  "按 Esc 可随时打断当前回合",
-  "@ 引用文件,Tab 补全路径",
+// 空闲时底部轮换的轻提示(CC 风格:克制暗色一行,无 emoji)。运行中的"可排队"提示单独硬编码。
+const TIPS = [
+  "/ 看命令 · @ 引用文件 · Shift+Tab 切权限模式",
   "输入 /help 查看全部命令",
+  "@ 引用文件路径,Tab 补全",
+  "运行中可继续输入,回车排队执行",
+  "Esc 打断当前回合",
 ];
 
 // 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。
@@ -124,11 +125,13 @@ export function App(deps: AppDeps) {
   const [askInput, setAskInput] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
   const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
+  const reasoningRef = useRef(""); // 本次模型响应累积的思考(同步提交,保证"思考在前、答案在后")
   const busyRef = useRef(false);
   useEffect(() => { busyRef.current = busy; }, [busy]);
   const [taskTick, setTaskTick] = useState(0); // 后台任务状态变化计数(驱动通知处理/计数刷新)
   const [bgRunning, setBgRunning] = useState(0);
   const [queued, setQueued] = useState<string[]>([]); // 运行中排队的用户输入(steering)
+  const [expanded, setExpanded] = useState(!!deps.verbose); // ctrl+o 展开全量(--verbose 启动时默认开)
   const history = useRef<string[]>([]);
   const histIdx = useRef<number>(-1); // -1 = 不在历史浏览中
 
@@ -162,7 +165,7 @@ export function App(deps: AppDeps) {
     return {
       // 收到推理/正文 = 模型又在思考/生成了:清掉上一个工具的活动标签,
       // 否则 live 行会一直显示陈旧的"搜索…"(工具早结束、其实在生成),误导成"卡在搜索"。
-      reasoning: (chunk) => setLive((l) => (l ? { ...l, reasoning: l.reasoning + chunk, lastActivity: "" } : l)),
+      reasoning: (chunk) => { reasoningRef.current += chunk; setLive((l) => (l ? { ...l, reasoning: l.reasoning + chunk, lastActivity: "" } : l)); },
       content: (chunk) => setLive((l) => (l ? { ...l, content: l.content + chunk, lastActivity: "" } : l)),
       toolStart: (call) =>
         setLive((l) =>
@@ -171,7 +174,6 @@ export function App(deps: AppDeps) {
       toolResult: (call, msg) => {
         const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
         const name = call.function.name;
-        const verbose = !!deps.verbose;
         let pushed = false;
         if (ok && name === "edit_file") {
           // edit:红绿 diff(行号来自工具结果"行 N",高亮在 Row 渲染)。
@@ -192,27 +194,26 @@ export function App(deps: AppDeps) {
           pushed = true;
         }
         if (!pushed) {
-          // ⎿ 子块:Bash/Grep 等展示截断真实输出;verbose 下所有工具全量 + 原样参数。
-          const wantOutput = verbose || ECHO_OUTPUT.has(name);
-          const output = wantOutput && msg.content.trim() ? msg.content.split("\n") : undefined;
+          // 始终存全量 output/rawArgs(供 ctrl+o 展开);echo 标记默认是否显示输出(Bash/grep 等显,Read 只显计数)。
+          const output = msg.content.trim() ? msg.content.split("\n") : undefined;
           pushItem({
             id: nextId(), kind: "tool",
             label: activityLabel(name, call.function.arguments),
             detail: resultDetail(name, ok, msg.content), ok, output,
-            rawArgs: verbose ? call.function.arguments : undefined,
+            echo: ECHO_OUTPUT.has(name),
+            rawArgs: call.function.arguments,
           });
         }
         setLive((l) => (l ? { ...l, tools: l.tools.filter((n) => n !== name) } : l));
       },
       assistantDone: (msg) => {
-        // 思考留历史(暗色块,复刻 CC):回合内有推理就在收尾时提交一条 reasoning。
-        setLive((l) => {
-          if (l && l.reasoning.trim()) pushItem({ id: nextId(), kind: "reasoning", text: l.reasoning });
-          return l;
-        });
+        // 顺序保证:先提交思考(暗色 ✻ 块),再提交答案——两次 pushItem 同步执行,
+        // 不能放进 setLive 更新器里(会被延迟到 assistant 之后,导致"思考跑到答案后面")。
+        if (reasoningRef.current.trim()) pushItem({ id: nextId(), kind: "reasoning", text: reasoningRef.current });
         if (typeof msg.content === "string" && msg.content.trim()) {
           pushItem({ id: nextId(), kind: "assistant", text: msg.content });
         }
+        reasoningRef.current = "";
         setLive((l) => (l ? { ...l, reasoning: "", content: "" } : l));
         setStatus(deps.getStatus());
       },
@@ -260,6 +261,7 @@ export function App(deps: AppDeps) {
     setBusy(true);
     setStartedAt(Date.now());
     wordBaseRef.current = Math.floor(Math.random() * DAO_VERBS.length); // 每回合换一个道家动词起点
+    reasoningRef.current = "";
     setLive({ reasoning: "", content: "", tools: [], toolCount: 0, lastActivity: "" });
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -343,6 +345,18 @@ export function App(deps: AppDeps) {
       const m = deps.cycleMode();
       setStatus(deps.getStatus());
       pushItem({ id: nextId(), kind: "notice", text: `权限模式 → ${m}` });
+      return;
+    }
+    // Ctrl+O:展开/折叠全量输出(对标 CC)。已打印进 scrollback 的无法原地改,
+    // 故开启时把"最近一条可展开项"的完整内容追加显示,后续输出按展开态渲染。
+    if (key.ctrl && ch === "o") {
+      const next = !expanded;
+      if (next) {
+        const full = lastExpandableFull(items);
+        if (full) pushItem({ id: nextId(), kind: "notice", text: full });
+      }
+      setExpanded(next);
+      pushItem({ id: nextId(), kind: "notice", text: next ? "▽ 已展开:后续输出显示全量(ctrl+o 收起)" : "△ 已折叠:后续输出截断" });
       return;
     }
     if (busy) {
@@ -438,7 +452,7 @@ export function App(deps: AppDeps) {
           item.kind === "welcome" ? (
             <Welcome key={item.id} info={deps.welcome.info} caps={deps.welcome.caps} bg={bg} maxim={deps.welcome.maxim} />
           ) : (
-            <Row key={item.id} item={item} c={c} verbose={!!deps.verbose} />
+            <Row key={item.id} item={item} c={c} expanded={expanded} />
           )
         }
       </Static>
@@ -449,10 +463,10 @@ export function App(deps: AppDeps) {
             <Text color={c("dim")}>{spin} {verb}… {tail(live.reasoning, MAX_LIVE_LINES)}</Text>
           ) : null}
           {live.content ? <Text>{tail(live.content, MAX_LIVE_LINES)}</Text> : null}
-          {/* 进度可见性:当前活动 + 已用工具数 + 耗时(始终一行,长任务也看得见在干嘛)。 */}
+          {/* 进度可见性:当前活动 + 已用工具数 + 耗时 + 排队数(始终一行,长任务也看得见在干嘛)。 */}
           <Text color={c("dim")}>
             {spin} {live.lastActivity || (live.content ? "生成回答" : verb)}…{" "}
-            ({elapsed}s{live.toolCount > 0 ? ` · ${live.toolCount} 次工具` : ""} · Esc 打断)
+            ({elapsed}s{live.toolCount > 0 ? ` · ${live.toolCount} 次工具` : ""}{queued.length ? ` · 已排 ${queued.length}` : ""} · esc 打断)
           </Text>
         </Box>
       )}
@@ -498,15 +512,15 @@ export function App(deps: AppDeps) {
               <Text color={c("dim")}>{"  "}{matches.slice(0, 6).join("  ")}  <Text color={c("jade")}>(Tab 补全)</Text></Text>
             ) : null;
           })()}
-          {/* 运行中:排队优先显计数(重要状态),否则轮流展示一条提示——独立一行,不挤进输入框。 */}
-          {busy ? (
-            <Text color={c("dim")}>
-              {"  "}
-              {queued.length
-                ? `⏎ ${queued.length} 条已排队,当前回合结束后依次执行`
-                : `💡 ${BUSY_TIPS[Math.floor(tick / 110) % BUSY_TIPS.length]}`}
-            </Text>
-          ) : null}
+          {/* 底部提示(CC 风格,克制的暗色一行,无 emoji):运行中=可排队;空闲=轮换一条 tip。 */}
+          <Text color={c("dim")}>
+            {"  "}
+            {busy
+              ? "运行中——可继续输入,回车排队执行"
+              : input
+                ? ""
+                : TIPS[Math.floor(tick / 110) % TIPS.length]}
+          </Text>
         </Box>
       )}
 
@@ -516,13 +530,27 @@ export function App(deps: AppDeps) {
   );
 }
 
+// ctrl+o 开启时,取最近一条"可展开项"的完整内容(已打印的无法原地改,故追加显示)。
+function lastExpandableFull(items: ({ id: number; kind: "welcome" } | TranscriptItem)[]): string | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i]!;
+    if (it.kind === "tool" && it.output && it.output.length) return `⎿ ${it.label}\n${it.output.join("\n")}`;
+    if (it.kind === "reasoning") return `✻ 思考\n${it.text}`;
+    if (it.kind === "diff") {
+      const body = it.rows?.length ? it.rows.join("\n") : [...it.removed.map((l) => "- " + l), ...it.added.map((l) => "+ " + l)].join("\n");
+      return `● 编辑 ${it.path}\n${body}`;
+    }
+  }
+  return null;
+}
+
 const TODO_ICON = { pending: "☐", in_progress: "▶", completed: "☑" } as const;
 const hl = (line: string, lang: string): string => {
   if (!lang) return line;
   try { return highlight(line, { language: lang, ignoreIllegals: true }); } catch { return line; }
 };
 
-function Row({ item, c, verbose }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string; verbose?: boolean }) {
+function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string; expanded?: boolean }) {
   if (item.kind === "user") {
     return (
       <Box marginTop={1}>
@@ -539,13 +567,13 @@ function Row({ item, c, verbose }: { item: TranscriptItem; c: (s: Parameters<typ
     );
   }
   if (item.kind === "reasoning") {
-    // 思考块(暗色,复刻 CC):默认截断到末 REASONING_CAP 行,verbose 全量。
+    // 思考块(暗色,复刻 CC):默认截断到末 REASONING_CAP 行,ctrl+o/--verbose 全量。
     const lines = item.text.split("\n").filter((l) => l.trim());
-    const { shown, hidden } = clampLines(verbose ? lines : lines.slice(-REASONING_CAP), Infinity);
-    const cut = verbose ? 0 : Math.max(0, lines.length - REASONING_CAP);
+    const cut = expanded ? 0 : Math.max(0, lines.length - REASONING_CAP);
+    const shown = expanded ? lines : lines.slice(-REASONING_CAP);
     return (
       <Box flexDirection="column" marginTop={1}>
-        <Text color={c("dim")}>✻ 思考{cut > 0 ? `(共 ${lines.length} 行,--verbose 看全)` : ""}</Text>
+        <Text color={c("dim")}>✻ 思考{cut > 0 ? `(共 ${lines.length} 行,ctrl+o 展开)` : ""}</Text>
         {shown.map((l, i) => <Text key={i} color={c("dim")}>  {l}</Text>)}
       </Box>
     );
@@ -568,28 +596,31 @@ function Row({ item, c, verbose }: { item: TranscriptItem; c: (s: Parameters<typ
     );
   }
   if (item.kind === "tool") {
-    // ● 意图 + 小结;⎿ 子块展示截断真实输出(verbose 全量 + 原样参数)。各工具自成一组(对标 CC)。
+    // ● 意图 + 小结;⎿ 子块展示真实输出。echo 工具(Bash/grep…)默认显;其余默认折叠,ctrl+o 展开。
     const out = item.output ?? [];
-    const { shown, hidden } = clampLines(out, verbose ? Infinity : TOOL_OUT_CAP);
+    const showOut = (item.echo || expanded) && out.length > 0;
+    const collapsedHint = !showOut && out.length > 0; // 有内容但默认未展开
+    const { shown, hidden } = clampLines(out, expanded ? Infinity : TOOL_OUT_CAP);
     return (
       <Box flexDirection="column" marginTop={1}>
         <Box>
           <Text color={item.ok ? c("jade") : c("vermilion")}>● </Text>
           <Text color={c("ink")}>{item.label}</Text>
           {item.detail ? <Text color={item.ok ? c("dim") : c("vermilion")}>  {item.detail}</Text> : null}
+          {collapsedHint ? <Text color={c("dim")}>  (ctrl+o 展开)</Text> : null}
         </Box>
-        {verbose && item.rawArgs ? <Text color={c("dim")}>  ⎿ 参数 {item.rawArgs}</Text> : null}
-        {shown.map((l, i) => (
+        {expanded && item.rawArgs ? <Text color={c("dim")}>  ⎿ 参数 {item.rawArgs}</Text> : null}
+        {showOut ? shown.map((l, i) => (
           <Text key={i} color={c("dim")}>  {i === 0 ? "⎿ " : "  "}{l}</Text>
-        ))}
-        {hidden > 0 ? <Text color={c("dim")}>  … +{hidden} 行(--verbose 看全)</Text> : null}
+        )) : null}
+        {showOut && hidden > 0 ? <Text color={c("dim")}>  … +{hidden} 行(ctrl+o 展开)</Text> : null}
       </Box>
     );
   }
   if (item.kind === "diff") {
     // 优先用工具给的 ```diff 行(带行号+上下文);上下文空格前缀=暗色,- 红 + 绿,正文语法高亮。
     if (item.rows && item.rows.length) {
-      const { shown, hidden } = clampLines(item.rows, verbose ? Infinity : 40);
+      const { shown, hidden } = clampLines(item.rows, expanded ? Infinity : 40);
       const col = (sign: string) => (sign === "+" ? c("jade") : sign === "-" ? c("vermilion") : c("dim"));
       return (
         <Box flexDirection="column" marginTop={1}>
@@ -604,12 +635,12 @@ function Row({ item, c, verbose }: { item: TranscriptItem; c: (s: Parameters<typ
               </Text>
             );
           })}
-          {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(--verbose 看全)</Text> : null}
+          {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(ctrl+o 展开)</Text> : null}
         </Box>
       );
     }
     // 退回:无 ```diff 块时用 old/new 构造(行号可选)。
-    const cap = verbose ? Infinity : 40;
+    const cap = expanded ? Infinity : 40;
     const start = item.startLine ?? 0;
     const rows: Array<["-" | "+", string, number]> = [
       ...item.removed.map((l, i) => ["-", l, start + i] as ["-" | "+", string, number]),
@@ -627,7 +658,7 @@ function Row({ item, c, verbose }: { item: TranscriptItem; c: (s: Parameters<typ
             {"  "}{sign} <Text color={c("dim")}>{num(n)}</Text>{hl(l, item.lang)}
           </Text>
         ))}
-        {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(--verbose 看全)</Text> : null}
+        {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(ctrl+o 展开)</Text> : null}
       </Box>
     );
   }
