@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineTool } from "./types.js";
 import { resolveInWorkspace } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
+import { buildEditHunk } from "./diff_hunk.js";
 
 export const editFileTool = defineTool({
   name: "edit_file",
@@ -30,6 +31,11 @@ export const editFileTool = defineTool({
     // split/join 对单处(count===1)与全部替换都正确,且不会把 new_string 里的 $ 当成替换模式。
     const next = raw.split(args.old_string).join(args.new_string);
     await atomicWrite(abs, next);
-    return `已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处)`;
+    // 首处匹配所在行号(1-based),供 TUI 给 diff 标行号(对标 CC)。
+    const startLine = raw.slice(0, raw.indexOf(args.old_string)).split("\n").length;
+    // 带行号+上下文的 diff hunk(```diff 块):模型可读、TUI 据此渲染(复刻 CC)。
+    const hunk = buildEditHunk(raw, args.old_string, args.new_string);
+    const diffBlock = hunk.length ? `\n\`\`\`diff\n${hunk.join("\n")}\n\`\`\`` : "";
+    return `已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处,行 ${startLine})${diffBlock}`;
   },
 });
