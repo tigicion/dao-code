@@ -459,11 +459,12 @@ export function App(deps: AppDeps) {
 
       {live && (
         <Box flexDirection="column" marginTop={1}>
+          {/* 推理预览:只显示思考文本(spinner/动词/耗时统一放下方状态行,避免重复)。 */}
           {live.reasoning && !live.content ? (
-            <Text color={c("dim")}>{spin} {verb}… {tail(live.reasoning, MAX_LIVE_LINES)}</Text>
+            <Text color={c("dim")}>{tail(live.reasoning, MAX_LIVE_LINES)}</Text>
           ) : null}
           {live.content ? <Text>{tail(live.content, MAX_LIVE_LINES)}</Text> : null}
-          {/* 进度可见性:当前活动 + 已用工具数 + 耗时 + 排队数(始终一行,长任务也看得见在干嘛)。 */}
+          {/* 唯一的状态行:spinner + 当前活动/动词 + 耗时 + 工具数 + 排队数(长任务也看得见在干嘛)。 */}
           <Text color={c("dim")}>
             {spin} {live.lastActivity || (live.content ? "生成回答" : verb)}…{" "}
             ({elapsed}s{live.toolCount > 0 ? ` · ${live.toolCount} 次工具` : ""}{queued.length ? ` · 已排 ${queued.length}` : ""} · esc 打断)
