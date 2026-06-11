@@ -21,6 +21,26 @@ describe("createStuckDetector", () => {
     expect(d.stuck()).toBeNull();
   });
 
+  it("期间有编辑(有进展)→ 重复的 build 命令不判卡死(build-fix-rebuild 循环)", () => {
+    const d = createStuckDetector(3);
+    const build = call("exec_shell", '{"command":"swift build"}');
+    const edit = call("edit_file", '{"path":"a.swift"}');
+    d.record([build], [{ content: "error: A" }]);
+    d.record([edit], []); // 有进展 → 重置命令重复窗口
+    d.record([build], [{ content: "error: B" }]);
+    d.record([edit], []);
+    d.record([build], [{ content: "error: C" }]);
+    expect(d.stuck()).toBeNull(); // build 被编辑间隔,不算卡死
+  });
+
+  it("反复编辑却撞同一错误 → 仍判卡死(改了但没修对)", () => {
+    const d = createStuckDetector(3);
+    for (let i = 0; i < 3; i++) {
+      d.record([call("edit_file", `{"path":"a","n":${i}}`)], [{ content: "Error: 同一个编译错误" }]);
+    }
+    expect(d.stuck()).toContain("错误");
+  });
+
   it("同一错误反复出现 → 判卡死", () => {
     const d = createStuckDetector(3);
     for (let i = 0; i < 3; i++) d.record([], [{ content: "Error: 文件不存在 x.ts" }]);

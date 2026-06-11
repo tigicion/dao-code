@@ -25,6 +25,17 @@ describe("edit_file tool", () => {
     expect(await fs.readFile(abs, "utf8")).toBe("alpha BETA gamma");
   });
 
+  it("并行编辑同一文件:两处改动都不丢失(同路径串行锁)", async () => {
+    await fs.writeFile(abs, "A\nB", "utf8");
+    const c = ctx();
+    // 并发发两个 edit_file 到同一文件(不同 old_string)——串行锁保证都生效、不互相覆盖、不撞临时文件。
+    await Promise.all([
+      editFileTool.handler({ path: "f.txt", old_string: "A", new_string: "X" }, c),
+      editFileTool.handler({ path: "f.txt", old_string: "B", new_string: "Y" }, c),
+    ]);
+    expect(await fs.readFile(abs, "utf8")).toBe("X\nY");
+  });
+
   it("replaces all occurrences when replace_all is set", async () => {
     await fs.writeFile(abs, "x x x", "utf8");
     const out = await editFileTool.handler(
