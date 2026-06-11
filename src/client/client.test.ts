@@ -184,4 +184,39 @@ describe("streamChat", () => {
     expect(deltas).toContainEqual({ kind: "content", text: "partial" });
     expect(message).toEqual({ role: "assistant", content: "partial" });
   });
+
+  it("aborts with a clear idle-timeout error when the stream stalls", async () => {
+    const enc = new TextEncoder();
+    let fetchSignal: AbortSignal | undefined;
+    // 流:吐一个 chunk,之后 read() 永不 resolve;但若传入的 signal abort 则 reject(模拟看门狗中断连接)。
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'));
+      },
+      pull() {
+        return new Promise<void>((_, reject) => {
+          fetchSignal?.addEventListener("abort", () => {
+            const e = new Error("aborted");
+            e.name = "AbortError";
+            reject(e);
+          });
+        });
+      },
+    });
+    const stallingFetch = (async (_url: string, init: any) => {
+      fetchSignal = init.signal;
+      return new Response(body, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      run(
+        streamChat({
+          ...base,
+          messages: [{ role: "user", content: "hi" }],
+          fetchImpl: stallingFetch,
+          idleTimeoutMs: 50,
+        }),
+      ),
+    ).rejects.toThrow(/空闲超时/);
+  }, 2000);
 });

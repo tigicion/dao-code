@@ -62,4 +62,7 @@ export interface StreamChatOptions {
   onUsage?: (usage: Usage) => void;
   // 中途取消信号(ESC/超时):abort 后 fetch 与流读取被中断,生成器返回已累积的部分消息而非抛错。
   signal?: AbortSignal;
+  // 流空闲看门狗:超过这么多毫秒没收到任何数据(连接挂起/模型停滞)→ 中断本次流并抛清晰错误,
+  // 防止单回合永久卡死(只能靠 ESC 手动停)。默认 DAO_STREAM_IDLE_MS 或 120000。
+  idleTimeoutMs?: number;
 }
