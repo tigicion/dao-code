@@ -44,7 +44,7 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
     case "help":
       return {
         handled: true,
-        output: "/simplify 质量清理改动 · /remember <事实> 记记忆 · /debug 诊断会话日志 · /skillify 提炼技能 · /mode 权限模式 · /task 长任务 · /coordinator 协作编排 · /model 切模型 · /plan 切模式 · /yolo 自动批准 · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
+        output: "/simplify 质量清理改动 · /remember <事实> 记记忆 · /debug 诊断会话日志 · /skillify 提炼技能 · /batch <大改> 并行 worktree 子代理 · /loop <间隔> <prompt> 周期重跑 · /mode 权限模式 · /task 长任务 · /coordinator 协作编排 · /model 切模型 · /plan 切模式 · /yolo 自动批准 · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
       };
     case "exit":
     case "quit":
