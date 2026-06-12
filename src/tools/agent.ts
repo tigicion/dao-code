@@ -15,9 +15,9 @@ export const agentTool = defineTool({
     tasks: z
       .array(z.string().min(1))
       .min(1)
-      .max(6)
+      .max(20)
       .optional()
-      .describe("多个相互独立的子任务,将并行派发并汇总(最多 6 个)"),
+      .describe("多个相互独立的子任务,并行派发并汇总(最多 20 个;最多 10 个同时跑、其余自动排队)"),
     background: z
       .boolean()
       .optional()
@@ -79,16 +79,23 @@ export const agentTool = defineTool({
     }
     if (tasks.length === 1) return runOne(tasks[0]!);
 
-    // 并行 scatter-gather:各子代理独立会话并发跑,单个失败不影响其余,最后汇总。
-    const results = await Promise.all(
-      tasks.map(async (t, i) => {
+    // 并行 scatter-gather + 并发限流:最多 MAX_PARALLEL 个同时跑、其余排队,避免一口气打满
+    // API 连接/worktree/进程/成本。单个失败不影响其余,结果按原顺序汇总。
+    const MAX_PARALLEL = Number(process.env.DAO_MAX_PARALLEL_AGENTS) || 10;
+    const results: string[] = new Array(tasks.length);
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < tasks.length) {
+        const i = next++;
+        const t = tasks[i]!;
         try {
-          return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n${await runOne(t)}`;
+          results[i] = `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n${await runOne(t)}`;
         } catch (e) {
-          return `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n[失败] ${e instanceof Error ? e.message : String(e)}`;
+          results[i] = `### 子代理 ${i + 1}/${tasks.length}\n任务:${t}\n\n[失败] ${e instanceof Error ? e.message : String(e)}`;
         }
-      }),
-    );
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL, tasks.length) }, worker));
     return results.join("\n\n---\n\n");
   },
 });
