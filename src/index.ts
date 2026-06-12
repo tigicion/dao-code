@@ -15,6 +15,9 @@ import { readFileTool } from "./tools/read_file.js";
 import { listDirTool } from "./tools/list_dir.js";
 import { writeFileTool } from "./tools/write_file.js";
 import { editFileTool } from "./tools/edit_file.js";
+import { multiEditTool } from "./tools/multi_edit.js";
+import { notebookEditTool } from "./tools/notebook_edit.js";
+import { installSkills } from "./skills/install.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
@@ -97,6 +100,20 @@ async function main() {
   // --version/-v 必须在任何初始化(读配置/连 API)之前拦下,否则整句会被当 prompt 发给模型。
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     process.stdout.write(`dao-code v${VERSION}\n`);
+    return;
+  }
+  // 操作员命令:dao skill add <git-url|本地路径> [--user|--project]。不连 API,装完即退。
+  if (rawArgs[0] === "skill" && rawArgs[1] === "add") {
+    const rest = rawArgs.slice(2);
+    const source = rest.find((a) => !a.startsWith("--"));
+    const scope: "user" | "project" = rest.includes("--project") ? "project" : "user"; // 默认用户级(技能多为通用)
+    if (!source) { process.stderr.write("用法:dao skill add <git-url|本地路径> [--user|--project]\n"); process.exit(1); }
+    try {
+      await installSkills(source, scope, process.cwd(), (s) => process.stdout.write(s));
+    } catch (e) {
+      process.stderr.write(`安装失败:${(e as Error).message}\n`);
+      process.exit(1);
+    }
     return;
   }
   const yoloFlag = rawArgs.includes("--yolo");
@@ -203,7 +220,7 @@ async function main() {
 
   const registry = new ToolRegistry();
   for (const t of [
-    readFileTool, listDirTool, writeFileTool, editFileTool,
+    readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
     grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, taskSendTool, agentTool,
   ]) {

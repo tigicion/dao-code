@@ -44,7 +44,7 @@ const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
 const VERB: Record<string, string> = {
   read_file: "读取", list_dir: "列目录", grep_files: "搜索", file_search: "查找",
   exec_shell: "执行", exec_shell_poll: "查看输出", exec_shell_kill: "结束进程",
-  write_file: "写入", edit_file: "编辑", verify_done: "验收", web_search: "网页搜索",
+  write_file: "写入", edit_file: "编辑", multi_edit: "多处编辑", notebook_edit: "编辑笔记本", verify_done: "验收", web_search: "网页搜索",
   fetch_url: "抓取", memory_write: "记忆", todo_write: "更新清单", ask_user: "提问", agent: "子代理",
 };
 const toolVerb = (name: string): string => VERB[name] ?? name;
@@ -65,6 +65,8 @@ function activityLabel(name: string, argsJson: string): string {
     case "exec_shell_kill": return `结束后台进程`;
     case "write_file": return `写入 ${s(a.path)}`;
     case "edit_file": return `编辑 ${s(a.path)}`;
+    case "multi_edit": return `多处编辑 ${s(a.path)}${Array.isArray(a.edits) ? `(${a.edits.length} 组)` : ""}`;
+    case "notebook_edit": return `编辑笔记本 ${s(a.path)} #${typeof a.cell_index === "number" ? a.cell_index : "?"}`;
     case "verify_done": return `验收`;
     case "web_search": return `网页搜索 ${q(a.query)}`;
     case "fetch_url": return `抓取 ${s(a.url)}`;
