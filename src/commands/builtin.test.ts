@@ -19,11 +19,17 @@ describe("runBuiltinCommand", () => {
   it("skillify → 写 .dao/skills + dao 工具名", () => {
     expect(runBuiltinCommand("skillify", "")?.prompt).toContain(".dao/skills");
   });
+  it("batch → 含并行 agent + worktree 隔离指引", () => {
+    const r = runBuiltinCommand("batch", "把模块拆成微服务");
+    expect(r?.prompt).toContain("isolate:true");
+    expect(r?.prompt).toContain("把模块拆成微服务");
+    expect(runBuiltinCommand("batch", "")?.output).toContain("用法");
+  });
   it("未知命令 → null", () => {
     expect(runBuiltinCommand("nope", "")).toBeNull();
   });
   it("四个命令都有 description", () => {
-    for (const k of ["simplify", "remember", "debug", "skillify"]) {
+    for (const k of ["simplify", "remember", "debug", "skillify", "batch"]) {
       expect(BUILTIN_COMMANDS[k]?.description).toBeTruthy();
     }
   });

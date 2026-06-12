@@ -18,6 +18,7 @@ import { editFileTool } from "./tools/edit_file.js";
 import { multiEditTool } from "./tools/multi_edit.js";
 import { notebookEditTool } from "./tools/notebook_edit.js";
 import { installSkills } from "./skills/install.js";
+import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
@@ -101,6 +102,26 @@ async function main() {
   // --version/-v 必须在任何初始化(读配置/连 API)之前拦下,否则整句会被当 prompt 发给模型。
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     process.stdout.write(`dao-code v${VERSION}\n`);
+    return;
+  }
+  // 操作员命令:dao schedule add|list|remove —— 本地 OS crontab 定时跑 headless dao。不连 API。
+  if (rawArgs[0] === "schedule") {
+    const sub = rawArgs[1];
+    const w = (s: string) => process.stdout.write(s);
+    try {
+      if (sub === "add") {
+        const cron = rawArgs[2], prompt = rawArgs.slice(3).join(" ");
+        if (!cron || !prompt) { process.stderr.write('用法:dao schedule add "<cron 5 字段>" "<prompt>"\n'); process.exit(1); }
+        await scheduleAdd(cron, prompt, process.cwd(), process.execPath, w);
+      } else if (sub === "list") {
+        await scheduleList(w);
+      } else if (sub === "remove") {
+        await scheduleRemove(Number(rawArgs[2]), w);
+      } else {
+        process.stderr.write("用法:dao schedule <add \"<cron>\" \"<prompt>\" | list | remove <n>>\n");
+        process.exit(1);
+      }
+    } catch (e) { process.stderr.write(`schedule 失败:${(e as Error).message}\n`); process.exit(1); }
     return;
   }
   // 操作员命令:dao skill add <git-url|本地路径> [--user|--project]。不连 API,装完即退。
