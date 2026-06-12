@@ -43,7 +43,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const events = deps.events ?? plainEvents(deps.write);
   // 工具 ctx 透传取消信号(exec_shell 据此 SIGTERM);不改原 ctx 引用,按需补 signal。
   const toolCtx = signal ? { ...deps.ctx, signal } : deps.ctx;
-  const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || 50);
+  const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || 150);
   // 卡死检测:重复同一工具调用/同一错误达阈值 → 先注入"换思路"提醒;再卡则止损停止。
   const detector = createStuckDetector();
   let nudged = false;

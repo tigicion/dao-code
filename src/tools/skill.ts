@@ -21,6 +21,7 @@ export const skillTool = defineTool({
     }
     // 为其它 agent(CC/Codex…)所写的技能:装载时探测外来工具名/跨引用,追加一小段平台对照(命中才加,源文件不动)。
     const note = adaptNote(adaptSkillBody(s.body));
-    return `# Skill: ${s.name}\n(目录:${s.dir},正文中引用的相对资源以此为根)\n\n${note}${s.body}`;
+    const loc = s.dir ? `(目录:${s.dir},正文中引用的相对资源以此为根)\n` : ""; // 内置技能无目录
+    return `# Skill: ${s.name}\n${loc}\n${note}${s.body}`;
   },
 });

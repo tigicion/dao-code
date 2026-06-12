@@ -1,5 +1,6 @@
 // 内置 prompt 命令(对标 CC 的 bundled skill:slash 命令 → 展开成 prompt,操作员触发、模型用工具执行)。
 // 与 .dao/commands 自定义命令同机制,但随 dao 自带、且可现算 prompt。
+import { SIMPLIFY_BODY } from "../skills/bundled.js";
 
 export interface BuiltinCommand {
   description: string;
@@ -10,12 +11,7 @@ export interface BuiltinCommand {
 export const BUILTIN_COMMANDS: Record<string, BuiltinCommand> = {
   simplify: {
     description: "审查未提交改动做质量清理(复用/简化/提效/altitude),不抓 bug、不加功能",
-    buildPrompt: () =>
-      `对当前未提交的改动做质量清理(只做质量,不找 bug、不加功能):
-1. 先看 git status / git diff 确认改了什么。
-2. 按这些维度清理:复用(消除重复、用现有工具/函数)、简化(去冗余、收敛分支)、提效(明显低效处)、altitude(把逻辑放到正确的层/抽象级)。
-3. 逐处用 edit_file/multi_edit 落地,并简述理由。
-4. 改完跑相关测试/构建确认没改坏。`,
+    buildPrompt: () => SIMPLIFY_BODY, // 与内置 simplify 技能共用同一份正文
   },
   remember: {
     description: "记一条跨会话记忆(自动判断类型与归属层)",

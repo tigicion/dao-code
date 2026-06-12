@@ -37,6 +37,7 @@ import { loadAgentDefs } from "./agent/agent_defs.js";
 import { createWorktree } from "./agent/worktree.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
+import { BUNDLED_SKILLS } from "./skills/bundled.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
@@ -302,10 +303,13 @@ async function main() {
         agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
       : "";
   // 开箱即用 skill(.dao/skills/):启动只列 name+description,模型用 skill 工具按需取正文。
-  const skills = await loadSkills(
+  const diskSkills = await loadSkills(
     path.join(workspaceRoot, ".dao", "skills"),
     path.join(os.homedir(), ".dao", "skills"),
   );
+  // 并入 dao 自带的默认技能(磁盘同名优先,可覆盖)。
+  const diskNames = new Set(diskSkills.map((s) => s.name));
+  const skills = [...diskSkills, ...BUNDLED_SKILLS.filter((b) => !diskNames.has(b.name)).map((b) => ({ ...b, dir: "" }))];
   const skillsSection =
     skills.length > 0
       ? `\n\n# 可用 skill(任务匹配时用 skill 工具加载其正文指令再照做)\n` +
@@ -655,7 +659,7 @@ async function main() {
             executeToolCalls,
             write: () => {},
             events: logEvents(events, store), // 渲染的同时写日志
-            maxTurns: longTask || coordinator ? 120 : undefined, // 长任务/Coordinator 给更高轮数上限
+            maxTurns: longTask || coordinator ? 500 : undefined, // 长任务/Coordinator 给更高轮数上限(默认 150)
             signal,
           });
           store.append({ t: "turn_end" });
