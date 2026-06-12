@@ -307,9 +307,15 @@ async function main() {
     path.join(workspaceRoot, ".dao", "skills"),
     path.join(os.homedir(), ".dao", "skills"),
   );
-  // 并入 dao 自带的默认技能(磁盘同名优先,可覆盖)。
+  // 并入 dao 自带的默认技能(磁盘同名优先,可覆盖)。dir 标识来源:""=内置、项目根下=项目、否则=用户。
   const diskNames = new Set(diskSkills.map((s) => s.name));
-  const skills = [...diskSkills, ...BUNDLED_SKILLS.filter((b) => !diskNames.has(b.name)).map((b) => ({ ...b, dir: "" }))];
+  const allSkills = [...diskSkills, ...BUNDLED_SKILLS.filter((b) => !diskNames.has(b.name)).map((b) => ({ ...b, dir: "" }))];
+  // 禁用集(~/.dao/skills-disabled.json):被禁用的技能不注入上下文(省 token),/skills 可开关。
+  const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
+  const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
+  const skillSource = (s: { dir: string }) => (!s.dir ? "内置" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
+  const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
+  const skills = allSkills.filter((s) => !disabledSet.has(s.name)); // 注入用:仅启用的
   const skillsSection =
     skills.length > 0
       ? `\n\n# 可用 skill(任务匹配时用 skill 工具加载其正文指令再照做)\n` +
@@ -673,6 +679,20 @@ async function main() {
         },
         runCommand: (line) => {
           const name = line.trim().slice(1).split(/\s+/)[0];
+          if (name === "skills") {
+            const rest = line.trim().split(/\s+/).slice(1);
+            const sub = rest[0];
+            if (sub === "off" || sub === "on") {
+              const target = rest[1];
+              if (!target || !allSkills.some((s) => s.name === target)) return { handled: true, output: `未知技能:${target ?? "(空)"}` };
+              if (sub === "off") disabledSet.add(target); else disabledSet.delete(target);
+              try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch {}
+              return { handled: true, output: `已${sub === "off" ? "禁用" : "启用"}技能 ${target}(重启 dao 生效)` };
+            }
+            if (allSkills.length === 0) return { handled: true, output: "暂无技能。内置随 dao 自带;项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。" };
+            const rows = allSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
+            return { handled: true, output: `技能(${allSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") };
+          }
           if (name === "yolo") {
             yolo = !yolo;
             return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(deny 规则仍拦截)" : "YOLO 已关闭:恢复审批门" };
