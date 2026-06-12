@@ -128,6 +128,14 @@ export function App(deps: AppDeps) {
   const controllerRef = useRef<AbortController | null>(null);
   const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
   const reasoningRef = useRef(""); // 本次模型响应累积的思考(同步提交,保证"思考在前、答案在后")
+  // 大段粘贴折叠:输入框/历史里显示 [粘贴#N +M行] 占位,提交时再展开成全文喂模型——保持界面与上下文清爽。
+  const pasteRef = useRef<Map<string, string>>(new Map());
+  const pasteSeqRef = useRef(0);
+  const expandPastes = (s: string) => {
+    let out = s;
+    for (const [ph, full] of pasteRef.current) out = out.split(ph).join(full);
+    return out;
+  };
   const busyRef = useRef(false);
   useEffect(() => { busyRef.current = busy; }, [busy]);
   const [taskTick, setTaskTick] = useState(0); // 后台任务状态变化计数(驱动通知处理/计数刷新)
@@ -227,7 +235,8 @@ export function App(deps: AppDeps) {
   }
 
   async function onSubmit(raw: string) {
-    const text = raw.trim();
+    const text = raw.trim(); // 展示用(可能含 [粘贴#N] 占位)
+    const full = expandPastes(text); // 喂模型/命令用(占位展开成全文)
     setField({ text: "", cursor: 0 });
     if (!text) return;
     history.current.push(text);
@@ -240,7 +249,7 @@ export function App(deps: AppDeps) {
         pushItem({ id: nextId(), kind: "notice", text: `已切换主题:${next === "light" ? "浅色" : "深色"}` });
         return;
       }
-      const res = deps.runCommand(text);
+      const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
       if (name === "clear") setItems(welcomeCommitted.current ? [{ id: 0, kind: "welcome" }] : []);
@@ -255,7 +264,7 @@ export function App(deps: AppDeps) {
       return;
     }
     pushItem({ id: nextId(), kind: "user", text });
-    await runAgentTurn(text);
+    await runAgentTurn(full);
   }
 
   // 跑一个回合(用户输入 / 后台任务通知共用):管理 busy/live/中断/出错。
@@ -365,7 +374,7 @@ export function App(deps: AppDeps) {
       // 运行中:支持排队输入(steering)。回车排队,当前回合结束后按序处理。
       if (key.return) {
         const v = field.text.trim();
-        if (v) { setQueued((q) => [...q, v]); pushItem({ id: nextId(), kind: "notice", text: `⏎ 已排队:${v.slice(0, 50)}` }); }
+        if (v) { setQueued((q) => [...q, expandPastes(v)]); pushItem({ id: nextId(), kind: "notice", text: `⏎ 已排队:${v.slice(0, 50)}` }); }
         setField({ text: "", cursor: 0 });
         return;
       }
@@ -434,8 +443,15 @@ export function App(deps: AppDeps) {
   usePaste((text) => {
     if (approval) return;
     if (ask) { setAskInput((s) => s + text); return; }
-    if (busy) return;
-    setField((f) => ({ text: f.text.slice(0, f.cursor) + text + f.text.slice(f.cursor), cursor: f.cursor + text.length }));
+    // 大段粘贴(>280 字符或 >6 行)折叠成占位符,全文存 pasteRef,提交时展开;小段照常内联。
+    let ins = text;
+    if (text.length > 280 || text.split("\n").length > 6) {
+      const id = ++pasteSeqRef.current;
+      ins = `[粘贴#${id} +${text.split("\n").length}行]`;
+      pasteRef.current.set(ins, text);
+    }
+    // 运行中也允许粘贴(可随后回车排队 steering)。
+    setField((f) => ({ text: f.text.slice(0, f.cursor) + ins + f.text.slice(f.cursor), cursor: f.cursor + ins.length }));
   });
 
   const elapsed = busy ? ((Date.now() - startedAt) / 1000).toFixed(1) : "0.0";
