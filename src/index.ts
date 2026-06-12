@@ -59,6 +59,7 @@ import { createSessionStore, logEvents, findResumable } from "./session/log.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
+import { runBuiltinCommand } from "./commands/builtin.js";
 import { buildWelcome } from "./tui/banner.js";
 import { detectCapabilities } from "./tui/capabilities.js";
 import { resolveBackground } from "./tui/background.js";
@@ -691,6 +692,12 @@ async function main() {
             }
             ctx.verifyCommand = arg === "off" ? undefined : arg;
             return { handled: true, output: ctx.verifyCommand ? `验收命令已设:${ctx.verifyCommand}` : "已清除验收命令(改为模型自判)" };
+          }
+          // 内置 prompt 命令(simplify/remember/debug/skillify):展开成 prompt 跑一回合。
+          if (name) {
+            const args = line.trim().slice(1).split(/\s+/).slice(1).join(" ");
+            const b = runBuiltinCommand(name, args);
+            if (b) return { handled: true, ...b };
           }
           // 自定义命令:/name [args] → 展开成 prompt 跑一个回合。
           if (name && customCommands.has(name)) {
