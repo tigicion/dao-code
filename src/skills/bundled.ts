@@ -15,6 +15,7 @@ export interface BundledSkill {
   name: string;
   description: string;
   body: string;
+  core?: boolean; // 核心:描述固定加载进模型上下文(可自动触发),但不进用户的 /skills 列表、不可关
 }
 
 export const BUNDLED_SKILLS: BundledSkill[] = [
@@ -23,5 +24,6 @@ export const BUNDLED_SKILLS: BundledSkill[] = [
     description:
       "审查代码改动做质量清理(复用/简化/提效/altitude)并应用;只质量、不找 bug、不加功能。被要求整理/精简/收紧代码,或想对一段 diff 做质量复查时用。",
     body: SIMPLIFY_BODY,
+    core: true,
   },
 ];
