@@ -75,6 +75,10 @@ import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from ".
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
 import { createCacheAuditSink, type CacheAuditSink } from "./session/cache_audit.js";
+import { auditEnabled } from "./session/audit_switch.js";
+import { createMemoryAuditSink, type MemoryAuditSink } from "./memory/memory_audit.js";
+import { createToolAuditSink, type ToolAuditSink } from "./tools/tool_audit.js";
+import { createPermAuditSink, type PermAuditSink } from "./permissions/perm_audit.js";
 import { createSkillAuditSink, type SkillAuditSink, readAllSkillTraces, summarizeSkillTrace, formatSkillReport } from "./skills/skill_audit.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
@@ -324,7 +328,12 @@ async function main() {
     validated.push({ mem, verdict });
   }
   // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
-  const memoryText = buildMemorySection(selectForInjection(validated, today));
+  const injectedMems = selectForInjection(validated, today);
+  const memoryText = buildMemorySection(injectedMems);
+  const recallStale = validated.filter((v) => v.verdict === "stale").length;
+  const recallChanged = validated.filter((v) => v.verdict === "changed").length;
+  const recallTypes: Record<string, number> = {};
+  for (const it of injectedMems) recallTypes[it.mem.type] = (recallTypes[it.mem.type] ?? 0) + 1;
 
   // B-5 插件多组件:插件除 skills 外还可带 commands/agents/hooks;先加载插件、聚合其组件目录。
   const installedPlugins = await loadPlugins();
@@ -473,6 +482,9 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
+  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {} };
+  let toolAudit: ToolAuditSink = { call() {} };
+  let permAudit: PermAuditSink = { decided() {} };
   // 技能加载审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 loaded)。
   let skillSink: SkillAuditSink = { loaded() {} };
   let skillRound = 0;
@@ -802,15 +814,17 @@ async function main() {
       });
       // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
       const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
-      let n = 0;
+      let n = 0, added = 0, updated = 0;
       for (const cand of cands) {
         const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
         // 本地优先路由:没把握的推断(confidence<0.6)落项目级不污染全局;否则按类型进对应层。
         const scope = routeScope(cand.type, cand.confidence);
         const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
-        await upsertMemory(dir, cand, existing, adjudicate);
+        const res = await upsertMemory(dir, cand, existing, adjudicate);
+        if (res.action === "updated") updated++; else added++;
         n++;
       }
+      memoryAudit.distilled(cands.length, added, updated);
       write(n > 0 ? `✓ 已更新记忆:${n} 条\n` : `✓ 记忆无需更新\n`);
     } catch (e) {
       if (process.env.DAO_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
@@ -878,6 +892,17 @@ async function main() {
       const store = createSessionStore(sessionsDir, resumeId);
       // 缓存审计:主+子+fork+后台+三工具调用全写进 store.dir/cache.jsonl(常驻静默;DAO_CACHE_AUDIT=0 关)。
       cacheSink = createCacheAuditSink(store.dir);
+      memoryAudit = createMemoryAuditSink(store.dir);
+      toolAudit = createToolAuditSink(store.dir);
+      permAudit = createPermAuditSink(store.dir, getMode);
+      ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
+      memoryAudit.recalled(injectedMems.length, recallStale, recallChanged, recallTypes);
+      try {
+        if (auditEnabled(process.env, "SKILL")) {
+          writeFileSync(path.join(store.dir, "skills-catalog.json"),
+            JSON.stringify(skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse ?? "" }))));
+        }
+      } catch { /* 快照失败不影响 */ }
       skillSink = createSkillAuditSink(store.dir);
       const ckpt = createCheckpointer(workspaceRoot);
       const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
