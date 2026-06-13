@@ -23,6 +23,7 @@
 ### In scope
 - 一个**独立** `cache.jsonl`,每会话一份,落在会话目录 `(.dao/sessions/<id>/cache.jsonl)`。
 - 主会话、子 agent、fork agent、后台 agent、以及 classifier/summary/distill 三个工具调用——**全部**每次 API 调用追加一条审计记录,汇入**根会话的同一条流**。
+  - **路径范围**:审计绑定【持久化的交互式(TTY)会话】——即有 session id、可按 id 审计的会话。无状态的一次性调用(`dao "prompt"`、管道/CI/eval)不创建会话 store、无 session id,故【刻意不审计】(与其已有的"不蒸馏/不做检查点"一致)。
 - 每条记录含:四维前缀指纹哈希、变更维度的内容/diff(仅变化时记)、ts、token 明细(hit/miss/prompt/completion)、agent 树身份(main/sub/fork/bg/util + depth + subId + turn)。
 - 一个开发者命令 `/cache [id]` 触发分析渲染(默认审当前会话)。
 
@@ -30,6 +31,7 @@
 - 消息级哈希以精确到"前缀在第几个 token 断"(DeepSeek 只回 hit/miss 总量,定位到维已足够;token 级定位 v2 再说)。
 - Anthropic 风格 `cache_control` 主动缓存断点(DeepSeek 扁平设计不支持)。
 - 可视化趋势图。
+- 无状态一次性/非 TTY 运行的审计(无 session id 可供按 id 审计;与不蒸馏一致)。
 
 ## 3. 架构
 

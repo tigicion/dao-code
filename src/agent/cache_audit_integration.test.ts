@@ -30,4 +30,19 @@ describe("cache-audit integration: whole tree into one root file", () => {
     expect(evs[3]!.changed).toEqual(["sys"]);
     expect(evs[3]!.delta?.sys).toBeTruthy();
   });
+
+  it("fork's sys/tools fingerprint matches the parent's (audit can verify fork reuses parent prefix)", () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ca-fork-"));
+    const sink = createCacheAuditSink(rootDir, {});
+    const u = (p: number, h: number) => ({ prompt_tokens: p, completion_tokens: 5, total_tokens: p + 5, prompt_cache_hit_tokens: h, prompt_cache_miss_tokens: p - h });
+    // 父会话最后一回合
+    sink.record({ agent: "main", depth: 0, turn: 3, model: "pro", usage: u(20000, 19000), sys: "PARENT-SYS", tools: "PARENT-TOOLS", tail: "x" });
+    // fork 子代理首回合:复用父的 system/工具(内容一致)→ 指纹应一致
+    sink.record({ agent: "fork", subId: "fk", depth: 1, turn: 0, model: "pro", usage: u(20000, 19000), sys: "PARENT-SYS", tools: "PARENT-TOOLS", tail: "" });
+    const evs = readFileSync(path.join(rootDir, "cache.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as CacheAuditEvent);
+    const parent = evs[0]!, fork = evs[1]!;
+    expect(fork.agent).toBe("fork");
+    expect(fork.fp.sys).toBe(parent.fp.sys);     // 同 system 内容 → 同指纹(可比对验证 fork 复用)
+    expect(fork.fp.tools).toBe(parent.fp.tools);
+  });
 });

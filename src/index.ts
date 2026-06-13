@@ -555,7 +555,7 @@ async function main() {
   await runHooks(hooks, "SessionStart", { cwd: workspaceRoot }); // 会话开始钩子
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
-  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[]) => {
+  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[], auditAgent: "sub" | "bg" = "sub") => {
     const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
     const reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
@@ -584,7 +584,7 @@ async function main() {
         } catch { /* 观测落盘失败不影响 */ }
       },
       auditSink: cacheSink,
-      auditAgent: "sub",
+      auditAgent,
       auditSubId: Math.random().toString(36).slice(2, 6),
     });
   };
@@ -608,7 +608,7 @@ async function main() {
   const taskManager = createTaskManager();
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
     taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
-      ctx.runSubagent!(task, signal, agentType, undefined, () => taskManager.drainPending(id)),
+      ctx.runSubagent!(task, signal, agentType, undefined, () => taskManager.drainPending(id), "bg"),
     );
   ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
 
@@ -826,6 +826,7 @@ async function main() {
     if (argvPrompt) {
       // 一次性调用(含 eval 每次跑)不蒸馏:蒸馏只属于真实的交互式工作会话,
       // 既省掉快速查询的 flash 开销,也自动把 eval 排除在外、测量更干净。
+      // 同理不做缓存审计:此路径无会话 store/id(无从按 id 审计),cacheSink 保持 no-op。
       session.addUser(argvPrompt);
       await runOneTurn();
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);

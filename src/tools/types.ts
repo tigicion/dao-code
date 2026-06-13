@@ -27,6 +27,7 @@ export interface ToolContext {
     agentType?: string,
     workspaceRoot?: string,
     drainPending?: () => string[],
+    auditAgent?: "sub" | "bg", // 缓存审计身份:后台任务传 "bg",前台/工具派发默认 "sub"
   ) => Promise<string>;
   // ② fork 子代理:继承父代理已缓存的消息前缀(同 system/模型/工具),复用前缀缓存近乎免费;
   // 适合"带全量上下文做一个分支子任务"。任务作末尾指令,只此处与父对话不同。
