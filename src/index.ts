@@ -44,6 +44,7 @@ import { createWorktree } from "./agent/worktree.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
+import { relevantSkills, formatDiscovery } from "./skills/discovery.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
@@ -350,7 +351,7 @@ async function main() {
         `【强制要求】只要某个 skill 可能与当前任务相关(哪怕只有一点可能,尤其描述写"在…之前/必须用"的,` +
         `如做新功能前的 brainstorming、调试前的根因流程),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
         `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
-        skills.map((s) => `- ${s.name}:${s.description}`).join("\n")
+        skills.map((s) => `- ${s.name}:${s.description.slice(0, 160)}`).join("\n") // 预算:每条描述上限 160 字,防多技能撑大常驻 prompt
       : "";
 
   const systemPrompt =
@@ -754,6 +755,7 @@ async function main() {
             events: logEvents(events, store), // 渲染的同时写日志
             maxTurns: longTask || coordinator ? 500 : undefined, // 长任务/Coordinator 给更高轮数上限(默认 150)
             signal,
+            transientSystem: formatDiscovery(relevantSkills(text, skills, 5)) || undefined, // 相关技能发现(本回合临时注入)
           });
           store.append({ t: "turn_end" });
           if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
