@@ -47,20 +47,15 @@ describe("write_file tool", () => {
     expect(await fs.readFile(abs, "utf8")).toBe("new");
   });
 
-  it("工作区外路径:无授权回调 → 拒绝写入", async () => {
-    await expect(
-      writeFileTool.handler({ path: "../evil.txt", content: "x" }, { workspaceRoot: root, readFiles: new Set() }),
-    ).rejects.toThrow(/未获授权写入/);
-  });
-
-  it("工作区外路径:授权回调放行 → 可写", async () => {
-    const extName = `../${path.basename(root)}-ext.txt`; // 唯一的区外新文件,不会预先存在
+  it("工作区外路径:直接解析并写入(放行交给权限系统,工具不再硬拦)", async () => {
+    const extName = `../${path.basename(root)}-ext.txt`; // 唯一的区外新文件
     const out = await writeFileTool.handler(
       { path: extName, content: "ok" },
-      { workspaceRoot: root, readFiles: new Set(), approveExternalWrite: async () => true },
+      { workspaceRoot: root, readFiles: new Set() },
     );
-    expect(out).not.toMatch(/未获授权/);
-    await fs.rm(path.resolve(root, extName), { force: true });
+    const abs = path.resolve(root, extName);
+    expect(await fs.readFile(abs, "utf8")).toBe("ok");
+    await fs.rm(abs, { force: true });
   });
 
   it("declares write capability and required approval", () => {

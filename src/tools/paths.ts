@@ -43,15 +43,9 @@ export function resolveInWorkspace(workspaceRoot: string, p: string): string {
   return abs;
 }
 
-// 写路径解析:工作区内直接放行;区外则走授权(approveExternal),未授权抛出干净说明(由 dispatch 回灌为工具结果)。
-export async function resolveWritePath(
-  workspaceRoot: string,
-  p: string,
-  approveExternal?: (abs: string) => Promise<boolean>,
-): Promise<string> {
-  const { abs, external } = classifyPath(workspaceRoot, p);
-  if (!external) return abs;
-  const ok = approveExternal ? await approveExternal(abs) : false;
-  if (!ok) throw new Error(`${p} 在工作区外,未获授权写入(会弹出授权;或用 --add-dir 预先放行该目录)。`);
-  return abs;
+// 写路径解析:解析成绝对路径即可(任意路径,含工作区外)。是否放行【完全交给权限系统】——
+// 写工具 capability=write、approval=required,会经 gate 审批(规则/ask)+ 敏感路径 1g 检查;
+// 不再在工具内单设硬边界(否则 headless 区外写会直接失败、且与 gate 重复)。
+export function resolveWritePath(workspaceRoot: string, p: string): string {
+  return classifyPath(workspaceRoot, p).abs;
 }
