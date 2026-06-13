@@ -47,10 +47,18 @@ describe("write_file tool", () => {
     expect(await fs.readFile(abs, "utf8")).toBe("new");
   });
 
-  it("rejects path escaping the workspace", async () => {
+  it("工作区外路径:无授权回调 → 拒绝写入", async () => {
     await expect(
       writeFileTool.handler({ path: "../evil.txt", content: "x" }, { workspaceRoot: root, readFiles: new Set() }),
-    ).rejects.toThrow(/越界/);
+    ).rejects.toThrow(/未获授权写入/);
+  });
+
+  it("工作区外路径:授权回调放行 → 可写", async () => {
+    const out = await writeFileTool.handler(
+      { path: "../allowed.txt", content: "ok" },
+      { workspaceRoot: root, readFiles: new Set(), approveExternalWrite: async () => true },
+    );
+    expect(out).not.toMatch(/未获授权/);
   });
 
   it("declares write capability and required approval", () => {

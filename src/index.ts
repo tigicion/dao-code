@@ -472,6 +472,7 @@ async function main() {
 
   // 申请访问工作区外路径(读类工具):一次授权后本会话不再追问;选"本仓库后续都用"则持久化。
   let externalReadGranted = alwaysApproved.has("external-read");
+  let externalWriteGranted = alwaysApproved.has("external-write");
   // CC additionalDirectories:settings 里预先授权的工作区外目录,直接放行不弹窗。
   const extraDirs = loadedPerms.additionalDirectories.map((d) => path.resolve(workspaceRoot, d));
   const underExtra = (abs: string) => extraDirs.some((d) => abs === d || abs.startsWith(d.endsWith("/") ? d : d + "/"));
@@ -490,6 +491,19 @@ async function main() {
       externalReadGranted = true;
     }
     return true; // once 放行本次
+  };
+  // 工作区外【写】授权(对标外部读):yolo / 已授权 / --add-dir 目录直接放行,否则弹审批。
+  ctx.approveExternalWrite = async (abs: string): Promise<boolean> => {
+    if (yolo || externalWriteGranted || underExtra(abs)) return true;
+    if (!inkApprovalPrompt) return false; // 非交互默认拒绝区外写
+    const decisions = await inkApprovalPrompt([
+      { id: "extw", toolName: "写入(工作区外)", capability: "write", summary: `写入工作区外路径:${abs}` },
+    ]);
+    const d = decisions.get("extw") ?? "deny";
+    if (d === "deny") return false;
+    if (d === "always") { externalWriteGranted = true; await appendAlwaysApproved(approvalsFile, "external-write"); }
+    else if (d === "session") { externalWriteGranted = true; }
+    return true;
   };
 
   const KEEP_RECENT_TURNS = 2;
