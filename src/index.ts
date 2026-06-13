@@ -495,7 +495,23 @@ async function main() {
   const KEEP_RECENT_TURNS = 2;
   const CONTEXT_WINDOW = 1_000_000;
 
-  // 压缩用:对一批旧消息生成简洁摘要(独立一次 streamChat,不带工具,不流式渲染)。
+  // 压缩用:对一批旧消息生成结构化中文摘要(独立一次 streamChat,不带工具,不流式渲染)。
+  // 对标 CC:先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
+  const COMPACT_PROMPT = `你是对话压缩器。把目前为止的对话压缩成一份详尽的中文摘要,重点保留用户的明确请求和你已做的动作,确保技术细节、代码模式、架构决策不丢,以便不丢上下文地继续工作。
+
+先在 <分析> 标签里按时间顺序逐段过一遍对话——每段识别:用户的明确请求与意图、你的处理方式、关键决策与技术概念、具体文件名/代码片段/函数签名/文件改动、遇到的错误及修复、尤其用户给的纠正性反馈;核对技术准确与完整。然后在 <摘要> 标签里输出下面 9 个固定小节:
+
+1. 主要请求与意图:详尽列出用户所有明确请求与意图
+2. 关键技术概念:讨论到的所有重要技术/框架/概念
+3. 文件与代码片段:查看/修改/新建的具体文件与代码段,附"为何重要"和关键代码(尤其最近的)
+4. 错误与修复:遇到的错误、如何修复、以及用户对此的反馈
+5. 问题解决:已解决的问题与进行中的排查
+6. 所有用户消息:逐条列出所有非工具结果的用户消息(理解反馈与意图变化的关键)
+7. 待办任务:明确被要求做、尚未完成的事
+8. 当前工作:紧接本次压缩前正在做什么,含文件名与代码片段
+9. 下一步(可选):仅当与用户最近的明确请求直接一致时才列,并附最近对话的【原话引用】以防任务理解漂移
+
+只输出 <分析> 和 <摘要> 两个块的纯文本,不要寒暄。`;
   const summarize = async (msgs: ChatMessage[]): Promise<string> => {
     const rendered = msgs
       .map((m) => {
@@ -511,7 +527,7 @@ async function main() {
       apiKey: cfg.apiKey,
       model: session.model,
       messages: [
-        { role: "system", content: "你是对话压缩器。把给定的早期对话压缩成简洁中文摘要,保留:关键事实与用户偏好、已做的文件改动与命令、做出的决定、未完成事项。只输出摘要正文,不要寒暄。" },
+        { role: "system", content: COMPACT_PROMPT },
         { role: "user", content: rendered },
       ],
       // 摘要不需要深推理:关思考更快更省,温度 0 让压缩结果可复现。
@@ -523,7 +539,10 @@ async function main() {
       if (r.value.kind === "content") out += r.value.text;
       r = await gen.next();
     }
-    return out.trim() || (typeof r.value.content === "string" ? r.value.content : "(摘要为空)");
+    out = out.trim() || (typeof r.value.content === "string" ? r.value.content : "");
+    // 剥掉 <分析> 草稿,只留 <摘要>(没标签则用全文)。
+    const m = out.match(/<摘要>([\s\S]*?)<\/摘要>/);
+    return (m ? m[1]! : out).trim() || "(摘要为空)";
   };
 
   const runCompaction = async (): Promise<void> => {
