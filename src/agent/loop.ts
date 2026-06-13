@@ -39,8 +39,6 @@ export interface TurnDeps {
   // Ink 路径传入自己的适配器,把流式喂进 React state。
   events?: TurnEvents;
   maxTurns?: number;
-  // B 条件路径技能:每批工具执行后调用,据被操作文件激活匹配的条件技能;返回要 append 进 session 的正文。
-  activateSkillsForPaths?: (calls: ToolCall[]) => string | undefined;
   // 中途取消信号(ESC/超时):透传给 streamChat 与工具 ctx;abort 后本回合优雅停止。
   signal?: AbortSignal;
   // 回合边界消费的追加消息(SendMessage 给运行中子代理用):每个工具回合前注入为 user 消息。
@@ -68,17 +66,6 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 边界保护对标 CC:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
-  // 每批工具执行后:条件路径技能自动激活——把正文【追加】进 session.messages(append-only,缓存安全)。
-  // 注:不再做"写 pivot 刷新发现提示"——那是每轮变的尾部 system 注入,会整段废掉前缀缓存(见下方说明)。
-  const afterTools = (calls: ToolCall[]): void => {
-    if (deps.activateSkillsForPaths) {
-      const inject = deps.activateSkillsForPaths(calls);
-      if (inject) {
-        session.messages.push({ role: "system", content: inject });
-        events.notice("\n[条件技能已自动激活]\n");
-      }
-    }
-  };
   // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时,把提醒【追加】进 session.messages(append-only)。
   const ADVISE_EVERY = Number(process.env.DAO_ADVISE_EVERY) || 5;
   const PROGRESS_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "todo_write"]);
@@ -204,7 +191,6 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
-      afterTools(toolCalls);
     } else {
       const toolMessages = await deps.executeToolCalls(toolCalls, deps.registry, toolCtx, deps.gate);
       for (const tc of toolCalls) {
@@ -212,7 +198,6 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
-      afterTools(toolCalls);
     }
 
     // P2-11 编辑后诊断回灌:本轮改了文件 → 跑诊断命令,有报错就注入 [诊断],模型当轮自查自改。

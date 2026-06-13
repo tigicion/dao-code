@@ -5,17 +5,15 @@ import path from "node:path";
 import { createSkillAuditSink, summarizeSkillTrace, type SkillTraceEvent } from "./skill_audit.js";
 
 describe("createSkillAuditSink", () => {
-  it("offered/loaded/activated 各落一行 JSONL;activated 每技能一行", () => {
+  it("offered/loaded 各落一行 JSONL", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "dao-skillaudit-"));
     const sink = createSkillAuditSink(dir, {} as NodeJS.ProcessEnv);
     sink.offered(1, "改下 tsx 组件", [{ name: "tsx-conv", score: 3 }, { name: "debugging", score: 1 }]);
     sink.loaded(1, "tsx-conv");
-    sink.activated(2, ["api-rules", "tsx-conv"], ["src/api/x.ts"]);
     const lines = readFileSync(path.join(dir, "skill-trace.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as SkillTraceEvent);
-    expect(lines).toHaveLength(4); // 1 offered + 1 loaded + 2 activated
+    expect(lines).toHaveLength(2); // 1 offered + 1 loaded
     expect(lines[0]).toMatchObject({ kind: "offered", round: 1, candidates: [{ name: "tsx-conv", score: 3 }, { name: "debugging", score: 1 }] });
     expect(lines[1]).toMatchObject({ kind: "loaded", round: 1, name: "tsx-conv" });
-    expect(lines.filter((l) => l.kind === "activated").map((l: any) => l.name).sort()).toEqual(["api-rules", "tsx-conv"]);
   });
 
   it("DAO_SKILL_AUDIT=0 → no-op,不落盘", () => {

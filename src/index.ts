@@ -51,7 +51,6 @@ import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
 import { relevantSkillsScored } from "./skills/discovery.js";
-import { makeActivator, extractOperatedPaths, formatActivation } from "./skills/conditional.js";
 import { loadUsage, saveUsage, recordUsage, usageScore } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
 import { skillTool } from "./tools/skill.js";
@@ -367,13 +366,8 @@ async function main() {
   const skillSource = (s: { dir: string }) => (s.dir.startsWith(pluginsDir) ? "插件" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
   const enabledDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
-  // 条件(路径触发)技能:有 frontmatter paths 的不进常驻列表,仅当模型读/写匹配文件时确定性激活(自动注入正文)。
-  const isConditional = (s: import("./skills/skills.js").Skill) => !!(s.paths && s.paths.length);
-  const allEnabled = [...coreBundled, ...enabledDisk];
-  const conditionalSkills = allEnabled.filter(isConditional);
-  const activator = makeActivator(conditionalSkills);
-  // 模型可见 = 核心内置(固定) + 启用的磁盘技能里的【无条件】者;ctx.skills 据此,skill 工具按需加载正文。
-  const skills = allEnabled.filter((s) => !isConditional(s));
+  // 模型可见 = 核心内置(固定) + 启用的磁盘技能;全部进常驻列表(name+description),skill 工具按需加载正文。
+  const skills = [...coreBundled, ...enabledDisk];
   // 使用频率加权(常用且最近用过的技能在发现/列表里靠前)。启动加载一次,记录时增量更新+落盘。
   let usageMap = await loadUsage(os.homedir());
   const skillWeight = (name: string) => usageScore(usageMap, name, today);
@@ -481,8 +475,8 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
-  // 技能触发审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 offered/loaded/activated)。
-  let skillSink: SkillAuditSink = { offered() {}, loaded() {}, activated() {} };
+  // 技能触发审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 offered/loaded)。
+  let skillSink: SkillAuditSink = { offered() {}, loaded() {} };
   let skillRound = 0;
   // P3-17 预算提醒阈值(￥,可选):DAO_MAX_BUDGET 设了则超阈值提醒一次(默认不停);DAO_MAX_BUDGET_HARD=1 才硬停。
   { const b = Number(process.env.DAO_MAX_BUDGET); if (Number.isFinite(b) && b > 0) session.budgetCNY = b; }
@@ -936,13 +930,6 @@ async function main() {
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
-            // B 条件路径技能:模型读/写文件后,据被操作文件激活匹配的条件技能,把正文 append 进 session(缓存安全)。
-            activateSkillsForPaths: (calls) => {
-              const paths = extractOperatedPaths(calls);
-              const fresh = activator.activate(paths);
-              if (fresh.length) skillSink.activated(skillRound, fresh.map((s) => s.name), paths); // 审计:确定性激活+触发路径
-              return formatActivation(fresh) || undefined;
-            },
           }));
           store.append({ t: "turn_end" });
           if (contextTokens() >= CONTEXT_WINDOW * 0.85) {

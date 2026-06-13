@@ -99,37 +99,6 @@ describe("runTurn", () => {
     expect(s.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "assistant"]);
   });
 
-  it("条件技能:据被操作文件激活,正文【append】进 session;且不往请求尾部塞临时 system(缓存安全)", async () => {
-    const s = new Session("SYS", "m");
-    s.addUser("改下组件");
-    const editCall: AssistantMessage = {
-      role: "assistant", content: "我来改这个组件",
-      tool_calls: [{ id: "c0", type: "function", function: { name: "edit_file", arguments: JSON.stringify({ path: "src/Button.tsx" }) } }],
-    };
-    const sentTails: (string | undefined)[] = [];
-    await runTurn({
-      session: s,
-      config,
-      registry: emptyReg(),
-      ctx,
-      gate: stubGate,
-      streamChat: ((opts: StreamChatOptions) => {
-        const tail = opts.messages[opts.messages.length - 1];
-        sentTails.push(tail?.role === "system" ? String(tail.content) : undefined);
-        return (s.messages.length > 4
-          ? turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })
-          : turn([], editCall))();
-      }) as any,
-      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "ok" }],
-      write: () => {},
-      activateSkillsForPaths: (calls) =>
-        calls.some((c) => c.function.arguments.includes(".tsx")) ? "[激活] tsx 约定正文" : undefined,
-    });
-    // 激活正文作为 system 消息【持久 append】进 session(append-only,缓存安全)
-    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("tsx 约定正文"))).toBe(true);
-    // 缓存安全不变式:第一次请求的尾部不是临时 system 注入(应是 user 消息);激活内容来自 append 而非尾部拼接
-    expect(sentTails[0]).not.toBe("[激活] tsx 约定正文");
-  });
 
   it("进度提醒【append】进 session(append-only,缓存安全),而非每轮拼到请求尾部", async () => {
     const s = new Session("SYS", "m");
