@@ -82,3 +82,27 @@ describe("compactMessages", () => {
     expect(out.slice(2)).toEqual(toolTurn);
   });
 });
+
+import { microcompactMessages } from "./compact.js";
+describe("microcompactMessages", () => {
+  const asst = (id: string, name: string) => ({ role: "assistant" as const, content: "", tool_calls: [{ id, type: "function" as const, function: { name, arguments: "{}" } }] });
+  const tool = (id: string, content: string) => ({ role: "tool" as const, tool_call_id: id, content });
+  const user = (c: string) => ({ role: "user" as const, content: c });
+  it("清旧的可重现工具结果,保留写结果与近期", () => {
+    const msgs = [
+      { role: "system" as const, content: "sys" },
+      user("t1"), asst("a1", "read_file"), tool("a1", "老文件内容很长"),
+      asst("a2", "write_file"), tool("a2", "已写入 x"),
+      user("t2"), user("t3"),
+      asst("a3", "read_file"), tool("a3", "近期读取,保留"),
+    ];
+    const out = microcompactMessages(msgs, 2);
+    expect(out.find((m) => m.role === "tool" && m.tool_call_id === "a1")!.content).toContain("已清理"); // 旧 read 清掉
+    expect(out.find((m) => m.role === "tool" && m.tool_call_id === "a2")!.content).toBe("已写入 x"); // 写结果保留
+    expect(out.find((m) => m.role === "tool" && m.tool_call_id === "a3")!.content).toBe("近期读取,保留"); // 近期保留
+  });
+  it("会话太短不动", () => {
+    const msgs = [{ role: "user" as const, content: "x" }];
+    expect(microcompactMessages(msgs, 2)).toEqual(msgs);
+  });
+});
