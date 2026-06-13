@@ -28,16 +28,40 @@ export class PermissionGate implements ApprovalGate {
     // 工具自检只能【收紧】(对标 CC 1c–1f):escalate allow→ask、任意→deny;返回 null 不干预。
     const tc = tool.checkPermissions?.(argsJson);
     if (tc === "deny") return "deny";
-    if (tc === "ask" && d === "allow") return "ask";
+    // yolo(bypassPermissions):deny 之外一律放行——工具自检的 ask 升级也不拦(用户已自担风险)。
+    if (tc === "ask" && d === "allow" && this.getMode() !== "bypassPermissions") return "ask";
     return d;
   }
 
+  // auto 模式拒绝跟踪(对标 CC denialTracking):连续拒绝/累计拒绝达阈值 → 回退人工审批,防分类器误杀卡死。
+  private consecutiveDenials = 0;
+  private cumulativeDenials = 0;
+  private static readonly CONSECUTIVE_LIMIT = 3;
+  private static readonly CUMULATIVE_LIMIT = 20;
+
   async requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>> {
-    // auto 模式:用 AI 分类器代替人工逐一裁决(出错保守拒绝);不持久化规则(每次重判)。
+    // auto 模式:用 AI 分类器代替人工逐一裁决(出错保守拒绝,对标 fail-closed);不持久化规则(每次重判)。
     if (this.getMode() === "auto" && this.classify) {
       const out = new Map<string, boolean>();
+      const needHuman: ApprovalRequest[] = [];
       for (const r of requests) {
-        out.set(r.id, await this.classify(r.toolName, r.argsJson ?? "").catch(() => false));
+        // 熔断:连续≥3 或 累计≥20 次拒绝 → 该请求回退人工审批(保留分类器已做的判断不丢)。
+        if (this.consecutiveDenials >= PermissionGate.CONSECUTIVE_LIMIT || this.cumulativeDenials >= PermissionGate.CUMULATIVE_LIMIT) {
+          if (this.cumulativeDenials >= PermissionGate.CUMULATIVE_LIMIT) this.cumulativeDenials = 0; // 累计触发后重置
+          needHuman.push(r);
+          continue;
+        }
+        const allow = await this.classify!(r.toolName, r.argsJson ?? "").catch(() => false);
+        if (allow) { this.consecutiveDenials = 0; out.set(r.id, true); }
+        else { this.consecutiveDenials++; this.cumulativeDenials++; out.set(r.id, false); }
+      }
+      if (needHuman.length) {
+        const decisions = await this.prompt(needHuman);
+        for (const r of needHuman) {
+          const allow = (decisions.get(r.id) ?? "deny") !== "deny";
+          if (allow) this.consecutiveDenials = 0;
+          out.set(r.id, allow);
+        }
       }
       return out;
     }
