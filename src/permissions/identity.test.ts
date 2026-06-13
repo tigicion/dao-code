@@ -35,8 +35,12 @@ describe("toCcIdentity — DAO 工具调用 → CC 工具身份", () => {
 });
 
 describe("rememberRule — '允许并记住' 生成的规则", () => {
-  it("Bash → 精确命令规则", () => {
-    expect(rememberRule("exec_shell", '{"command":"npm run build"}')).toBe("Bash(npm run build)");
+  it("Bash 简单命令 → 智能前缀规则(同类免再问)", () => {
+    expect(rememberRule("exec_shell", '{"command":"npm run build"}')).toBe("Bash(npm run:*)");
+    expect(rememberRule("exec_shell", '{"command":"ls -la"}')).toBe("Bash(ls:*)");
+  });
+  it("Bash 含管道/重定向等 → 精确命令(不放宽)", () => {
+    expect(rememberRule("exec_shell", '{"command":"cat a | grep b"}')).toBe("Bash(cat a | grep b)");
   });
   it("路径工具 → 路径规则", () => {
     expect(rememberRule("edit_file", '{"path":"src/a.ts"}')).toBe("Edit(src/a.ts)");

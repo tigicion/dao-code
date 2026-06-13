@@ -44,5 +44,17 @@ export function rememberRule(toolName: string, argsJson: string): string | null 
       return `WebFetch(domain:${id.value})`;
     }
   }
+  // Bash:智能前缀——简单命令记 `Bash(prog sub:*)`(同类命令免再问);含 shell 元字符的复合命令记精确(更安全)。
+  if (id.ccTool === "Bash") return `Bash(${bashPrefix(id.value)})`;
   return `${id.ccTool}(${id.value})`;
+}
+
+// 从命令提取放宽规则:含管道/重定向/链接/替换 → 精确(不放宽);否则 程序 + 首个非 flag 子命令 + ":*"。
+function bashPrefix(command: string): string {
+  const cmd = command.trim();
+  if (/[|&;<>`]|\$\(/.test(cmd)) return cmd; // 复合/含注入风险 → 精确
+  const toks = cmd.split(/\s+/);
+  const prog = toks[0] ?? "";
+  const sub = toks[1] && !toks[1].startsWith("-") ? ` ${toks[1]}` : "";
+  return `${prog}${sub}:*`;
 }
