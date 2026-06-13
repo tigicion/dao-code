@@ -96,3 +96,36 @@ describe("runRepl", () => {
     expect(compacted).toBe(1);
   });
 });
+
+describe("runRepl 后台通知回合边界自动续跑", () => {
+  it("一回合后有通知 → 自动再跑一回合喂通知;之后无通知则停", async () => {
+    const turns: string[] = [];
+    const session: any = { addUser: (t: string) => turns.push(t), messages: [] };
+    const lines: (string | null)[] = ["第一条输入", null]; // 一条真实输入后 EOF
+    const notesBatches: string[][] = [["<task-message>进度</task-message>"], []]; // 第一次 drain 有一条,第二次空
+    await runRepl({
+      session,
+      readLine: async () => lines.shift() ?? null,
+      runTurn: async () => { /* no-op turn */ },
+      compact: async () => {},
+      write: () => {},
+      drainNotifications: () => notesBatches.shift() ?? [],
+    } as any);
+    // 期望:用户输入入一回合 + 通知自动续一回合
+    expect(turns.some((t) => t.includes("第一条输入"))).toBe(true);
+    expect(turns.some((t) => t.includes("进度"))).toBe(true);
+  });
+  it("无 drainNotifications(或始终空)→ 行为不变(不额外跑回合)", async () => {
+    const turns: string[] = [];
+    const session: any = { addUser: (t: string) => turns.push(t), messages: [] };
+    const lines: (string | null)[] = ["only", null];
+    await runRepl({
+      session,
+      readLine: async () => lines.shift() ?? null,
+      runTurn: async () => {},
+      compact: async () => {},
+      write: () => {},
+    } as any); // 不传 drainNotifications
+    expect(turns).toEqual(["only"]); // 仅一条,无自动续
+  });
+});

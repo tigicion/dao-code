@@ -31,12 +31,15 @@ export interface ToolContext {
     auditAgent?: "sub" | "bg"; // 缓存审计身份:后台传 "bg",前台/工具默认 "sub"
     model?: string;            // 调用级模型覆盖(后续任务起用);优先级最高
     mode?: Mode;               // 调用级权限模式覆盖(后续任务起用)
+    messageParent?: (message: string) => void; // 后台子代理→父的 mid-run 出口(runBackgroundAgent 绑定)
   }) => Promise<string>;
   // ② fork 子代理:继承父代理已缓存的消息前缀(同 system/模型/工具),复用前缀缓存近乎免费;
   // 适合"带全量上下文做一个分支子任务"。任务作末尾指令,只此处与父对话不同。
   runForkAgent?: (task: string, signal?: AbortSignal, drainPending?: () => string[]) => Promise<string>;
   // 给运行中的后台子代理追加指令(SendMessage);返回是否送达(任务在跑)。
   sendToTask?: (id: string, message: string) => boolean;
+  // (后台子代理用)给父代理发 mid-run 消息;由 runBackgroundAgent 绑定到本任务 id。前台子代理为 undefined。
+  messageParent?: (message: string) => void;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
   createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。

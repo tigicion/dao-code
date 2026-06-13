@@ -18,6 +18,8 @@ export interface TaskManager {
   adopt(description: string, promise: Promise<string>): string;
   // 给运行中的任务追加一条消息(SendMessage),由其在下一个工具回合边界消费。
   send(id: string, message: string): boolean;
+  // 运行中任务给父代理发一条 mid-run 消息(进度/发现/提问):入通知队列 + 触发 onChange。
+  emitFromTask(id: string, message: string): boolean;
   // 取出并清空某任务的待消费消息(子代理 runTurn 在回合边界调用)。
   drainPending(id: string): string[];
   drainNotifications(): string[]; // 取出并清空待通知(已完成/失败任务的 XML 通知)
@@ -40,6 +42,18 @@ function notificationXml(t: BgTask): string {
     body,
     `</result>`,
     `</task-notification>`,
+  ].join("\n");
+}
+
+function taskMessageXml(t: BgTask, message: string): string {
+  return [
+    `<task-message>`,
+    `<task-id>${t.id}</task-id>`,
+    `<description>${t.description}</description>`,
+    `<message>`,
+    message,
+    `</message>`,
+    `</task-message>`,
   ].join("\n");
 }
 
@@ -118,6 +132,13 @@ export function createTaskManager(): TaskManager {
       const t = tasks.get(id);
       if (!t || t.status !== "running") return false;
       (pending.get(id) ?? pending.set(id, []).get(id)!).push(message);
+      return true;
+    },
+    emitFromTask(id, message) {
+      const t = tasks.get(id);
+      if (!t || t.status !== "running") return false;
+      notifications.push(taskMessageXml(t, message));
+      notify();
       return true;
     },
     drainPending(id) {
