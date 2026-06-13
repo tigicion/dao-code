@@ -9,6 +9,7 @@ export interface AgentDef {
   name: string;
   description: string;
   tools?: string[]; // 工具名白名单;省略=继承全部工具
+  toolsExclude?: string[]; // "*, !x" 语法的排除名;tools=undefined 表示全集,再减去这些
   model?: string;
   prompt: string; // 专属 system prompt 正文
 }
@@ -29,10 +30,16 @@ export function parseAgentDef(filename: string, raw: string): AgentDef | null {
   const name = (fm.name || filename).trim();
   if (!name || !body) return null;
   const toolsRaw = fm.tools ?? fm["allowed-tools"] ?? fm.allowedtools;
+  const tokens = toolsRaw ? toolsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const exclude = tokens.filter((t) => t.startsWith("!")).map((t) => t.slice(1).trim()).filter(Boolean);
+  const include = tokens.filter((t) => t !== "*" && !t.startsWith("!"));
+  const hasStar = tokens.includes("*");
+  const tools = include.length > 0 && !hasStar ? include : undefined;
   return {
     name,
     description: fm.description ?? "",
-    tools: toolsRaw ? toolsRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+    tools,
+    toolsExclude: exclude.length > 0 ? exclude : undefined,
     model: fm.model || undefined,
     prompt: body,
   };
