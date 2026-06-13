@@ -10,8 +10,9 @@ export interface ToolContext {
   readFiles?: Set<string>;
   // 向用户提问(ask_user 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
-  // 结构化选择(ask_user 带 options 时用):↑↓ 选 + Enter 确认,自动附"自己填写""先讨论"两项;返回选中项文本/自填内容/讨论标记。
-  askChoice?: (question: string, options: string[]) => Promise<string>;
+  // 结构化选择(ask_user 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
+  // 自动附"其他(自己输入)"与"先讨论一下"两项;返回选中项文本(多选逗号分隔)/自填内容/讨论标记。
+  askChoice?: (question: string, options: string[], multi?: boolean) => Promise<string>;
   // 网络抓取(web_search/fetch_url 用);注入,默认全局 fetch。
   fetchImpl?: typeof fetch;
   // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
@@ -35,8 +36,8 @@ export interface ToolContext {
   adoptBackground?: (description: string, promise: Promise<string>) => string;
   // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。
   agentTypes?: { name: string; description: string }[];
-  // 可用 skill(名字+描述+正文+目录),供 skill 工具按需加载正文。
-  skills?: { name: string; description: string; body: string; dir: string }[];
+  // 可用 skill(名字+描述+触发条件+slug+正文+目录),供 skill 工具按需加载正文。
+  skills?: { name: string; description: string; whenToUse?: string; slug?: string; body: string; dir: string }[];
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。

@@ -14,7 +14,12 @@ export const skillTool = defineTool({
   }),
   handler: async (args, ctx) => {
     const skills = ctx.skills ?? [];
-    const s = skills.find((x) => x.name === args.name);
+    // 容错匹配:精确 name → 大小写不敏感 name → 目录 slug(模型常用直觉短名,不必照抄 Title Case)。
+    const want = args.name.trim().toLowerCase();
+    const s =
+      skills.find((x) => x.name === args.name) ??
+      skills.find((x) => x.name.toLowerCase() === want) ??
+      skills.find((x) => x.slug?.toLowerCase() === want);
     if (!s) {
       const avail = skills.map((x) => x.name).join(", ") || "(无)";
       return `未找到 skill「${args.name}」。可用:${avail}。`;
