@@ -45,6 +45,8 @@ import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
 import { relevantSkills, formatDiscovery } from "./skills/discovery.js";
+import { makeActivator, extractOperatedPaths, formatActivation } from "./skills/conditional.js";
+import { loadUsage, saveUsage, recordUsage, usageScore } from "./skills/usage.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
@@ -345,8 +347,16 @@ async function main() {
   const skillSource = (s: { dir: string }) => (s.dir.startsWith(pluginsDir) ? "插件" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
   const enabledDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
-  // 模型可见 = 核心内置(固定) + 启用的磁盘技能;ctx.skills 据此,skill 工具按需加载正文。
-  const skills = [...coreBundled, ...enabledDisk];
+  // 条件(路径触发)技能:有 frontmatter paths 的不进常驻列表,仅当模型读/写匹配文件时确定性激活(自动注入正文)。
+  const isConditional = (s: import("./skills/skills.js").Skill) => !!(s.paths && s.paths.length);
+  const allEnabled = [...coreBundled, ...enabledDisk];
+  const conditionalSkills = allEnabled.filter(isConditional);
+  const activator = makeActivator(conditionalSkills);
+  // 模型可见 = 核心内置(固定) + 启用的磁盘技能里的【无条件】者;ctx.skills 据此,skill 工具按需加载正文。
+  const skills = allEnabled.filter((s) => !isConditional(s));
+  // 使用频率加权(常用且最近用过的技能在发现/列表里靠前)。启动加载一次,记录时增量更新+落盘。
+  let usageMap = await loadUsage(os.homedir());
+  const skillWeight = (name: string) => usageScore(usageMap, name, today);
   const skillsSection =
     skills.length > 0
       ? `\n\n# 可用 skill —— 开始任何任务前先扫这张表\n` +
@@ -465,6 +475,8 @@ async function main() {
   let subagentWrite: (s: string) => void = write;
   ctx.agentTypes = agentDefs.map((d) => ({ name: d.name, description: d.description }));
   ctx.skills = skills;
+  // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
+  ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); };
 
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
   const hooks = await loadHooks([
@@ -772,7 +784,17 @@ async function main() {
             events: logEvents(events, store), // 渲染的同时写日志
             maxTurns: longTask || coordinator ? 500 : undefined, // 长任务/Coordinator 给更高轮数上限(默认 150)
             signal,
-            transientSystem: formatDiscovery(relevantSkills(text, skills, 5)) || undefined, // 相关技能发现(本回合临时注入)
+            transientSystem: formatDiscovery(relevantSkills(text, skills, 5, skillWeight)) || undefined, // 相关技能发现(按使用频率加权;本回合临时注入)
+            // B 条件路径技能:模型读/写文件后,据被操作文件激活匹配的条件技能,自动注入正文一次。
+            activateSkillsForPaths: (calls) => formatActivation(activator.activate(extractOperatedPaths(calls))) || undefined,
+            // A 写操作 pivot:模型转向写/改文件后,据其意图(正文 + 被改文件名)重算相关技能发现,刷新提示。
+            rediscoverAfterWrite: (calls, content) => {
+              const paths = extractOperatedPaths(calls);
+              const wrote = calls.some((c) => ["write_file", "edit_file", "multi_edit"].includes(c.function.name));
+              if (!wrote) return undefined; // 非写 pivot:不动提示
+              const query = `${content} ${paths.join(" ")}`.trim();
+              return formatDiscovery(relevantSkills(query, skills, 5, skillWeight)); // 命中→新提示;未命中→""清除陈旧提示
+            },
           });
           store.append({ t: "turn_end" });
           if (shouldCompact(session.messages, CONTEXT_WINDOW)) {

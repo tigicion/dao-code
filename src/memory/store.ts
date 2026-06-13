@@ -15,20 +15,9 @@ export function routeScope(type: MemoryType, confidence: number | undefined): Sc
 }
 import { parseMemoryFile, serializeMemory } from "./frontmatter.js";
 
-// 去掉标点/空白后取相邻字符二元组(shingle):对中文(无词边界)近重复鲁棒,
-// 同时对 ASCII 也按字符级比较。纯确定性,无分词依赖。
-function shingles(s: string): Set<string> {
-  const chars = [...s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "")];
-  const out = new Set<string>();
-  if (chars.length <= 1) { if (chars.length === 1) out.add(chars[0] ?? ""); return out; }
-  for (let i = 0; i < chars.length - 1; i++) out.add((chars[i] ?? "") + (chars[i + 1] ?? ""));
-  return out;
-}
-export function textSimilarity(a: string, b: string): number {
-  const A = shingles(a), B = shingles(b); if (!A.size && !B.size) return 1;
-  let inter = 0; for (const t of A) if (B.has(t)) inter++;
-  return inter / (A.size + B.size - inter);
-}
+import { textSimilarity } from "../text/similarity.js";
+export { textSimilarity }; // 对外导出保持不变(memory_search 等仍从 store 引用)
+
 // ≥DUP_THRESHOLD:确定性自动合并(无 LLM)。
 // [GRAY_LOW, DUP_THRESHOLD):灰区——只对最相似的那一条喊 flash 裁判判是否同一事实(每候选至多 1 次)。
 // <GRAY_LOW:确定性判为新(不喊 LLM,省钱)。0.2 floor 让无关项(只共享"用户"之类)被跳过。
