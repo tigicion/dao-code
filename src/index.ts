@@ -54,6 +54,7 @@ import { loadUsage, saveUsage, recordUsage } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
+import { messageParentTool } from "./tools/message_parent.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { loadMcpConfig, connectMcpServers } from "./mcp/mcp.js";
 import { processManager } from "./tools/process_manager.js";
@@ -288,7 +289,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, agentTool, scheduleTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
   ]) {
     registry.register(t);
   }
@@ -582,7 +583,7 @@ async function main() {
   };
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
-  ctx.runSubagent = ({ task, signal, agentType, workspaceRoot: wsRoot, drainPending, auditAgent = "sub", model, mode }) => {
+  ctx.runSubagent = ({ task, signal, agentType, workspaceRoot: wsRoot, drainPending, auditAgent = "sub", model, mode, messageParent }) => {
     // 省略 agent_type 时默认用 general-purpose(对齐 CC);找不到该内置则回退裸 systemPrompt。
     const def = agentDefs.find((d) => d.name === (agentType ?? "general-purpose"));
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
@@ -590,7 +591,10 @@ async function main() {
     if (def?.toolsExclude?.length) reg = reg.subsetExcluding(new Set(def.toolsExclude));
     const subModel = model ?? def?.model ?? session.model;     // 优先级:调用级 > 类型 > 会话
     const subMode = mode ?? session.mode;
-    const subCtx = wsRoot ? { ...ctx, workspaceRoot: wsRoot } : ctx; // worktree 隔离:覆盖工作区根
+    const subCtx = {
+      ...(wsRoot ? { ...ctx, workspaceRoot: wsRoot } : ctx), // worktree 隔离:覆盖工作区根
+      ...(messageParent ? { messageParent } : {}),           // 后台子代理→父 mid-run 出口(仅 runBackgroundAgent 绑定)
+    };
     return runSubagent({
       task,
       systemPrompt: sp,
@@ -639,7 +643,12 @@ async function main() {
   const taskManager = createTaskManager();
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
     taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
-      ctx.runSubagent!({ task, signal, agentType, drainPending: () => taskManager.drainPending(id), auditAgent: "bg" }),
+      ctx.runSubagent!({
+        task, signal, agentType,
+        drainPending: () => taskManager.drainPending(id),
+        auditAgent: "bg",
+        messageParent: (m) => { taskManager.emitFromTask(id, m); },
+      }),
     );
   ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
 
