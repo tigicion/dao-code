@@ -2,8 +2,8 @@ import { promises as fs } from "node:fs";
 
 // 权限模式(1:1 复刻 CC):default 按需弹审批;acceptEdits 自动批准文件编辑;
 // plan 只读规划(拦写/执行);bypassPermissions 全部放行(=YOLO)。
-export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
-const MODES = new Set<PermissionMode>(["default", "acceptEdits", "plan", "bypassPermissions"]);
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "auto";
+const MODES = new Set<PermissionMode>(["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
 
 export interface PermissionsConfig {
   allow: string[];

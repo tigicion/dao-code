@@ -389,12 +389,31 @@ async function main() {
         ? "bypassPermissions"
         : permModeOverride ?? loadedPerms.defaultMode ?? "default";
 
+  // auto 模式分类器:flash 一次判定该工具调用是否安全可自动批准(只回 allow/deny;出错→拒绝)。
+  const classifyPermission = async (toolName: string, argsJson: string): Promise<boolean> => {
+    const gen = streamChat({
+      baseUrl: cfg.baseUrl,
+      apiKey: cfg.apiKey,
+      model: cfg.model,
+      messages: [
+        { role: "system", content: "你是权限审查器。判断这次工具调用是否【安全、可自动批准】——不会删毁数据、不泄露密钥、不执行高危/不可逆操作、不越权访问。保守判断,拿不准就 deny。只回一个词:allow 或 deny。" },
+        { role: "user", content: `工具:${toolName}\n参数:${argsJson}` },
+      ],
+      extra: { thinking: { type: "disabled" }, temperature: 0 },
+    });
+    let out = "";
+    let r = await gen.next();
+    while (!r.done) { if (r.value.kind === "content") out += r.value.text; r = await gen.next(); }
+    return /\ballow\b/i.test(out) && !/\bdeny\b/i.test(out);
+  };
+
   const gate: ApprovalGate = new PermissionGate(
     getMode,
     getRules,
     (reqs) => (inkApprovalPrompt ?? readlinePrompt)(reqs), // Ink 态用模态,否则 readline
     (rule) => appendRule(localSettingsFile, rule, "allow"), // "always" 持久化
     (rule) => { sessionAllow.push(rule); }, // "session"/"always" 本会话生效
+    classifyPermission, // auto 模式
   );
 
   const session = new Session(systemPrompt, cfg.model);
@@ -926,15 +945,15 @@ async function main() {
           if (name === "mode") {
             const arg = line.trim().split(/\s+/)[1];
             if (!arg) {
-              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|acceptEdits|plan|bypassPermissions>` };
+              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|acceptEdits|auto|plan|bypassPermissions>` };
             }
             if (arg === "plan") { session.mode = "plan"; permModeOverride = null; yolo = false; return { handled: true, output: "📋 已切到 plan(只读规划,拦写/执行)" }; }
             if (arg === "bypassPermissions") { yolo = true; if (session.mode === "plan") session.mode = "normal"; return { handled: true, output: "⚡ bypassPermissions:跳过所有审批(deny 规则仍拦截)" }; }
-            if (arg === "default" || arg === "acceptEdits") {
+            if (arg === "default" || arg === "acceptEdits" || arg === "auto") {
               yolo = false;
               if (session.mode === "plan") session.mode = "normal";
               permModeOverride = arg as PermissionMode;
-              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : "权限模式已设为 default(按需审批)" };
+              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "🤖 auto:需审批的调用改由 AI 分类器裁决(deny 规则/敏感路径仍拦);保守判定,拿不准则拒。" : "权限模式已设为 default(按需审批)" };
             }
             return { handled: true, output: `未知模式:${arg}(可选 default/acceptEdits/plan/bypassPermissions)` };
           }

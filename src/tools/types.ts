@@ -64,6 +64,9 @@ export interface Tool {
   handler: (args: any, ctx: ToolContext) => Promise<string>;
   // 直接给 API 的参数 JSON Schema(MCP 工具用其原始 inputSchema);省略则由 schema(zod)转换。
   apiParameters?: object;
+  // 工具自身的参数级权限自检(对标 CC tool.checkPermissions):仅能【收紧】——返回 "deny"/"ask"
+  // 覆盖更宽的判定(如 exec 检出 download-execute),返回 null = 不干预。规则引擎判 allow 后才咨询它。
+  checkPermissions?: (argsJson: string) => "deny" | "ask" | null;
 }
 
 // 定义单个工具时用,保留 handler 参数的精确类型(z.infer<S>)。
@@ -74,6 +77,7 @@ export interface ToolDefinition<S extends ZodTypeAny> {
   capability: Capability;
   approval: Approval;
   handler: (args: z.infer<S>, ctx: ToolContext) => Promise<string>;
+  checkPermissions?: (argsJson: string) => "deny" | "ask" | null;
 }
 
 export function defineTool<S extends ZodTypeAny>(def: ToolDefinition<S>): Tool {
