@@ -77,7 +77,7 @@ export async function compactMessages(
   const summary = await opts.summarize(toSummarize);
   const summaryMsg: ChatMessage = {
     role: "system",
-    content: `[早期对话摘要]\n${summary}`,
+    content: `[早期对话摘要——上下文超限已压缩,以下是早段对话的摘要]\n${summary}\n\n从中断处直接继续,不要复述摘要、不要寒暄,像没中断过一样接着上一个任务。`,
   };
   const out: ChatMessage[] = [system, summaryMsg];
   if (pinned && pinned.trim()) out.push({ role: "system", content: `[当前任务清单(请据此继续,勿偏离)]\n${pinned}` });
