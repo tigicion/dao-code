@@ -25,6 +25,10 @@ describe("runBuiltinCommand", () => {
     expect(r?.prompt).toContain("把模块拆成微服务");
     expect(runBuiltinCommand("batch", "")?.output).toContain("用法");
   });
+  it("security-review → 含安全审查指引;PR 号走 gh", () => {
+    expect(runBuiltinCommand("security-review", "")?.prompt).toContain("安全审查");
+    expect(runBuiltinCommand("security-review", "42")?.prompt).toContain("gh pr diff 42");
+  });
   it("未知命令 → null", () => {
     expect(runBuiltinCommand("nope", "")).toBeNull();
   });
