@@ -68,6 +68,7 @@ export const memoryWriteTool = defineTool({
       );
       return upsertMemory(dir, cand, existing);
     });
+    ctx.memoryAudit?.wrote(cand.type, r.action === "updated"); // 审计:新建 vs 合并近重复
     const label = scope === "user" ? "用户级" : scope === "knowledge" ? "知识库" : "项目级";
     return r.action === "updated"
       ? `已更新(${label}):${args.text.trim()}`

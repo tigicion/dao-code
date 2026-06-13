@@ -74,7 +74,11 @@ import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, 
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
-import { createCacheAuditSink, type CacheAuditSink } from "./session/cache_audit.js";
+import { createCacheAuditSink, type CacheAuditSink, formatCacheReport } from "./session/cache_audit.js";
+import { auditEnabled } from "./session/audit_switch.js";
+import { createMemoryAuditSink, type MemoryAuditSink, summarizeMemoryTrace, formatMemoryReport } from "./memory/memory_audit.js";
+import { createToolAuditSink, type ToolAuditSink, summarizeToolTrace, formatToolReport } from "./tools/tool_audit.js";
+import { createPermAuditSink, type PermAuditSink, summarizePermTrace, formatPermReport } from "./permissions/perm_audit.js";
 import { createSkillAuditSink, type SkillAuditSink, readAllSkillTraces, summarizeSkillTrace, formatSkillReport } from "./skills/skill_audit.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
@@ -324,7 +328,12 @@ async function main() {
     validated.push({ mem, verdict });
   }
   // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
-  const memoryText = buildMemorySection(selectForInjection(validated, today));
+  const injectedMems = selectForInjection(validated, today);
+  const memoryText = buildMemorySection(injectedMems);
+  const recallStale = validated.filter((v) => v.verdict === "stale").length;
+  const recallChanged = validated.filter((v) => v.verdict === "changed").length;
+  const recallTypes: Record<string, number> = {};
+  for (const it of injectedMems) recallTypes[it.mem.type] = (recallTypes[it.mem.type] ?? 0) + 1;
 
   // B-5 插件多组件:插件除 skills 外还可带 commands/agents/hooks;先加载插件、聚合其组件目录。
   const installedPlugins = await loadPlugins();
@@ -473,6 +482,9 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
+  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {} };
+  let toolAudit: ToolAuditSink = { call() {} };
+  let permAudit: PermAuditSink = { decided() {} };
   // 技能加载审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 loaded)。
   let skillSink: SkillAuditSink = { loaded() {} };
   let skillRound = 0;
@@ -802,15 +814,17 @@ async function main() {
       });
       // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
       const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
-      let n = 0;
+      let n = 0, added = 0, updated = 0;
       for (const cand of cands) {
         const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
         // 本地优先路由:没把握的推断(confidence<0.6)落项目级不污染全局;否则按类型进对应层。
         const scope = routeScope(cand.type, cand.confidence);
         const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
-        await upsertMemory(dir, cand, existing, adjudicate);
+        const res = await upsertMemory(dir, cand, existing, adjudicate);
+        if (res.action === "updated") updated++; else added++;
         n++;
       }
+      memoryAudit.distilled(cands.length, added, updated);
       write(n > 0 ? `✓ 已更新记忆:${n} 条\n` : `✓ 记忆无需更新\n`);
     } catch (e) {
       if (process.env.DAO_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
@@ -878,6 +892,17 @@ async function main() {
       const store = createSessionStore(sessionsDir, resumeId);
       // 缓存审计:主+子+fork+后台+三工具调用全写进 store.dir/cache.jsonl(常驻静默;DAO_CACHE_AUDIT=0 关)。
       cacheSink = createCacheAuditSink(store.dir);
+      memoryAudit = createMemoryAuditSink(store.dir);
+      toolAudit = createToolAuditSink(store.dir);
+      permAudit = createPermAuditSink(store.dir, getMode);
+      ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
+      memoryAudit.recalled(injectedMems.length, recallStale, recallChanged, recallTypes);
+      try {
+        if (auditEnabled(process.env, "SKILL")) {
+          writeFileSync(path.join(store.dir, "skills-catalog.json"),
+            JSON.stringify(skills.map((s) => ({ name: s.name, description: s.description, whenToUse: s.whenToUse ?? "" }))));
+        }
+      } catch { /* 快照失败不影响 */ }
       skillSink = createSkillAuditSink(store.dir);
       const ckpt = createCheckpointer(workspaceRoot);
       const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
@@ -937,11 +962,6 @@ async function main() {
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
-            if (sub === "audit") {
-              // 技能触发审计:跨会话聚合 skill-trace.jsonl,给出命中/漏报/漏召回,供优化。
-              const stats = summarizeSkillTrace(readAllSkillTraces(path.join(workspaceRoot, ".dao", "sessions")));
-              return { handled: true, output: formatSkillReport(stats) };
-            }
             if (sub === "off" || sub === "on") {
               const target = rest[1];
               if (target && coreBundled.some((s) => s.name === target)) return { handled: true, output: `${target} 是内置核心技能,固定加载、不可开关。` };
@@ -1024,36 +1044,30 @@ async function main() {
               `  工作区:${workspaceRoot}\n` +
               `  模型:${session.model} · 模式:${session.mode}\n` +
               `  消息:${session.messages.length} 条\n` +
-              `  缓存审计:${cachePath}(/cache 查看)` };
+              `  缓存审计:${cachePath}(/audit cache 查看)` };
           }
-          if (name === "cache") {
-            const id = line.trim().split(/\s+/)[1];
+          if (name === "audit") {
+            const parts = line.trim().split(/\s+/);
+            const sub = parts[1];
+            const id = parts[2];
             const dir = id ? path.join(sessionsDir, id) : store.dir;
-            const file = path.join(dir, "cache.jsonl");
-            let raw: string;
-            try { raw = readFileSync(file, "utf8"); }
-            catch { return { handled: true, output: `无缓存审计数据:${file}\n(常驻静默记录;若设了 DAO_CACHE_AUDIT=0 则未记录)` }; }
-            const evs = raw.trim().split("\n").filter(Boolean).flatMap((l) => {
-              try { return [JSON.parse(l) as Record<string, unknown> & { ts: number }]; }
-              catch { return []; } // 容忍崩溃时截断的损坏行
-            });
-            if (evs.length === 0) return { handled: true, output: `缓存审计为空:${file}` };
-            const TTL_MS = Number(process.env.DAO_CACHE_TTL_MS) || 5 * 60 * 1000;
-            const rows: string[] = [];
-            let prevTs = 0;
-            for (const e of evs) {
-              const who = e.agent === "main" ? "main" : `${e.agent}${e.subId ? `#${e.subId}` : ""}@${e.depth}`;
-              const pct = ((e.ratio as number) * 100).toFixed(0).padStart(3);
-              const changed = (e.changed as string[] | undefined) ?? [];
-              const idle = prevTs ? e.ts - prevTs : 0;
-              let flag = "";
-              if (changed.length) flag = `⚠ 破:${changed.join("/")}`;
-              else if ((e.ratio as number) < 0.3 && (e.prompt as number) >= 4000 && idle > TTL_MS) flag = `· TTL过期(空闲${(idle / 60000).toFixed(1)}min)`;
-              rows.push(`  t${e.turn} ${who.padEnd(12)} ${String(e.prompt).padStart(7)}tok 命中${pct}% ${flag}`);
-              prevTs = e.ts;
-            }
-            const head = `缓存审计 · 会话 ${id ?? store.id}\n  文件:${file}\n  记录数:${evs.length}\n`;
-            return { handled: true, output: head + rows.join("\n") + "\n(⚠破=某前缀维变化;TTL过期=四维稳但空闲超时,非bug。详查 cache.jsonl 的 delta 字段)" };
+            const valid = ["memory", "tools", "perms", "cache", "skills", "all"];
+            if (!sub || !valid.includes(sub)) return { handled: true, output: `用法:/audit <memory|tools|perms|cache|skills|all> [会话id]\n默认审当前会话(${store.id})。` };
+            const readJsonl = (file: string): Record<string, unknown>[] => {
+              try {
+                return readFileSync(path.join(dir, file), "utf8").trim().split("\n").filter(Boolean)
+                  .flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+              } catch { return []; }
+            };
+            const sections: string[] = [];
+            const want = (k: string) => sub === "all" || sub === k;
+            if (want("memory")) sections.push(formatMemoryReport(summarizeMemoryTrace(readJsonl("memory-trace.jsonl") as never)));
+            if (want("tools")) sections.push(formatToolReport(summarizeToolTrace(readJsonl("tool-trace.jsonl") as never)));
+            if (want("perms")) sections.push(formatPermReport(summarizePermTrace(readJsonl("perm-trace.jsonl") as never)));
+            if (want("cache")) sections.push(formatCacheReport(readJsonl("cache.jsonl") as never));
+            if (want("skills")) sections.push(formatSkillReport(summarizeSkillTrace(readAllSkillTraces(sessionsDir))));
+            const head = `审计 · 会话 ${id ?? store.id} · 目录 ${dir}\n`;
+            return { handled: true, output: head + sections.join("\n\n") };
           }
           if (name === "resume") {
             const id = line.trim().split(/\s+/)[1];

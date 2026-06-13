@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { Usage } from "../client/types.js";
+import { auditEnabled } from "./audit_switch.js";
 
 // 一次 API 调用的审计输入:调用点提供四维【原始内容】,sink 内部算哈希/变更/delta。
 // tools 传入已序列化的字符串(JSON.stringify(tools));工具调用类(classifier 等)可传空串。
@@ -47,7 +48,7 @@ const NOOP: CacheAuditSink = { record() {} };
 
 // 每会话一个 sink。DAO_CACHE_AUDIT=0 → 零成本 no-op。落盘:<sessionDir>/cache.jsonl。
 export function createCacheAuditSink(sessionDir: string, env: NodeJS.ProcessEnv = process.env): CacheAuditSink {
-  if (env.DAO_CACHE_AUDIT === "0") return NOOP;
+  if (!auditEnabled(env, "CACHE")) return NOOP;
   const file = path.join(sessionDir, "cache.jsonl");
   try { mkdirSync(sessionDir, { recursive: true }); } catch { /* 目录已存在/不可建,落盘时再兜底 */ }
   // 按 agentKey 记上一条四维原始内容,算 changed/delta。子 agent 各自一桶,互不污染。
@@ -88,4 +89,25 @@ export function createCacheAuditSink(sessionDir: string, env: NodeJS.ProcessEnv 
       try { appendFileSync(file, JSON.stringify({ ...ev, ts: Date.now() }) + "\n"); } catch { /* 観測落盘失败不影响主流程 */ }
     },
   };
+}
+
+// 渲染逐轮缓存命中报告(供 /audit cache)。ttlMs:空闲超此且命中骤降判 TTL 过期。
+export function formatCacheReport(events: CacheAuditEvent[], ttlMs = 5 * 60 * 1000): string {
+  if (events.length === 0) return "缓存审计为空。";
+  const rows: string[] = [];
+  let prevTs = 0;
+  for (const e of events as Array<CacheAuditEvent & { ts?: number }>) {
+    const who = e.agent === "main" ? "main" : `${e.agent}${e.subId ? `#${e.subId}` : ""}@${e.depth}`;
+    const pct = (e.ratio * 100).toFixed(0).padStart(3);
+    const changed = e.changed ?? [];
+    const ts = e.ts ?? 0;
+    const idle = prevTs ? ts - prevTs : 0;
+    let flag = "";
+    if (changed.length) flag = `⚠ 破:${changed.join("/")}`;
+    else if (e.ratio < 0.3 && e.prompt >= 4000 && idle > ttlMs) flag = `· TTL过期(空闲${(idle / 60000).toFixed(1)}min)`;
+    rows.push(`  t${e.turn} ${who.padEnd(12)} ${String(e.prompt).padStart(7)}tok 命中${pct}% ${flag}`);
+    prevTs = ts;
+  }
+  return `缓存审计(记录 ${events.length}):\n` + rows.join("\n") +
+    "\n(⚠破=某前缀维变化;TTL过期=四维稳但空闲超时,非bug。详查 cache.jsonl 的 delta)";
 }

@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { auditEnabled } from "../session/audit_switch.js";
 
 // 技能加载审计:每"轮"(一条用户消息=一 round)记录模型用 skill 工具加载了哪条。
 // discovery(打分预筛)已移除——技能统一走常驻 name+description,由模型自主判断、按需 skill 加载。
@@ -15,7 +16,7 @@ export interface SkillAuditSink {
 const NOOP: SkillAuditSink = { loaded() {} };
 
 export function createSkillAuditSink(sessionDir: string, env: NodeJS.ProcessEnv = process.env): SkillAuditSink {
-  if (env.DAO_SKILL_AUDIT === "0") return NOOP;
+  if (!auditEnabled(env, "SKILL")) return NOOP;
   const file = path.join(sessionDir, "skill-trace.jsonl");
   try { mkdirSync(sessionDir, { recursive: true }); } catch { /* 落盘时再兜底 */ }
   const write = (ev: SkillTraceEvent) => {

@@ -433,4 +433,18 @@ describe("App", () => {
     await delay();
     expect(lastFrame()!).toContain("出错:boom");
   });
+
+  it("Tab 补全 /audit(唯一前缀)", async () => {
+    let got = "";
+    const { stdin } = render(
+      <App {...makeDeps({ runCommand: (l) => { got = l; return { handled: true }; } })} />,
+    );
+    for (const ch of "/aud") stdin.write(ch);
+    await delay();
+    stdin.write("\t");
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(got.trim()).toBe("/audit");
+  });
 });

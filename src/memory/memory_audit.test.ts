@@ -1,0 +1,46 @@
+import { describe, it, expect } from "vitest";
+import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createMemoryAuditSink, summarizeMemoryTrace, formatMemoryReport, type MemoryTraceEvent } from "./memory_audit.js";
+
+const read = (dir: string) =>
+  readFileSync(path.join(dir, "memory-trace.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as MemoryTraceEvent);
+
+describe("memory_audit sink", () => {
+  it("recalled/wrote/distilled 各落一行", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mem-a-"));
+    const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);
+    s.recalled(10, 2, 1, { user: 4, semantic: 6 });
+    s.wrote("user", false);
+    s.wrote("semantic", true);
+    s.distilled(5, 3, 2);
+    const ev = read(dir);
+    expect(ev).toHaveLength(4);
+    expect(ev[0]).toMatchObject({ kind: "recalled", injected: 10, stale: 2, changed: 1 });
+    expect(ev[3]).toMatchObject({ kind: "distilled", extracted: 5, added: 3, updated: 2 });
+  });
+
+  it("DAO_MEMORY_AUDIT=0 → no-op", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mem-a-"));
+    const s = createMemoryAuditSink(dir, { DAO_MEMORY_AUDIT: "0" } as unknown as NodeJS.ProcessEnv);
+    s.wrote("user", false);
+    expect(existsSync(path.join(dir, "memory-trace.jsonl"))).toBe(false);
+  });
+
+  it("summarize 算合并率 + 召回 + 蒸馏", () => {
+    const ev: MemoryTraceEvent[] = [
+      { kind: "recalled", ts: 0, injected: 10, stale: 2, changed: 1, types: { user: 4 } },
+      { kind: "wrote", ts: 0, type: "user", merged: false },
+      { kind: "wrote", ts: 0, type: "user", merged: true },
+      { kind: "distilled", ts: 0, extracted: 5, added: 3, updated: 2 },
+    ];
+    const sum = summarizeMemoryTrace(ev);
+    expect(sum.recall).toMatchObject({ injected: 10, stale: 2 });
+    expect(sum.writes).toBe(2);
+    expect(sum.writesMerged).toBe(1);
+    expect(sum.byType.user).toMatchObject({ total: 2, merged: 1 });
+    expect(sum.distill).toMatchObject({ extracted: 5, added: 3, updated: 2 });
+    expect(formatMemoryReport(sum)).toContain("合并");
+  });
+});

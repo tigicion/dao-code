@@ -66,6 +66,10 @@ export interface ToolContext {
   // 生命周期钩子(hooks):工具执行前/后触发用户配置的命令。pre 返回 block 则拦截该工具。
   preToolHook?: (toolName: string, argsJson: string) => Promise<{ block: boolean; reason: string }>;
   postToolHook?: (toolName: string, argsJson: string, result: string) => Promise<void>;
+  // 审计 sink(index 注入;无 store 路径为 NOOP)。
+  toolAudit?: import("./tool_audit.js").ToolAuditSink;
+  permAudit?: import("../permissions/perm_audit.js").PermAuditSink;
+  memoryAudit?: import("../memory/memory_audit.js").MemoryAuditSink;
 }
 
 // 注册表内统一存储的工具(handler 参数在派发时由 schema 校验后传入)。

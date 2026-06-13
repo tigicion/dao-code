@@ -30,6 +30,10 @@ export function describeCall(name: string, argsJson: string): string {
 const SAFE_CAPS = new Set<Capability>(["read", "network", "plan"]);
 const MAX_CONCURRENCY = 8; // 安全工具批的并发上限,避免一口气打满 fd / 连接
 
+// 工具结果是否表示失败(非零退出/超时/中断/Error)——用于错误级联与审计 ok 判定。
+const looksFailed = (content: string): boolean =>
+  content.startsWith("Error") || /\[exit ([1-9]\d*)\]|\[超时|\[已中断\]/.test(content);
+
 async function dispatchOne(
   tc: ToolCall,
   registry: ToolRegistry,
@@ -37,17 +41,26 @@ async function dispatchOne(
 ): Promise<ToolMessage> {
   const name = tc.function.name;
   const argsJson = tc.function.arguments;
+  const cap = registry.get(name)?.capability ?? "unknown";
+  const startMs = Date.now();
+  const audit = (content: string) => {
+    const ok = !looksFailed(content) && !content.includes("被 hook 阻止");
+    ctx.toolAudit?.call(name, cap, ok, Date.now() - startMs, argsJson);
+  };
   try {
     // PreToolUse 钩子:命令阻断则不执行该工具,把原因作为结果回灌。
     if (ctx.preToolHook) {
       const h = await ctx.preToolHook(name, argsJson);
-      if (h.block) return { role: "tool", tool_call_id: tc.id, content: `[被 hook 阻止] ${h.reason || "(无原因)"}` };
+      if (h.block) { const c = `[被 hook 阻止] ${h.reason || "(无原因)"}`; audit(c); return { role: "tool", tool_call_id: tc.id, content: c }; }
     }
     const content = await registry.dispatch(name, argsJson, ctx);
     if (ctx.postToolHook) await ctx.postToolHook(name, argsJson, content); // PostToolUse(副作用,如自动格式化)
+    audit(content);
     return { role: "tool", tool_call_id: tc.id, content };
   } catch (err) {
-    return { role: "tool", tool_call_id: tc.id, content: `Error: ${(err as Error).message}` };
+    const errMsg = `Error: ${(err as Error).message}`;
+    audit(errMsg);
+    return { role: "tool", tool_call_id: tc.id, content: errMsg };
   }
 }
 
@@ -74,8 +87,9 @@ export async function executeToolCalls(
   for (const tc of toolCalls) {
     const tool = registry.get(tc.function.name);
     const decision = tool ? gate.decide(tc.function.name, tc.function.arguments, tool) : "allow";
-    if (decision === "allow") toRun.add(tc.id);
-    else if (decision === "deny") results.set(tc.id, rejectMsg(tc, "该操作被权限规则拒绝(deny)。如需放行,请在 .dao/settings.json 调整 permissions。"));
+    const cap0 = tool?.capability ?? "unknown";
+    if (decision === "allow") { toRun.add(tc.id); ctx.permAudit?.decided(tc.function.name, cap0, "allow", "rule"); }
+    else if (decision === "deny") { results.set(tc.id, rejectMsg(tc, "该操作被权限规则拒绝(deny)。如需放行,请在 .dao/settings.json 调整 permissions。")); ctx.permAudit?.decided(tc.function.name, cap0, "deny", "rule"); }
     else {
       // sensitive=true 既抑制"始终允许",又让 auto 模式跳过分类器直接走人工(敏感目标/危险命令)。
       const sensitive = isSensitiveCall(tc.function.name, tc.function.arguments) || isDangerousCall(tc.function.name, tc.function.arguments);
@@ -93,9 +107,10 @@ export async function executeToolCalls(
     gatedRequests.length > 0 ? await gate.requestBatch(gatedRequests) : new Map<string, boolean>();
   for (const r of gatedRequests) {
     const tc = toolCalls.find((t) => t.id === r.id)!;
-    if (approvals.get(tc.id)) toRun.add(tc.id);
+    const capA = registry.get(tc.function.name)?.capability ?? "unknown";
+    if (approvals.get(tc.id)) { toRun.add(tc.id); ctx.permAudit?.decided(tc.function.name, capA, "ask-approved", "ask"); }
     // 走到这里的拒绝都是人工审批里用户选了"否"(auto 模式不再自动拒绝,拿不准的会转人工)。
-    else results.set(tc.id, rejectMsg(tc, "用户拒绝执行该工具。"));
+    else { results.set(tc.id, rejectMsg(tc, "用户拒绝执行该工具。")); ctx.permAudit?.decided(tc.function.name, capA, "ask-denied", "ask"); }
   }
 
   // S3.3 审计:记录写/执行/网络类工具的最终裁决(放行/拒绝)到 .dao/audit.log。
@@ -116,9 +131,6 @@ export async function executeToolCalls(
     const cap = registry.get(tc.function.name)?.capability;
     return cap !== undefined && SAFE_CAPS.has(cap);
   };
-  // ③ exec 结果是否表示失败(非零退出/超时/中断/Error)——用于错误级联。
-  const looksFailed = (content: string): boolean =>
-    content.startsWith("Error") || /\[exit ([1-9]\d*)\]|\[超时|\[已中断\]/.test(content);
   let barrierAborted = false;
   let batch: ToolCall[] = [];
   const flush = async () => {

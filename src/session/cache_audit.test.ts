@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createCacheAuditSink, divergence, type CacheAuditEvent } from "./cache_audit.js";
+import { createCacheAuditSink, divergence, formatCacheReport, type CacheAuditEvent } from "./cache_audit.js";
 
 const usage = (prompt: number, hit: number) => ({
   prompt_tokens: prompt, completion_tokens: 10, total_tokens: prompt + 10,
@@ -57,5 +57,17 @@ describe("cache_audit sink", () => {
     const d = divergence("hello world", "hello brave world");
     expect(d.firstDiffAt).toBe(6);
     expect(d.sample.startsWith("brave")).toBe(true);
+  });
+});
+
+describe("formatCacheReport", () => {
+  it("逐轮命中率 + 破缓存维度", () => {
+    const evs = [
+      { ts: 1000, agent: "main", depth: 0, turn: 0, model: "pro", prompt: 20000, hit: 19000, miss: 1000, completion: 5, ratio: 0.95, fp: {}, changed: [] },
+      { ts: 2000, agent: "main", depth: 0, turn: 1, model: "pro", prompt: 21000, hit: 1000, miss: 20000, completion: 5, ratio: 0.05, fp: {}, changed: ["sys"] },
+    ] as unknown as import("./cache_audit.js").CacheAuditEvent[];
+    const out = formatCacheReport(evs);
+    expect(out).toContain("t0");
+    expect(out).toContain("破:sys");
   });
 });
