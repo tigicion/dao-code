@@ -29,6 +29,7 @@ export interface PersistedState {
   cwd: string;
   model: string;
   mode: Mode;
+  title?: string; // /rename 设置;/resume 列表可显示
   messages: ChatMessage[];
   usage: { promptTokens: number; completionTokens: number; cacheHitTokens: number; cacheMissTokens: number };
   updatedAt: number;
