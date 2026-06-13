@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useStdout } from "ink";
 import type { Capabilities } from "./capabilities.js";
 import type { Background } from "./background.js";
@@ -7,6 +7,7 @@ import type { Maxim } from "./maxim.js";
 import { WORDMARK } from "./banner.js";
 import { renderTaiji } from "./taiji.js";
 import { gradientBlock, semHex } from "./theme.js";
+import { randomTip } from "./tips.js";
 
 // 长路径缩短:超过 3 段时取末 3 段并加 …/ 前缀。
 function shortenPath(p: string): string {
@@ -49,6 +50,7 @@ export function Welcome({
   const taiji = renderTaiji(caps, bg);
   const wm = gradientBlock(WORDMARK, "jade", "ink", caps, bg);
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
+  const tip = useRef(randomTip()).current; // 随机一条引导,本次挂载固定(固化进 Static 后冻结)
 
   // 落款 + 名句合一行(紧凑;「道」已由朱印承担,不再重复)。
   const sealLine = (
@@ -125,6 +127,7 @@ export function Welcome({
         <Box flexDirection="column" flexGrow={1} marginTop={narrow ? 1 : 0}>
           <Text color={c("dim")}>快速开始</Text>
           <Text color={c("dim")}>输入消息开始 · /help 命令 · @ 引用文件 · Esc 打断</Text>
+          <Text color={c("jade")}>试试 · {tip}</Text>
         </Box>
       </Box>
     </Box>
