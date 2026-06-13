@@ -40,7 +40,6 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
     case "compact":
       return { handled: true, compact: true };
     case "cost":
-    case "cache":
       return { handled: true, output: session.usageSummary() };
     case "help":
       return {
