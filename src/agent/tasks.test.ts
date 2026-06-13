@@ -76,3 +76,26 @@ describe("TaskManager", () => {
     expect(changes).toBe(2); // 完成
   });
 });
+
+describe("emitFromTask (mid-run 子→父)", () => {
+  it("运行中任务发消息 → 进 notifications + 触发 onChange", async () => {
+    const tm = createTaskManager();
+    let changes = 0;
+    tm.onChange(() => { changes++; });
+    let release!: (v: string) => void;
+    const id = tm.launch("t", () => new Promise<string>((res) => { release = res; }));
+    const before = changes;
+    const ok = tm.emitFromTask(id, "进度:第 1/3 步完成");
+    expect(ok).toBe(true);
+    expect(changes).toBe(before + 1); // 触发了 onChange
+    const notes = tm.drainNotifications();
+    expect(notes.join("\n")).toContain("进度:第 1/3 步完成");
+    expect(notes.join("\n")).toContain(id);
+    release("done"); // 收尾,避免悬挂
+  });
+  it("非运行任务(不存在)→ 返回 false,不入队", () => {
+    const tm = createTaskManager();
+    expect(tm.emitFromTask("task-999", "x")).toBe(false);
+    expect(tm.drainNotifications()).toEqual([]);
+  });
+});
