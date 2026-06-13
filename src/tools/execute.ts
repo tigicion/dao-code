@@ -30,6 +30,10 @@ export function describeCall(name: string, argsJson: string): string {
 const SAFE_CAPS = new Set<Capability>(["read", "network", "plan"]);
 const MAX_CONCURRENCY = 8; // 安全工具批的并发上限,避免一口气打满 fd / 连接
 
+// 工具结果是否表示失败(非零退出/超时/中断/Error)——用于错误级联与审计 ok 判定。
+const looksFailed = (content: string): boolean =>
+  content.startsWith("Error") || /\[exit ([1-9]\d*)\]|\[超时|\[已中断\]/.test(content);
+
 async function dispatchOne(
   tc: ToolCall,
   registry: ToolRegistry,
@@ -40,7 +44,7 @@ async function dispatchOne(
   const cap = registry.get(name)?.capability ?? "unknown";
   const startMs = Date.now();
   const audit = (content: string) => {
-    const ok = !content.startsWith("Error") && !content.includes("被 hook 阻止");
+    const ok = !looksFailed(content) && !content.includes("被 hook 阻止");
     ctx.toolAudit?.call(name, cap, ok, Date.now() - startMs, argsJson);
   };
   try {
@@ -127,9 +131,6 @@ export async function executeToolCalls(
     const cap = registry.get(tc.function.name)?.capability;
     return cap !== undefined && SAFE_CAPS.has(cap);
   };
-  // ③ exec 结果是否表示失败(非零退出/超时/中断/Error)——用于错误级联。
-  const looksFailed = (content: string): boolean =>
-    content.startsWith("Error") || /\[exit ([1-9]\d*)\]|\[超时|\[已中断\]/.test(content);
   let barrierAborted = false;
   let batch: ToolCall[] = [];
   const flush = async () => {
