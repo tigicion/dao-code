@@ -345,7 +345,9 @@ async function main() {
   const skills = [...coreBundled, ...enabledDisk];
   const skillsSection =
     skills.length > 0
-      ? `\n\n# 可用 skill(任务匹配时用 skill 工具加载其正文指令再照做)\n` +
+      ? `\n\n# 可用 skill —— 开始任务前先扫一眼这张表\n` +
+        `只要某个 skill 可能与当前任务相关(尤其描述里写"在…之前/必须用"的,如做新功能前的 brainstorming、` +
+        `调试前的根因流程),就【先用 skill 工具加载它的正文、照它做】,别凭感觉直接上手而忽略它。\n` +
         skills.map((s) => `- ${s.name}:${s.description}`).join("\n")
       : "";
 
