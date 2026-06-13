@@ -31,6 +31,8 @@ export interface TurnDeps {
   // Ink 路径传入自己的适配器,把流式喂进 React state。
   events?: TurnEvents;
   maxTurns?: number;
+  // 本回合临时注入的系统提示(如"相关技能"发现),只随本回合发给模型、不写入 session.messages(不累积、不持久)。
+  transientSystem?: string;
   // 中途取消信号(ESC/超时):透传给 streamChat 与工具 ctx;abort 后本回合优雅停止。
   signal?: AbortSignal;
   // 回合边界消费的追加消息(SendMessage 给运行中子代理用):每个工具回合前注入为 user 消息。
@@ -74,11 +76,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       for (const m of deps.drainPending()) session.messages.push({ role: "user", content: `[追加指令] ${m}` });
     }
     const tools = apiToolsForMode(deps.registry, session.mode);
+    // 临时系统提示(相关技能发现)附在消息尾部,只这一回合发出、不写回 session.messages(不累积/缓存友好)。
+    const sentMessages = deps.transientSystem
+      ? [...session.messages, { role: "system" as const, content: deps.transientSystem }]
+      : session.messages;
     const gen = deps.streamChat({
       baseUrl: deps.config.baseUrl,
       apiKey: deps.config.apiKey,
       model: session.model,
-      messages: session.messages,
+      messages: sentMessages,
       ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
       // agent 类客户端默认用最高思考强度(官方对 Claude Code/OpenCode 类亦自动升到 max)。
       // 可用 DAO_REASONING_EFFORT 覆盖(实验:max 可能放大"过度推敲、到了正解不下手")。
