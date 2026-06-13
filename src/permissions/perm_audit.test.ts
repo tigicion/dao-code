@@ -8,9 +8,11 @@ const read = (dir: string) =>
   readFileSync(path.join(dir, "perm-trace.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as PermTraceEvent);
 
 describe("perm_audit sink", () => {
-  it("decided 落一行,mode 由闭包盖戳", () => {
+  it("decided 落一行,mode 在写时由闭包取(反映 /mode 变化)", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "perm-a-"));
-    const s = createPermAuditSink(dir, () => "auto", {} as NodeJS.ProcessEnv);
+    let mode = "default";
+    const s = createPermAuditSink(dir, () => mode, {} as NodeJS.ProcessEnv);
+    mode = "auto"; // sink 创建后改 mode
     s.decided("write_file", "write", "ask-approved", "ask");
     expect(read(dir)[0]).toMatchObject({ tool: "write_file", cap: "write", mode: "auto", decision: "ask-approved", source: "ask" });
   });
