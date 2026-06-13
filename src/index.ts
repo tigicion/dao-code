@@ -38,6 +38,7 @@ import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
 import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
+import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
 import { createWorktree } from "./agent/worktree.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
@@ -306,10 +307,13 @@ async function main() {
   const memoryText = buildMemorySection(selectForInjection(validated, today));
 
   // 自定义子代理类型(.dao/agents/*.md):专属 prompt/工具白名单/模型。
-  const agentDefs = await loadAgentDefs(
+  const diskAgentDefs = await loadAgentDefs(
     path.join(workspaceRoot, ".dao", "agents"),
     path.join(os.homedir(), ".dao", "agents"),
   );
+  // 并入内置子代理(explore/verify);同名磁盘定义优先(可覆盖)。
+  const diskAgentNames = new Set(diskAgentDefs.map((d) => d.name));
+  const agentDefs = [...diskAgentDefs, ...BUNDLED_AGENTS.filter((a) => !diskAgentNames.has(a.name))];
   // 自定义 slash 命令(.dao/commands/*.md):/name 展开成 prompt。
   const customCommands = await loadCustomCommands(
     path.join(workspaceRoot, ".dao", "commands"),
