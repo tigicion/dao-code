@@ -6,6 +6,10 @@ import { defineTool } from "../tools/types.js";
 import { z } from "zod";
 import type { AssistantMessage, StreamChatOptions, StreamDelta, ToolMessage } from "../client/types.js";
 import type { ApprovalGate } from "../approval/types.js";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createCacheAuditSink } from "../session/cache_audit.js";
 
 const config = { baseUrl: "https://x", apiKey: "sk" };
 const ctx = { workspaceRoot: "/tmp" };
@@ -279,5 +283,30 @@ describe("runTurn", () => {
     expect(executedCalls).toBe(0); // write_file never dispatched in plan
     const toolMsg = s.messages.find((m) => m.role === "tool");
     expect(toolMsg?.content).toContain("不可用");
+  });
+
+  it("runTurn records a cache-audit event via the injected sink", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "loop-ca-"));
+    const sink = createCacheAuditSink(dir, {});
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      streamChat: ((opts: StreamChatOptions) => {
+        opts.onUsage?.({ prompt_tokens: 100, completion_tokens: 5, total_tokens: 105, prompt_cache_hit_tokens: 90, prompt_cache_miss_tokens: 10 });
+        return turn([{ kind: "content", text: "hello" }], { role: "assistant", content: "hello" })();
+      }) as any,
+      executeToolCalls: async () => [],
+      write: () => {},
+      auditSink: sink,
+      auditId: { agent: "main", depth: 0 },
+    });
+    const lines = readFileSync(path.join(dir, "cache.jsonl"), "utf8").trim().split("\n");
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    expect(JSON.parse(lines[0]!).agent).toBe("main");
   });
 });

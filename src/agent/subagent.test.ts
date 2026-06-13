@@ -3,6 +3,10 @@ import { runSubagent, type SubagentDeps } from "./subagent.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type { ApprovalGate } from "../approval/types.js";
 import type { TurnDeps } from "./loop.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { createCacheAuditSink } from "../session/cache_audit.js";
 
 const stubGate: ApprovalGate = { decide: () => "allow", requestBatch: async () => new Map() };
 
@@ -72,5 +76,27 @@ describe("runSubagent", () => {
   it("returns a placeholder when there is no assistant output", async () => {
     const result = await runSubagent(baseDeps({ runTurn: async () => {} }));
     expect(result).toContain("无最终输出");
+  });
+
+  it("forwards the audit sink with sub identity (agent/subId/depth) into runTurn", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "sub-ca-"));
+    const sink = createCacheAuditSink(dir, {});
+    let captured: TurnDeps | undefined;
+    await runSubagent(
+      baseDeps({
+        ctx: { workspaceRoot: "/tmp", subagentDepth: 0 },
+        auditSink: sink,
+        auditAgent: "sub",
+        auditSubId: "zz",
+        runTurn: async (deps) => {
+          captured = deps;
+          deps.session.messages.push({ role: "assistant", content: "x" });
+        },
+      }),
+    );
+    expect(captured?.auditSink).toBe(sink);
+    expect(captured?.auditId?.agent).toBe("sub");
+    expect(captured?.auditId?.subId).toBe("zz");
+    expect(captured?.auditId?.depth).toBe(1); // ctx.subagentDepth(0)+1
   });
 });

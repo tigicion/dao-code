@@ -76,6 +76,7 @@ import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, 
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
+import { createCacheAuditSink, type CacheAuditSink } from "./session/cache_audit.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
@@ -455,7 +456,10 @@ async function main() {
       model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash",
       messages: buildClassifierMessages(toolName, argsJson, session.messages),
       extra: { thinking: { type: "disabled" }, temperature: 0 },
-      onUsage: (u) => session.addUsage(u, process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash"), // B-2 记 flash 用量
+      onUsage: (u) => {
+        session.addUsage(u, process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash"); // B-2 记 flash 用量
+        cacheSink.record({ agent: "classifier", depth: 0, turn: 0, model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash", usage: u, sys: "", tools: "", tail: "" });
+      },
     });
     let out = "";
     let r = await gen.next();
@@ -473,6 +477,9 @@ async function main() {
   );
 
   const session = new Session(systemPrompt, cfg.model);
+  // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
+  // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
+  let cacheSink: CacheAuditSink = { record() {} };
   // P3-17 预算提醒阈值(￥,可选):DAO_MAX_BUDGET 设了则超阈值提醒一次(默认不停);DAO_MAX_BUDGET_HARD=1 才硬停。
   { const b = Number(process.env.DAO_MAX_BUDGET); if (Number.isFinite(b) && b > 0) session.budgetCNY = b; }
   // P0-1 前缀缓存埋点:命中率骤降(多半是压缩/注入改写了前缀)时,--verbose 下打到 stderr。
@@ -548,7 +555,7 @@ async function main() {
   await runHooks(hooks, "SessionStart", { cwd: workspaceRoot }); // 会话开始钩子
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
-  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[]) => {
+  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[], auditAgent: "sub" | "bg" = "sub") => {
     const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
     const reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
@@ -576,6 +583,9 @@ async function main() {
           writeFileSync(path.join(dir, name), messages.map((m) => JSON.stringify(m)).join("\n"));
         } catch { /* 观测落盘失败不影响 */ }
       },
+      auditSink: cacheSink,
+      auditAgent,
+      auditSubId: Math.random().toString(36).slice(2, 6),
     });
   };
 
@@ -590,6 +600,7 @@ async function main() {
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
       registry, ctx, gate, streamChat, executeToolCalls, write: subagentWrite, runTurn,
       signal, drainPending, forkMessages: fork,
+      auditSink: cacheSink, auditAgent: "fork", auditSubId: Math.random().toString(36).slice(2, 6),
     });
   };
 
@@ -597,7 +608,7 @@ async function main() {
   const taskManager = createTaskManager();
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
     taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
-      ctx.runSubagent!(task, signal, agentType, undefined, () => taskManager.drainPending(id)),
+      ctx.runSubagent!(task, signal, agentType, undefined, () => taskManager.drainPending(id), "bg"),
     );
   ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
 
@@ -690,7 +701,10 @@ async function main() {
       ],
       // 摘要不需要深推理:关思考更快更省,温度 0 让压缩结果可复现。
       extra: { thinking: { type: "disabled" }, temperature: 0 },
-      onUsage: (u) => session.addUsage(u, process.env.DAO_SUMMARY_MODEL || FLASH_MODEL), // B-2 记摘要用量
+      onUsage: (u) => {
+        session.addUsage(u, process.env.DAO_SUMMARY_MODEL || FLASH_MODEL); // B-2 记摘要用量
+        cacheSink.record({ agent: "summary", depth: 0, turn: 0, model: process.env.DAO_SUMMARY_MODEL || FLASH_MODEL, usage: u, sys: "", tools: "", tail: "" });
+      },
     });
     let out = "";
     let r = await gen.next();
@@ -743,6 +757,8 @@ async function main() {
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
       registry,
       ctx,
+      auditSink: cacheSink,
+      auditId: { agent: "main", depth: 0 },
       gate,
       streamChat,
       executeToolCalls,
@@ -783,7 +799,10 @@ async function main() {
         messages: session.messages,
         today,
         fork,
-        onUsage: (u) => session.addUsage(u as never, distillModel), // B-2 计入蒸馏用量
+        onUsage: (u) => {
+          session.addUsage(u as never, distillModel); // B-2 计入蒸馏用量
+          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: "", tools: "", tail: "" });
+        },
       });
       // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
       const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
@@ -807,6 +826,7 @@ async function main() {
     if (argvPrompt) {
       // 一次性调用(含 eval 每次跑)不蒸馏:蒸馏只属于真实的交互式工作会话,
       // 既省掉快速查询的 flash 开销,也自动把 eval 排除在外、测量更干净。
+      // 同理不做缓存审计:此路径无会话 store/id(无从按 id 审计),cacheSink 保持 no-op。
       session.addUser(argvPrompt);
       await runOneTurn();
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
@@ -860,6 +880,8 @@ async function main() {
         }
       }
       const store = createSessionStore(sessionsDir, resumeId);
+      // 缓存审计:主+子+fork+后台+三工具调用全写进 store.dir/cache.jsonl(常驻静默;DAO_CACHE_AUDIT=0 关)。
+      cacheSink = createCacheAuditSink(store.dir);
       const ckpt = createCheckpointer(workspaceRoot);
       const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
       let sessionTitle: string | undefined; // /rename 设置
@@ -890,6 +912,8 @@ async function main() {
             config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
             registry,
             ctx,
+            auditSink: cacheSink,
+            auditId: { agent: "main", depth: 0 },
             gate,
             streamChat,
             executeToolCalls,
@@ -997,6 +1021,35 @@ async function main() {
             const r = getRules();
             const fmt = (label: string, arr: string[]) => `${label}:${arr.length ? arr.join(", ") : "(无)"}`;
             return { handled: true, output: `权限规则(模式 ${getMode()};deny>ask>allow):\n  ${fmt("allow", r.allow)}\n  ${fmt("ask", r.ask)}\n  ${fmt("deny", r.deny)}\n(改 .dao/settings.json 的 permissions)` };
+          }
+          if (name === "cache") {
+            const id = line.trim().split(/\s+/)[1];
+            const dir = id ? path.join(sessionsDir, id) : store.dir;
+            const file = path.join(dir, "cache.jsonl");
+            let raw: string;
+            try { raw = readFileSync(file, "utf8"); }
+            catch { return { handled: true, output: `无缓存审计数据:${file}\n(常驻静默记录;若设了 DAO_CACHE_AUDIT=0 则未记录)` }; }
+            const evs = raw.trim().split("\n").filter(Boolean).flatMap((l) => {
+              try { return [JSON.parse(l) as Record<string, unknown> & { ts: number }]; }
+              catch { return []; } // 容忍崩溃时截断的损坏行
+            });
+            if (evs.length === 0) return { handled: true, output: `缓存审计为空:${file}` };
+            const TTL_MS = Number(process.env.DAO_CACHE_TTL_MS) || 5 * 60 * 1000;
+            const rows: string[] = [];
+            let prevTs = 0;
+            for (const e of evs) {
+              const who = e.agent === "main" ? "main" : `${e.agent}${e.subId ? `#${e.subId}` : ""}@${e.depth}`;
+              const pct = ((e.ratio as number) * 100).toFixed(0).padStart(3);
+              const changed = (e.changed as string[] | undefined) ?? [];
+              const idle = prevTs ? e.ts - prevTs : 0;
+              let flag = "";
+              if (changed.length) flag = `⚠ 破:${changed.join("/")}`;
+              else if ((e.ratio as number) < 0.3 && (e.prompt as number) >= 4000 && idle > TTL_MS) flag = `· TTL过期(空闲${(idle / 60000).toFixed(1)}min)`;
+              rows.push(`  t${e.turn} ${who.padEnd(12)} ${String(e.prompt).padStart(7)}tok 命中${pct}% ${flag}`);
+              prevTs = e.ts;
+            }
+            const head = `缓存审计 · 会话 ${id ?? store.id}\n  文件:${file}\n  记录数:${evs.length}\n`;
+            return { handled: true, output: head + rows.join("\n") + "\n(⚠破=某前缀维变化;TTL过期=四维稳但空闲超时,非bug。详查 cache.jsonl 的 delta 字段)" };
           }
           if (name === "resume") {
             const id = line.trim().split(/\s+/)[1];
