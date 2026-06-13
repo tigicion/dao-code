@@ -40,6 +40,9 @@ export interface ToolContext {
   skills?: { name: string; description: string; whenToUse?: string; paths?: string[]; slug?: string; body: string; dir: string }[];
   // skill 工具加载某技能后回调:记录使用频率(用于发现/列表加权)。注入便于测试。
   recordSkillUse?: (name: string) => void;
+  // 外来技能(为 CC/Codex/Gemini 等所写)正文 → DAO 适配:检测+按用途转换工具名(无字典,缓存)。
+  // dao 原生技能原样返回。skill 工具加载正文时调用。注入便于测试。
+  adaptSkill?: (body: string) => Promise<string>;
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。

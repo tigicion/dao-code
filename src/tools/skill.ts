@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { adaptSkillBody, adaptNote } from "../skills/adapt.js";
 
 // 按名加载一个 skill 的正文指令(渐进式披露:启动只列 name+description,需要时用本工具取正文)。
 export const skillTool = defineTool({
@@ -25,9 +24,10 @@ export const skillTool = defineTool({
       return `未找到 skill「${args.name}」。可用:${avail}。`;
     }
     ctx.recordSkillUse?.(s.name); // 记使用频率(用于发现/列表加权)
-    // 为其它 agent(CC/Codex…)所写的技能:装载时探测外来工具名/跨引用,追加一小段平台对照(命中才加,源文件不动)。
-    const note = adaptNote(adaptSkillBody(s.body));
+    // 为其它 agent(CC/Codex/Gemini…)所写的技能:装载时检测+用模型按用途转换工具名(无翻译字典,
+    // 按源 hash 缓存,源文件不动);dao 原生技能原样返回。flash 不可用则退回原文+通用提示。
+    const text = ctx.adaptSkill ? await ctx.adaptSkill(s.body) : s.body;
     const loc = s.dir ? `(目录:${s.dir},正文中引用的相对资源以此为根)\n` : ""; // 内置技能无目录
-    return `# Skill: ${s.name}\n${loc}\n${note}${s.body}`;
+    return `# Skill: ${s.name}\n${loc}\n${text}`;
   },
 });

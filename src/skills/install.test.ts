@@ -20,7 +20,7 @@ const mkSkill = async (dir: string, name: string, body: string) => {
 };
 
 describe("installSkills(本地路径,project 层)", () => {
-  it("复制含 SKILL.md 的技能到 .dao/skills,并报告外来痕迹", async () => {
+  it("复制含 SKILL.md 的技能到 .dao/skills,跳过缺 frontmatter 的", async () => {
     await fs.mkdir(path.join(src, "skills"), { recursive: true });
     await mkSkill(path.join(src, "skills"), "tdd", "---\nname: tdd\ndescription: x\n---\n用 `Read` 和 superpowers:debug");
     await mkSkill(path.join(src, "skills"), "nofm", "没有 frontmatter 的正文");
@@ -31,8 +31,8 @@ describe("installSkills(本地路径,project 层)", () => {
     await expect(fs.stat(path.join(ws, ".dao", "skills", "nofm"))).rejects.toMatchObject({ code: "ENOENT" });
     expect(out).toContain("安装 1 个技能");
     expect(out).toContain("缺 frontmatter");
-    expect(out).toContain("Read → read_file"); // 外来工具名报告
-    expect(out).toContain("superpowers:");
+    // 外来工具名不再在装载时枚举(无字典);首次加载时由模型按用途转换。
+    expect(out).toContain("自动按用途转换工具名");
   });
 
   it("源里没有 SKILL.md → 明确提示", async () => {
