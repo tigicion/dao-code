@@ -142,12 +142,14 @@ export function App(deps: AppDeps) {
   // Shift+Tab 切权限模式后,在输入框下方短暂提示(不进 transcript scrollback);约 2.5s 后淡出。
   const [modeHint, setModeHint] = useState<string | null>(null);
   const modeHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 结构化选择(ask_user 带 options):↑↓ 选 + Enter 确认;自动附"自己填写"(进 askInput 子模式)与"先讨论一下"。
-  const [choice, setChoice] = useState<{ question: string; options: string[]; resolve: (s: string) => void } | null>(null);
+  // 结构化选择(ask_user 带 options):单选用 数字/↑↓ + Enter;多选用 checkbox(空格/数字切换 + Enter)。
+  // 自动附"其他(自己输入)"(进 askInput 子模式)与"先讨论一下"两项。
+  const [choice, setChoice] = useState<{ question: string; options: string[]; multi: boolean; resolve: (s: string) => void } | null>(null);
   const [choiceIdx, setChoiceIdx] = useState(0);
   const [choiceFilling, setChoiceFilling] = useState(false);
-  const CHOICE_FILL = "✎ 自己填写…";
-  const CHOICE_DISCUSS = "💬 先讨论一下";
+  const [choiceChecked, setChoiceChecked] = useState<Set<number>>(new Set()); // 多选已勾选的下标
+  const CHOICE_FILL = "其他(自己输入)";
+  const CHOICE_DISCUSS = "先讨论一下";
   const controllerRef = useRef<AbortController | null>(null);
   const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
   const reasoningRef = useRef(""); // 本次模型响应累积的思考(同步提交,保证"思考在前、答案在后")
@@ -193,8 +195,8 @@ export function App(deps: AppDeps) {
         if (!showingApproval.current) startNextApproval(); // 空闲则显示队首,否则排队(防并发覆盖死锁)
       });
     const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
-    const askChoice = (question: string, options: string[]) =>
-      new Promise<string>((resolve) => { setChoice({ question, options, resolve }); setChoiceIdx(0); setChoiceFilling(false); });
+    const askChoice = (question: string, options: string[], multi?: boolean) =>
+      new Promise<string>((resolve) => { setChoice({ question, options, multi: !!multi, resolve }); setChoiceIdx(0); setChoiceFilling(false); setChoiceChecked(new Set()); });
     deps.register({ approvalPrompt, askUser, askChoice });
   }, [deps]);
 
@@ -393,19 +395,49 @@ export function App(deps: AppDeps) {
     }
     if (choice) {
       const allOpts = [...choice.options, CHOICE_FILL, CHOICE_DISCUSS];
-      const done = (val: string) => { choice.resolve(val); setChoice(null); setChoiceFilling(false); setAskInput(""); };
-      if (choiceFilling) { // "自己填写"子模式:输入自由文本
-        if (key.return) done(askInput.trim() || "(空)");
-        else if (key.backspace || key.delete) setAskInput((s) => s.slice(0, -1));
+      const fillIdx = choice.options.length, discussIdx = choice.options.length + 1;
+      const done = (val: string) => { choice.resolve(val); setChoice(null); setChoiceFilling(false); setAskInput(""); setChoiceChecked(new Set()); };
+      if (choiceFilling) { // "其他(自己输入)"子模式:用户敲自由文本
+        if (key.return) {
+          const custom = askInput.trim();
+          if (choice.multi) { // 多选:自填项并入已勾选的正常项
+            const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
+            if (custom) picked.push(custom);
+            done(picked.length ? picked.join(", ") : "(用户未选)");
+          } else done(custom || "(空)");
+        } else if (key.backspace || key.delete) setAskInput((s) => s.slice(0, -1));
         else if (ch && !key.ctrl && !key.meta) setAskInput((s) => s + ch);
+        return;
+      }
+      // 数字键:跳到该项。单选直接触发;多选切换勾选(仅正常项)。
+      if (ch && /[1-9]/.test(ch)) {
+        const i = Number(ch) - 1;
+        if (i < allOpts.length) {
+          if (choice.multi && i < choice.options.length) {
+            setChoiceIdx(i);
+            setChoiceChecked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+          } else if (!choice.multi) {
+            if (i < choice.options.length) done(choice.options[i]!);
+            else if (i === fillIdx) { setChoiceIdx(i); setChoiceFilling(true); setAskInput(""); }
+            else done("我想先讨论一下,先别急着定方向。");
+          } else setChoiceIdx(i);
+        }
         return;
       }
       if (key.upArrow) { setChoiceIdx((i) => Math.max(0, i - 1)); return; }
       if (key.downArrow) { setChoiceIdx((i) => Math.min(allOpts.length - 1, i + 1)); return; }
+      // 空格(多选):切换当前正常项的勾选。
+      if (choice.multi && ch === " ") {
+        if (choiceIdx < choice.options.length) setChoiceChecked((s) => { const n = new Set(s); n.has(choiceIdx) ? n.delete(choiceIdx) : n.add(choiceIdx); return n; });
+        return;
+      }
       if (key.return) {
-        if (choiceIdx < choice.options.length) done(choice.options[choiceIdx]!);
-        else if (allOpts[choiceIdx] === CHOICE_FILL) { setChoiceFilling(true); setAskInput(""); }
-        else done("我想先讨论一下,先别急着定方向。");
+        if (choiceIdx === fillIdx) { setChoiceFilling(true); setAskInput(""); }
+        else if (choiceIdx === discussIdx) done("我想先讨论一下,先别急着定方向。");
+        else if (choice.multi) { // 确认已勾选集合
+          const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
+          done(picked.length ? picked.join(", ") : "(用户未选)");
+        } else done(choice.options[choiceIdx]!);
       }
       return;
     }
@@ -583,15 +615,25 @@ export function App(deps: AppDeps) {
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
           <Text color={c("jade")}>{choice.question}</Text>
           {choiceFilling ? (
-            <Text color={c("ink")}>✎ {askInput}<Text color={c("jade")}>▎</Text></Text>
+            <>
+              <Text color={c("ink")}>› {askInput}<Text color={c("jade")}>▎</Text></Text>
+              <Text color={c("dim")}>输入你的答案,⏎ 确认</Text>
+            </>
           ) : (
             <>
-              {[...choice.options, CHOICE_FILL, CHOICE_DISCUSS].map((o, i) => (
-                <Text key={i} color={i === choiceIdx ? c("jade") : c("ink")}>
-                  {i === choiceIdx ? "❯ " : "  "}{o}
-                </Text>
-              ))}
-              <Text color={c("dim")}>↑↓ 选择 · ⏎ 确认</Text>
+              {[...choice.options, CHOICE_FILL, CHOICE_DISCUSS].map((o, i) => {
+                const focused = i === choiceIdx;
+                // 多选:正常项显示 checkbox;"其他/讨论"两项不参与勾选,仍按序号呈现。
+                const box = choice.multi && i < choice.options.length ? (choiceChecked.has(i) ? "[x] " : "[ ] ") : "";
+                return (
+                  <Text key={i} color={focused ? c("jade") : c("ink")}>
+                    {focused ? "❯ " : "  "}{i + 1}. {box}{o}
+                  </Text>
+                );
+              })}
+              <Text color={c("dim")}>
+                {choice.multi ? "数字/空格 勾选 · ↑↓ 移动 · ⏎ 确认" : "数字快选 · ↑↓ 移动 · ⏎ 确认"}
+              </Text>
             </>
           )}
         </Box>

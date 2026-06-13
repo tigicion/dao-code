@@ -8,6 +8,8 @@ import path from "node:path";
 export interface Skill {
   name: string;
   description: string;
+  whenToUse?: string; // frontmatter when_to_use:触发条件(决定何时该加载此技能),对触发至关重要
+  slug?: string; // 目录/文件名(供模型用直觉短名调用,不必照抄 Title Case 的 name)
   body: string;
   dir: string; // 该 skill 所在目录(供正文引用同目录资源)
 }
@@ -16,6 +18,7 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
   let body = raw;
   let name = fallbackName;
   let description = "";
+  let whenToUse = "";
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (m) {
     for (const line of m[1]!.split(/\r?\n/)) {
@@ -25,13 +28,14 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
       const v = line.slice(i + 1).trim();
       if (k === "name") name = v || name;
       else if (k === "description") description = v;
+      else if (k === "when_to_use" || k === "when to use" || k === "whentouse") whenToUse = v;
     }
     body = (m[2] ?? "").trim();
   } else {
     body = raw.trim();
   }
   if (!body) return null;
-  return { name, description, body, dir };
+  return { name, description, ...(whenToUse ? { whenToUse } : {}), slug: fallbackName, body, dir };
 }
 
 async function loadFrom(baseDir: string): Promise<Skill[]> {

@@ -335,7 +335,7 @@ async function main() {
   ];
   const diskNames = new Set(diskSkills.map((s) => s.name));
   // 内置【核心】技能:描述固定加载进模型上下文(可自动触发),但不进用户的 /skills 列表、不可关。
-  const coreBundled = BUNDLED_SKILLS.filter((b) => b.core && !diskNames.has(b.name)).map((b) => ({ ...b, dir: "" }));
+  const coreBundled = BUNDLED_SKILLS.filter((b) => b.core && !diskNames.has(b.name)).map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name } as import("./skills/skills.js").Skill));
   // 禁用集(~/.dao/skills-disabled.json):被禁用的【磁盘】技能不注入上下文(省 token),/skills 可开关。
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
@@ -351,7 +351,12 @@ async function main() {
         `【强制要求】只要某个 skill 可能与当前任务相关(哪怕只有一点可能,尤其描述写"在…之前/必须用"的,` +
         `如做新功能前的 brainstorming、调试前的根因流程),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
         `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
-        skills.map((s) => `- ${s.name}:${s.description.slice(0, 160)}`).join("\n") // 预算:每条描述上限 160 字,防多技能撑大常驻 prompt
+        skills.map((s) => {
+          // 触发条件(when_to_use)对"何时该加载"至关重要,必须随描述一起呈现;调用名给 slug(模型不必照抄 Title Case)。
+          const trig = s.whenToUse ? ` 何时用:${s.whenToUse}` : "";
+          const call = s.slug && s.slug.toLowerCase() !== s.name.toLowerCase() ? `(调用名 ${s.slug})` : "";
+          return `- ${s.name}${call}:${`${s.description}${trig}`.slice(0, 220)}`; // 预算上限 220 字(含触发条件),防多技能撑大常驻 prompt
+        }).join("\n")
       : "";
 
   const systemPrompt =
@@ -367,7 +372,7 @@ async function main() {
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
   let inkApprovalPrompt: ApprovalPrompt | null = null;
   let inkAsk: ((q: string) => Promise<string>) | null = null;
-  let inkAskChoice: ((q: string, opts: string[]) => Promise<string>) | null = null;
+  let inkAskChoice: ((q: string, opts: string[], multi?: boolean) => Promise<string>) | null = null;
 
   // 长任务自主模式(--task / 运行时 /task):自主连续推进 + 自动批准 + 更高轮数上限。
   let longTask = taskFlag;
@@ -437,12 +442,17 @@ async function main() {
     workspaceRoot,
     readFiles: new Set<string>(),
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
-    // 结构化选择:Ink 用 ↑↓+Enter 选择器;非交互(stdin/eval)退回"编号 + 自由作答"。
-    askChoice: async (q: string, opts: string[]) => {
-      if (inkAskChoice) return inkAskChoice(q, opts);
-      const raw = (await ask(`\n${q}\n${opts.map((o, i) => `  ${i + 1}. ${o}`).join("\n")}\n(回序号选择,或直接作答)\n> `)).trim();
-      const n = Number(raw);
-      return Number.isInteger(n) && n >= 1 && n <= opts.length ? opts[n - 1]! : raw;
+    // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
+    askChoice: async (q: string, opts: string[], multi?: boolean) => {
+      if (inkAskChoice) return inkAskChoice(q, opts, multi);
+      const hint = multi ? "(回逗号分隔的多个序号,或直接作答)" : "(回序号选择,或直接作答)";
+      const raw = (await ask(`\n${q}\n${opts.map((o, i) => `  ${i + 1}. ${o}`).join("\n")}\n${hint}\n> `)).trim();
+      const pick = (s: string) => { const n = Number(s.trim()); return Number.isInteger(n) && n >= 1 && n <= opts.length ? opts[n - 1]! : null; };
+      if (multi && /[,，]/.test(raw)) {
+        const picked = raw.split(/[,，]/).map(pick).filter((x): x is string => x !== null);
+        return picked.length ? picked.join(", ") : raw;
+      }
+      return pick(raw) ?? raw;
     },
     fetchImpl: fetch,
     today,
