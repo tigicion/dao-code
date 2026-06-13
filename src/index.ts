@@ -1021,6 +1021,32 @@ async function main() {
             const fmt = (label: string, arr: string[]) => `${label}:${arr.length ? arr.join(", ") : "(无)"}`;
             return { handled: true, output: `权限规则(模式 ${getMode()};deny>ask>allow):\n  ${fmt("allow", r.allow)}\n  ${fmt("ask", r.ask)}\n  ${fmt("deny", r.deny)}\n(改 .dao/settings.json 的 permissions)` };
           }
+          if (name === "cache") {
+            const id = line.trim().split(/\s+/)[1];
+            const dir = id ? path.join(sessionsDir, id) : store.dir;
+            const file = path.join(dir, "cache.jsonl");
+            let raw: string;
+            try { raw = readFileSync(file, "utf8"); }
+            catch { return { handled: true, output: `无缓存审计数据:${file}\n(常驻静默记录;若设了 DAO_CACHE_AUDIT=0 则未记录)` }; }
+            const evs = raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown> & { ts: number });
+            if (evs.length === 0) return { handled: true, output: `缓存审计为空:${file}` };
+            const TTL_MS = Number(process.env.DAO_CACHE_TTL_MS) || 5 * 60 * 1000;
+            const rows: string[] = [];
+            let prevTs = 0;
+            for (const e of evs) {
+              const who = e.agent === "main" ? "main" : `${e.agent}${e.subId ? `#${e.subId}` : ""}@${e.depth}`;
+              const pct = ((e.ratio as number) * 100).toFixed(0).padStart(3);
+              const changed = e.changed as string[];
+              const idle = prevTs ? e.ts - prevTs : 0;
+              let flag = "";
+              if (changed.length) flag = `⚠ 破:${changed.join("/")}`;
+              else if ((e.ratio as number) < 0.3 && (e.prompt as number) >= 4000 && idle > TTL_MS) flag = `· TTL过期(空闲${(idle / 60000).toFixed(1)}min)`;
+              rows.push(`  t${e.turn} ${who.padEnd(12)} ${String(e.prompt).padStart(7)}tok 命中${pct}% ${flag}`);
+              prevTs = e.ts;
+            }
+            const head = `缓存审计 · 会话 ${id ?? store.id}\n  文件:${file}\n  记录数:${evs.length}\n`;
+            return { handled: true, output: head + rows.join("\n") + "\n(⚠破=某前缀维变化;TTL过期=四维稳但空闲超时,非bug。详查 cache.jsonl 的 delta 字段)" };
+          }
           if (name === "resume") {
             const id = line.trim().split(/\s+/)[1];
             // P3-29 秒列:只读轻量 meta(不解析整份 state.json),并按最近更新排序。
