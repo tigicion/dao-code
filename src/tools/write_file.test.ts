@@ -54,11 +54,13 @@ describe("write_file tool", () => {
   });
 
   it("工作区外路径:授权回调放行 → 可写", async () => {
+    const extName = `../${path.basename(root)}-ext.txt`; // 唯一的区外新文件,不会预先存在
     const out = await writeFileTool.handler(
-      { path: "../allowed.txt", content: "ok" },
+      { path: extName, content: "ok" },
       { workspaceRoot: root, readFiles: new Set(), approveExternalWrite: async () => true },
     );
     expect(out).not.toMatch(/未获授权/);
+    await fs.rm(path.resolve(root, extName), { force: true });
   });
 
   it("declares write capability and required approval", () => {
