@@ -1028,7 +1028,10 @@ async function main() {
             let raw: string;
             try { raw = readFileSync(file, "utf8"); }
             catch { return { handled: true, output: `无缓存审计数据:${file}\n(常驻静默记录;若设了 DAO_CACHE_AUDIT=0 则未记录)` }; }
-            const evs = raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown> & { ts: number });
+            const evs = raw.trim().split("\n").filter(Boolean).flatMap((l) => {
+              try { return [JSON.parse(l) as Record<string, unknown> & { ts: number }]; }
+              catch { return []; } // 容忍崩溃时截断的损坏行
+            });
             if (evs.length === 0) return { handled: true, output: `缓存审计为空:${file}` };
             const TTL_MS = Number(process.env.DAO_CACHE_TTL_MS) || 5 * 60 * 1000;
             const rows: string[] = [];
@@ -1036,7 +1039,7 @@ async function main() {
             for (const e of evs) {
               const who = e.agent === "main" ? "main" : `${e.agent}${e.subId ? `#${e.subId}` : ""}@${e.depth}`;
               const pct = ((e.ratio as number) * 100).toFixed(0).padStart(3);
-              const changed = e.changed as string[];
+              const changed = (e.changed as string[] | undefined) ?? [];
               const idle = prevTs ? e.ts - prevTs : 0;
               let flag = "";
               if (changed.length) flag = `⚠ 破:${changed.join("/")}`;
