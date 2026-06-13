@@ -1022,6 +1022,18 @@ async function main() {
             const fmt = (label: string, arr: string[]) => `${label}:${arr.length ? arr.join(", ") : "(无)"}`;
             return { handled: true, output: `权限规则(模式 ${getMode()};deny>ask>allow):\n  ${fmt("allow", r.allow)}\n  ${fmt("ask", r.ask)}\n  ${fmt("deny", r.deny)}\n(改 .dao/settings.json 的 permissions)` };
           }
+          if (name === "session") {
+            const title = sessionTitle ? sessionTitle : "(未命名,用 /rename 命名)";
+            const cachePath = path.join(store.dir, "cache.jsonl");
+            return { handled: true, output:
+              `会话 · ${store.id}\n` +
+              `  标题:${title}\n` +
+              `  目录:${store.dir}\n` +
+              `  工作区:${workspaceRoot}\n` +
+              `  模型:${session.model} · 模式:${session.mode}\n` +
+              `  消息:${session.messages.length} 条\n` +
+              `  缓存审计:${cachePath}(/cache 查看)` };
+          }
           if (name === "cache") {
             const id = line.trim().split(/\s+/)[1];
             const dir = id ? path.join(sessionsDir, id) : store.dir;
