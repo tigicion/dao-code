@@ -28,7 +28,7 @@ const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose
 const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
 
 // 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源)。
-const SLASH_COMMANDS = ["model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor", "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume", "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin", "login", "logout", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "bypass", "goal", "coordinator", "dod", "restore", "clear", "compact", "cost", "session", "cache", "help", "exit"];
+const SLASH_COMMANDS = ["model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor", "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume", "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin", "login", "logout", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "bypass", "goal", "coordinator", "dod", "restore", "clear", "compact", "cost", "session", "audit", "help", "exit"];
 
 // 多个候选时补到公共前缀(shell 习惯:再按 Tab 看候选行)。
 function commonPrefix(strs: string[]): string {

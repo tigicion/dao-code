@@ -74,11 +74,11 @@ import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, 
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
-import { createCacheAuditSink, type CacheAuditSink } from "./session/cache_audit.js";
+import { createCacheAuditSink, type CacheAuditSink, formatCacheReport } from "./session/cache_audit.js";
 import { auditEnabled } from "./session/audit_switch.js";
-import { createMemoryAuditSink, type MemoryAuditSink } from "./memory/memory_audit.js";
-import { createToolAuditSink, type ToolAuditSink } from "./tools/tool_audit.js";
-import { createPermAuditSink, type PermAuditSink } from "./permissions/perm_audit.js";
+import { createMemoryAuditSink, type MemoryAuditSink, summarizeMemoryTrace, formatMemoryReport } from "./memory/memory_audit.js";
+import { createToolAuditSink, type ToolAuditSink, summarizeToolTrace, formatToolReport } from "./tools/tool_audit.js";
+import { createPermAuditSink, type PermAuditSink, summarizePermTrace, formatPermReport } from "./permissions/perm_audit.js";
 import { createSkillAuditSink, type SkillAuditSink, readAllSkillTraces, summarizeSkillTrace, formatSkillReport } from "./skills/skill_audit.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
@@ -962,11 +962,6 @@ async function main() {
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
-            if (sub === "audit") {
-              // 技能触发审计:跨会话聚合 skill-trace.jsonl,给出命中/漏报/漏召回,供优化。
-              const stats = summarizeSkillTrace(readAllSkillTraces(path.join(workspaceRoot, ".dao", "sessions")));
-              return { handled: true, output: formatSkillReport(stats) };
-            }
             if (sub === "off" || sub === "on") {
               const target = rest[1];
               if (target && coreBundled.some((s) => s.name === target)) return { handled: true, output: `${target} 是内置核心技能,固定加载、不可开关。` };
@@ -1049,36 +1044,30 @@ async function main() {
               `  工作区:${workspaceRoot}\n` +
               `  模型:${session.model} · 模式:${session.mode}\n` +
               `  消息:${session.messages.length} 条\n` +
-              `  缓存审计:${cachePath}(/cache 查看)` };
+              `  缓存审计:${cachePath}(/audit cache 查看)` };
           }
-          if (name === "cache") {
-            const id = line.trim().split(/\s+/)[1];
+          if (name === "audit") {
+            const parts = line.trim().split(/\s+/);
+            const sub = parts[1];
+            const id = parts[2];
             const dir = id ? path.join(sessionsDir, id) : store.dir;
-            const file = path.join(dir, "cache.jsonl");
-            let raw: string;
-            try { raw = readFileSync(file, "utf8"); }
-            catch { return { handled: true, output: `无缓存审计数据:${file}\n(常驻静默记录;若设了 DAO_CACHE_AUDIT=0 则未记录)` }; }
-            const evs = raw.trim().split("\n").filter(Boolean).flatMap((l) => {
-              try { return [JSON.parse(l) as Record<string, unknown> & { ts: number }]; }
-              catch { return []; } // 容忍崩溃时截断的损坏行
-            });
-            if (evs.length === 0) return { handled: true, output: `缓存审计为空:${file}` };
-            const TTL_MS = Number(process.env.DAO_CACHE_TTL_MS) || 5 * 60 * 1000;
-            const rows: string[] = [];
-            let prevTs = 0;
-            for (const e of evs) {
-              const who = e.agent === "main" ? "main" : `${e.agent}${e.subId ? `#${e.subId}` : ""}@${e.depth}`;
-              const pct = ((e.ratio as number) * 100).toFixed(0).padStart(3);
-              const changed = (e.changed as string[] | undefined) ?? [];
-              const idle = prevTs ? e.ts - prevTs : 0;
-              let flag = "";
-              if (changed.length) flag = `⚠ 破:${changed.join("/")}`;
-              else if ((e.ratio as number) < 0.3 && (e.prompt as number) >= 4000 && idle > TTL_MS) flag = `· TTL过期(空闲${(idle / 60000).toFixed(1)}min)`;
-              rows.push(`  t${e.turn} ${who.padEnd(12)} ${String(e.prompt).padStart(7)}tok 命中${pct}% ${flag}`);
-              prevTs = e.ts;
-            }
-            const head = `缓存审计 · 会话 ${id ?? store.id}\n  文件:${file}\n  记录数:${evs.length}\n`;
-            return { handled: true, output: head + rows.join("\n") + "\n(⚠破=某前缀维变化;TTL过期=四维稳但空闲超时,非bug。详查 cache.jsonl 的 delta 字段)" };
+            const valid = ["memory", "tools", "perms", "cache", "skills", "all"];
+            if (!sub || !valid.includes(sub)) return { handled: true, output: `用法:/audit <memory|tools|perms|cache|skills|all> [会话id]\n默认审当前会话(${store.id})。` };
+            const readJsonl = (file: string): Record<string, unknown>[] => {
+              try {
+                return readFileSync(path.join(dir, file), "utf8").trim().split("\n").filter(Boolean)
+                  .flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+              } catch { return []; }
+            };
+            const sections: string[] = [];
+            const want = (k: string) => sub === "all" || sub === k;
+            if (want("memory")) sections.push(formatMemoryReport(summarizeMemoryTrace(readJsonl("memory-trace.jsonl") as never)));
+            if (want("tools")) sections.push(formatToolReport(summarizeToolTrace(readJsonl("tool-trace.jsonl") as never)));
+            if (want("perms")) sections.push(formatPermReport(summarizePermTrace(readJsonl("perm-trace.jsonl") as never)));
+            if (want("cache")) sections.push(formatCacheReport(readJsonl("cache.jsonl") as never));
+            if (want("skills")) sections.push(formatSkillReport(summarizeSkillTrace(readAllSkillTraces(sessionsDir))));
+            const head = `审计 · 会话 ${id ?? store.id} · 目录 ${dir}\n`;
+            return { handled: true, output: head + sections.join("\n\n") };
           }
           if (name === "resume") {
             const id = line.trim().split(/\s+/)[1];
