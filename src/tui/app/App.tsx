@@ -123,6 +123,18 @@ export function App(deps: AppDeps) {
   const [approval, setApproval] = useState<{ requests: ApprovalRequest[]; resolve: (m: Map<string, ApprovalDecision>) => void } | null>(null);
   const [apIdx, setApIdx] = useState(0); // 审批进行到第几项(多个 gated 工具逐项决定)
   const apDecisions = useRef(new Map<string, ApprovalDecision>());
+  // 审批【队列】:并发的审批请求(如两个并行的外部读)排队逐个显示,避免后者 setApproval 覆盖前者、
+  // 丢掉前者 resolve 导致该工具调用永不返回、整回合死锁。
+  const approvalQueue = useRef<{ requests: ApprovalRequest[]; resolve: (m: Map<string, ApprovalDecision>) => void }[]>([]);
+  const showingApproval = useRef(false);
+  const startNextApproval = () => {
+    const next = approvalQueue.current.shift();
+    if (!next) { showingApproval.current = false; setApproval(null); return; }
+    showingApproval.current = true;
+    apDecisions.current = new Map();
+    setApIdx(0);
+    setApproval({ requests: next.requests, resolve: next.resolve });
+  };
   const [ask, setAsk] = useState<{ question: string; resolve: (s: string) => void } | null>(null);
   const [askInput, setAskInput] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
@@ -166,9 +178,8 @@ export function App(deps: AppDeps) {
   useEffect(() => {
     const approvalPrompt: ApprovalPrompt = (requests) =>
       new Promise((resolve) => {
-        apDecisions.current = new Map();
-        setApIdx(0);
-        setApproval({ requests, resolve });
+        approvalQueue.current.push({ requests, resolve }); // 入队
+        if (!showingApproval.current) startNextApproval(); // 空闲则显示队首,否则排队(防并发覆盖死锁)
       });
     const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
     deps.register({ approvalPrompt, askUser });
@@ -360,7 +371,7 @@ export function App(deps: AppDeps) {
           setApIdx(apIdx + 1); // 还有下一项,继续逐个决定
         } else {
           approval.resolve(new Map(apDecisions.current));
-          setApproval(null);
+          startNextApproval(); // 解决当前 → 显示队列中的下一个(若有),否则关闭
         }
       }
       return;
