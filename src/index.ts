@@ -904,7 +904,7 @@ async function main() {
           }
           if (name === "status") {
             const pct = Math.round((estimateTokens(session.messages) / CONTEXT_WINDOW) * 100);
-            const flags = [yolo ? "YOLO" : "", longTask ? "长任务" : "", coordinator ? "Coordinator" : ""].filter(Boolean).join("/") || "—";
+            const flags = [yolo ? "免审批" : "", longTask ? "长任务" : "", coordinator ? "Coordinator" : ""].filter(Boolean).join("/") || "—";
             return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
           }
           if (name === "plugin") {
@@ -944,9 +944,9 @@ async function main() {
             session.messages.push({ role: "system", content: `[用户备注] ${note}` });
             return { handled: true, output: "已记入上下文(下次回复时模型会看到)。" };
           }
-          if (name === "yolo") {
+          if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             yolo = !yolo;
-            return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(deny 规则仍拦截)" : "YOLO 已关闭:恢复审批门" };
+            return { handled: true, output: yolo ? "⚡ 免审批模式已开启:自动批准所有写/执行操作(deny 规则与敏感路径仍拦截)" : "免审批已关闭:恢复审批门" };
           }
           if (name === "mode") {
             const arg = line.trim().split(/\s+/)[1];
@@ -1026,7 +1026,7 @@ async function main() {
           contextPct: (estimateTokens(session.messages) / CONTEXT_WINDOW) * 100,
         }),
         cycleMode: () => {
-          const order: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+          const order: PermissionMode[] = ["default", "acceptEdits", "auto", "plan", "bypassPermissions"];
           const next = order[(order.indexOf(getMode()) + 1) % order.length]!;
           yolo = next === "bypassPermissions";
           session.mode = next === "plan" ? "plan" : "normal";

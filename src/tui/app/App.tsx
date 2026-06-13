@@ -363,7 +363,7 @@ export function App(deps: AppDeps) {
   useInput((ch, key) => {
     if (approval) {
       const d: ApprovalDecision | null =
-        ch === "y" ? "once" : ch === "s" ? "session" : ch === "a" ? "always" : ch === "n" ? "deny" : null;
+        ch === "y" ? "once" : ch === "a" ? "always" : ch === "n" ? "deny" : null;
       if (d) {
         const req = approval.requests[apIdx];
         if (req) apDecisions.current.set(req.id, d);
@@ -532,7 +532,7 @@ export function App(deps: AppDeps) {
             需要批准{approval.requests.length > 1 ? ` (${apIdx + 1}/${approval.requests.length})` : ""}:
           </Text>
           <Text color={c("ink")}>  {approval.requests[apIdx]?.summary.slice(0, 120)}</Text>
-          <Text color={c("dim")}>[y]允许一次 [s]本会话不再问 [a]始终允许(记住,以后同类不再问) [n]拒绝</Text>
+          <Text color={c("dim")}>[y]是(允许一次) [a]始终允许(记住,同类不再问) [n]否</Text>
         </Box>
       )}
 
@@ -557,7 +557,7 @@ export function App(deps: AppDeps) {
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
-              {["model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor", "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume", "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
+              {["model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor", "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume", "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "bypass", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
                 .filter((cmd) => ("/" + cmd).startsWith(input))
                 .map((cmd) => "/" + cmd)
                 .join("  ") || "(无匹配命令)"}
