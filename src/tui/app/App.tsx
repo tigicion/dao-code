@@ -4,6 +4,7 @@ import { highlight } from "cli-highlight";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
+import { TIPS } from "../tips.js";
 import { daoVerb, DAO_VERBS } from "../spinner_words.js";
 import { clampLines, parseTodoResult } from "./format.js";
 import type { TurnEvents } from "../render.js";
@@ -18,14 +19,6 @@ const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose
 const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
 
 // 空闲时底部轮换的轻提示(CC 风格:克制暗色一行,无 emoji)。运行中的"可排队"提示单独硬编码。
-const TIPS = [
-  "/ 看命令 · @ 引用文件 · Shift+Tab 切权限模式",
-  "输入 /help 查看全部命令",
-  "@ 引用文件路径,Tab 补全",
-  "运行中可继续输入,回车排队执行",
-  "Esc 打断当前回合",
-];
-
 // 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。
 function tail(s: string, n: number): string {
   const all = s.split("\n");
