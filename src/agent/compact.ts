@@ -22,6 +22,8 @@ export function shouldCompact(messages: ChatMessage[], maxTokens: number, ratio 
 const REPRODUCIBLE_TOOLS = new Set(["read_file", "list_dir", "grep_files", "file_search", "fetch_url", "web_search", "memory_search", "skill"]);
 const CLEARED_MARK = "[旧工具结果已清理,需要时可重新获取]";
 
+// 【缓存约束】microcompact 会改动旧消息 → 破坏 DeepSeek 前缀缓存。只可在 compactMessages 内调用
+// (那时压缩已重置缓存,无额外代价);切勿当作"每回合独立裁剪",否则会在本可命中缓存的回合废掉缓存、净亏。
 // microcompact:把【最近 keepRecentTurns 个 user 轮之前】的可重现工具结果就地替换为标记,
 // 大幅削 token 而不丢关键状态(写/执行结果保留)。纯函数,返回新数组。
 export function microcompactMessages(messages: ChatMessage[], keepRecentTurns = 2): ChatMessage[] {

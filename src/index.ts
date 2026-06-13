@@ -60,7 +60,7 @@ import { PermissionGate } from "./permissions/gate.js";
 import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
-import { createSessionStore, logEvents, findResumable } from "./session/log.js";
+import { createSessionStore, logEvents, findResumable, loadState } from "./session/log.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
@@ -766,10 +766,32 @@ async function main() {
             return { handled: true, output: `权限规则(模式 ${getMode()};deny>ask>allow):\n  ${fmt("allow", r.allow)}\n  ${fmt("ask", r.ask)}\n  ${fmt("deny", r.deny)}\n(改 .dao/settings.json 的 permissions)` };
           }
           if (name === "resume") {
+            const id = line.trim().split(/\s+/)[1];
             let sids: string[] = [];
-            try { sids = readdirSync(path.join(workspaceRoot, ".dao", "sessions")); } catch { /* 无 */ }
+            try { sids = readdirSync(sessionsDir); } catch { /* 无 */ }
             if (sids.length === 0) return { handled: true, output: "本工作区无历史会话。" };
-            return { handled: true, output: `历史会话(${sids.length},最近在后):\n` + sids.slice(-10).map((s) => "  " + s).join("\n") + "\n(恢复最近一个:重启时 dao -c;按会话切换的实时重载后续支持)" };
+            if (!id) return { handled: true, output: `历史会话(${sids.length}):\n` + sids.slice(-15).reverse().map((s) => "  " + s).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
+            const st = loadState(sessionsDir, id);
+            if (!st) return { handled: true, output: `未找到会话:${id}(/resume 看列表)` };
+            session.messages = st.messages; // 整盘载入上下文(继续写入当前会话文件,不动原文件)
+            session.setModel(st.model);
+            return { handled: true, output: `已载入会话 ${id} 的上下文(${st.messages.length} 条消息;继续写入当前会话)`, clearTranscript: true };
+          }
+          if (name === "rewind") {
+            const arg = line.trim().split(/\s+/)[1];
+            const userIdx = session.messages.map((m, i) => (m.role === "user" ? i : -1)).filter((i) => i >= 0);
+            if (userIdx.length === 0) return { handled: true, output: "本会话还没有可回退的节点。" };
+            if (!arg) {
+              const list = userIdx.map((idx, n) => {
+                const c = session.messages[idx]!.content;
+                return `  ${n + 1}. ${(typeof c === "string" ? c : "").replace(/\n/g, " ").slice(0, 60)}`;
+              });
+              return { handled: true, output: `回退节点(到第几条用户消息【之前】):\n${list.join("\n")}\n用 /rewind <序号> 截断对话(代码回退另用 /restore)` };
+            }
+            const n = Number(arg);
+            if (!Number.isInteger(n) || n < 1 || n > userIdx.length) return { handled: true, output: `序号越界(1–${userIdx.length})` };
+            session.messages = session.messages.slice(0, userIdx[n - 1]); // 丢弃该用户消息及其后
+            return { handled: true, output: `已回退到第 ${n} 条用户消息之前(现 ${session.messages.length} 条消息)。代码如需回退用 /restore。`, clearTranscript: true };
           }
           if (name === "export") {
             const ts = new Date().toISOString().replace(/[:.]/g, "-");
