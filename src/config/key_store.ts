@@ -12,6 +12,19 @@ export async function loadStoredKey(file: string): Promise<string | undefined> {
 }
 
 // 保存 apiKey(合并已有内容),建目录,尽量设 600 权限。
+// 清除已保存的 apiKey(/logout 用):保留 config 其它字段,只删 apiKey。
+export async function clearKey(file: string): Promise<void> {
+  try {
+    const obj = JSON.parse(await fs.readFile(file, "utf8"));
+    if (obj && typeof obj === "object") {
+      delete obj.apiKey;
+      await fs.writeFile(file, JSON.stringify(obj, null, 2), "utf8");
+    }
+  } catch {
+    // 无文件/损坏 → 视为已清除
+  }
+}
+
 export async function saveKey(file: string, apiKey: string): Promise<void> {
   let obj: Record<string, unknown> = {};
   try {
