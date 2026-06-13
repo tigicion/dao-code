@@ -887,6 +887,21 @@ async function main() {
             });
             return { handled: true, output: `已装插件(${installedPlugins.length}):\n` + lines.join("\n") + "\n(增删:dao plugin add/remove,重启生效)" };
           }
+          if (name === "hooks") {
+            const lines = Object.entries(hooks).flatMap(([ev, entries]) => entries.map((e) => `  ${ev}${e.matcher ? `[${e.matcher}]` : ""}: ${e.command}`));
+            if (lines.length === 0) return { handled: true, output: "未配置 hooks。在 ~/.dao/hooks.json 或 <项目>/.dao/hooks.json 配(事件:PreToolUse/PostToolUse/UserPromptSubmit/SessionStart/SessionEnd)。" };
+            return { handled: true, output: `已配置 hooks:\n${lines.join("\n")}` };
+          }
+          if (name === "agents") {
+            const types = ctx.agentTypes ?? [];
+            if (types.length === 0) return { handled: true, output: "无自定义子代理类型(默认通用子代理可用)。在 .dao/agents/ 定义后用 agent 工具的 agent_type 调。" };
+            return { handled: true, output: `可用子代理类型(${types.length}):\n` + types.map((t) => `  ${t.name} — ${t.description}`).join("\n") };
+          }
+          if (name === "files") {
+            const files = [...(ctx.readFiles ?? [])].map((f) => path.relative(workspaceRoot, f) || f);
+            if (files.length === 0) return { handled: true, output: "本会话尚未读取任何文件。" };
+            return { handled: true, output: `上下文中读过的文件(${files.length}):\n` + files.slice(0, 50).map((f) => "  " + f).join("\n") + (files.length > 50 ? `\n  …等共 ${files.length} 个` : "") };
+          }
           if (name === "yolo") {
             yolo = !yolo;
             return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(deny 规则仍拦截)" : "YOLO 已关闭:恢复审批门" };
