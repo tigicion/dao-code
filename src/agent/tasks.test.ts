@@ -99,3 +99,21 @@ describe("emitFromTask (mid-run 子→父)", () => {
     expect(tm.drainNotifications()).toEqual([]);
   });
 });
+
+describe("集成:后台子代理 mid-run 消息流回父", () => {
+  it("launch 的 run 内通过 emitFromTask(绑定 id)发消息 → 父 drainNotifications 能取到", async () => {
+    const tm = createTaskManager();
+    let release!: (v: string) => void;
+    const id = tm.launch("调查任务", (_signal, taskId) => {
+      // 模拟子代理中途用 message_parent → runBackgroundAgent 绑定的 messageParent = emitFromTask(taskId, .)
+      tm.emitFromTask(taskId, "中间发现:配置在 config.ts");
+      return new Promise<string>((res) => { release = res; });
+    });
+    // 让 microtask 跑完
+    await Promise.resolve();
+    const notes = tm.drainNotifications();
+    expect(notes.join("\n")).toContain("中间发现:配置在 config.ts");
+    expect(notes.join("\n")).toContain(id);
+    release("最终结论");
+  });
+});

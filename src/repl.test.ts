@@ -101,8 +101,8 @@ describe("runRepl 后台通知回合边界自动续跑", () => {
   it("一回合后有通知 → 自动再跑一回合喂通知;之后无通知则停", async () => {
     const turns: string[] = [];
     const session: any = { addUser: (t: string) => turns.push(t), messages: [] };
-    let lines = ["第一条输入", null]; // 一条真实输入后 EOF
-    let notesBatches = [["<task-message>进度</task-message>"], []]; // 第一次 drain 有一条,第二次空
+    const lines: (string | null)[] = ["第一条输入", null]; // 一条真实输入后 EOF
+    const notesBatches: string[][] = [["<task-message>进度</task-message>"], []]; // 第一次 drain 有一条,第二次空
     await runRepl({
       session,
       readLine: async () => lines.shift() ?? null,
@@ -118,7 +118,7 @@ describe("runRepl 后台通知回合边界自动续跑", () => {
   it("无 drainNotifications(或始终空)→ 行为不变(不额外跑回合)", async () => {
     const turns: string[] = [];
     const session: any = { addUser: (t: string) => turns.push(t), messages: [] };
-    let lines = ["only", null];
+    const lines: (string | null)[] = ["only", null];
     await runRepl({
       session,
       readLine: async () => lines.shift() ?? null,
