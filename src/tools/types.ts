@@ -1,4 +1,5 @@
 import type { ZodTypeAny, z } from "zod";
+import type { Mode } from "./tools_for_mode.js";
 
 export type Capability = "read" | "write" | "exec" | "network" | "plan";
 export type Approval = "auto" | "suggest" | "required";
@@ -21,14 +22,16 @@ export interface ToolContext {
   // agentType 指定自定义子代理类型(用其专属 prompt/工具白名单/模型);省略则用通用子代理。
   // workspaceRoot 覆盖子代理的工作区根(worktree 隔离用);省略则与父代理同根。
   // drainPending:后台子代理在回合边界消费 SendMessage 的来源。
-  runSubagent?: (
-    task: string,
-    signal?: AbortSignal,
-    agentType?: string,
-    workspaceRoot?: string,
-    drainPending?: () => string[],
-    auditAgent?: "sub" | "bg", // 缓存审计身份:后台任务传 "bg",前台/工具派发默认 "sub"
-  ) => Promise<string>;
+  runSubagent?: (opts: {
+    task: string;
+    signal?: AbortSignal;
+    agentType?: string;
+    workspaceRoot?: string;
+    drainPending?: () => string[];
+    auditAgent?: "sub" | "bg"; // 缓存审计身份:后台传 "bg",前台/工具默认 "sub"
+    model?: string;            // 调用级模型覆盖(后续任务起用);优先级最高
+    mode?: Mode;               // 调用级权限模式覆盖(后续任务起用)
+  }) => Promise<string>;
   // ② fork 子代理:继承父代理已缓存的消息前缀(同 system/模型/工具),复用前缀缓存近乎免费;
   // 适合"带全量上下文做一个分支子任务"。任务作末尾指令,只此处与父对话不同。
   runForkAgent?: (task: string, signal?: AbortSignal, drainPending?: () => string[]) => Promise<string>;

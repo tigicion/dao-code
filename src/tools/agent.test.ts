@@ -6,7 +6,7 @@ describe("agent tool", () => {
     let got = "";
     const out = await agentTool.handler(
       { task: "investigate the build" },
-      { workspaceRoot: "/tmp", runSubagent: async (t) => { got = t; return "RESULT"; } },
+      { workspaceRoot: "/tmp", runSubagent: async ({ task }) => { got = task; return "RESULT"; } },
     );
     expect(got).toBe("investigate the build");
     expect(out).toBe("RESULT");
@@ -36,7 +36,7 @@ describe("agent tool", () => {
   it("tasks 数组 → 并行派发并汇总", async () => {
     const out = await agentTool.handler(
       { tasks: ["A", "B", "C"] },
-      { workspaceRoot: "/tmp", runSubagent: async (t) => `R:${t}` },
+      { workspaceRoot: "/tmp", runSubagent: async ({ task }) => `R:${task}` },
     );
     expect(out).toContain("子代理 1/3");
     expect(out).toContain("R:A");
@@ -59,7 +59,7 @@ describe("agent tool", () => {
       { task: "x", agent_type: "reviewer" },
       {
         workspaceRoot: "/tmp",
-        runSubagent: async (_t, _s, type) => { passed = type; return "审查结果"; },
+        runSubagent: async ({ agentType }) => { passed = agentType; return "审查结果"; },
         agentTypes: [{ name: "reviewer", description: "审查" }],
       },
     );
@@ -103,10 +103,10 @@ describe("agent tool", () => {
       { tasks },
       {
         workspaceRoot: "/tmp",
-        runSubagent: async (t) => {
+        runSubagent: async ({ task }) => {
           active++; maxActive = Math.max(maxActive, active);
           await new Promise((r) => setTimeout(r, 10));
-          active--; return `R:${t}`;
+          active--; return `R:${task}`;
         },
       },
     );
@@ -119,7 +119,7 @@ describe("agent tool", () => {
   it("并行中单个失败不影响其余", async () => {
     const out = await agentTool.handler(
       { tasks: ["ok", "bad"] },
-      { workspaceRoot: "/tmp", runSubagent: async (t) => { if (t === "bad") throw new Error("炸了"); return `R:${t}`; } },
+      { workspaceRoot: "/tmp", runSubagent: async ({ task }) => { if (task === "bad") throw new Error("炸了"); return `R:${task}`; } },
     );
     expect(out).toContain("R:ok");
     expect(out).toContain("[失败] 炸了");

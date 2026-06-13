@@ -582,7 +582,7 @@ async function main() {
   };
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
-  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[], auditAgent: "sub" | "bg" = "sub") => {
+  ctx.runSubagent = ({ task, signal, agentType, workspaceRoot: wsRoot, drainPending, auditAgent = "sub" }) => {
     const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
     const reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
@@ -635,7 +635,7 @@ async function main() {
   const taskManager = createTaskManager();
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
     taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
-      ctx.runSubagent!(task, signal, agentType, undefined, () => taskManager.drainPending(id), "bg"),
+      ctx.runSubagent!({ task, signal, agentType, drainPending: () => taskManager.drainPending(id), auditAgent: "bg" }),
     );
   ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
 

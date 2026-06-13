@@ -63,20 +63,20 @@ export const agentTool = defineTool({
       if (isolate) {
         const wt = ctx.createWorktree!(`a${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`);
         if (wt) {
-          const r = await run(t, ctx.signal, type, wt.root);
+          const r = await run({ task: t, signal: ctx.signal, agentType: type, workspaceRoot: wt.root });
           // P2-48 清理策略(对标 CC):有改动→保留分支供 review/merge;无改动→自动删,不留垃圾 worktree。
           if (wt.hasChanges()) return `${r}\n[隔离:改动在分支 ${wt.branch}(已保留,可 review/merge)]`;
           wt.cleanup();
           return r;
         }
       }
-      return run(t, ctx.signal, type);
+      return run({ task: t, signal: ctx.signal, agentType: type });
     };
     const tasks = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
     if (tasks.length === 0) return "请提供 task 或 tasks。";
     // 单个前台子代理:跑超过阈值(默认 60s)自动转后台,主循环不被长子任务一直阻塞。
     if (tasks.length === 1 && !isolate && ctx.adoptBackground) {
-      const p = run(tasks[0]!, ctx.signal, type);
+      const p = run({ task: tasks[0]!, signal: ctx.signal, agentType: type });
       const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<{ bg: true }>((res) => { timer = setTimeout(() => res({ bg: true }), ms); });
