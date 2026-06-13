@@ -17,7 +17,7 @@ export const verifyDoneTool = defineTool({
   handler: async (_args, ctx) => {
     const cmd = ctx.verifyCommand?.trim();
     if (!cmd) {
-      return "(未配置可执行验收命令)请据实际证据自判是否完成:读回关键改动、跑相关测试/命令看输出,并向用户说明完成依据。";
+      return "(未配置可执行验收命令)据【实际证据】自判,别自我合理化:读≠验证——真把它跑起来 / 读回改动 / 看输出。别用\"代码看起来对、大概没问题、我的测试过了\"代替验证;独立验一遍,再说明完成依据。";
     }
     return await new Promise<string>((resolve) => {
       const child = exec(
