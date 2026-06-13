@@ -782,7 +782,7 @@ async function main() {
             executeToolCalls,
             write: () => {},
             events: logEvents(events, store), // 渲染的同时写日志
-            maxTurns: longTask || coordinator ? 500 : undefined, // 长任务/Coordinator 给更高轮数上限(默认 150)
+            // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
             transientSystem: formatDiscovery(relevantSkills(text, skills, 5, skillWeight)) || undefined, // 相关技能发现(按使用频率加权;本回合临时注入)
             // B 条件路径技能:模型读/写文件后,据被操作文件激活匹配的条件技能,自动注入正文一次。
