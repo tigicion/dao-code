@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createInterface, type Interface } from "node:readline/promises";
-import { readFileSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, readdirSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
@@ -51,7 +51,8 @@ import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { loadMcpConfig, connectMcpServers } from "./mcp/mcp.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
-import { loadAllMemories, upsertMemory, migrateLegacy } from "./memory/store.js";
+import { loadAllMemories, upsertMemory, migrateLegacy, routeScope } from "./memory/store.js";
+import { gatherAudit, formatAudit } from "./memory/audit.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectForInjection } from "./memory/inject.js";
 import { gcMemories } from "./memory/gc.js";
@@ -663,12 +664,9 @@ async function main() {
       let n = 0;
       for (const cand of cands) {
         const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
-        // 三层路由:procedural=跨项目可复用知识→知识库;user/feedback=关于用户本人与合作方式→用户级;
-        // 其余(semantic 项目事实 / episodic 项目进展)→项目级。
-        const dir =
-          cand.type === "procedural" ? knowledgeMemoryDir
-          : cand.type === "user" || cand.type === "feedback" ? userMemoryDir
-          : projectMemoryDir;
+        // 本地优先路由:没把握的推断(confidence<0.6)落项目级不污染全局;否则按类型进对应层。
+        const scope = routeScope(cand.type, cand.confidence);
+        const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
         await upsertMemory(dir, cand, existing, adjudicate);
         n++;
       }
@@ -838,12 +836,23 @@ async function main() {
           }
           if (name === "memory") {
             const tiers: [string, string][] = [["用户", userMemoryDir], ["知识", knowledgeMemoryDir], ["项目", projectMemoryDir]];
-            const lines = tiers.map(([label, dir]) => {
-              let files: string[] = [];
-              try { files = readdirSync(dir).filter((f) => f.endsWith(".md") && f !== "MEMORY.md"); } catch { /* 目录不存在 */ }
-              return `${label}(${dir}):${files.length ? files.join(", ") : "(空)"}`;
-            });
-            return { handled: true, output: "记忆三层:\n" + lines.map((l) => "  " + l).join("\n") + "\n(用 memory_write 增改;文件即上述目录里的 .md)" };
+            const rest = line.trim().split(/\s+/).slice(1);
+            const today = new Date().toISOString().slice(0, 10);
+            if (rest[0] === "delete" || rest[0] === "rm" || rest[0] === "forget") {
+              const targets = rest.slice(1);
+              if (!targets.length) return { handled: true, output: "用法:/memory delete <名> [名…](名见 /memory 审核报告)" };
+              const done: string[] = [], miss: string[] = [];
+              for (const t of targets) {
+                let hit = false;
+                for (const [, dir] of tiers) {
+                  const fp = path.join(dir, `${t}.md`);
+                  try { rmSync(fp); hit = true; break; } catch { /* 该层没有 */ }
+                }
+                (hit ? done : miss).push(t);
+              }
+              return { handled: true, output: `${done.length ? `已删除:${done.join(", ")}` : ""}${miss.length ? `\n未找到:${miss.join(", ")}` : ""}`.trim() || "无操作" };
+            }
+            return { handled: true, output: formatAudit(gatherAudit(tiers, today), today) };
           }
           if (name === "permissions") {
             const r = getRules();

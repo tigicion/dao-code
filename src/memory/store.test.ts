@@ -2,8 +2,23 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy, textSimilarity, GRAY_LOW, DUP_THRESHOLD } from "./store.js";
+import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy, textSimilarity, GRAY_LOW, DUP_THRESHOLD, routeScope } from "./store.js";
 import { newMemory } from "./types.js";
+
+describe("routeScope — 本地优先(没把握的别进全局)", () => {
+  it("高置信/未标置信 → 按类型进全局层", () => {
+    expect(routeScope("user", undefined)).toBe("user");
+    expect(routeScope("feedback", 0.9)).toBe("user");
+    expect(routeScope("procedural", 1)).toBe("knowledge");
+    expect(routeScope("semantic", 0.9)).toBe("project");
+    expect(routeScope("episodic", undefined)).toBe("project");
+  });
+  it("低置信(<0.6)的推断一律落项目级,不污染全局", () => {
+    expect(routeScope("user", 0.4)).toBe("project");
+    expect(routeScope("feedback", 0.5)).toBe("project");
+    expect(routeScope("procedural", 0.3)).toBe("project");
+  });
+});
 
 const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "memstore-"));
 
