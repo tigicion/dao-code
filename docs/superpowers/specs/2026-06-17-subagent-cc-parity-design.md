@@ -22,7 +22,8 @@
 - agent_type 携带 `model` 默认(已有字段):`explore`→flash(大量探索本就几乎无前缀缓存可复用,flash 即正确)、`plan`/`verify`→pro、`general-purpose`→跟随主会话 model。
 - 新增**调用级** `model?` 入参,仅作逃生口覆盖。优先级:调用级 > agent_type.model > session.model。
 - 工具描述**不写"权衡心法"**(不靠 prompt 让模型推理);顶多一行事实陈述"换模型会丢前缀缓存"。
-- **硬护栏(代码,非 prompt)**:`fork === true && 解析出的 model ≠ 父会话 model` → 直接拒绝并说明("fork 跨模型会丢前缀缓存、失去 fork 意义;去掉 model 或改用普通子代理")。不静默降级。
+- **硬护栏(代码,非 prompt)**:`fork === true && (有 model 或 mode 覆盖)` → 直接拒绝并说明("fork 跨模型会丢前缀缓存、失去 fork 意义;去掉 model/mode 或改用普通子代理")。不静默降级。
+  > 实现采用比"仅当模型不同才拒"更严的版本:fork 下**任何**显式 model/mode 覆盖都拒——杜绝"解析后到底是否真不同"的整类判断 bug,且永不可能 bust fork 缓存。
 
 ### A-2 mode 权限模式覆盖
 - 新增调用级 `mode?` 入参;子代理当前写死 `mode: session.mode`(`subagent.ts:36`)改为可被覆盖。优先级:调用级 > session.mode。
