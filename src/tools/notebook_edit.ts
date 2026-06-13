@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { resolveInWorkspace } from "./paths.js";
+import { resolveWritePath } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
 import { withFileLock } from "./file_lock.js";
 
@@ -20,7 +20,7 @@ export const notebookEditTool = defineTool({
     cell_type: z.enum(["code", "markdown"]).optional().describe("insert 默认 code;replace 可改类型"),
   }),
   handler: async (args, ctx) => {
-    const abs = resolveInWorkspace(ctx.workspaceRoot, args.path);
+    const abs = await resolveWritePath(ctx.workspaceRoot, args.path, ctx.approveExternalWrite);
     return withFileLock(abs, async () => {
       if (ctx.readFiles && !ctx.readFiles.has(abs)) {
         throw new Error(`编辑前请先用 read_file 读过它:${args.path}`);

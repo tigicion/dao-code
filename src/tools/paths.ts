@@ -42,3 +42,16 @@ export function resolveInWorkspace(workspaceRoot: string, p: string): string {
   if (external) throw new Error(`路径越界:${p} 超出工作区`);
   return abs;
 }
+
+// 写路径解析:工作区内直接放行;区外则走授权(approveExternal),未授权抛出干净说明(由 dispatch 回灌为工具结果)。
+export async function resolveWritePath(
+  workspaceRoot: string,
+  p: string,
+  approveExternal?: (abs: string) => Promise<boolean>,
+): Promise<string> {
+  const { abs, external } = classifyPath(workspaceRoot, p);
+  if (!external) return abs;
+  const ok = approveExternal ? await approveExternal(abs) : false;
+  if (!ok) throw new Error(`${p} 在工作区外,未获授权写入(会弹出授权;或用 --add-dir 预先放行该目录)。`);
+  return abs;
+}

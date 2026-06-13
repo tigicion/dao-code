@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { resolveInWorkspace } from "./paths.js";
+import { resolveWritePath } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
 import { buildEditHunk } from "./diff_hunk.js";
 import { withFileLock } from "./file_lock.js";
@@ -19,7 +19,7 @@ export const editFileTool = defineTool({
     replace_all: z.boolean().optional().describe("是否替换全部出现"),
   }),
   handler: async (args, ctx) => {
-    const abs = resolveInWorkspace(ctx.workspaceRoot, args.path);
+    const abs = await resolveWritePath(ctx.workspaceRoot, args.path, ctx.approveExternalWrite);
     // 同路径"读-改-写"全程持锁:并行编辑同一文件时排队,杜绝丢改动 / 撞临时文件。
     return withFileLock(abs, async () => {
       if (ctx.readFiles && !ctx.readFiles.has(abs)) {
