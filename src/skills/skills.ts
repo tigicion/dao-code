@@ -9,9 +9,17 @@ export interface Skill {
   name: string;
   description: string;
   whenToUse?: string; // frontmatter when_to_use:触发条件(决定何时该加载此技能),对触发至关重要
+  paths?: string[]; // frontmatter paths:gitignore 风格 glob 列表。有此字段=条件技能:不进常驻列表,
+  // 仅当模型读/写匹配的文件时确定性激活(自动注入正文)。见 conditional.ts。
   slug?: string; // 目录/文件名(供模型用直觉短名调用,不必照抄 Title Case 的 name)
   body: string;
   dir: string; // 该 skill 所在目录(供正文引用同目录资源)
+}
+
+// 去掉值两端的引号(YAML 标量常带 " 或 ')。
+function unquote(s: string): string {
+  const t = s.trim();
+  return (t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'")) ? t.slice(1, -1) : t;
 }
 
 function parse(fallbackName: string, dir: string, raw: string): Skill | null {
@@ -19,9 +27,12 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
   let name = fallbackName;
   let description = "";
   let whenToUse = "";
+  let paths: string[] = [];
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (m) {
-    for (const line of m[1]!.split(/\r?\n/)) {
+    const lines = m[1]!.split(/\r?\n/);
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li]!;
       const i = line.indexOf(":");
       if (i <= 0) continue;
       const k = line.slice(0, i).trim().toLowerCase();
@@ -29,13 +40,29 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
       if (k === "name") name = v || name;
       else if (k === "description") description = v;
       else if (k === "when_to_use" || k === "when to use" || k === "whentouse") whenToUse = v;
+      else if (k === "paths" || k === "path") {
+        // 行内逗号分隔(paths: *.tsx, src/**)或紧随的 YAML 块列表(- item)。
+        if (v) paths.push(...v.split(",").map((x) => unquote(x)).filter(Boolean));
+        while (li + 1 < lines.length && /^\s*-\s+/.test(lines[li + 1]!)) {
+          paths.push(unquote(lines[++li]!.replace(/^\s*-\s+/, "")));
+        }
+      }
     }
     body = (m[2] ?? "").trim();
   } else {
     body = raw.trim();
   }
   if (!body) return null;
-  return { name, description, ...(whenToUse ? { whenToUse } : {}), slug: fallbackName, body, dir };
+  paths = paths.map((p) => p.trim()).filter(Boolean);
+  return {
+    name,
+    description,
+    ...(whenToUse ? { whenToUse } : {}),
+    ...(paths.length ? { paths } : {}),
+    slug: fallbackName,
+    body,
+    dir,
+  };
 }
 
 async function loadFrom(baseDir: string): Promise<Skill[]> {

@@ -95,6 +95,44 @@ describe("runTurn", () => {
     expect(s.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "assistant"]);
   });
 
+  it("条件技能:工具执行后据被操作文件激活,正文注入 session;写 pivot 刷新 transient", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("改下组件");
+    const editCall: AssistantMessage = {
+      role: "assistant", content: "我来改这个组件",
+      tool_calls: [{ id: "c0", type: "function", function: { name: "edit_file", arguments: JSON.stringify({ path: "src/Button.tsx" }) } }],
+    };
+    let rediscoverQuery = "";
+    const sentTails: (string | undefined)[] = [];
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      transientSystem: "[初始发现]",
+      streamChat: ((opts: StreamChatOptions) => {
+        const tail = opts.messages[opts.messages.length - 1];
+        sentTails.push(tail?.role === "system" ? String(tail.content) : undefined);
+        return (s.messages.length > 4
+          ? turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })
+          : turn([], editCall))();
+      }) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "ok" }],
+      write: () => {},
+      activateSkillsForPaths: (calls) =>
+        calls.some((c) => c.function.arguments.includes(".tsx")) ? "[激活] tsx 约定正文" : undefined,
+      rediscoverAfterWrite: (_calls, content) => { rediscoverQuery = content; return "[pivot 后发现]"; },
+    });
+    // 激活正文作为 system 消息一次性写入 session
+    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("tsx 约定正文"))).toBe(true);
+    // 写 pivot 用 assistant 意图重算发现
+    expect(rediscoverQuery).toBe("我来改这个组件");
+    // 第一次调用发的是初始发现;pivot 之后那次发的是刷新后的发现
+    expect(sentTails[0]).toBe("[初始发现]");
+    expect(sentTails[1]).toBe("[pivot 后发现]");
+  });
+
   it("omits write/exec tools in plan mode", async () => {
     const r = new ToolRegistry();
     r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
