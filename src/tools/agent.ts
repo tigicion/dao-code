@@ -44,8 +44,8 @@ export const agentTool = defineTool({
       .describe("调用级权限模式覆盖:plan=只读规划。省略则继承主会话模式。与 fork 互斥。"),
   }),
   handler: async (args, ctx) => {
-    if ((ctx.subagentDepth ?? 0) >= 1) {
-      return "子代理内不能再派发子代理(防止递归)。请自己完成或拆小任务。";
+    if ((ctx.subagentDepth ?? 0) >= 2) {
+      return "已达子代理嵌套上限(2 层):为防递归放大与成本失控,这一层不能再派子代理。请自己完成这件事,或把它拆小后在结论里回报需要继续的部分。";
     }
     if (!ctx.runSubagent) {
       return "当前环境不支持子代理。";
@@ -54,6 +54,9 @@ export const agentTool = defineTool({
     if (type && ctx.agentTypes && !ctx.agentTypes.some((a) => a.name === type)) {
       const avail = ctx.agentTypes.map((a) => a.name).join(", ") || "(无)";
       return `未知子代理类型「${type}」。可用:${avail}。`;
+    }
+    if (args.background && (args.model || args.mode)) {
+      return "后台子代理暂不支持 model/mode 覆盖(后续版本补)。若要换模型跑后台:去掉 model/mode,或为该用途定义一个带 model 的 agent_type 再用 background。";
     }
     // 后台模式:每个任务后台启动,立即返回 id;完成后经通知队列回灌(主循环不阻塞)。
     if (args.background && ctx.runBackgroundAgent) {
@@ -101,7 +104,9 @@ export const agentTool = defineTool({
 
     // 并行 scatter-gather + 并发限流:最多 MAX_PARALLEL 个同时跑、其余排队,避免一口气打满
     // API 连接/worktree/进程/成本。单个失败不影响其余,结果按原顺序汇总。
-    const MAX_PARALLEL = Number(process.env.DAO_MAX_PARALLEL_AGENTS) || 10;
+    // 深度感知并发:depth1 子代理再扇出(→depth2)时收紧到 3,避免 10×10 指数爆;主代理(depth0)用默认 10。
+    const depth = ctx.subagentDepth ?? 0;
+    const MAX_PARALLEL = depth >= 1 ? 3 : (Number(process.env.DAO_MAX_PARALLEL_AGENTS) || 10);
     const results: string[] = new Array(tasks.length);
     let next = 0;
     const worker = async (): Promise<void> => {

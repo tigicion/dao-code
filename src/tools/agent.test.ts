@@ -12,13 +12,13 @@ describe("agent tool", () => {
     expect(out).toBe("RESULT");
   });
 
-  it("refuses recursion when subagentDepth >= 1", async () => {
+  it("refuses recursion when subagentDepth >= 2", async () => {
     let called = false;
     const out = await agentTool.handler(
       { task: "x" },
-      { workspaceRoot: "/tmp", subagentDepth: 1, runSubagent: async () => { called = true; return "nope"; } },
+      { workspaceRoot: "/tmp", subagentDepth: 2, runSubagent: async () => { called = true; return "nope"; } },
     );
-    expect(out).toContain("递归");
+    expect(out).toContain("嵌套上限");
     expect(called).toBe(false);
   });
 
@@ -158,5 +158,25 @@ describe("agent 工具 model/mode/fork 护栏", () => {
     const { ctx } = mkCtx({ runForkAgent: async () => "F" });
     const r = await agentTool.handler({ task: "x", fork: true, mode: "plan" } as any, ctx);
     expect(r).toContain("fork");
+  });
+});
+
+describe("agent 嵌套深度与并发", () => {
+  it("depth 1(子代理内)仍可派 → 允许一层", async () => {
+    const { ctx, calls } = mkCtx({ subagentDepth: 1 });
+    const r = await agentTool.handler({ task: "x" } as any, ctx);
+    expect(calls).toHaveLength(1);
+    expect(r).toBe("OK");
+  });
+  it("depth 2 → 拒绝并说明", async () => {
+    const { ctx, calls } = mkCtx({ subagentDepth: 2 });
+    const r = await agentTool.handler({ task: "x" } as any, ctx);
+    expect(calls).toHaveLength(0);
+    expect(r).toContain("嵌套上限");
+  });
+  it("background + model → 显式拒绝(不静默丢)", async () => {
+    const { ctx } = mkCtx({ runBackgroundAgent: () => "id1" });
+    const r = await agentTool.handler({ task: "x", background: true, model: "deepseek-v4-flash" } as any, ctx);
+    expect(r).toContain("background");
   });
 });
