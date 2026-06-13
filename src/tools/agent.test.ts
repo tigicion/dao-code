@@ -125,3 +125,38 @@ describe("agent tool", () => {
     expect(out).toContain("[失败] 炸了");
   });
 });
+
+// 最小 ctx:记录 runSubagent 收到的 opts。
+function mkCtx(over: Record<string, unknown> = {}) {
+  const calls: any[] = [];
+  return {
+    calls,
+    ctx: {
+      workspaceRoot: "/tmp",
+      readFiles: new Set<string>(),
+      subagentDepth: 0,
+      agentTypes: [{ name: "explore", description: "" }],
+      runSubagent: async (opts: any) => { calls.push(opts); return "OK"; },
+      ...over,
+    } as any,
+  };
+}
+
+describe("agent 工具 model/mode/fork 护栏", () => {
+  it("model/mode 透传进 runSubagent opts", async () => {
+    const { ctx, calls } = mkCtx();
+    await agentTool.handler({ task: "do x", model: "deepseek-v4-flash", mode: "plan" } as any, ctx);
+    expect(calls[0]).toMatchObject({ model: "deepseek-v4-flash", mode: "plan" });
+  });
+  it("fork + model → 拒绝(跨模型丢缓存)", async () => {
+    const { ctx, calls } = mkCtx({ runForkAgent: async () => "F" });
+    const r = await agentTool.handler({ task: "x", fork: true, model: "deepseek-v4-flash" } as any, ctx);
+    expect(r).toContain("fork");
+    expect(calls).toHaveLength(0); // 没真派
+  });
+  it("fork + mode → 拒绝", async () => {
+    const { ctx } = mkCtx({ runForkAgent: async () => "F" });
+    const r = await agentTool.handler({ task: "x", fork: true, mode: "plan" } as any, ctx);
+    expect(r).toContain("fork");
+  });
+});
