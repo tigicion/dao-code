@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createInterface, type Interface } from "node:readline/promises";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { readConfig } from "./config/config.js";
@@ -696,6 +697,41 @@ async function main() {
             if (diskSkills.length === 0) return { handled: true, output: "暂无项目/用户技能。项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。" };
             const rows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
             return { handled: true, output: `技能(${diskSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") };
+          }
+          if (name === "context") {
+            const used = estimateTokens(session.messages);
+            const sys = estimateTokens(session.messages.slice(0, 1));
+            const pct = Math.round((used / CONTEXT_WINDOW) * 100);
+            return { handled: true, output: `上下文:~${used.toLocaleString()} / ${CONTEXT_WINDOW.toLocaleString()} tok(${pct}%)\n  系统+技能 ~${sys.toLocaleString()} · 对话 ~${(used - sys).toLocaleString()}\n  ${pct >= 85 ? "接近上限,下回合将自动压缩(也可 /compact)" : "余量充足"}` };
+          }
+          if (name === "tasks") {
+            const r = taskManager.running();
+            if (r.length === 0) return { handled: true, output: "无运行中的后台任务。" };
+            return { handled: true, output: `后台任务(${r.length}):\n` + r.map((t) => `  ${t.id} · ${t.status} · ${t.description}`).join("\n") };
+          }
+          if (name === "mcp") {
+            if (mcp.servers.length === 0) return { handled: true, output: "未配置 MCP 服务器。在 ~/.dao/mcp.json 或 <项目>/.dao/mcp.json 写 mcpServers 即可。" };
+            return { handled: true, output: "MCP 服务器:\n" + mcp.servers.map((s) => `  ${s.ok ? "✓" : "✗"} ${s.name} · ${s.tools} 个工具${s.error ? ` · ${s.error}` : ""}`).join("\n") };
+          }
+          if (name === "diff") {
+            try {
+              const status = execSync("git status --short", { cwd: workspaceRoot, encoding: "utf8" }).trim();
+              const stat = execSync("git diff --stat", { cwd: workspaceRoot, encoding: "utf8" }).trim();
+              if (!status && !stat) return { handled: true, output: "无未提交变更。" };
+              return { handled: true, output: (status ? `变更文件:\n${status}\n` : "") + (stat ? `\n${stat}` : "") };
+            } catch (e) { return { handled: true, output: `git 失败(可能非 git 仓库):${(e as Error).message}` }; }
+          }
+          if (name === "doctor") {
+            const checks: string[] = [];
+            checks.push(cfg.apiKey ? "✓ API key 已配置" : "✗ 缺 API key(设 DEEPSEEK_API_KEY 或写 ~/.dao/config.json)");
+            try { checks.push(`✓ dao 在 PATH:${execSync("command -v dao", { encoding: "utf8" }).trim()}`); }
+            catch { checks.push("✗ dao 不在 PATH(把 ~/.local/bin 加进 PATH)"); }
+            if (process.platform === "darwin") {
+              try { execSync(`codesign -v "${process.execPath}" 2>&1`); checks.push("✓ 二进制签名有效"); }
+              catch { checks.push("✗ 二进制签名无效 → 重装:npm run bundle:install"); }
+            }
+            checks.push(`· 工作区 ${workspaceRoot} · 模型 ${session.model} · ${mcp.servers.length} 个 MCP 服务器`);
+            return { handled: true, output: "dao doctor:\n" + checks.map((c) => "  " + c).join("\n") };
           }
           if (name === "yolo") {
             yolo = !yolo;
