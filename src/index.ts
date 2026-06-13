@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { readConfig } from "./config/config.js";
 import { loadDotenv } from "./config/env_file.js";
-import { loadStoredKey, saveKey } from "./config/key_store.js";
+import { loadStoredKey, saveKey, clearKey } from "./config/key_store.js";
 import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat } from "./client/client.js";
 import { runTurn } from "./agent/loop.js";
@@ -949,6 +949,17 @@ async function main() {
             if (!note) return { handled: true, output: "用法:/btw <随手备注>(加入上下文供模型参考,不触发动作)" };
             session.messages.push({ role: "system", content: `[用户备注] ${note}` });
             return { handled: true, output: "已记入上下文(下次回复时模型会看到)。" };
+          }
+          if (name === "login") {
+            const key = line.trim().split(/\s+/).slice(1).join(" ").trim();
+            if (!key) return { handled: true, output: "用法:/login <DeepSeek API key>(保存到 ~/.dao/config.json 并即时生效);/logout 清除。" };
+            cfg.apiKey = key; // 即时生效:下一回合 streamChat 读 cfg.apiKey
+            saveKey(keyFile, key).catch(() => {});
+            return { handled: true, output: "✓ 已更新并保存 API key,下一回合即生效。" };
+          }
+          if (name === "logout") {
+            clearKey(keyFile).catch(() => {});
+            return { handled: true, output: "✓ 已清除保存的 API key。本会话仍用当前 key;重启后需 /login 或重新输入。" };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             yolo = !yolo;
