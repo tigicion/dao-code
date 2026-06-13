@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createInterface, type Interface } from "node:readline/promises";
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { readConfig } from "./config/config.js";
@@ -696,6 +697,89 @@ async function main() {
             if (diskSkills.length === 0) return { handled: true, output: "暂无项目/用户技能。项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。" };
             const rows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
             return { handled: true, output: `技能(${diskSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") };
+          }
+          if (name === "context") {
+            const used = estimateTokens(session.messages);
+            const sys = estimateTokens(session.messages.slice(0, 1));
+            const pct = Math.round((used / CONTEXT_WINDOW) * 100);
+            return { handled: true, output: `上下文:~${used.toLocaleString()} / ${CONTEXT_WINDOW.toLocaleString()} tok(${pct}%)\n  系统+技能 ~${sys.toLocaleString()} · 对话 ~${(used - sys).toLocaleString()}\n  ${pct >= 85 ? "接近上限,下回合将自动压缩(也可 /compact)" : "余量充足"}` };
+          }
+          if (name === "tasks") {
+            const r = taskManager.running();
+            if (r.length === 0) return { handled: true, output: "无运行中的后台任务。" };
+            return { handled: true, output: `后台任务(${r.length}):\n` + r.map((t) => `  ${t.id} · ${t.status} · ${t.description}`).join("\n") };
+          }
+          if (name === "mcp") {
+            if (mcp.servers.length === 0) return { handled: true, output: "未配置 MCP 服务器。在 ~/.dao/mcp.json 或 <项目>/.dao/mcp.json 写 mcpServers 即可。" };
+            return { handled: true, output: "MCP 服务器:\n" + mcp.servers.map((s) => `  ${s.ok ? "✓" : "✗"} ${s.name} · ${s.tools} 个工具${s.error ? ` · ${s.error}` : ""}`).join("\n") };
+          }
+          if (name === "diff") {
+            try {
+              const status = execSync("git status --short", { cwd: workspaceRoot, encoding: "utf8" }).trim();
+              const stat = execSync("git diff --stat", { cwd: workspaceRoot, encoding: "utf8" }).trim();
+              if (!status && !stat) return { handled: true, output: "无未提交变更。" };
+              return { handled: true, output: (status ? `变更文件:\n${status}\n` : "") + (stat ? `\n${stat}` : "") };
+            } catch (e) { return { handled: true, output: `git 失败(可能非 git 仓库):${(e as Error).message}` }; }
+          }
+          if (name === "doctor") {
+            const checks: string[] = [];
+            checks.push(cfg.apiKey ? "✓ API key 已配置" : "✗ 缺 API key(设 DEEPSEEK_API_KEY 或写 ~/.dao/config.json)");
+            try { checks.push(`✓ dao 在 PATH:${execSync("command -v dao", { encoding: "utf8" }).trim()}`); }
+            catch { checks.push("✗ dao 不在 PATH(把 ~/.local/bin 加进 PATH)"); }
+            if (process.platform === "darwin") {
+              try { execSync(`codesign -v "${process.execPath}" 2>&1`); checks.push("✓ 二进制签名有效"); }
+              catch { checks.push("✗ 二进制签名无效 → 重装:npm run bundle:install"); }
+            }
+            checks.push(`· 工作区 ${workspaceRoot} · 模型 ${session.model} · ${mcp.servers.length} 个 MCP 服务器`);
+            return { handled: true, output: "dao doctor:\n" + checks.map((c) => "  " + c).join("\n") };
+          }
+          if (name === "memory") {
+            const tiers: [string, string][] = [["用户", userMemoryDir], ["知识", knowledgeMemoryDir], ["项目", projectMemoryDir]];
+            const lines = tiers.map(([label, dir]) => {
+              let files: string[] = [];
+              try { files = readdirSync(dir).filter((f) => f.endsWith(".md") && f !== "MEMORY.md"); } catch { /* 目录不存在 */ }
+              return `${label}(${dir}):${files.length ? files.join(", ") : "(空)"}`;
+            });
+            return { handled: true, output: "记忆三层:\n" + lines.map((l) => "  " + l).join("\n") + "\n(用 memory_write 增改;文件即上述目录里的 .md)" };
+          }
+          if (name === "permissions") {
+            const r = getRules();
+            const fmt = (label: string, arr: string[]) => `${label}:${arr.length ? arr.join(", ") : "(无)"}`;
+            return { handled: true, output: `权限规则(模式 ${getMode()};deny>ask>allow):\n  ${fmt("allow", r.allow)}\n  ${fmt("ask", r.ask)}\n  ${fmt("deny", r.deny)}\n(改 .dao/settings.json 的 permissions)` };
+          }
+          if (name === "resume") {
+            let sids: string[] = [];
+            try { sids = readdirSync(path.join(workspaceRoot, ".dao", "sessions")); } catch { /* 无 */ }
+            if (sids.length === 0) return { handled: true, output: "本工作区无历史会话。" };
+            return { handled: true, output: `历史会话(${sids.length},最近在后):\n` + sids.slice(-10).map((s) => "  " + s).join("\n") + "\n(恢复最近一个:重启时 dao -c;按会话切换的实时重载后续支持)" };
+          }
+          if (name === "export") {
+            const ts = new Date().toISOString().replace(/[:.]/g, "-");
+            const dir = path.join(workspaceRoot, ".dao", "exports");
+            mkdirSync(dir, { recursive: true });
+            const file = path.join(dir, `session-${ts}.md`);
+            const md = session.messages
+              .map((m) => `## ${m.role}\n\n${typeof m.content === "string" ? m.content : JSON.stringify(m.content, null, 2)}`)
+              .join("\n\n---\n\n");
+            writeFileSync(file, md);
+            return { handled: true, output: `已导出对话 → ${file}(${session.messages.length} 条消息)` };
+          }
+          if (name === "config") {
+            return { handled: true, output: `配置:\n  模型 ${cfg.model} · baseUrl ${cfg.baseUrl} · 权限模式 ${getMode()}\n  设置文件:~/.dao/settings.json(用户)· <项目>/.dao/settings.json · .dao/settings.local.json\n(编辑这些文件改配置;权限规则见 /permissions,MCP 见 ~/.dao/mcp.json)` };
+          }
+          if (name === "effort") {
+            const valid = ["low", "medium", "high", "max"];
+            const arg = line.trim().split(/\s+/)[1];
+            const cur = process.env.DAO_REASONING_EFFORT || "max";
+            if (!arg) return { handled: true, output: `当前思考强度:${cur}。用法:/effort <${valid.join("|")}>` };
+            if (!valid.includes(arg)) return { handled: true, output: `无效:${arg}(可选 ${valid.join("/")})` };
+            process.env.DAO_REASONING_EFFORT = arg;
+            return { handled: true, output: `思考强度已设为 ${arg}(下一回合生效)` };
+          }
+          if (name === "status") {
+            const pct = Math.round((estimateTokens(session.messages) / CONTEXT_WINDOW) * 100);
+            const flags = [yolo ? "YOLO" : "", longTask ? "长任务" : "", coordinator ? "Coordinator" : ""].filter(Boolean).join("/") || "—";
+            return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
           }
           if (name === "yolo") {
             yolo = !yolo;
