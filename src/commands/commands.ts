@@ -45,7 +45,7 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
     case "help":
       return {
         handled: true,
-        output: "/init 生成 DAO.md · /context 上下文占用 · /tasks 后台任务 · /mcp MCP 服务器 · /diff 未提交变更 · /doctor 自检 · /review 审查改动 · /security-review 安全审查 · /hooks 钩子 · /agents 子代理类型 · /files 已读文件 · /memory 记忆 · /permissions 权限规则 · /resume <id> 载入会话 · /rewind <n> 回退对话 · /branch 分支会话 · /rename 命名会话 · /export 导出对话 · /copy 复制末条回答 · /btw 随手备注 · /login <key> 设置/更换 key · /logout 清除已存 key · /config 配置 · /effort 思考强度 · /status 状态 · /skills 列出/开关技能 · /plugin 插件 · /simplify 质量清理改动 · /remember <事实> 记记忆 · /debug 诊断会话日志 · /skillify 提炼技能 · /batch <大改> 并行 worktree 子代理 · /loop <间隔> <prompt> 周期重跑 · /mode 权限模式 · /task 长任务 · /coordinator 协作编排 · /model 切模型 · /plan 切模式 · /bypass 免审批(自动批准写/执行) · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
+        output: "/init 生成 DAO.md · /context 上下文占用 · /tasks 后台任务 · /mcp MCP 服务器 · /diff 未提交变更 · /doctor 自检 · /review 审查改动 · /security-review 安全审查 · /hooks 钩子 · /agents 子代理类型 · /files 已读文件 · /memory 审核记忆(/memory delete <名> 删除) · /permissions 权限规则 · /resume <id> 载入会话 · /rewind <n> 回退对话 · /branch 分支会话 · /rename 命名会话 · /export 导出对话 · /copy 复制末条回答 · /btw 随手备注 · /login <key> 设置/更换 key · /logout 清除已存 key · /config 配置 · /effort 思考强度 · /status 状态 · /skills 列出/开关技能 · /plugin 插件 · /simplify 质量清理改动 · /remember <事实> 记记忆 · /debug 诊断会话日志 · /skillify 提炼技能 · /batch <大改> 并行 worktree 子代理 · /loop <间隔> <prompt> 周期重跑 · /mode 权限模式 · /task 长任务 · /coordinator 协作编排 · /model 切模型 · /plan 切模式 · /bypass 免审批(自动批准写/执行) · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
       };
     case "exit":
     case "quit":
