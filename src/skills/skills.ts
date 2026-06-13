@@ -60,10 +60,10 @@ async function loadFrom(baseDir: string): Promise<Skill[]> {
   return out;
 }
 
-export async function loadSkills(projectDir: string, userDir: string): Promise<Skill[]> {
-  const [user, project] = await Promise.all([loadFrom(userDir), loadFrom(projectDir)]);
+// 从若干目录加载技能;同名时【后传入的目录覆盖先传入的】(按优先级低→高传)。
+export async function loadSkills(...dirs: string[]): Promise<Skill[]> {
+  const loaded = await Promise.all(dirs.map(loadFrom));
   const byName = new Map<string, Skill>();
-  for (const s of user) byName.set(s.name, s);
-  for (const s of project) byName.set(s.name, s); // 项目覆盖
+  for (const list of loaded) for (const s of list) byName.set(s.name, s);
   return [...byName.values()];
 }
