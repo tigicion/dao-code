@@ -76,7 +76,11 @@ export const grepFilesTool = defineTool({
     }
 
     const out = mode === "content" ? contentLines : fileHits;
-    if (out.length === 0) return "(无匹配)";
+    if (out.length === 0) {
+      // 回显搜索范围,模型才看得出是不是把 path 设窄了(否则只会盲目重试同一次失败搜索)。
+      const scope = `在 ${args.path ?? "工作区根"} 内搜 /${args.pattern}/${args.glob ? `,glob ${args.glob}` : ""}`;
+      return `(无匹配:${scope}。若确信存在,放宽 path 或检查 pattern/glob)`;
+    }
     return out.join("\n") + (truncated ? `\n…(已截断,超过 ${MAX} 条)` : "");
   },
 });
