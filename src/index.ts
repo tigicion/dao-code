@@ -21,6 +21,7 @@ import { notebookEditTool } from "./tools/notebook_edit.js";
 import { installSkills } from "./skills/install.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
 import { scheduleTool } from "./tools/schedule_tool.js";
+import { loadPlugins, installPlugin, removePlugin, pluginsRoot } from "./plugins.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
@@ -125,6 +126,20 @@ async function main() {
         process.exit(1);
       }
     } catch (e) { process.stderr.write(`schedule 失败:${(e as Error).message}\n`); process.exit(1); }
+    return;
+  }
+  // 操作员命令:dao plugin add|list|remove —— 插件(打包 skills,~/.dao/plugins/<名>/)。不连 API。
+  if (rawArgs[0] === "plugin") {
+    const sub = rawArgs[1];
+    const w = (s: string) => process.stdout.write(s);
+    try {
+      if (sub === "add" && rawArgs[2]) await installPlugin(rawArgs[2], w);
+      else if (sub === "list") {
+        const ps = await loadPlugins();
+        w(ps.length ? "已装插件:\n" + ps.map((p) => `  ${p.name} — ${p.description}`).join("\n") + "\n" : "未装任何插件。\n");
+      } else if (sub === "remove" && rawArgs[2]) await removePlugin(rawArgs[2], w);
+      else { process.stderr.write("用法:dao plugin <add <git-url|路径> | list | remove <名>>\n"); process.exit(1); }
+    } catch (e) { process.stderr.write(`plugin 失败:${(e as Error).message}\n`); process.exit(1); }
     return;
   }
   // 操作员命令:dao skill add <git-url|本地路径> [--user|--project]。不连 API,装完即退。
@@ -304,18 +319,21 @@ async function main() {
       ? `\n\n# 可用子代理类型(派 agent 时用 agent_type 指定,各有专属角色与工具)\n` +
         agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
       : "";
-  // 开箱即用 skill(.dao/skills/):启动只列 name+description,模型用 skill 工具按需取正文。
-  const diskSkills = await loadSkills(
-    path.join(workspaceRoot, ".dao", "skills"),
-    path.join(os.homedir(), ".dao", "skills"),
-  );
+  // 开箱即用 skill(.dao/skills/ + 已装插件的 skills/):启动只列 name+description,模型用 skill 工具按需取正文。
+  const installedPlugins = await loadPlugins();
+  const pluginSkills = (await Promise.all(installedPlugins.map((p) => loadSkills(p.skillsDir)))).flat();
+  const diskSkills = [
+    ...(await loadSkills(path.join(os.homedir(), ".dao", "skills"), path.join(workspaceRoot, ".dao", "skills"))),
+    ...pluginSkills,
+  ];
   const diskNames = new Set(diskSkills.map((s) => s.name));
   // 内置【核心】技能:描述固定加载进模型上下文(可自动触发),但不进用户的 /skills 列表、不可关。
   const coreBundled = BUNDLED_SKILLS.filter((b) => b.core && !diskNames.has(b.name)).map((b) => ({ ...b, dir: "" }));
   // 禁用集(~/.dao/skills-disabled.json):被禁用的【磁盘】技能不注入上下文(省 token),/skills 可开关。
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
-  const skillSource = (s: { dir: string }) => (s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
+  const pluginsDir = pluginsRoot();
+  const skillSource = (s: { dir: string }) => (s.dir.startsWith(pluginsDir) ? "插件" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
   const enabledDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
   // 模型可见 = 核心内置(固定) + 启用的磁盘技能;ctx.skills 据此,skill 工具按需加载正文。
@@ -780,6 +798,14 @@ async function main() {
             const pct = Math.round((estimateTokens(session.messages) / CONTEXT_WINDOW) * 100);
             const flags = [yolo ? "YOLO" : "", longTask ? "长任务" : "", coordinator ? "Coordinator" : ""].filter(Boolean).join("/") || "—";
             return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
+          }
+          if (name === "plugin") {
+            if (installedPlugins.length === 0) return { handled: true, output: "未装插件。装:dao plugin add <git-url|路径>(插件根需 plugin.json + skills/)。" };
+            const lines = installedPlugins.map((p) => {
+              const n = diskSkills.filter((s) => s.dir.startsWith(p.dir)).length;
+              return `  ${p.name} · ${n} 技能 · ${p.description}`;
+            });
+            return { handled: true, output: `已装插件(${installedPlugins.length}):\n` + lines.join("\n") + "\n(增删:dao plugin add/remove,重启生效)" };
           }
           if (name === "yolo") {
             yolo = !yolo;
