@@ -12,6 +12,15 @@ import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../ap
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+// 权限模式的中文友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。
+const MODE_LABEL: Record<string, string> = {
+  default: "默认(写/执行前询问)",
+  acceptEdits: "✎ 自动接受编辑",
+  auto: "🤖 智能判定(AI 评估风险)",
+  plan: "📋 规划(只读)",
+  bypassPermissions: "⚡ 全部权限(免审批)",
+};
+const modeLabel = (m: string): string => MODE_LABEL[m] ?? m;
 const MAX_LIVE_LINES = 24; // 流式动态区显示尾部行数;完成后整段进 <Static>。比旧值大,流式更完整(仍小于常见终端高,避免 ink#359 整屏闪)。
 const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
 const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose 全显)
@@ -130,6 +139,15 @@ export function App(deps: AppDeps) {
   };
   const [ask, setAsk] = useState<{ question: string; resolve: (s: string) => void } | null>(null);
   const [askInput, setAskInput] = useState("");
+  // Shift+Tab 切权限模式后,在输入框下方短暂提示(不进 transcript scrollback);约 2.5s 后淡出。
+  const [modeHint, setModeHint] = useState<string | null>(null);
+  const modeHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 结构化选择(ask_user 带 options):↑↓ 选 + Enter 确认;自动附"自己填写"(进 askInput 子模式)与"先讨论一下"。
+  const [choice, setChoice] = useState<{ question: string; options: string[]; resolve: (s: string) => void } | null>(null);
+  const [choiceIdx, setChoiceIdx] = useState(0);
+  const [choiceFilling, setChoiceFilling] = useState(false);
+  const CHOICE_FILL = "✎ 自己填写…";
+  const CHOICE_DISCUSS = "💬 先讨论一下";
   const controllerRef = useRef<AbortController | null>(null);
   const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
   const reasoningRef = useRef(""); // 本次模型响应累积的思考(同步提交,保证"思考在前、答案在后")
@@ -175,7 +193,9 @@ export function App(deps: AppDeps) {
         if (!showingApproval.current) startNextApproval(); // 空闲则显示队首,否则排队(防并发覆盖死锁)
       });
     const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
-    deps.register({ approvalPrompt, askUser });
+    const askChoice = (question: string, options: string[]) =>
+      new Promise<string>((resolve) => { setChoice({ question, options, resolve }); setChoiceIdx(0); setChoiceFilling(false); });
+    deps.register({ approvalPrompt, askUser, askChoice });
   }, [deps]);
 
   function makeEvents(): TurnEvents {
@@ -371,6 +391,24 @@ export function App(deps: AppDeps) {
       }
       return;
     }
+    if (choice) {
+      const allOpts = [...choice.options, CHOICE_FILL, CHOICE_DISCUSS];
+      const done = (val: string) => { choice.resolve(val); setChoice(null); setChoiceFilling(false); setAskInput(""); };
+      if (choiceFilling) { // "自己填写"子模式:输入自由文本
+        if (key.return) done(askInput.trim() || "(空)");
+        else if (key.backspace || key.delete) setAskInput((s) => s.slice(0, -1));
+        else if (ch && !key.ctrl && !key.meta) setAskInput((s) => s + ch);
+        return;
+      }
+      if (key.upArrow) { setChoiceIdx((i) => Math.max(0, i - 1)); return; }
+      if (key.downArrow) { setChoiceIdx((i) => Math.min(allOpts.length - 1, i + 1)); return; }
+      if (key.return) {
+        if (choiceIdx < choice.options.length) done(choice.options[choiceIdx]!);
+        else if (allOpts[choiceIdx] === CHOICE_FILL) { setChoiceFilling(true); setAskInput(""); }
+        else done("我想先讨论一下,先别急着定方向。");
+      }
+      return;
+    }
     if (ask) {
       if (key.return) { ask.resolve(askInput); setAsk(null); setAskInput(""); }
       else if (key.backspace || key.delete) setAskInput((s) => s.slice(0, -1));
@@ -383,7 +421,10 @@ export function App(deps: AppDeps) {
     if (key.tab && key.shift && deps.cycleMode) {
       const m = deps.cycleMode();
       setStatus(deps.getStatus());
-      pushItem({ id: nextId(), kind: "notice", text: `权限模式 → ${m}` });
+      // 在输入框下方短暂提示(不进 scrollback);2.5s 后淡出。
+      setModeHint(modeLabel(m));
+      if (modeHintTimer.current) clearTimeout(modeHintTimer.current);
+      modeHintTimer.current = setTimeout(() => setModeHint(null), 2500);
       return;
     }
     // Ctrl+O:展开/折叠全量输出(对标 CC)。已打印进 scrollback 的无法原地改,
@@ -473,6 +514,7 @@ export function App(deps: AppDeps) {
   // 粘贴:bracketed paste 下整段作一个字符串进来(不经 useInput),原样追加进输入框、不自动提交。
   usePaste((text) => {
     if (approval) return;
+    if (choice) { if (choiceFilling) setAskInput((s) => s + text); return; }
     if (ask) { setAskInput((s) => s + text); return; }
     // 大段粘贴(>280 字符或 >6 行)折叠成占位符,全文存 pasteRef,提交时展开;小段照常内联。
     let ins = text;
@@ -537,6 +579,24 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
+      {choice && (
+        <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+          <Text color={c("jade")}>{choice.question}</Text>
+          {choiceFilling ? (
+            <Text color={c("ink")}>✎ {askInput}<Text color={c("jade")}>▎</Text></Text>
+          ) : (
+            <>
+              {[...choice.options, CHOICE_FILL, CHOICE_DISCUSS].map((o, i) => (
+                <Text key={i} color={i === choiceIdx ? c("jade") : c("ink")}>
+                  {i === choiceIdx ? "❯ " : "  "}{o}
+                </Text>
+              ))}
+              <Text color={c("dim")}>↑↓ 选择 · ⏎ 确认</Text>
+            </>
+          )}
+        </Box>
+      )}
+
       {ask && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
           <Text color={c("jade")}>{ask.question}</Text>
@@ -544,7 +604,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && (
+      {!approval && !ask && !choice && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -583,6 +643,9 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
+      {modeHint && !approval && !ask && !choice ? (
+        <Text color={c("jade")}>{"  "}权限模式 → {modeHint}</Text>
+      ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>🪢 {bgRunning} 个后台任务运行中…</Text> : null}
       <StatusBar status={status} c={c} />
     </Box>
@@ -746,7 +809,8 @@ function StatusBar({
         {status.yolo ? <Text color={c("vermilion")}>⚡YOLO · </Text> : ""}
         {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}
         {status.mode === "plan" ? <Text color={c("gold")}>📋 plan(只读规划) · </Text> : ""}
-        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>✎ acceptEdits · </Text> : ""}
+        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>✎ 自动接受编辑 · </Text> : ""}
+        {status.permMode === "auto" ? <Text color={c("jade")}>🤖 智能判定 · </Text> : ""}
         {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}% · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
         {status.branch ? ` · ⎇ ${status.branch}` : ""}
       </Text>
