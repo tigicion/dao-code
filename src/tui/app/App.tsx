@@ -274,7 +274,7 @@ export function App(deps: AppDeps) {
       const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
-      if (name === "clear") setItems(welcomeCommitted.current ? [{ id: 0, kind: "welcome" }] : []);
+      if (name === "clear" || res.clearTranscript) setItems(welcomeCommitted.current ? [{ id: 0, kind: "welcome" }] : []); // /clear /rewind /resume:重置可视 transcript
       if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
       // 自定义命令:展开成 prompt → 当作一个回合跑。
       if (res.prompt) {
@@ -546,7 +546,7 @@ export function App(deps: AppDeps) {
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
-              {["model", "plan", "mode", "skills", "context", "tasks", "mcp", "diff", "doctor", "review", "memory", "permissions", "resume", "export", "config", "effort", "status", "plugin", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
+              {["model", "plan", "mode", "skills", "context", "tasks", "mcp", "diff", "doctor", "review", "memory", "permissions", "resume", "rewind", "export", "config", "effort", "status", "plugin", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "yolo", "task", "coordinator", "dod", "restore", "clear", "compact", "cost", "help", "exit"]
                 .filter((cmd) => ("/" + cmd).startsWith(input))
                 .map((cmd) => "/" + cmd)
                 .join("  ") || "(无匹配命令)"}
