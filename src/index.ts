@@ -53,6 +53,7 @@ import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy, routeScope } from "./memory/store.js";
 import { gatherAudit, formatAudit } from "./memory/audit.js";
+import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectForInjection } from "./memory/inject.js";
 import { gcMemories } from "./memory/gc.js";
@@ -379,8 +380,9 @@ async function main() {
   let longTask = taskFlag;
   // Coordinator 编排模式(--coordinator / 运行时 /coordinator):研究→综合→实现→验证多 agent 工作流。
   let coordinator = coordinatorFlag;
-  // YOLO:自动批准一切写/执行(慎用)。来源:--yolo / DAO_AUTO_APPROVE / 运行时 /yolo;长任务/Coordinator 默认开。
-  let yolo = yoloFlag || taskFlag || coordinatorFlag || !!process.env.DAO_AUTO_APPROVE;
+  // YOLO(免审批,deny 之外全过,慎用):只能启动时开启——来源 --yolo / DAO_AUTO_APPROVE。
+  // 长任务/Coordinator 不再强开 yolo,改用 auto(AI 判定自动批准,见下方 permModeOverride 初始化)。
+  let yolo = yoloFlag || !!process.env.DAO_AUTO_APPROVE;
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
 
@@ -398,7 +400,8 @@ async function main() {
   const sessionAllow: string[] = [];
   const getRules = () => ({ ...loadedPerms, allow: [...loadedPerms.allow, ...sessionAllow] });
   // 运行时模式覆盖(/mode acceptEdits 等);null = 用 settings 的 defaultMode。
-  let permModeOverride: PermissionMode | null = null;
+  // --task / --coordinator 启动:用 auto(AI 判定自动批准)推进自主流程,而非 yolo 全开。
+  let permModeOverride: PermissionMode | null = (taskFlag || coordinatorFlag) && !yolo ? "auto" : null;
   // 有效权限模式:plan 会话模式 > YOLO(=bypass)> 运行时覆盖 > settings 默认 > default。
   const getMode = (): PermissionMode =>
     session.mode === "plan"
@@ -407,16 +410,14 @@ async function main() {
         ? "bypassPermissions"
         : permModeOverride ?? loadedPerms.defaultMode ?? "default";
 
-  // auto 模式分类器:flash 一次判定该工具调用是否安全可自动批准(只回 allow/deny;出错→拒绝)。
+  // auto 模式分类器:结合近期对话(用户意图 + 历史工具调用)judge 本次调用是否安全可自动批准。
+  // 只回 allow/deny;出错→拒绝(fail-closed)。快速路径(白名单/工作区内编辑)已在 engine.decide 里短路,不到这里。
   const classifyPermission = async (toolName: string, argsJson: string): Promise<boolean> => {
     const gen = streamChat({
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
       model: cfg.model,
-      messages: [
-        { role: "system", content: "你是权限审查器。判断这次工具调用是否【安全、可自动批准】——不会删毁数据、不泄露密钥、不执行高危/不可逆操作、不越权访问。保守判断,拿不准就 deny。只回一个词:allow 或 deny。" },
-        { role: "user", content: `工具:${toolName}\n参数:${argsJson}` },
-      ],
+      messages: buildClassifierMessages(toolName, argsJson, session.messages),
       extra: { thinking: { type: "disabled" }, temperature: 0 },
     });
     let out = "";
@@ -989,41 +990,45 @@ async function main() {
             return { handled: true, output: "✓ 已清除保存的 API key。本会话仍用当前 key;重启后需 /login 或重新输入。" };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
-            yolo = !yolo;
-            return { handled: true, output: yolo ? "⚡ 免审批模式已开启:自动批准所有写/执行操作(deny 规则与敏感路径仍拦截)" : "免审批已关闭:恢复审批门" };
+            // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。
+            if (!yolo) return { handled: true, output: "⚡ yolo(免审批)只能启动时开启:`dao --yolo`。会话内想自动批准请用 /mode auto(AI 判定,deny/敏感仍拦)。" };
+            yolo = false;
+            return { handled: true, output: "免审批已关闭:恢复审批门。" };
           }
           if (name === "mode") {
             const arg = line.trim().split(/\s+/)[1];
             if (!arg) {
-              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|acceptEdits|auto|plan|bypassPermissions>` };
+              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|acceptEdits|auto|plan>(yolo 只能 \`dao --yolo\` 启动时开)` };
             }
-            if (arg === "plan") { session.mode = "plan"; permModeOverride = null; yolo = false; return { handled: true, output: "📋 已切到 plan(只读规划,拦写/执行)" }; }
-            if (arg === "bypassPermissions") { yolo = true; if (session.mode === "plan") session.mode = "normal"; return { handled: true, output: "⚡ bypassPermissions:跳过所有审批(deny 规则仍拦截)" }; }
+            if (arg === "plan") { session.mode = "plan"; permModeOverride = null; return { handled: true, output: "📋 已切到 plan(只读规划,拦写/执行)" }; }
+            if (arg === "bypassPermissions") return { handled: true, output: "⚡ yolo(bypassPermissions)只能 `dao --yolo` 启动时开启,不能会话内切换。会话内可用 /mode auto。" };
             if (arg === "default" || arg === "acceptEdits" || arg === "auto") {
-              yolo = false;
               if (session.mode === "plan") session.mode = "normal";
               permModeOverride = arg as PermissionMode;
-              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "🤖 auto:需审批的调用改由 AI 分类器裁决(deny 规则/敏感路径仍拦);保守判定,拿不准则拒。" : "权限模式已设为 default(按需审批)" };
+              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "🤖 auto:需审批的调用改由 AI 分类器裁决(只读/工作区内编辑快速放行;deny/敏感仍拦;连续拒绝多次回退人工)。" : "权限模式已设为 default(按需审批)" };
             }
-            return { handled: true, output: `未知模式:${arg}(可选 default/acceptEdits/plan/bypassPermissions)` };
+            return { handled: true, output: `未知模式:${arg}(可选 default/acceptEdits/auto/plan)` };
           }
           if (name === "task") {
             longTask = !longTask;
             if (longTask) {
-              yolo = true;
+              // 自主模式用 auto(AI 判定自动批准),而非 yolo 全开——更安全;yolo 只能 --yolo 启动。
+              if (!yolo && session.mode !== "plan") permModeOverride = "auto";
               session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
-              return { handled: true, output: "🪢 长任务自主模式已开启:自动批准 + 自主连续推进 + 更高轮数;直接说出要做的长任务即可。" };
+              return { handled: true, output: "🪢 长任务自主模式已开启:auto 自动批准(AI 判定)+ 自主连续推进 + 更高轮数;直接说出要做的长任务即可。" };
             }
-            return { handled: true, output: "长任务模式已关闭(YOLO 仍按当前状态,可用 /yolo 切)。" };
+            if (!yolo) permModeOverride = null;
+            return { handled: true, output: "长任务模式已关闭(权限模式恢复 default)。" };
           }
           if (name === "coordinator") {
             coordinator = !coordinator;
             if (coordinator) {
-              yolo = true;
+              if (!yolo && session.mode !== "plan") permModeOverride = "auto";
               session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
-              return { handled: true, output: "🧭 Coordinator 模式已开启:研究(并行)→综合→实现→验证 多 agent 编排;直接说出要做的较大任务即可。" };
+              return { handled: true, output: "🧭 Coordinator 模式已开启:auto 自动批准(AI 判定)+ 研究(并行)→综合→实现→验证 多 agent 编排;直接说出要做的较大任务即可。" };
             }
-            return { handled: true, output: "Coordinator 模式已关闭。" };
+            if (!yolo) permModeOverride = null;
+            return { handled: true, output: "Coordinator 模式已关闭(权限模式恢复 default)。" };
           }
           if (name === "dod") {
             const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
@@ -1070,11 +1075,14 @@ async function main() {
           contextPct: (estimateTokens(session.messages) / CONTEXT_WINDOW) * 100,
         }),
         cycleMode: () => {
-          const order: PermissionMode[] = ["default", "acceptEdits", "auto", "plan", "bypassPermissions"];
-          const next = order[(order.indexOf(getMode()) + 1) % order.length]!;
-          yolo = next === "bypassPermissions";
+          // yolo(bypassPermissions)不在 Shift+Tab 循环里——只能 `dao --yolo` 启动时开启。
+          // 若当前正处于 yolo,Shift+Tab 退出到 default(可降权,不可在循环中升到 yolo)。
+          const order: PermissionMode[] = ["default", "acceptEdits", "auto", "plan"];
+          const cur = getMode();
+          const next = cur === "bypassPermissions" ? "default" : order[(order.indexOf(cur) + 1) % order.length]!;
+          yolo = false; // 循环永不进入 yolo
           session.mode = next === "plan" ? "plan" : "normal";
-          permModeOverride = next === "plan" || next === "bypassPermissions" ? null : next;
+          permModeOverride = next;
           return next;
         },
         register: ({ approvalPrompt, askUser, askChoice }) => {

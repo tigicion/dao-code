@@ -23,14 +23,15 @@ describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默
   });
 });
 
-describe("decide — CC 1g:安全敏感目标即使 bypass 也确认", () => {
-  it("bypass 下写 .ssh/.git/凭据 → ask(不放行)", () => {
-    expect(decide({ toolName: "write_file", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
-    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
-    expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
+describe("decide — CC 1g:安全敏感目标", () => {
+  it("bypass(yolo)下写 .ssh/.git/凭据 → allow(deny 之外全过,用户自担风险)", () => {
+    expect(decide({ toolName: "write_file", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
+    expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
   });
-  it("acceptEdits 下编辑敏感路径也 ask(不自动放行)", () => {
+  it("acceptEdits / auto 下编辑敏感路径仍 ask(不自动放行)", () => {
     expect(decide({ toolName: "edit_file", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "acceptEdits", ...base })).toBe("ask");
+    expect(decide({ toolName: "edit_file", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "auto", ...base })).toBe("ask");
   });
   it("显式 allow 规则可 opt-in 放行敏感目标", () => {
     const rules = { ...emptyPermissions(), allow: ["Write(//.ssh/config)"] };
@@ -39,6 +40,21 @@ describe("decide — CC 1g:安全敏感目标即使 bypass 也确认", () => {
   });
   it("普通路径不受影响", () => {
     expect(decide({ toolName: "write_file", argsJson: '{"path":"src/app.ts"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
+  });
+});
+
+describe("decide — auto 模式快速路径(分类器之前)", () => {
+  it("② 工作区内文件编辑(acceptEdits 会放行)→ 直接 allow,不走分类器", () => {
+    expect(decide({ toolName: "edit_file", argsJson: '{"path":"src/app.ts"}', capability: "write", mode: "auto", ...base })).toBe("allow");
+    expect(decide({ toolName: "write_file", argsJson: '{"path":"src/new.ts"}', capability: "write", mode: "auto", ...base })).toBe("allow");
+  });
+  it("③ 安全白名单工具 → 直接 allow", () => {
+    expect(decide({ toolName: "todo_write", argsJson: "{}", capability: "write", mode: "auto", ...base })).toBe("allow");
+  });
+  it("exec_shell / 网络 / 敏感编辑 → 仍 ask(交分类器)", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: rm, capability: "exec", mode: "auto", ...base })).toBe("ask");
+    expect(decide({ toolName: "fetch_url", argsJson: '{"url":"http://x"}', capability: "network", mode: "auto", ...base })).toBe("ask");
+    expect(decide({ toolName: "edit_file", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "auto", ...base })).toBe("ask");
   });
 });
 
