@@ -50,7 +50,7 @@ import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
-import { relevantSkills, relevantSkillsScored, formatDiscovery } from "./skills/discovery.js";
+import { relevantSkillsScored } from "./skills/discovery.js";
 import { makeActivator, extractOperatedPaths, formatActivation } from "./skills/conditional.js";
 import { loadUsage, saveUsage, recordUsage, usageScore } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
@@ -912,6 +912,12 @@ async function main() {
           store.append({ t: "user", text });
           session.addUser(text);
           skillRound++; // 新一轮:关联本轮 offered/loaded/activated
+          // 技能发现【只用于审计,不再注入 prompt】:每轮变化的尾部 system 注入会整段废掉前缀缓存
+          // (实测命中率从 95% 塌到 ~14%)。模型仍能从【常驻技能列表(稳定系统 prompt)】里按需 skill 加载。
+          {
+            const scored = relevantSkillsScored(text, skills, 5, skillWeight);
+            skillSink.offered(skillRound, text, scored.map((x) => ({ name: x.sk.name, score: x.score })));
+          }
           if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
           await withPresence(() => runTurn({
             session,
@@ -930,27 +936,12 @@ async function main() {
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
-            transientSystem: (() => {
-              const scored = relevantSkillsScored(text, skills, 5, skillWeight);
-              skillSink.offered(skillRound, text, scored.map((x) => ({ name: x.sk.name, score: x.score }))); // 审计:本轮发现给模型的候选+分数
-              return formatDiscovery(scored.map((x) => x.sk)) || undefined; // 相关技能发现(按使用频率加权;本回合临时注入)
-            })(),
-            // B 条件路径技能:模型读/写文件后,据被操作文件激活匹配的条件技能,自动注入正文一次。
+            // B 条件路径技能:模型读/写文件后,据被操作文件激活匹配的条件技能,把正文 append 进 session(缓存安全)。
             activateSkillsForPaths: (calls) => {
               const paths = extractOperatedPaths(calls);
               const fresh = activator.activate(paths);
               if (fresh.length) skillSink.activated(skillRound, fresh.map((s) => s.name), paths); // 审计:确定性激活+触发路径
               return formatActivation(fresh) || undefined;
-            },
-            // A 写操作 pivot:模型转向写/改文件后,据其意图(正文 + 被改文件名)重算相关技能发现,刷新提示。
-            rediscoverAfterWrite: (calls, content) => {
-              const paths = extractOperatedPaths(calls);
-              const wrote = calls.some((c) => ["write_file", "edit_file", "multi_edit"].includes(c.function.name));
-              if (!wrote) return undefined; // 非写 pivot:不动提示
-              const query = `${content} ${paths.join(" ")}`.trim();
-              const scored = relevantSkillsScored(query, skills, 5, skillWeight);
-              skillSink.offered(skillRound, query, scored.map((x) => ({ name: x.sk.name, score: x.score }))); // 审计:pivot 后重新发现
-              return formatDiscovery(scored.map((x) => x.sk)); // 命中→新提示;未命中→""清除陈旧提示
             },
           }));
           store.append({ t: "turn_end" });

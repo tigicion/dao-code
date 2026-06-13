@@ -1,6 +1,5 @@
 import type {
   AssistantMessage,
-  ChatMessage,
   StreamChatOptions,
   StreamDelta,
   ToolCall,
@@ -40,12 +39,8 @@ export interface TurnDeps {
   // Ink 路径传入自己的适配器,把流式喂进 React state。
   events?: TurnEvents;
   maxTurns?: number;
-  // 本回合临时注入的系统提示(如"相关技能"发现),只随本回合发给模型、不写入 session.messages(不累积、不持久)。
-  transientSystem?: string;
-  // B 条件路径技能:每批工具执行后调用,据被操作文件激活匹配的条件技能;返回要注入的正文(一次性写入 session)。
+  // B 条件路径技能:每批工具执行后调用,据被操作文件激活匹配的条件技能;返回要 append 进 session 的正文。
   activateSkillsForPaths?: (calls: ToolCall[]) => string | undefined;
-  // A 写操作 pivot:模型转向写/改文件后调用,据其意图重算"相关技能发现"提示;返回新 transient(空串=清除),undefined=不变。
-  rediscoverAfterWrite?: (calls: ToolCall[], assistantContent: string) => string | undefined;
   // 中途取消信号(ESC/超时):透传给 streamChat 与工具 ctx;abort 后本回合优雅停止。
   signal?: AbortSignal;
   // 回合边界消费的追加消息(SendMessage 给运行中子代理用):每个工具回合前注入为 user 消息。
@@ -73,9 +68,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 边界保护对标 CC:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
-  let transient = deps.transientSystem; // 可变:写操作 pivot 后会被刷新(见 afterTools)
-  // 每批工具执行后:① 条件路径技能自动激活(注入正文一次);② 写 pivot 刷新软发现提示。
-  const afterTools = (calls: ToolCall[], assistant: AssistantMessage): void => {
+  // 每批工具执行后:条件路径技能自动激活——把正文【追加】进 session.messages(append-only,缓存安全)。
+  // 注:不再做"写 pivot 刷新发现提示"——那是每轮变的尾部 system 注入,会整段废掉前缀缓存(见下方说明)。
+  const afterTools = (calls: ToolCall[]): void => {
     if (deps.activateSkillsForPaths) {
       const inject = deps.activateSkillsForPaths(calls);
       if (inject) {
@@ -83,16 +78,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         events.notice("\n[条件技能已自动激活]\n");
       }
     }
-    if (deps.rediscoverAfterWrite) {
-      const r = deps.rediscoverAfterWrite(calls, typeof assistant.content === "string" ? assistant.content : "");
-      if (r !== undefined) transient = r || undefined;
-    }
   };
-  // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时注入一次性软提醒(不持久、缓存友好)。
+  // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时,把提醒【追加】进 session.messages(append-only)。
   const ADVISE_EVERY = Number(process.env.DAO_ADVISE_EVERY) || 5;
   const PROGRESS_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "todo_write"]);
   let noProgress = 0;
-  let advisory: string | undefined;
 
   // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
   const reasoningEffort = process.env.DAO_REASONING_EFFORT || "max";
@@ -100,16 +90,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
     let usedFallback = false;
     for (;;) {
-      // 临时系统提示(相关技能发现 + advisor 提醒)附在消息尾部:只这一回合发出、不写回 session.messages(不累积/缓存友好)。
-      const extras: ChatMessage[] = [];
-      if (transient) extras.push({ role: "system", content: transient });
-      if (advisory) extras.push({ role: "system", content: advisory });
-      const sent = extras.length ? [...session.messages, ...extras] : session.messages;
+      // 【缓存纪律】绝不在请求尾部追加每轮变化的内容(发现提示/进度提醒等)。原因:这些是 role:"system"
+      // 消息,被当作前置指令块——尾部一变就把其后【整段对话】的前缀缓存全废掉(实测命中率从 95% 塌到 ~14%)。
+      // 提醒/激活类内容一律【append 进 session.messages】(append-only 增长,缓存安全),而不是这里临时拼。
+      const sent = session.messages;
       const model = usedFallback && deps.fallbackModel ? deps.fallbackModel : session.model;
-      // P1-47 缓存归因 + 缓存审计:先算四维原始内容,notePrefix 与审计共用。
+      // P1-47 缓存归因 + 缓存审计:先算原始内容,notePrefix 与审计共用。tail 恒为空(已无尾部临时注入)。
       const sysRaw = typeof session.messages[0]?.content === "string" ? (session.messages[0]!.content as string) : "";
       const toolsRaw = JSON.stringify(tools);
-      const tailRaw = `${transient ?? ""} ${advisory ?? ""}`;
+      const tailRaw = "";
       session.notePrefix({
         model,
         sys: cheapHash(sysRaw),
@@ -215,7 +204,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
-      afterTools(toolCalls, assistant);
+      afterTools(toolCalls);
     } else {
       const toolMessages = await deps.executeToolCalls(toolCalls, deps.registry, toolCtx, deps.gate);
       for (const tc of toolCalls) {
@@ -223,7 +212,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (m) events.toolResult(tc, m);
       }
       session.messages.push(...toolMessages);
-      afterTools(toolCalls, assistant);
+      afterTools(toolCalls);
     }
 
     // P2-11 编辑后诊断回灌:本轮改了文件 → 跑诊断命令,有报错就注入 [诊断],模型当轮自查自改。
@@ -239,13 +228,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // 连续空转或临近上限 → 下一轮注入一次性 advisor 提醒,促其回看目标/收尾/求助,防长程漂移与空耗。
     const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name));
     noProgress = progressed ? 0 : noProgress + 1;
-    advisory = undefined;
+    // 提醒【追加】进对话(append-only,缓存安全),而非每轮拼到请求尾部又撤(那会反复废缓存)。
+    const advisories: string[] = [];
     if (noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
-      advisory = `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。回看 todo 确认方向;若已完成请调用 verify_done 收尾;若卡住请换思路或用 ask_user 向用户求助,不要空转。`;
+      advisories.push(`[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。回看 todo 确认方向;若已完成请调用 verify_done 收尾;若卡住请换思路或用 ask_user 向用户求助,不要空转。`);
     }
-    if (Number.isFinite(maxTurns) && t >= maxTurns - 5) {
-      advisory = `${advisory ? advisory + " " : ""}[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`;
+    if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
+      advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`);
     }
+    if (advisories.length) session.messages.push({ role: "system", content: advisories.join(" ") });
   }
   events.notice("\n[已达最大轮数,停止]\n");
 }
