@@ -2,6 +2,26 @@ import type { ToolCall, ToolMessage } from "../client/types.js";
 import type { Capability, ToolContext } from "./types.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ApprovalGate, ApprovalRequest } from "../approval/types.js";
+import { isSensitiveCall } from "../permissions/engine.js";
+
+// 给审批/展示用的人类可读摘要:命令保留【真实换行】(而非原始 JSON 的字面 \n),路径类只显路径。
+export function describeCall(name: string, argsJson: string): string {
+  let a: Record<string, unknown> = {};
+  try { a = JSON.parse(argsJson) as Record<string, unknown>; } catch { return `${name} ${argsJson.slice(0, 200)}`; }
+  const s = (v: unknown) => (typeof v === "string" ? v : "");
+  switch (name) {
+    case "exec_shell": return `$ ${s(a.command) || name}`;
+    case "write_file": return `写入 ${s(a.path)}`;
+    case "edit_file": case "multi_edit": return `编辑 ${s(a.path)}`;
+    case "notebook_edit": return `编辑笔记本 ${s(a.path)}`;
+    case "fetch_url": return `抓取 ${s(a.url)}`;
+    case "web_search": return `搜索 ${s(a.query)}`;
+    default: {
+      const v = s(a.path) || s(a.command) || s(a.url) || s(a.query);
+      return v ? `${name} ${v}` : name;
+    }
+  }
+}
 
 // 并发安全(对标 CC 的 isConcurrencySafe):只读/网络/plan 类不改工作区文件、无副作用顺序问题 → 可并行;
 // write/exec 改文件或有外部副作用 → 作"屏障":独占执行,不与任何工具并发(防 race / 不确定状态)。
@@ -54,7 +74,7 @@ export async function executeToolCalls(
     const decision = tool ? gate.decide(tc.function.name, tc.function.arguments, tool) : "allow";
     if (decision === "allow") toRun.add(tc.id);
     else if (decision === "deny") results.set(tc.id, rejectMsg(tc, "该操作被权限规则拒绝(deny)。如需放行,请在 .dao/settings.json 调整 permissions。"));
-    else gatedRequests.push({ id: tc.id, toolName: tc.function.name, capability: tool!.capability, summary: `${tc.function.name} ${tc.function.arguments}`, argsJson: tc.function.arguments });
+    else gatedRequests.push({ id: tc.id, toolName: tc.function.name, capability: tool!.capability, summary: describeCall(tc.function.name, tc.function.arguments), argsJson: tc.function.arguments, sensitive: isSensitiveCall(tc.function.name, tc.function.arguments) });
   }
 
   // 2. ask 工具合并审批

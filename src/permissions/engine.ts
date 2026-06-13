@@ -15,6 +15,12 @@ export interface DecideParams {
 const SENSITIVE_TARGET =
   /\.ssh\/|id_rsa|id_ed25519|id_ecdsa|authorized_keys|\.aws\/|\.npmrc|\.netrc|credentials|\.gitconfig|\.git\/|\.bashrc|\.zshrc|\.bash_profile|\.zprofile|\/etc\/|\.dao\/|\.claude\//;
 
+// 该调用是否触及安全敏感目标(写/执行)。审批时据此【不提供"始终允许"】——避免永久放行危险操作。
+export function isSensitiveCall(toolName: string, argsJson: string): boolean {
+  const id = toCcIdentity(toolName, argsJson);
+  return !!id?.value && SENSITIVE_TARGET.test(id.value);
+}
+
 // 单次工具调用的权限裁决,1:1 复刻 CC 优先级:
 //   deny 规则 > 安全敏感目标确认 > bypassPermissions > ask 规则 > allow 规则 > 模式/能力默认。
 // deny 是硬黑名单,任何模式(含 bypass)都拦截。

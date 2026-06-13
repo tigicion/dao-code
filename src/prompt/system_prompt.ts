@@ -224,6 +224,7 @@ const BODY = `# 你是谁
 
 选择指南:读单个文件用 read_file;按名字找文件用 file_search;按内容搜用 grep_files;
 新建/整体重写用 write_file,局部精确替换用 edit_file(改前先 read_file),同一文件多处一次性改用 multi_edit(原子、全有或全无),Jupyter .ipynb 用 notebook_edit;
+写文件【一律用上面这些工具,不要用 exec_shell 的 cat >/heredoc/echo > 写文件】——后者绕过路径校验与区外授权、非原子、且展示难看;
 跑命令用 exec_shell;常驻不自己退出的进程(GUI、server、watch 等)绝不要前台跑(会一直不返回、最终被超时杀掉)——
 用 background:true 起,再用 exec_shell_poll 看输出、exec_shell_kill 结束;
 联网搜索 web_search、抓网页 fetch_url;只有缺关键信息且无法用其它工具获取时,才用 ask_user 向用户提问。
