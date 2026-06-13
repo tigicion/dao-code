@@ -3,7 +3,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { loadAllMemories, upsertMemory } from "../memory/store.js";
+import { loadAllMemories, upsertMemory, routeScope } from "../memory/store.js";
 import { newMemory } from "../memory/types.js";
 import { contentHash } from "../memory/hash.js";
 import { resolveInWorkspace } from "./paths.js";
@@ -40,9 +40,8 @@ export const memoryWriteTool = defineTool({
     scope: z.enum(["project", "user", "knowledge"]).optional().describe("不填按类型定:procedural→knowledge(跨项目知识库),user/feedback→user,其余→project"),
   }),
   handler: async (args, ctx) => {
-    const scope =
-      args.scope ??
-      (args.type === "procedural" ? "knowledge" : args.type === "user" || args.type === "feedback" ? "user" : "project");
+    // 显式 scope 优先;否则本地优先路由(没把握的进项目级)。
+    const scope = args.scope ?? routeScope(args.type ?? "semantic", args.confidence);
     const dir = memDir(scope, ctx.workspaceRoot, ctx.homeDir);
     const today = ctx.today ?? new Date().toISOString().slice(0, 10);
     let sourceHash: string | undefined;
