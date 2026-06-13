@@ -265,6 +265,22 @@ describe("App", () => {
     expect(resolved!.get("1")).toBe("once");
   });
 
+  it("并发审批排队,不互相覆盖(回归:并行外部读死锁)", async () => {
+    let ap: ApprovalPrompt | null = null;
+    const { stdin } = render(<App {...makeDeps({ register: ({ approvalPrompt }) => { ap = approvalPrompt; } })} />);
+    await delay();
+    const p1 = ap!([{ id: "a", toolName: "list_dir", capability: "read", summary: "list /tmp/x" }]);
+    const p2 = ap!([{ id: "b", toolName: "list_dir", capability: "read", summary: "list /tmp/y" }]);
+    await delay();
+    stdin.write("y"); // 解决队首
+    await delay();
+    stdin.write("y"); // 解决后一个(此前会被覆盖丢失 → 死锁)
+    await delay();
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1.get("a")).toBe("once");
+    expect(r2.get("b")).toBe("once");
+  });
+
   it("/theme 切换主题(App 内拦截)", async () => {
     const { lastFrame, stdin } = render(<App {...makeDeps()} />);
     for (const ch of "/theme") stdin.write(ch);
