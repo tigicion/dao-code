@@ -47,6 +47,7 @@ import { BUNDLED_SKILLS } from "./skills/bundled.js";
 import { relevantSkills, formatDiscovery } from "./skills/discovery.js";
 import { makeActivator, extractOperatedPaths, formatActivation } from "./skills/conditional.js";
 import { loadUsage, saveUsage, recordUsage, usageScore } from "./skills/usage.js";
+import { makeSkillAdapter } from "./skills/convert.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
@@ -477,6 +478,22 @@ async function main() {
   ctx.skills = skills;
   // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
   ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); };
+  // 外来技能适配(无翻译字典):检测为他者所写时,用 flash 按用途转换工具名,目标词表=dao 工具注册表,按 hash 缓存。
+  const apiTools = registry.toApiTools();
+  const daoTools = new Set(apiTools.map((t) => t.function.name));
+  const toolCatalog = apiTools.map((t) => `${t.function.name} — ${t.function.description.split(/[。\n]/)[0]!.slice(0, 60)}`).join("\n");
+  const callFlash = async (system: string, user: string): Promise<string> => {
+    const gen = streamChat({
+      baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: "deepseek-v4-flash",
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      extra: { thinking: { type: "disabled" }, temperature: 0 },
+    });
+    let out = ""; let r = await gen.next();
+    while (!r.done) { if (r.value?.kind === "content") out += r.value.text; r = await gen.next(); }
+    if (!out && typeof r.value?.content === "string") out = r.value.content;
+    return out;
+  };
+  ctx.adaptSkill = makeSkillAdapter({ daoTools, catalog: toolCatalog, callFlash, homeDir: os.homedir() });
 
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
   const hooks = await loadHooks([

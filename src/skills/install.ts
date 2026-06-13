@@ -3,7 +3,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import os from "node:os";
-import { adaptSkillBody } from "./adapt.js";
 
 const exec = promisify(execFile);
 
@@ -55,14 +54,10 @@ export async function installSkills(
     if (!body.trimStart().startsWith("---")) { warnings.push(`${name}:缺 frontmatter,跳过`); continue; }
     await fs.cp(skillDir, path.join(dest, name), { recursive: true });
     installed++;
-    // 自主识别:扫描外来工具名/跨引用,装载时会自动加平台对照,这里先告知。
-    const a = adaptSkillBody(body);
-    const marks = [...a.glossary, a.namespaced ? "superpowers: 跨引用" : ""].filter(Boolean);
-    if (marks.length) warnings.push(`${name}:含外来痕迹(${marks.join("、")})——装载时自动加平台对照`);
   }
   if (tmp) await fs.rm(tmp, { recursive: true, force: true });
 
   write(`✓ 安装 ${installed} 个技能 → ${dest}(${scope === "user" ? "用户级,跨项目可用" : "项目级,仅本项目"})\n`);
   if (warnings.length) write("注意:\n" + warnings.map((w) => "  - " + w).join("\n") + "\n");
-  write("(重启 dao 生效;启动只列 name+description,模型按需用 skill 工具加载正文,外来工具名会自动对照)\n");
+  write("(重启 dao 生效;启动只列 name+description,模型按需用 skill 工具加载正文。若为其它 agent 所写,首次加载时自动按用途转换工具名并缓存)\n");
 }
