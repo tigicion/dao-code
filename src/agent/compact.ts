@@ -18,6 +18,31 @@ export function shouldCompact(messages: ChatMessage[], maxTokens: number, ratio 
   return estimateTokens(messages) >= maxTokens * ratio;
 }
 
+// 可重现的只读工具:其结果旧了可清掉(需要时重新获取);写/执行结果是关键状态,保留。
+const REPRODUCIBLE_TOOLS = new Set(["read_file", "list_dir", "grep_files", "file_search", "fetch_url", "web_search", "memory_search", "skill"]);
+const CLEARED_MARK = "[旧工具结果已清理,需要时可重新获取]";
+
+// microcompact:把【最近 keepRecentTurns 个 user 轮之前】的可重现工具结果就地替换为标记,
+// 大幅削 token 而不丢关键状态(写/执行结果保留)。纯函数,返回新数组。
+export function microcompactMessages(messages: ChatMessage[], keepRecentTurns = 2): ChatMessage[] {
+  const userIdx: number[] = [];
+  messages.forEach((m, i) => { if (m.role === "user") userIdx.push(i); });
+  if (userIdx.length <= keepRecentTurns) return messages; // 太短,不动
+  const cutoff = userIdx[userIdx.length - keepRecentTurns]!;
+  const nameById = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role === "assistant" && m.tool_calls) for (const tc of m.tool_calls) nameById.set(tc.id, tc.function.name);
+  }
+  return messages.map((m, i) => {
+    if (i >= cutoff) return m; // 近期原样保留
+    if (m.role === "tool" && m.tool_call_id && typeof m.content === "string" && m.content !== CLEARED_MARK) {
+      const name = nameById.get(m.tool_call_id);
+      if (name && REPRODUCIBLE_TOOLS.has(name)) return { ...m, content: CLEARED_MARK };
+    }
+    return m;
+  });
+}
+
 export interface CompactOptions {
   keepRecentTurns: number; // 保留最近多少个 user 轮的原文
   summarize: (messages: ChatMessage[]) => Promise<string>;
@@ -31,6 +56,8 @@ export async function compactMessages(
   pinned?: string, // 压缩后重注入的"活的任务清单",使计划穿越压缩、防长任务目标漂移
 ): Promise<ChatMessage[]> {
   if (messages.length === 0) return messages;
+  // 先 microcompact:清掉旧的可重现工具结果,缩小待摘要部分(对标 CC 压缩前置步骤)。
+  messages = microcompactMessages(messages, opts.keepRecentTurns);
   const system = messages[0]!;
   const rest = messages.slice(1);
 
