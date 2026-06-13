@@ -1,43 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { adaptSkillBody, adaptNote } from "./adapt.js";
+import { isForeignSkill } from "./adapt.js";
 
-describe("adaptSkillBody — 探测外来工具名", () => {
-  it("`反引号` 或 'X tool' 语境的歧义词才算", () => {
-    const a = adaptSkillBody("use the Read tool, then `Bash` to run it");
-    expect(a.glossary).toContain("Read → read_file");
-    expect(a.glossary).toContain("Bash → exec_shell");
-  });
-  it("无歧义 CamelCase 名任意出现都算", () => {
-    expect(adaptSkillBody("call AskUserQuestion for choices").glossary).toContain("AskUserQuestion → ask_user");
-    expect(adaptSkillBody("WebFetch the page").glossary).toContain("WebFetch → fetch_url");
-  });
-  it("散文里的裸词不误报", () => {
-    expect(adaptSkillBody("Read the docs and edit your notes carefully").glossary).toEqual([]);
-  });
-  it("Gemini CLI 的 snake 多词名任意出现都算", () => {
-    expect(adaptSkillBody("use run_shell_command to build").glossary).toContain("run_shell_command → exec_shell");
-    expect(adaptSkillBody("call search_file_content").glossary).toContain("search_file_content → grep_files");
-  });
-  it("Codex apply_patch / Cursor run_terminal_cmd 被探测", () => {
-    expect(adaptSkillBody("emit an apply_patch block").glossary).toContain("apply_patch → edit_file");
-    expect(adaptSkillBody("run_terminal_cmd to install").glossary).toContain("run_terminal_cmd → exec_shell");
-  });
-  it("歧义小写名(shell/glob/replace)仅在反引号/工具语境算", () => {
-    expect(adaptSkillBody("the `replace` tool edits in place").glossary).toContain("replace → edit_file");
-    expect(adaptSkillBody("please replace the placeholder text").glossary).toEqual([]);
-  });
-  it("superpowers: 跨引用被标记", () => {
-    expect(adaptSkillBody("then use superpowers:test-driven-development").namespaced).toBe(true);
-  });
-});
+const DAO = new Set(["read_file", "write_file", "edit_file", "exec_shell", "grep_files", "ask_user"]);
 
-describe("adaptNote — 条件性提示", () => {
-  it("无命中 → 空串(不污染)", () => {
-    expect(adaptNote({ glossary: [], namespaced: false })).toBe("");
+describe("isForeignSkill — 无字典结构性检测", () => {
+  it("CC 的 CamelCase 工具(反引号/工具语境)→ 外来", () => {
+    expect(isForeignSkill("use the `Read` tool then `Bash`", DAO)).toBe(true);
+    expect(isForeignSkill("call WebFetch tool to grab it", DAO)).toBe(true);
   });
-  it("有命中 → 含对照与跨引用说明", () => {
-    const note = adaptNote({ glossary: ["Read → read_file"], namespaced: true });
-    expect(note).toContain("read_file");
-    expect(note).toContain("superpowers:");
+  it("Codex/Gemini 的非 dao snake 名 → 外来", () => {
+    expect(isForeignSkill("emit an `apply_patch` block", DAO)).toBe(true);
+    expect(isForeignSkill("use run_shell_command tool to build", DAO)).toBe(true);
+  });
+  it("superpowers: / 命名空间跨引用 → 外来", () => {
+    expect(isForeignSkill("then use superpowers:test-driven-development", DAO)).toBe(true);
+  });
+  it("纯 dao 技能(snake_case dao 工具、无跨引用)→ 不算外来", () => {
+    expect(isForeignSkill("先 `read_file` 再 `edit_file`,跑 `exec_shell` 验证", DAO)).toBe(false);
+    expect(isForeignSkill("用 read_file 工具读配置,再 grep_files 工具搜符号", DAO)).toBe(false);
+  });
+  it("散文里的裸词不误报(没有反引号/工具语境)", () => {
+    expect(isForeignSkill("Read the docs and edit your notes carefully", DAO)).toBe(false);
+  });
+  it("URL/时间不误判成跨引用", () => {
+    expect(isForeignSkill("see https://example.com at 12:30 for details", DAO)).toBe(false);
   });
 });
