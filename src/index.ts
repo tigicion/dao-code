@@ -50,7 +50,7 @@ import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
-import { relevantSkills, formatDiscovery } from "./skills/discovery.js";
+import { relevantSkills, relevantSkillsScored, formatDiscovery } from "./skills/discovery.js";
 import { makeActivator, extractOperatedPaths, formatActivation } from "./skills/conditional.js";
 import { loadUsage, saveUsage, recordUsage, usageScore } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
@@ -77,6 +77,7 @@ import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from ".
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
 import { createCacheAuditSink, type CacheAuditSink } from "./session/cache_audit.js";
+import { createSkillAuditSink, type SkillAuditSink, readAllSkillTraces, summarizeSkillTrace, formatSkillReport } from "./skills/skill_audit.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
@@ -480,6 +481,9 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
+  // 技能触发审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 offered/loaded/activated)。
+  let skillSink: SkillAuditSink = { offered() {}, loaded() {}, activated() {} };
+  let skillRound = 0;
   // P3-17 预算提醒阈值(￥,可选):DAO_MAX_BUDGET 设了则超阈值提醒一次(默认不停);DAO_MAX_BUDGET_HARD=1 才硬停。
   { const b = Number(process.env.DAO_MAX_BUDGET); if (Number.isFinite(b) && b > 0) session.budgetCNY = b; }
   // P0-1 前缀缓存埋点:命中率骤降(多半是压缩/注入改写了前缀)时,--verbose 下打到 stderr。
@@ -520,7 +524,7 @@ async function main() {
   ctx.agentTypes = agentDefs.map((d) => ({ name: d.name, description: d.description }));
   ctx.skills = skills;
   // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
-  ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); };
+  ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); skillSink.loaded(skillRound, name); };
   // 外来技能适配(无翻译字典):检测为他者所写时,用 flash 按用途转换工具名,目标词表=dao 工具注册表,按 hash 缓存。
   const apiTools = registry.toApiTools();
   const daoTools = new Set(apiTools.map((t) => t.function.name));
@@ -882,6 +886,7 @@ async function main() {
       const store = createSessionStore(sessionsDir, resumeId);
       // 缓存审计:主+子+fork+后台+三工具调用全写进 store.dir/cache.jsonl(常驻静默;DAO_CACHE_AUDIT=0 关)。
       cacheSink = createCacheAuditSink(store.dir);
+      skillSink = createSkillAuditSink(store.dir);
       const ckpt = createCheckpointer(workspaceRoot);
       const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
       let sessionTitle: string | undefined; // /rename 设置
@@ -906,6 +911,7 @@ async function main() {
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text });
           session.addUser(text);
+          skillRound++; // 新一轮:关联本轮 offered/loaded/activated
           if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
           await withPresence(() => runTurn({
             session,
@@ -924,16 +930,27 @@ async function main() {
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
-            transientSystem: formatDiscovery(relevantSkills(text, skills, 5, skillWeight)) || undefined, // 相关技能发现(按使用频率加权;本回合临时注入)
+            transientSystem: (() => {
+              const scored = relevantSkillsScored(text, skills, 5, skillWeight);
+              skillSink.offered(skillRound, text, scored.map((x) => ({ name: x.sk.name, score: x.score }))); // 审计:本轮发现给模型的候选+分数
+              return formatDiscovery(scored.map((x) => x.sk)) || undefined; // 相关技能发现(按使用频率加权;本回合临时注入)
+            })(),
             // B 条件路径技能:模型读/写文件后,据被操作文件激活匹配的条件技能,自动注入正文一次。
-            activateSkillsForPaths: (calls) => formatActivation(activator.activate(extractOperatedPaths(calls))) || undefined,
+            activateSkillsForPaths: (calls) => {
+              const paths = extractOperatedPaths(calls);
+              const fresh = activator.activate(paths);
+              if (fresh.length) skillSink.activated(skillRound, fresh.map((s) => s.name), paths); // 审计:确定性激活+触发路径
+              return formatActivation(fresh) || undefined;
+            },
             // A 写操作 pivot:模型转向写/改文件后,据其意图(正文 + 被改文件名)重算相关技能发现,刷新提示。
             rediscoverAfterWrite: (calls, content) => {
               const paths = extractOperatedPaths(calls);
               const wrote = calls.some((c) => ["write_file", "edit_file", "multi_edit"].includes(c.function.name));
               if (!wrote) return undefined; // 非写 pivot:不动提示
               const query = `${content} ${paths.join(" ")}`.trim();
-              return formatDiscovery(relevantSkills(query, skills, 5, skillWeight)); // 命中→新提示;未命中→""清除陈旧提示
+              const scored = relevantSkillsScored(query, skills, 5, skillWeight);
+              skillSink.offered(skillRound, query, scored.map((x) => ({ name: x.sk.name, score: x.score }))); // 审计:pivot 后重新发现
+              return formatDiscovery(scored.map((x) => x.sk)); // 命中→新提示;未命中→""清除陈旧提示
             },
           }));
           store.append({ t: "turn_end" });
@@ -950,6 +967,11 @@ async function main() {
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
+            if (sub === "audit") {
+              // 技能触发审计:跨会话聚合 skill-trace.jsonl,给出命中/漏报/漏召回,供优化。
+              const stats = summarizeSkillTrace(readAllSkillTraces(path.join(workspaceRoot, ".dao", "sessions")));
+              return { handled: true, output: formatSkillReport(stats) };
+            }
             if (sub === "off" || sub === "on") {
               const target = rest[1];
               if (target && coreBundled.some((s) => s.name === target)) return { handled: true, output: `${target} 是内置核心技能,固定加载、不可开关。` };
