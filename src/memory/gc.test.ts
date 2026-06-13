@@ -71,6 +71,22 @@ describe("shouldPrune", () => {
   it("高 uses(频繁重确认)不剪", () => {
     expect(shouldPrune(mem({ name: "a", importance: 3, type: "semantic", lastUsed: STALE, uses: 10 }), TODAY)).toBe(false);
   });
+  it("低置信、从未被召回、低重要度的 user 推断 → 不再受保护,陈旧后被剪", () => {
+    const m = mem({ name: "a", type: "user", importance: 5, confidence: 0.4, uses: 0, lastUsed: STALE });
+    expect(shouldPrune(m, TODAY)).toBe(true);
+  });
+  it("低置信 user 推断但仍新鲜(未陈旧)不剪", () => {
+    const m = mem({ name: "a", type: "user", importance: 5, confidence: 0.4, uses: 0, lastUsed: TODAY });
+    expect(shouldPrune(m, TODAY)).toBe(false);
+  });
+  it("被召回过(uses>0)的 user 记忆仍受保护", () => {
+    const m = mem({ name: "a", type: "user", importance: 5, confidence: 0.4, uses: 1, lastUsed: STALE });
+    expect(shouldPrune(m, TODAY)).toBe(false);
+  });
+  it("高置信 user 事实仍受保护", () => {
+    const m = mem({ name: "a", type: "user", importance: 5, confidence: 0.9, uses: 0, lastUsed: STALE });
+    expect(shouldPrune(m, TODAY)).toBe(false);
+  });
   it("过期+宽限期已过的 superseded 被剪", () => {
     const m = mem({ name: "a", importance: 9, type: "semantic", status: "superseded", validUntil: "2026-05-20", lastUsed: TODAY });
     expect(shouldPrune(m, TODAY)).toBe(true); // 05-20 + 7 = 05-27 < 06-07

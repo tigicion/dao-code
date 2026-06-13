@@ -20,6 +20,19 @@ describe("loadSkills", () => {
     expect(skills.map((s) => s.name).sort()).toEqual(["commit", "pdf"]);
     expect(skills.find((s) => s.name === "pdf")?.body).toContain("PDF 步骤");
   });
+  it("捕获 when_to_use(触发条件)与目录 slug 作别名", async () => {
+    const proj = path.join(base, "p");
+    mkdirSync(path.join(proj, "brainstorming"), { recursive: true });
+    writeFileSync(
+      path.join(proj, "brainstorming", "SKILL.md"),
+      `---\nname: Brainstorming Ideas Into Designs\ndescription: Socratic refinement\nwhen_to_use: before writing code for any feature\n---\n正文`,
+    );
+    const skills = await loadSkills(proj);
+    const s = skills[0]!;
+    expect(s.name).toBe("Brainstorming Ideas Into Designs");
+    expect(s.whenToUse).toBe("before writing code for any feature");
+    expect(s.slug).toBe("brainstorming"); // 目录名作为可调用别名
+  });
 });
 
 describe("skill 工具", () => {
@@ -38,5 +51,12 @@ describe("skill 工具", () => {
     );
     expect(out).toContain("未找到 skill");
     expect(out).toContain("pdf");
+  });
+  it("按 slug / 大小写不敏感匹配(模型用直觉名也能加载)", async () => {
+    const skills = [{ name: "Brainstorming Ideas Into Designs", slug: "brainstorming", description: "", body: "头脑风暴正文", dir: base }];
+    const bySlug = await skillTool.handler({ name: "brainstorming" }, { workspaceRoot: base, skills });
+    expect(bySlug).toContain("头脑风暴正文");
+    const byCase = await skillTool.handler({ name: "brainstorming ideas into designs" }, { workspaceRoot: base, skills });
+    expect(byCase).toContain("头脑风暴正文");
   });
 });

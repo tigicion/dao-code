@@ -16,8 +16,9 @@ export function relevantSkills(input: string, skills: Skill[], max = 5): Skill[]
   if (inChunks.length === 0) return [];
   return skills
     .map((sk) => {
-      const skText = `${sk.name} ${sk.description}`.toLowerCase();
-      const skChunks = chunks(`${sk.name.replace(/-/g, " ")} ${sk.description}`);
+      // 把 when_to_use(触发条件)纳入匹配语料——它常含"调试/新功能/before…"等触发词,比 description 更能命中任务。
+      const skText = `${sk.name} ${sk.description} ${sk.whenToUse ?? ""}`.toLowerCase();
+      const skChunks = chunks(`${sk.name.replace(/-/g, " ")} ${sk.description} ${sk.whenToUse ?? ""}`);
       let score = 0;
       for (const c of skChunks) if (inText.includes(c)) score += 1; // 技能词出现在输入
       for (const c of inChunks) if (skText.includes(c)) score += 1; // 输入词出现在技能
@@ -34,6 +35,6 @@ export function formatDiscovery(matches: Skill[]): string {
   if (matches.length === 0) return "";
   return (
     `[与本任务可能相关的 skill —— 相关就先用 skill 工具加载它再动手]\n` +
-    matches.map((s) => `- ${s.name}:${s.description.slice(0, 80)}`).join("\n")
+    matches.map((s) => `- ${s.name}:${`${s.description}${s.whenToUse ? ` 何时用:${s.whenToUse}` : ""}`.slice(0, 120)}`).join("\n")
   );
 }
