@@ -42,9 +42,11 @@ describe("grep_files tool", () => {
     expect(out).toContain("a.ts:1:");
   });
 
-  it("returns (无匹配) when nothing matches", async () => {
-    const out = await grepFilesTool.handler({ pattern: "zzz-nope" }, ctx());
-    expect(out).toBe("(无匹配)");
+  it("无匹配时回显搜索范围(pattern + path),便于模型自我纠正", async () => {
+    const out = await grepFilesTool.handler({ pattern: "zzz-nope", path: "sub" }, ctx());
+    expect(out).toContain("无匹配");
+    expect(out).toContain("zzz-nope"); // 回显 pattern
+    expect(out).toContain("sub"); // 回显 path
   });
 
   it("declares read capability and auto approval", () => {
