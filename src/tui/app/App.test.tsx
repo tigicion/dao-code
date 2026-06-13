@@ -60,6 +60,20 @@ describe("App", () => {
     expect(lastFrame()!).toContain("命令:/help /exit");
   });
 
+  it("Tab 补全斜杠命令:唯一匹配补成全名+空格", async () => {
+    let got = "";
+    const { stdin } = render(
+      <App {...makeDeps({ runCommand: (l) => { got = l; return { handled: true }; } })} />,
+    );
+    for (const ch of "/sess") stdin.write(ch); // 只键入前缀
+    await delay();
+    stdin.write("\t"); // Tab → 应补成 "/session "
+    await delay();
+    stdin.write("\r"); // Enter 提交
+    await delay();
+    expect(got.trim()).toBe("/session"); // 没补全的话会是 "/sess"
+  });
+
   it("edit_file 工具结果渲染红绿 diff(路径 + 增删行)", async () => {
     const { lastFrame, stdin } = render(
       <App

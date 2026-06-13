@@ -27,6 +27,17 @@ const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose
 // 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
 const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
 
+// 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源)。
+const SLASH_COMMANDS = ["model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor", "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume", "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin", "login", "logout", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "bypass", "goal", "coordinator", "dod", "restore", "clear", "compact", "cost", "session", "cache", "help", "exit"];
+
+// 多个候选时补到公共前缀(shell 习惯:再按 Tab 看候选行)。
+function commonPrefix(strs: string[]): string {
+  if (!strs.length) return "";
+  let p = strs[0]!;
+  for (const s of strs) while (!s.startsWith(p)) p = p.slice(0, -1);
+  return p;
+}
+
 // 空闲时底部轮换的轻提示(CC 风格:克制暗色一行,无 emoji)。运行中的"可排队"提示单独硬编码。
 // 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。
 function tail(s: string, n: number): string {
@@ -544,7 +555,20 @@ export function App(deps: AppDeps) {
       return;
     }
     if (key.delete) { setField((f) => ({ ...f, text: f.text.slice(0, f.cursor) + f.text.slice(f.cursor + 1) })); return; } // 删光标处
-    if (key.tab) { // @文件补全:把光标前的 @前缀 补成第一个匹配
+    if (key.tab) {
+      // 斜杠命令补全:输入以 / 开头且尚无空格时,Tab 补到唯一匹配(+空格)或公共前缀。
+      if (field.text.startsWith("/") && !field.text.includes(" ")) {
+        const matches = SLASH_COMMANDS.filter((cmd) => ("/" + cmd).startsWith(field.text)).map((cmd) => "/" + cmd);
+        if (matches.length === 1) {
+          const done = matches[0]! + " ";
+          setField({ text: done, cursor: done.length });
+        } else if (matches.length > 1) {
+          const cp = commonPrefix(matches);
+          if (cp.length > field.text.length) setField({ text: cp, cursor: cp.length });
+        }
+        return;
+      }
+      // @文件补全:把光标前的 @前缀 补成第一个匹配
       setField((f) => {
         const m = f.text.slice(0, f.cursor).match(/@(\S*)$/);
         const matches = m && deps.completeFiles ? deps.completeFiles(m[1] ?? "") : [];
@@ -686,7 +710,7 @@ export function App(deps: AppDeps) {
           {input.startsWith("/") && !input.includes(" ") ? (
             <Text color={c("dim")}>
               {"  "}
-              {["model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor", "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume", "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin", "login", "logout", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "bypass", "goal", "coordinator", "dod", "restore", "clear", "compact", "cost", "session", "cache", "help", "exit"]
+              {SLASH_COMMANDS
                 .filter((cmd) => ("/" + cmd).startsWith(input))
                 .map((cmd) => "/" + cmd)
                 .join("  ") || "(无匹配命令)"}
