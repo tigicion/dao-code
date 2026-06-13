@@ -52,3 +52,24 @@ describe("ToolRegistry", () => {
     await expect(reg.dispatch("echo", '{"text":123}', { workspaceRoot: "/tmp" })).rejects.toThrow();
   });
 });
+
+const mk = (name: string) =>
+  defineTool({ name, description: name, capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" });
+
+describe("ToolRegistry.subsetExcluding", () => {
+  it("保留除排除名外的全部工具,维持插入顺序", () => {
+    const r = new ToolRegistry();
+    ["a", "b", "c", "d"].forEach((n) => r.register(mk(n)));
+    const sub = r.subsetExcluding(new Set(["b", "d"]));
+    expect(sub.get("a")).toBeDefined();
+    expect(sub.get("c")).toBeDefined();
+    expect(sub.get("b")).toBeUndefined();
+    expect(sub.get("d")).toBeUndefined();
+    expect(sub.toApiTools().map((t) => t.function.name)).toEqual(["a", "c"]);
+  });
+  it("排除空集 → 全保留", () => {
+    const r = new ToolRegistry();
+    ["a", "b"].forEach((n) => r.register(mk(n)));
+    expect(r.subsetExcluding(new Set()).toApiTools()).toHaveLength(2);
+  });
+});

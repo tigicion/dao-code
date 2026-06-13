@@ -582,16 +582,20 @@ async function main() {
   };
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
-  ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[], auditAgent: "sub" | "bg" = "sub") => {
-    const def = agentType ? agentDefs.find((d) => d.name === agentType) : undefined;
+  ctx.runSubagent = ({ task, signal, agentType, workspaceRoot: wsRoot, drainPending, auditAgent = "sub", model, mode }) => {
+    // 省略 agent_type 时默认用 general-purpose(对齐 CC);找不到该内置则回退裸 systemPrompt。
+    const def = agentDefs.find((d) => d.name === (agentType ?? "general-purpose"));
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
-    const reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
+    let reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
+    if (def?.toolsExclude?.length) reg = reg.subsetExcluding(new Set(def.toolsExclude));
+    const subModel = model ?? def?.model ?? session.model;     // 优先级:调用级 > 类型 > 会话
+    const subMode = mode ?? session.mode;
     const subCtx = wsRoot ? { ...ctx, workspaceRoot: wsRoot } : ctx; // worktree 隔离:覆盖工作区根
     return runSubagent({
       task,
       systemPrompt: sp,
-      model: def?.model ?? session.model,
-      mode: session.mode,
+      model: subModel,
+      mode: subMode,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
       registry: reg,
       ctx: subCtx,
@@ -635,7 +639,7 @@ async function main() {
   const taskManager = createTaskManager();
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
     taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
-      ctx.runSubagent!(task, signal, agentType, undefined, () => taskManager.drainPending(id), "bg"),
+      ctx.runSubagent!({ task, signal, agentType, drainPending: () => taskManager.drainPending(id), auditAgent: "bg" }),
     );
   ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
 

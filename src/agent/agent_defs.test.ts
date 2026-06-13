@@ -29,6 +29,30 @@ describe("parseAgentDef", () => {
   });
 });
 
+describe("parseAgentDef tools 解析", () => {
+  const md = (tools: string) => `---\nname: t\ndescription: d\ntools: ${tools}\n---\n正文`;
+  it("纯列举 → include 列表(兼容旧行为)", () => {
+    const d = parseAgentDef("t", md("read_file, grep_files"))!;
+    expect(d.tools).toEqual(["read_file", "grep_files"]);
+    expect(d.toolsExclude).toBeUndefined();
+  });
+  it("'*, !x, !y' → 全集 + 排除", () => {
+    const d = parseAgentDef("t", md("*, !edit_file, !write_file"))!;
+    expect(d.tools).toBeUndefined();
+    expect(d.toolsExclude).toEqual(["edit_file", "write_file"]);
+  });
+  it("只有排除项(无 *)也按全集减排除处理", () => {
+    const d = parseAgentDef("t", md("!exec_shell"))!;
+    expect(d.tools).toBeUndefined();
+    expect(d.toolsExclude).toEqual(["exec_shell"]);
+  });
+  it("无 tools 字段 → 都为 undefined(继承全部)", () => {
+    const d = parseAgentDef("t", `---\nname: t\ndescription: d\n---\n正文`)!;
+    expect(d.tools).toBeUndefined();
+    expect(d.toolsExclude).toBeUndefined();
+  });
+});
+
 describe("loadAgentDefs", () => {
   let base: string;
   beforeEach(() => {

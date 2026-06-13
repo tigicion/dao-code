@@ -6,19 +6,19 @@ describe("agent tool", () => {
     let got = "";
     const out = await agentTool.handler(
       { task: "investigate the build" },
-      { workspaceRoot: "/tmp", runSubagent: async (t) => { got = t; return "RESULT"; } },
+      { workspaceRoot: "/tmp", runSubagent: async ({ task }) => { got = task; return "RESULT"; } },
     );
     expect(got).toBe("investigate the build");
     expect(out).toBe("RESULT");
   });
 
-  it("refuses recursion when subagentDepth >= 1", async () => {
+  it("refuses recursion when subagentDepth >= 2", async () => {
     let called = false;
     const out = await agentTool.handler(
       { task: "x" },
-      { workspaceRoot: "/tmp", subagentDepth: 1, runSubagent: async () => { called = true; return "nope"; } },
+      { workspaceRoot: "/tmp", subagentDepth: 2, runSubagent: async () => { called = true; return "nope"; } },
     );
-    expect(out).toContain("递归");
+    expect(out).toContain("嵌套上限");
     expect(called).toBe(false);
   });
 
@@ -36,7 +36,7 @@ describe("agent tool", () => {
   it("tasks 数组 → 并行派发并汇总", async () => {
     const out = await agentTool.handler(
       { tasks: ["A", "B", "C"] },
-      { workspaceRoot: "/tmp", runSubagent: async (t) => `R:${t}` },
+      { workspaceRoot: "/tmp", runSubagent: async ({ task }) => `R:${task}` },
     );
     expect(out).toContain("子代理 1/3");
     expect(out).toContain("R:A");
@@ -59,7 +59,7 @@ describe("agent tool", () => {
       { task: "x", agent_type: "reviewer" },
       {
         workspaceRoot: "/tmp",
-        runSubagent: async (_t, _s, type) => { passed = type; return "审查结果"; },
+        runSubagent: async ({ agentType }) => { passed = agentType; return "审查结果"; },
         agentTypes: [{ name: "reviewer", description: "审查" }],
       },
     );
@@ -103,10 +103,10 @@ describe("agent tool", () => {
       { tasks },
       {
         workspaceRoot: "/tmp",
-        runSubagent: async (t) => {
+        runSubagent: async ({ task }) => {
           active++; maxActive = Math.max(maxActive, active);
           await new Promise((r) => setTimeout(r, 10));
-          active--; return `R:${t}`;
+          active--; return `R:${task}`;
         },
       },
     );
@@ -119,9 +119,64 @@ describe("agent tool", () => {
   it("并行中单个失败不影响其余", async () => {
     const out = await agentTool.handler(
       { tasks: ["ok", "bad"] },
-      { workspaceRoot: "/tmp", runSubagent: async (t) => { if (t === "bad") throw new Error("炸了"); return `R:${t}`; } },
+      { workspaceRoot: "/tmp", runSubagent: async ({ task }) => { if (task === "bad") throw new Error("炸了"); return `R:${task}`; } },
     );
     expect(out).toContain("R:ok");
     expect(out).toContain("[失败] 炸了");
+  });
+});
+
+// 最小 ctx:记录 runSubagent 收到的 opts。
+function mkCtx(over: Record<string, unknown> = {}) {
+  const calls: any[] = [];
+  return {
+    calls,
+    ctx: {
+      workspaceRoot: "/tmp",
+      readFiles: new Set<string>(),
+      subagentDepth: 0,
+      agentTypes: [{ name: "explore", description: "" }],
+      runSubagent: async (opts: any) => { calls.push(opts); return "OK"; },
+      ...over,
+    } as any,
+  };
+}
+
+describe("agent 工具 model/mode/fork 护栏", () => {
+  it("model/mode 透传进 runSubagent opts", async () => {
+    const { ctx, calls } = mkCtx();
+    await agentTool.handler({ task: "do x", model: "deepseek-v4-flash", mode: "plan" } as any, ctx);
+    expect(calls[0]).toMatchObject({ model: "deepseek-v4-flash", mode: "plan" });
+  });
+  it("fork + model → 拒绝(跨模型丢缓存)", async () => {
+    const { ctx, calls } = mkCtx({ runForkAgent: async () => "F" });
+    const r = await agentTool.handler({ task: "x", fork: true, model: "deepseek-v4-flash" } as any, ctx);
+    expect(r).toContain("fork");
+    expect(calls).toHaveLength(0); // 没真派
+  });
+  it("fork + mode → 拒绝", async () => {
+    const { ctx } = mkCtx({ runForkAgent: async () => "F" });
+    const r = await agentTool.handler({ task: "x", fork: true, mode: "plan" } as any, ctx);
+    expect(r).toContain("fork");
+  });
+});
+
+describe("agent 嵌套深度与并发", () => {
+  it("depth 1(子代理内)仍可派 → 允许一层", async () => {
+    const { ctx, calls } = mkCtx({ subagentDepth: 1 });
+    const r = await agentTool.handler({ task: "x" } as any, ctx);
+    expect(calls).toHaveLength(1);
+    expect(r).toBe("OK");
+  });
+  it("depth 2 → 拒绝并说明", async () => {
+    const { ctx, calls } = mkCtx({ subagentDepth: 2 });
+    const r = await agentTool.handler({ task: "x" } as any, ctx);
+    expect(calls).toHaveLength(0);
+    expect(r).toContain("嵌套上限");
+  });
+  it("background + model → 显式拒绝(不静默丢)", async () => {
+    const { ctx } = mkCtx({ runBackgroundAgent: () => "id1" });
+    const r = await agentTool.handler({ task: "x", background: true, model: "deepseek-v4-flash" } as any, ctx);
+    expect(r).toContain("background");
   });
 });
