@@ -656,6 +656,7 @@ async function main() {
       }
       const store = createSessionStore(sessionsDir, resumeId);
       const ckpt = createCheckpointer(workspaceRoot);
+      let sessionTitle: string | undefined; // /rename 设置
       if (longTask && !continueFlag) session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
       if (coordinator && !continueFlag) session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
       const persist = () =>
@@ -663,6 +664,7 @@ async function main() {
           cwd: workspaceRoot,
           model: session.model,
           mode: session.mode,
+          title: sessionTitle,
           messages: session.messages,
           usage: { ...session.usage },
         });
@@ -770,12 +772,25 @@ async function main() {
             let sids: string[] = [];
             try { sids = readdirSync(sessionsDir); } catch { /* 无 */ }
             if (sids.length === 0) return { handled: true, output: "本工作区无历史会话。" };
-            if (!id) return { handled: true, output: `历史会话(${sids.length}):\n` + sids.slice(-15).reverse().map((s) => "  " + s).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
+            if (!id) return { handled: true, output: `历史会话(${sids.length}):\n` + sids.slice(-15).reverse().map((s) => { const st = loadState(sessionsDir, s); return `  ${s}${st?.title ? ` — ${st.title}` : ""}`; }).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
             const st = loadState(sessionsDir, id);
             if (!st) return { handled: true, output: `未找到会话:${id}(/resume 看列表)` };
             session.messages = st.messages; // 整盘载入上下文(继续写入当前会话文件,不动原文件)
             session.setModel(st.model);
             return { handled: true, output: `已载入会话 ${id} 的上下文(${st.messages.length} 条消息;继续写入当前会话)`, clearTranscript: true };
+          }
+          if (name === "branch") {
+            const label = line.trim().split(/\s+/).slice(1).join(" ");
+            const b = createSessionStore(sessionsDir); // 新会话 id
+            b.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, title: label || undefined, messages: session.messages, usage: { ...session.usage } });
+            return { handled: true, output: `已把当前会话快照分支为 ${b.id}${label ? `(${label})` : ""}。\n切到该分支上下文:/resume ${b.id}(当前会话不受影响)` };
+          }
+          if (name === "rename") {
+            const t = line.trim().split(/\s+/).slice(1).join(" ").trim();
+            if (!t) return { handled: true, output: `用法:/rename <标题>${sessionTitle ? `(当前:${sessionTitle})` : ""}` };
+            sessionTitle = t;
+            persist();
+            return { handled: true, output: `会话已命名:${t}` };
           }
           if (name === "rewind") {
             const arg = line.trim().split(/\s+/)[1];
