@@ -9,8 +9,8 @@ import { isCatalogNoise } from "./distill.js";
 export type AuditFlag = "superseded" | "noise" | "lowvalue" | "stale" | "ok";
 const FLAG_LABEL: Record<AuditFlag, string> = {
   superseded: "🔵 已取代",
-  noise: "🔴 目录倾倒噪音",
-  lowvalue: "🔴 低价值推断",
+  noise: "🔴 噪音污染",
+  lowvalue: "🔴 低价值",
   stale: "🟡 陈旧(久未命中)",
   ok: "🟢 健康",
 };

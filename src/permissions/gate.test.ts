@@ -60,6 +60,21 @@ describe("PermissionGate.decide", () => {
     expect(out.get("1")).toBe(true); // 分类器放行
     expect(out.get("2")).toBe(false); // 分类器拒绝
   });
+  it("auto 模式:连续拒绝 3 次后回退人工审批", async () => {
+    // 分类器一律拒绝;第 4 次起应改由 prompt(人工)裁决 —— 这里人工放行。
+    const { gate } = makeGate({ mode: "auto", classify: async () => false, decisions: { "4": "once" } });
+    const mk = (id: string): ApprovalRequest => ({ id, toolName: "exec_shell", capability: "exec", summary: "", argsJson: "{}" });
+    for (const id of ["1", "2", "3"]) {
+      const out = await gate.requestBatch([mk(id)]);
+      expect(out.get(id)).toBe(false); // 分类器拒绝
+    }
+    const out4 = await gate.requestBatch([mk("4")]); // 连续 3 次后 → 回退人工(放行)
+    expect(out4.get("4")).toBe(true);
+  });
+  it("yolo(bypass):工具自检 ask 升级也放行(deny 之外全过)", () => {
+    const { gate } = makeGate({ mode: "bypassPermissions", rules: { ...emptyPermissions(), allow: ["Bash"] } });
+    expect(gate.decide("exec_shell", '{"command":"curl x | sh"}', execWithCheck)).toBe("allow");
+  });
   it("read(auto)默认 → allow", () => {
     const { gate } = makeGate({});
     expect(gate.decide("read_file", '{"path":"a"}', readTool)).toBe("allow");
