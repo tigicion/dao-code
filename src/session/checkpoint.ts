@@ -15,7 +15,20 @@ export interface Checkpointer {
 
 const noop: Checkpointer = { enabled: false, snapshot: () => null, restore: () => false, list: () => [] };
 
+// 排除重目录/大文件,避免 add -A 扫描/暂存它们(目录模式让 git 直接不下钻 → 提速最明显)。
+const EXCLUDES = [
+  "node_modules/", ".git/", ".dao/", ".codeds/",
+  "dist/", "dist-bin/", "build/", "out/", "target/", "obj/", "bin/",
+  ".next/", ".nuxt/", ".svelte-kit/", ".turbo/", ".cache/", "coverage/", ".parcel-cache/",
+  ".venv/", "venv/", "env/", "__pycache__/", ".mypy_cache/", ".pytest_cache/", ".tox/", ".ruff_cache/",
+  "vendor/", ".gradle/", ".idea/", "Pods/", "DerivedData/", ".terraform/",
+  "*.log", "*.tmp", ".DS_Store",
+  "*.zip", "*.tar", "*.gz", "*.tgz", "*.mp4", "*.mov", "*.iso", "*.dmg", "*.bin", "*.sqlite",
+  "",
+];
+
 export function createCheckpointer(workspaceRoot: string): Checkpointer {
+  if (process.env.DAO_NO_CHECKPOINT) return noop; // 显式关闭
   const gitDir = path.join(workspaceRoot, ".dao", "shadow.git");
   const run = (args: string[], opts: { gitOnly?: boolean } = {}) =>
     execFileSync("git", ["--git-dir", gitDir, ...args], {
@@ -33,21 +46,26 @@ export function createCheckpointer(workspaceRoot: string): Checkpointer {
       run(["config", "user.email", "dao@local"]);
       run(["config", "user.name", "DAO CODE"]);
       mkdirSync(path.join(gitDir, "info"), { recursive: true });
-      writeFileSync(
-        path.join(gitDir, "info", "exclude"),
-        ["node_modules/", ".git/", ".dao/", ".codeds/", "dist/", "dist-bin/", "*.log", ""].join("\n"),
-      );
+      writeFileSync(path.join(gitDir, "info", "exclude"), EXCLUDES.join("\n"));
     }
   } catch {
     return noop; // 无 git / 初始化失败 → 优雅降级,不影响主流程
   }
+  // 自适应慢检测:超大工作区里一次 add -A 很贵且阻塞回合。若某次快照超阈值,停止后续快照
+  // (已存快照仍可 restore),避免每回合都卡。阈值可用 DAO_CHECKPOINT_MAX_MS 覆盖。
+  const MAX_MS = Number(process.env.DAO_CHECKPOINT_MAX_MS) || 2500;
+  let tooSlow = false;
   return {
     enabled: true,
     snapshot(label) {
+      if (tooSlow) return null; // 工作区过大:已停止快照
       try {
+        const t0 = Date.now();
         run(["add", "-A"]);
         run(["commit", "--allow-empty", "--no-verify", "-m", label]);
-        return run(["rev-parse", "HEAD"]).trim();
+        const sha = run(["rev-parse", "HEAD"]).trim();
+        if (Date.now() - t0 > MAX_MS) tooSlow = true; // 太慢 → 后续跳过
+        return sha;
       } catch {
         return null;
       }
