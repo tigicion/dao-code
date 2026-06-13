@@ -11,6 +11,13 @@ const MIN_OVERLAP = 1;
 // 每轮把相关技能高亮给模型(在静态全表之外),技能多时显著提升命中,中英一视同仁。
 // weight:可选的使用频率加权(见 usage.ts),只用于【相关者之间】并列打破,不会让无关技能进榜。
 export function relevantSkills(input: string, skills: Skill[], max = 5, weight?: (name: string) => number): Skill[] {
+  return relevantSkillsScored(input, skills, max, weight).map((x) => x.sk);
+}
+
+// 同 relevantSkills,但保留每条的【相关度分数】——供技能触发审计记录"为什么(没)被提示"。
+export function relevantSkillsScored(
+  input: string, skills: Skill[], max = 5, weight?: (name: string) => number,
+): { sk: Skill; score: number }[] {
   const inShingles = shingles(input);
   if (inShingles.size === 0) return [];
   return skills
@@ -22,8 +29,7 @@ export function relevantSkills(input: string, skills: Skill[], max = 5, weight?:
     .filter((x) => x.score >= MIN_OVERLAP)
     // 主序:二元组重叠(相关度);次序:使用频率加权(常用且最近用过的优先)。
     .sort((a, b) => b.score - a.score || (weight ? weight(b.sk.name) - weight(a.sk.name) : 0))
-    .slice(0, max)
-    .map((x) => x.sk);
+    .slice(0, max);
 }
 
 // 渲染为"相关技能"提示(每轮注入,非持久)。无匹配返回空串。
