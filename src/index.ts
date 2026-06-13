@@ -21,6 +21,7 @@ import { notebookEditTool } from "./tools/notebook_edit.js";
 import { installSkills } from "./skills/install.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
 import { scheduleTool } from "./tools/schedule_tool.js";
+import { skillInstallTool } from "./tools/skill_install.js";
 import { loadPlugins, installPlugin, removePlugin, pluginsRoot } from "./plugins.js";
 import { loadProjectInstructions } from "./project_doc.js";
 import { execShellTool } from "./tools/exec_shell.js";
@@ -264,7 +265,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, taskSendTool, agentTool, scheduleTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, agentTool, scheduleTool,
   ]) {
     registry.register(t);
   }
@@ -345,9 +346,10 @@ async function main() {
   const skills = [...coreBundled, ...enabledDisk];
   const skillsSection =
     skills.length > 0
-      ? `\n\n# 可用 skill —— 开始任务前先扫一眼这张表\n` +
-        `只要某个 skill 可能与当前任务相关(尤其描述里写"在…之前/必须用"的,如做新功能前的 brainstorming、` +
-        `调试前的根因流程),就【先用 skill 工具加载它的正文、照它做】,别凭感觉直接上手而忽略它。\n` +
+      ? `\n\n# 可用 skill —— 开始任何任务前先扫这张表\n` +
+        `【强制要求】只要某个 skill 可能与当前任务相关(哪怕只有一点可能,尤其描述写"在…之前/必须用"的,` +
+        `如做新功能前的 brainstorming、调试前的根因流程),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
+        `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
         skills.map((s) => `- ${s.name}:${s.description}`).join("\n")
       : "";
 
