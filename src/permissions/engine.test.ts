@@ -62,3 +62,12 @@ describe("decide — 模式默认(无规则命中)", () => {
     expect(decide({ toolName: "memory_write", argsJson: "{}", capability: "plan", mode: "default", ...base })).toBe("allow");
   });
 });
+
+import { isSensitiveCall } from "./engine.js";
+describe("isSensitiveCall", () => {
+  it("写 .ssh / 命令含凭据路径 → 敏感;普通 → 否", () => {
+    expect(isSensitiveCall("write_file", '{"path":"a/.ssh/config"}')).toBe(true);
+    expect(isSensitiveCall("exec_shell", '{"command":"cat ~/.aws/credentials"}')).toBe(true);
+    expect(isSensitiveCall("write_file", '{"path":"src/app.ts"}')).toBe(false);
+  });
+});

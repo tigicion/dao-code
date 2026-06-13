@@ -5,8 +5,9 @@ export interface ApprovalRequest {
   id: string; // tool_call id
   toolName: string;
   capability: Capability;
-  summary: string; // 给用户看的摘要(工具名 + 原始 JSON 参数)
+  summary: string; // 给用户看的摘要(人类可读,命令含真实换行)
   argsJson?: string; // 原始参数(用于"允许并记住"生成规则)
+  sensitive?: boolean; // 触及敏感目标(.ssh/.git/凭据…):审批只给 是/否,不提供"始终允许"
 }
 
 export type ApprovalDecision = "once" | "session" | "always" | "deny";
