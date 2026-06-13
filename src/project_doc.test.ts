@@ -12,19 +12,24 @@ describe("loadProjectInstructions", () => {
   it("无文件 → 空串", async () => {
     expect(loadProjectInstructions(ws)).toBe("");
   });
-  it("读 DAO.md / AGENTS.md / CLAUDE.md(都存在则都读,带来源标签)", async () => {
+  it("有 DAO.md → 只读 DAO.md,忽略 AGENTS.md/CLAUDE.md", async () => {
     await fs.writeFile(path.join(ws, "DAO.md"), "dao 约定");
     await fs.writeFile(path.join(ws, "AGENTS.md"), "agents 约定");
+    await fs.writeFile(path.join(ws, "CLAUDE.md"), "claude 约定");
     const out = loadProjectInstructions(ws);
-    expect(out).toContain("DAO.md");
     expect(out).toContain("dao 约定");
-    expect(out).toContain("AGENTS.md");
-    expect(out).toContain("agents 约定");
+    expect(out).not.toContain("agents 约定");
+    expect(out).not.toContain("claude 约定");
   });
-  it("内容相同(如 symlink/复制)→ 去重只取一次", async () => {
-    await fs.writeFile(path.join(ws, "AGENTS.md"), "同样的内容");
-    await fs.writeFile(path.join(ws, "CLAUDE.md"), "同样的内容");
+  it("无 DAO.md → 回退,AGENTS.md 优先于 CLAUDE.md", async () => {
+    await fs.writeFile(path.join(ws, "AGENTS.md"), "agents 约定");
+    await fs.writeFile(path.join(ws, "CLAUDE.md"), "claude 约定");
     const out = loadProjectInstructions(ws);
-    expect(out.match(/同样的内容/g)?.length).toBe(1);
+    expect(out).toContain("agents 约定");
+    expect(out).not.toContain("claude 约定");
+  });
+  it("只有 CLAUDE.md → 读它(开箱兼容)", async () => {
+    await fs.writeFile(path.join(ws, "CLAUDE.md"), "claude 约定");
+    expect(loadProjectInstructions(ws)).toContain("claude 约定");
   });
 });
