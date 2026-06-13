@@ -135,3 +135,17 @@ describe("executeToolCalls (approval-aware)", () => {
     expect(out[0]!.content).toBe("Error: boom");
   });
 });
+
+import { describeCall } from "./execute.js";
+describe("describeCall", () => {
+  it("exec_shell → $ 命令(保留真实换行,不是字面 \\n)", () => {
+    const out = describeCall("exec_shell", JSON.stringify({ command: "cat > f << EOF\nhi\nEOF" }));
+    expect(out.startsWith("$ ")).toBe(true);
+    expect(out).toContain("\n"); // 真实换行
+    expect(out).not.toContain("\\n"); // 不是字面反斜杠 n
+  });
+  it("write/edit → 只显路径", () => {
+    expect(describeCall("write_file", '{"path":"a.txt","content":"..."}')).toBe("写入 a.txt");
+    expect(describeCall("edit_file", '{"path":"b.ts"}')).toBe("编辑 b.ts");
+  });
+});
