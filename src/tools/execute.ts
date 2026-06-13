@@ -3,6 +3,7 @@ import type { Capability, ToolContext } from "./types.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ApprovalGate, ApprovalRequest } from "../approval/types.js";
 import { isSensitiveCall } from "../permissions/engine.js";
+import { rememberRule } from "../permissions/identity.js";
 
 // 给审批/展示用的人类可读摘要:命令保留【真实换行】(而非原始 JSON 的字面 \n),路径类只显路径。
 export function describeCall(name: string, argsJson: string): string {
@@ -74,7 +75,15 @@ export async function executeToolCalls(
     const decision = tool ? gate.decide(tc.function.name, tc.function.arguments, tool) : "allow";
     if (decision === "allow") toRun.add(tc.id);
     else if (decision === "deny") results.set(tc.id, rejectMsg(tc, "该操作被权限规则拒绝(deny)。如需放行,请在 .dao/settings.json 调整 permissions。"));
-    else gatedRequests.push({ id: tc.id, toolName: tc.function.name, capability: tool!.capability, summary: describeCall(tc.function.name, tc.function.arguments), argsJson: tc.function.arguments, sensitive: isSensitiveCall(tc.function.name, tc.function.arguments) });
+    else {
+      const sensitive = isSensitiveCall(tc.function.name, tc.function.arguments);
+      gatedRequests.push({
+        id: tc.id, toolName: tc.function.name, capability: tool!.capability,
+        summary: describeCall(tc.function.name, tc.function.arguments), argsJson: tc.function.arguments,
+        sensitive,
+        noPersist: !sensitive && rememberRule(tc.function.name, tc.function.arguments) === null, // 记不成规则 → 不提供"始终允许"
+      });
+    }
   }
 
   // 2. ask 工具合并审批
