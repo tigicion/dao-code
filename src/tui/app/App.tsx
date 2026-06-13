@@ -521,7 +521,7 @@ export function App(deps: AppDeps) {
             需要批准{approval.requests.length > 1 ? ` (${apIdx + 1}/${approval.requests.length})` : ""}:
           </Text>
           <Text color={c("ink")}>  {approval.requests[apIdx]?.summary.slice(0, 120)}</Text>
-          <Text color={c("dim")}>[y]本次 [s]本会话 [a]记住(写 allow 规则到 settings.local.json) [n]拒绝</Text>
+          <Text color={c("dim")}>[y]允许一次 [s]本会话不再问 [a]始终允许(记住,以后同类不再问) [n]拒绝</Text>
         </Box>
       )}
 
