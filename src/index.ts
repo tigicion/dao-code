@@ -684,7 +684,6 @@ async function main() {
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
-            const coreNote = coreBundled.length ? `\n(另有 ${coreBundled.length} 个内置核心技能固定加载、不在此列、不可关)` : "";
             if (sub === "off" || sub === "on") {
               const target = rest[1];
               if (target && coreBundled.some((s) => s.name === target)) return { handled: true, output: `${target} 是内置核心技能,固定加载、不可开关。` };
@@ -693,9 +692,9 @@ async function main() {
               try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch {}
               return { handled: true, output: `已${sub === "off" ? "禁用" : "启用"}技能 ${target}(重启 dao 生效)` };
             }
-            if (diskSkills.length === 0) return { handled: true, output: `暂无项目/用户技能。项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。${coreNote}` };
+            if (diskSkills.length === 0) return { handled: true, output: "暂无项目/用户技能。项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。" };
             const rows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
-            return { handled: true, output: `技能(${diskSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") + coreNote };
+            return { handled: true, output: `技能(${diskSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") };
           }
           if (name === "yolo") {
             yolo = !yolo;
