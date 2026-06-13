@@ -76,6 +76,14 @@ export const execShellTool = defineTool({
     background: z.boolean().optional().describe("是否后台运行(长任务/服务)"),
     timeout: z.number().int().min(1).optional().describe("前台超时(毫秒),默认 120000"),
   }),
+  // 参数级自检:管道直灌 shell / 下载即执行 / eval 等高危模式 → 强制确认(即使有放宽规则放行)。
+  checkPermissions: (argsJson) => {
+    try {
+      const { command } = JSON.parse(argsJson) as { command?: string };
+      if (typeof command === "string" && /\|\s*(sh|bash|zsh|fish)\b|\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(sh|bash)\b|\beval\b|\bsudo\b/.test(command)) return "ask";
+    } catch { /* 参数未成形 */ }
+    return null;
+  },
   handler: async (args, ctx) => {
     if (args.background) {
       const id = processManager.start(args.command, ctx.workspaceRoot);
