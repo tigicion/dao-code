@@ -22,6 +22,7 @@ import { installSkills } from "./skills/install.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
 import { scheduleTool } from "./tools/schedule_tool.js";
 import { loadPlugins, installPlugin, removePlugin, pluginsRoot } from "./plugins.js";
+import { loadProjectInstructions } from "./project_doc.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
@@ -351,6 +352,7 @@ async function main() {
       memories: memoryText,
       cwd: workspaceRoot,
       platform: process.platform,
+      projectInstructions: loadProjectInstructions(workspaceRoot), // DAO.md/AGENTS.md/CLAUDE.md + 用户级
     }) + agentTypesSection + skillsSection;
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
