@@ -15,7 +15,7 @@ export const writeFileTool = defineTool({
     content: z.string().describe("文件的完整内容"),
   }),
   handler: async (args, ctx) => {
-    const abs = await resolveWritePath(ctx.workspaceRoot, args.path, ctx.approveExternalWrite);
+    const abs = resolveWritePath(ctx.workspaceRoot, args.path);
     // 同路径持锁:与并行的 edit/write 同文件排队,避免互相覆盖。
     return withFileLock(abs, async () => {
       let exists = false;

@@ -39,8 +39,12 @@ describe("rememberRule — '允许并记住' 生成的规则", () => {
     expect(rememberRule("exec_shell", '{"command":"npm run build"}')).toBe("Bash(npm run:*)");
     expect(rememberRule("exec_shell", '{"command":"ls -la"}')).toBe("Bash(ls:*)");
   });
-  it("Bash 含管道/重定向等 → 精确命令(不放宽)", () => {
-    expect(rememberRule("exec_shell", '{"command":"cat a | grep b"}')).toBe("Bash(cat a | grep b)");
+  it("Bash 复合/heredoc/超长 → 不生成规则(只放行本次,防垃圾规则)", () => {
+    expect(rememberRule("exec_shell", '{"command":"cat a | grep b"}')).toBeNull();
+    expect(rememberRule("exec_shell", JSON.stringify({ command: "cat > f << EOF\nx\nEOF" }))).toBeNull();
+  });
+  it("WebSearch → 裸工具名(任何查询都放行,不存具体 query)", () => {
+    expect(rememberRule("web_search", '{"query":"some specific query"}')).toBe("WebSearch");
   });
   it("路径工具 → 路径规则", () => {
     expect(rememberRule("edit_file", '{"path":"src/a.ts"}')).toBe("Edit(src/a.ts)");
