@@ -17,6 +17,14 @@ describe("relevantSkills", () => {
   it("无关输入 → 空", () => {
     expect(relevantSkills("xyz", SKILLS)).toEqual([]);
   });
+  // CJK 无词边界:整句中文不能塌缩成一个匹配不上的大块(对照记忆去重的字符二元组方案)。
+  it("纯中文输入也能命中(不依赖空格分词)", () => {
+    expect(relevantSkills("这个测试一直崩,帮我看看", SKILLS).map((s) => s.name)).toContain("debugging");
+    expect(relevantSkills("帮我加一个导出报表的功能", SKILLS).map((s) => s.name)).toContain("brainstorming");
+  });
+  it("英文/代码标识符仍能命中", () => {
+    expect(relevantSkills("debug this failing test", SKILLS).map((s) => s.name)).toContain("debugging");
+  });
   it("formatDiscovery 含相关技能名 + 提示;无匹配空串", () => {
     expect(formatDiscovery(relevantSkills("写测试", SKILLS))).toContain("test-driven-development");
     expect(formatDiscovery([])).toBe("");

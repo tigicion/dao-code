@@ -37,7 +37,9 @@ export interface ToolContext {
   // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。
   agentTypes?: { name: string; description: string }[];
   // 可用 skill(名字+描述+触发条件+slug+正文+目录),供 skill 工具按需加载正文。
-  skills?: { name: string; description: string; whenToUse?: string; slug?: string; body: string; dir: string }[];
+  skills?: { name: string; description: string; whenToUse?: string; paths?: string[]; slug?: string; body: string; dir: string }[];
+  // skill 工具加载某技能后回调:记录使用频率(用于发现/列表加权)。注入便于测试。
+  recordSkillUse?: (name: string) => void;
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
