@@ -847,7 +847,10 @@ async function main() {
               const sha = turnCheckpoints[n - 1];
               if (!ckpt.enabled) codeMsg = " 文件未回滚(无影子 git)。";
               else if (!sha) codeMsg = " 文件未回滚(该节点无快照)。";
-              else codeMsg = ckpt.restore(sha) ? " 文件已回滚到该节点(真实 git 提交未动)。" : " 文件回滚失败。";
+              else {
+                ckpt.snapshot("回退前自动快照"); // 先存当前状态,回退可逆
+                codeMsg = ckpt.restore(sha) ? " 文件已回滚到该节点(真实 git 提交未动;回退前状态已存为\"回退前自动快照\")。" : " 文件回滚失败。";
+              }
             }
             return { handled: true, output: `已回退到第 ${n} 条用户消息之前(现 ${session.messages.length} 条消息)。${codeMsg || "(对话回退;加 code 可同时回滚文件)"}`, clearTranscript: true };
           }
@@ -901,6 +904,20 @@ async function main() {
             const files = [...(ctx.readFiles ?? [])].map((f) => path.relative(workspaceRoot, f) || f);
             if (files.length === 0) return { handled: true, output: "本会话尚未读取任何文件。" };
             return { handled: true, output: `上下文中读过的文件(${files.length}):\n` + files.slice(0, 50).map((f) => "  " + f).join("\n") + (files.length > 50 ? `\n  …等共 ${files.length} 个` : "") };
+          }
+          if (name === "copy") {
+            const last = [...session.messages].reverse().find((m) => m.role === "assistant" && typeof m.content === "string" && (m.content as string).trim());
+            if (!last) return { handled: true, output: "没有可复制的回答。" };
+            const text = last.content as string;
+            const cmd = process.platform === "darwin" ? "pbcopy" : process.platform === "win32" ? "clip" : "xclip -selection clipboard";
+            try { execSync(cmd, { input: text }); return { handled: true, output: `已复制最后一条回答到剪贴板(${text.length} 字)。` }; }
+            catch { return { handled: true, output: "复制失败(未找到剪贴板工具:macOS 用 pbcopy,Linux 装 xclip)。" }; }
+          }
+          if (name === "btw") {
+            const note = line.trim().split(/\s+/).slice(1).join(" ").trim();
+            if (!note) return { handled: true, output: "用法:/btw <随手备注>(加入上下文供模型参考,不触发动作)" };
+            session.messages.push({ role: "system", content: `[用户备注] ${note}` });
+            return { handled: true, output: "已记入上下文(下次回复时模型会看到)。" };
           }
           if (name === "yolo") {
             yolo = !yolo;
@@ -963,8 +980,9 @@ async function main() {
             const snaps = ckpt.list();
             const target = snaps[1] ?? snaps[0]; // 回退到上一个回合前的快照
             if (!target) return { handled: true, output: "暂无可回退的检查点" };
+            ckpt.snapshot("回退前自动快照"); // 先存当前状态,使回退本身可逆(防丢未快照的手动改动)
             const ok = ckpt.restore(target.ref);
-            return { handled: true, output: ok ? `已回退工作区到检查点:${target.label}` : "回退失败" };
+            return { handled: true, output: ok ? `已回退工作区到检查点:${target.label}(回退前状态已存为"回退前自动快照",可再 /restore 找回)` : "回退失败" };
           }
           return dispatchCommand(line, session);
         },
