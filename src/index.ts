@@ -19,6 +19,7 @@ import { multiEditTool } from "./tools/multi_edit.js";
 import { notebookEditTool } from "./tools/notebook_edit.js";
 import { installSkills } from "./skills/install.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
+import { scheduleTool } from "./tools/schedule_tool.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
@@ -245,7 +246,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, taskSendTool, agentTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, taskSendTool, agentTool, scheduleTool,
   ]) {
     registry.register(t);
   }
