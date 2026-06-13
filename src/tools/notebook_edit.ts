@@ -20,7 +20,7 @@ export const notebookEditTool = defineTool({
     cell_type: z.enum(["code", "markdown"]).optional().describe("insert 默认 code;replace 可改类型"),
   }),
   handler: async (args, ctx) => {
-    const abs = await resolveWritePath(ctx.workspaceRoot, args.path, ctx.approveExternalWrite);
+    const abs = resolveWritePath(ctx.workspaceRoot, args.path);
     return withFileLock(abs, async () => {
       if (ctx.readFiles && !ctx.readFiles.has(abs)) {
         throw new Error(`编辑前请先用 read_file 读过它:${args.path}`);

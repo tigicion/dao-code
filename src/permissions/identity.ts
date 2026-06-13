@@ -44,15 +44,19 @@ export function rememberRule(toolName: string, argsJson: string): string | null 
       return `WebFetch(domain:${id.value})`;
     }
   }
-  // Bash:智能前缀——简单命令记 `Bash(prog sub:*)`(同类命令免再问);含 shell 元字符的复合命令记精确(更安全)。
-  if (id.ccTool === "Bash") return `Bash(${bashPrefix(id.value)})`;
+  // WebSearch:任何查询都放行,记裸工具名——不持久化具体 query(否则换个搜索词就再问)。
+  if (id.ccTool === "WebSearch") return "WebSearch";
+  // Bash:能提炼出安全前缀就记 `Bash(prog sub:*)`(同类免再问);复合/超长/含 heredoc 的命令
+  // 提炼不出来 → 不生成规则(返回 null),只放行本次——否则会把整条巨型命令存成永不再匹配的垃圾规则。
+  if (id.ccTool === "Bash") { const p = bashPrefix(id.value); return p ? `Bash(${p})` : null; }
   return `${id.ccTool}(${id.value})`;
 }
 
-// 从命令提取放宽规则:含管道/重定向/链接/替换 → 精确(不放宽);否则 程序 + 首个非 flag 子命令 + ":*"。
-function bashPrefix(command: string): string {
+// 提炼放宽前缀:复合(管道/重定向/链接/替换)、含换行(heredoc)、或超长(>200)→ 返回 null(不持久化);
+// 否则 程序 + 首个非 flag 子命令 + ":*"。
+function bashPrefix(command: string): string | null {
   const cmd = command.trim();
-  if (/[|&;<>`]|\$\(/.test(cmd)) return cmd; // 复合/含注入风险 → 精确
+  if (cmd.length > 200 || /[|&;<>`\n]|\$\(/.test(cmd)) return null;
   const toks = cmd.split(/\s+/);
   const prog = toks[0] ?? "";
   const sub = toks[1] && !toks[1].startsWith("-") ? ` ${toks[1]}` : "";
