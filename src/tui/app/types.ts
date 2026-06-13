@@ -51,7 +51,7 @@ export interface AppDeps {
   // Shift+Tab 循环权限模式(CC 风格);返回切换后的模式标签用于提示。省略则不绑定。
   cycleMode?: () => string;
   // App 挂载后注册自己的审批/提问模态,供 index 的 gate 与 ctx.ask 委派。
-  register: (ui: { approvalPrompt: ApprovalPrompt; askUser: (q: string) => Promise<string> }) => void;
+  register: (ui: { approvalPrompt: ApprovalPrompt; askUser: (q: string) => Promise<string>; askChoice: (q: string, options: string[]) => Promise<string> }) => void;
   // @文件补全:给前缀(子串),返回匹配的工作区相对路径(已截断);省略则不补全。
   completeFiles?: (prefix: string) => string[];
   // 续跑:用上次会话重建的 transcript 初始条目(已带 id)。

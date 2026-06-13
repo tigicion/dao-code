@@ -33,6 +33,28 @@ describe("ask_user tool", () => {
     ).rejects.toThrow(/ask 未配置/);
   });
 
+  it("routes to ctx.askChoice (↑↓+Enter 选择器) when options are given", async () => {
+    let askedOpts: string[] = [];
+    const out = await askUserTool.handler(
+      { question: "选哪个方案?", options: ["方案 A", "方案 B"] },
+      {
+        workspaceRoot: "/tmp",
+        ask: async () => "不该走到这",
+        askChoice: async (_q, opts) => { askedOpts = opts; return "方案 B"; },
+      },
+    );
+    expect(out).toBe("方案 B");
+    expect(askedOpts).toEqual(["方案 A", "方案 B"]);
+  });
+
+  it("falls back to ctx.ask (free text) when askChoice is unavailable", async () => {
+    const out = await askUserTool.handler(
+      { question: "选哪个?", options: ["A", "B"] },
+      { workspaceRoot: "/tmp", ask: async () => "我自己写一个" },
+    );
+    expect(out).toBe("我自己写一个");
+  });
+
   it("declares auto approval", () => {
     expect(askUserTool.approval).toBe("auto");
     expect(askUserTool.name).toBe("ask_user");

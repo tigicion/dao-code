@@ -367,6 +367,7 @@ async function main() {
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
   let inkApprovalPrompt: ApprovalPrompt | null = null;
   let inkAsk: ((q: string) => Promise<string>) | null = null;
+  let inkAskChoice: ((q: string, opts: string[]) => Promise<string>) | null = null;
 
   // 长任务自主模式(--task / 运行时 /task):自主连续推进 + 自动批准 + 更高轮数上限。
   let longTask = taskFlag;
@@ -436,6 +437,13 @@ async function main() {
     workspaceRoot,
     readFiles: new Set<string>(),
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
+    // 结构化选择:Ink 用 ↑↓+Enter 选择器;非交互(stdin/eval)退回"编号 + 自由作答"。
+    askChoice: async (q: string, opts: string[]) => {
+      if (inkAskChoice) return inkAskChoice(q, opts);
+      const raw = (await ask(`\n${q}\n${opts.map((o, i) => `  ${i + 1}. ${o}`).join("\n")}\n(回序号选择,或直接作答)\n> `)).trim();
+      const n = Number(raw);
+      return Number.isInteger(n) && n >= 1 && n <= opts.length ? opts[n - 1]! : raw;
+    },
     fetchImpl: fetch,
     today,
     verifyCommand: process.env.DAO_VERIFY_CMD?.trim() || undefined,
@@ -1050,9 +1058,10 @@ async function main() {
           permModeOverride = next === "plan" || next === "bypassPermissions" ? null : next;
           return next;
         },
-        register: ({ approvalPrompt, askUser }) => {
+        register: ({ approvalPrompt, askUser, askChoice }) => {
           inkApprovalPrompt = approvalPrompt;
           inkAsk = askUser;
+          inkAskChoice = askChoice;
         },
         completeFiles: (prefix) =>
           (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),

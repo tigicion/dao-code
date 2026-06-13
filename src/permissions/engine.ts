@@ -13,7 +13,7 @@ export interface DecideParams {
 
 // 安全敏感目标:SSH 私钥/凭据、shell 启动脚本、.git 内部、/etc、dao/claude 自身状态等。
 const SENSITIVE_TARGET =
-  /\.ssh\/|id_rsa|id_ed25519|id_ecdsa|authorized_keys|\.aws\/|\.npmrc|\.netrc|credentials|\.gitconfig|\.git\/|\.bashrc|\.zshrc|\.bash_profile|\.zprofile|\/etc\/|\.dao\/|\.claude\//;
+  /\.ssh\/|id_rsa|id_ed25519|id_ecdsa|authorized_keys|\.aws\/|\.npmrc|\.netrc|credentials|\.gitconfig|\.git\/|\.bashrc|\.zshrc|\.bash_profile|\.zprofile|\/etc\/|\.dao\/config\.json/;
 
 // 该调用是否触及安全敏感目标(写/执行)。审批时据此【不提供"始终允许"】——避免永久放行危险操作。
 export function isSensitiveCall(toolName: string, argsJson: string): boolean {

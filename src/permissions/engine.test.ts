@@ -70,4 +70,8 @@ describe("isSensitiveCall", () => {
     expect(isSensitiveCall("exec_shell", '{"command":"cat ~/.aws/credentials"}')).toBe(true);
     expect(isSensitiveCall("write_file", '{"path":"src/app.ts"}')).toBe(false);
   });
+  it("仅 .dao/config.json 敏感;编辑 ~/.dao/skills 下的技能文件不算敏感", () => {
+    expect(isSensitiveCall("write_file", '{"path":"/Users/x/.dao/config.json"}')).toBe(true);
+    expect(isSensitiveCall("write_file", '{"path":"/Users/x/.dao/skills/foo/SKILL.md"}')).toBe(false);
+  });
 });
