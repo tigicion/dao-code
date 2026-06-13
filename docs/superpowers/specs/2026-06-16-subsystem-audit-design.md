@@ -45,12 +45,14 @@
 - 删除 `/cache` 命令与 `/skills audit` 子命令;`SLASH_COMMANDS` 去 `cache`、加 `audit`(菜单 + Tab 补全随之更新)。
 - 把内联在 index.ts 的 `/cache` 渲染抽成 `cache_audit.ts` 的 `formatCacheReport` 纯函数(供 `/audit cache` 复用、并获得单测)。
 - cache/skill 审计开关改用 `auditEnabled`。
+- **会话级技能目录快照** `<sessionDir>/skills-catalog.json`(供外部 cc 裁判判「该加载却没加载」,见 §3.4)。
 
 ### Out of scope（YAGNI）
 - 不动 `.dao/audit.log` 安全日志,不动 events.jsonl。
 - 无状态/非 TTY 路径的审计(无 session id)。
 - 跨会话趋势可视化。
-- **"该加载却没加载"的 LLM 裁判 + 标注集校准**——单独的 eval 形态 spec,本次不做(本审计的被动信号可作其输入)。
+- dao 内置 `/audit skills --judge`(flash 自判)——optional,本次不实现(见 §3.4;判定主流程由外部 cc 完成)。
+- 裁判可信度的标注集校准——外部方法论(用户/cc 做),非 dao 功能。
 
 ## 3. 三个审计模块
 
@@ -105,11 +107,25 @@ export interface PermAuditSink {
 `decision`:规则直接 allow/deny;ask 后人工准/驳为 ask-approved/ask-denied。`source`:命中规则=rule;auto 模式分类器放行=classifier;人工审批=user;默认模式=default。
 `summarizePermTrace` → 每工具:各决策计数、**询问率**(ask 占比=摩擦)、拒绝率;全局分类器放行占比。判好坏:某工具总被问=可加 allow 白名单;拒绝集中=危险面;分类器放行多=auto 在替你省事。
 
-### 3.4 skill `src/skills/skill_audit.ts` · `skill-trace.jsonl` · `DAO_SKILL_AUDIT`(已存在,本次仅纳入总开关)
+### 3.4 skill 审计 + 「该加载却没加载」判定(外部 LLM 裁判)
 
-discovery 移除后,skill 审计为 **loaded-only**:`{ kind: "loaded"; round; ts; name }`,`SkillStat = { name, loaded, total }`,记模型每轮实际加载了哪条。本次**只把它的开关从 `env.DAO_SKILL_AUDIT === "0"` 改为 `auditEnabled(env,"SKILL")`**,纳入总开关、默认开;指标不动。
+skill 审计本身仍是 **loaded-only**:`skill_audit.ts` 记 `{ kind: "loaded"; round; ts; name }`,`SkillStat = { name, loaded, total }`(本次仅把开关改用 `auditEnabled(env,"SKILL")`,指标不动)。
 
-**"该加载却没加载"为何不在此**:技能现统一走常驻 name+description、由模型自主判断,没有任何确定性 oracle 能说"本应加载 X"。该判断需**上下文感知的 LLM 裁判**(读任务 + skill 目录 + 实际加载),其自身好坏再靠**人工标注集**校准——属 eval 形态,单独立项(§2 Out of scope)。本审计的 `loaded`(谁、第几轮)是那个 eval 的输入之一。
+**「该加载却没加载」的判定由外部 LLM 裁判(Claude Code)完成,dao 只负责把账记全。** 用户把 session id 交给 cc,cc 读三份数据按轮判:`本应加载 − 实际加载 = 漏加载`、`实际 − 本应 = 多余加载`。
+
+裁判所需数据 → 现状:
+
+| 数据 | 来源 | 状态 |
+|---|---|---|
+| 整段对话转录(每轮请求 + 模型动作 + 工具调用/结果) | `events.jsonl`(`user`/`assistant`含 toolCalls/`tool_result`/`notice`) | **已有** |
+| 实际加载了哪些 skill | `skill-trace.jsonl` 的 `loaded` | 已有 |
+| 当时**可用**技能目录(name/description/whenToUse) | 常驻在系统 prompt(`state.json` 的 `messages[0]` 可还原,但需解析) | **本次补干净快照** |
+
+**唯一新增数据**:会话级**技能目录快照** `<sessionDir>/skills-catalog.json`——启动时(store 就绪后,随总开关)把启用技能的 `name/description/whenToUse` 落一份,免得裁判解析系统 prompt。
+
+**不在本次范围(外部方法论 / 可选)**:
+- 裁判可信度校准(人工标注集 ~20–50 任务标"真正适用哪些 skill" → 算裁判 precision/recall)——是**用户/cc 外部做的方法**,非 dao 功能。
+- dao 内置 `/audit skills --judge`(用 flash 自判,喂同样三份数据)——用户一般不用,**标记 optional,本次不实现**,留作后续。
 
 ## 4. 接线(sink 注入)
 
@@ -171,5 +187,5 @@ export function formatCacheReport(events: CacheAuditEvent[], ttlMs?: number): st
 | `src/tools/types.ts` | `ToolContext` 加 `toolAudit?` / `permAudit?` |
 | `src/tools/execute.ts` | `dispatchOne` 计时记 `call`;裁决循环记 `decided` |
 | `src/memory/memory_write.ts` | 写入记 `wrote(type, merged)` |
-| `src/index.ts` | 建三 sink + 注入;`distillOnExit` 记 `distilled`;召回记 `recalled`;新增 `/audit`;删 `/cache` 块(~1025)与 `/skills` 块内的 `sub === "audit"` 分支(~970) |
+| `src/index.ts` | 建三 sink + 注入;`distillOnExit` 记 `distilled`;召回记 `recalled`;启动落 `skills-catalog.json`(随总开关);新增 `/audit`;删 `/cache` 块(~1025)与 `/skills` 块内的 `sub === "audit"` 分支(~970) |
 | `src/tui/app/App.tsx` | `SLASH_COMMANDS` 去 cache 加 audit |
