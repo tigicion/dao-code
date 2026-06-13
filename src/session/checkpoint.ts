@@ -29,7 +29,14 @@ const EXCLUDES = [
 
 export function createCheckpointer(workspaceRoot: string): Checkpointer {
   if (process.env.DAO_NO_CHECKPOINT) return noop; // 显式关闭
-  const gitDir = path.join(workspaceRoot, ".dao", "shadow.git");
+  const daoDir = path.join(workspaceRoot, ".dao");
+  // 防冲突:用户真实 git 不应把 .dao/(影子库/会话/导出)纳入版本管理。写一个忽略一切的 .gitignore
+  // (含其自身),用户的 git 从此完全看不到 .dao。幂等。
+  try {
+    mkdirSync(daoDir, { recursive: true });
+    if (!existsSync(path.join(daoDir, ".gitignore"))) writeFileSync(path.join(daoDir, ".gitignore"), "*\n");
+  } catch {}
+  const gitDir = path.join(daoDir, "shadow.git");
   const run = (args: string[], opts: { gitOnly?: boolean } = {}) =>
     execFileSync("git", ["--git-dir", gitDir, ...args], {
       cwd: workspaceRoot,
@@ -45,6 +52,7 @@ export function createCheckpointer(workspaceRoot: string): Checkpointer {
       run(["config", "core.worktree", workspaceRoot]);
       run(["config", "user.email", "dao@local"]);
       run(["config", "user.name", "DAO CODE"]);
+      run(["config", "gc.auto", "256"]); // 阈值调低 → 提交时自动打包松散对象,限制影子库膨胀
       mkdirSync(path.join(gitDir, "info"), { recursive: true });
       writeFileSync(path.join(gitDir, "info", "exclude"), EXCLUDES.join("\n"));
     }
