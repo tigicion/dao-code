@@ -33,6 +33,16 @@ ${a.trim()}`
 4. 用平实语言说明发现 + 给下一步。
 ${a.trim() ? `重点关注:${a.trim()}` : "(未指明问题,请总结日志中的异常)"}`,
   },
+  review: {
+    description: "审查改动(本地未提交 diff 或 gh PR):查正确性/安全/质量,逐条给 文件:行 + 问题 + 修法",
+    argHint: "[PR号]",
+    buildPrompt: (a) => {
+      const pr = a.trim();
+      if (/^\d+$/.test(pr))
+        return `审查 GitHub PR #${pr}:用 exec_shell 跑 \`gh pr diff ${pr}\`(必要时 \`gh pr view ${pr}\`)取 diff,逐文件审查正确性 bug、安全隐患、质量问题,按「文件:行 — 问题 — 建议修法」列出,最后给总体结论。只审查报告,不改代码。`;
+      return `审查当前未提交改动:先 git status / git diff 看范围,逐处审查——正确性与边界 bug、安全隐患(注入/越权/泄密)、错误处理、质量。按「文件:行 — 问题 — 建议修法」列出每个问题,最后给总体结论(是否可提交)。只审查报告,不改代码。`;
+    },
+  },
   batch: {
     description: "把一个大改拆成独立子任务,并行派 worktree 隔离子代理各自实现(真 agent 并发)",
     argHint: "<大改动指令>",

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createInterface, type Interface } from "node:readline/promises";
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
@@ -732,6 +732,26 @@ async function main() {
             }
             checks.push(`· 工作区 ${workspaceRoot} · 模型 ${session.model} · ${mcp.servers.length} 个 MCP 服务器`);
             return { handled: true, output: "dao doctor:\n" + checks.map((c) => "  " + c).join("\n") };
+          }
+          if (name === "memory") {
+            const tiers: [string, string][] = [["用户", userMemoryDir], ["知识", knowledgeMemoryDir], ["项目", projectMemoryDir]];
+            const lines = tiers.map(([label, dir]) => {
+              let files: string[] = [];
+              try { files = readdirSync(dir).filter((f) => f.endsWith(".md") && f !== "MEMORY.md"); } catch { /* 目录不存在 */ }
+              return `${label}(${dir}):${files.length ? files.join(", ") : "(空)"}`;
+            });
+            return { handled: true, output: "记忆三层:\n" + lines.map((l) => "  " + l).join("\n") + "\n(用 memory_write 增改;文件即上述目录里的 .md)" };
+          }
+          if (name === "permissions") {
+            const r = getRules();
+            const fmt = (label: string, arr: string[]) => `${label}:${arr.length ? arr.join(", ") : "(无)"}`;
+            return { handled: true, output: `权限规则(模式 ${getMode()};deny>ask>allow):\n  ${fmt("allow", r.allow)}\n  ${fmt("ask", r.ask)}\n  ${fmt("deny", r.deny)}\n(改 .dao/settings.json 的 permissions)` };
+          }
+          if (name === "resume") {
+            let sids: string[] = [];
+            try { sids = readdirSync(path.join(workspaceRoot, ".dao", "sessions")); } catch { /* 无 */ }
+            if (sids.length === 0) return { handled: true, output: "本工作区无历史会话。" };
+            return { handled: true, output: `历史会话(${sids.length},最近在后):\n` + sids.slice(-10).map((s) => "  " + s).join("\n") + "\n(恢复最近一个:重启时 dao -c;按会话切换的实时重载后续支持)" };
           }
           if (name === "yolo") {
             yolo = !yolo;

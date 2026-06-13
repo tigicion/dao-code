@@ -44,7 +44,7 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
     case "help":
       return {
         handled: true,
-        output: "/context 上下文占用 · /tasks 后台任务 · /mcp MCP 服务器 · /diff 未提交变更 · /doctor 自检 · /skills 列出/开关技能 · /simplify 质量清理改动 · /remember <事实> 记记忆 · /debug 诊断会话日志 · /skillify 提炼技能 · /batch <大改> 并行 worktree 子代理 · /loop <间隔> <prompt> 周期重跑 · /mode 权限模式 · /task 长任务 · /coordinator 协作编排 · /model 切模型 · /plan 切模式 · /yolo 自动批准 · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
+        output: "/context 上下文占用 · /tasks 后台任务 · /mcp MCP 服务器 · /diff 未提交变更 · /doctor 自检 · /review 审查改动 · /memory 记忆 · /permissions 权限规则 · /resume 历史会话 · /skills 列出/开关技能 · /simplify 质量清理改动 · /remember <事实> 记记忆 · /debug 诊断会话日志 · /skillify 提炼技能 · /batch <大改> 并行 worktree 子代理 · /loop <间隔> <prompt> 周期重跑 · /mode 权限模式 · /task 长任务 · /coordinator 协作编排 · /model 切模型 · /plan 切模式 · /yolo 自动批准 · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /exit 退出",
       };
     case "exit":
     case "quit":
