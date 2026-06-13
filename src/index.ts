@@ -675,6 +675,7 @@ async function main() {
       }
       const store = createSessionStore(sessionsDir, resumeId);
       const ckpt = createCheckpointer(workspaceRoot);
+      const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
       let sessionTitle: string | undefined; // /rename 设置
       if (longTask && !continueFlag) session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
       if (coordinator && !continueFlag) session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
@@ -694,7 +695,7 @@ async function main() {
           // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。
           const up = await runHooks(hooks, "UserPromptSubmit", { cwd: workspaceRoot, payload: { prompt: text } });
           if (up.block) { events.notice(`[提交被 hook 阻止] ${up.reason || ""}`); return; }
-          ckpt.snapshot(`回合前: ${text.slice(0, 60)}`); // 回合前快照,便于 /restore 回退本回合
+          turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text });
           session.addUser(text);
           if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
@@ -820,12 +821,21 @@ async function main() {
                 const c = session.messages[idx]!.content;
                 return `  ${n + 1}. ${(typeof c === "string" ? c : "").replace(/\n/g, " ").slice(0, 60)}`;
               });
-              return { handled: true, output: `回退节点(到第几条用户消息【之前】):\n${list.join("\n")}\n用 /rewind <序号> 截断对话(代码回退另用 /restore)` };
+              return { handled: true, output: `回退节点(到第几条用户消息【之前】):\n${list.join("\n")}\n用 /rewind <序号> 截断对话;/rewind <序号> code 同时回滚文件(影子 git,不动你的真实提交)` };
             }
-            const n = Number(arg);
+            const rest = line.trim().split(/\s+/).slice(1);
+            const n = Number(rest[0]);
+            const withCode = rest.includes("code");
             if (!Number.isInteger(n) || n < 1 || n > userIdx.length) return { handled: true, output: `序号越界(1–${userIdx.length})` };
             session.messages = session.messages.slice(0, userIdx[n - 1]); // 丢弃该用户消息及其后
-            return { handled: true, output: `已回退到第 ${n} 条用户消息之前(现 ${session.messages.length} 条消息)。代码如需回退用 /restore。`, clearTranscript: true };
+            let codeMsg = "";
+            if (withCode) {
+              const sha = turnCheckpoints[n - 1];
+              if (!ckpt.enabled) codeMsg = " 文件未回滚(无影子 git)。";
+              else if (!sha) codeMsg = " 文件未回滚(该节点无快照)。";
+              else codeMsg = ckpt.restore(sha) ? " 文件已回滚到该节点(真实 git 提交未动)。" : " 文件回滚失败。";
+            }
+            return { handled: true, output: `已回退到第 ${n} 条用户消息之前(现 ${session.messages.length} 条消息)。${codeMsg || "(对话回退;加 code 可同时回滚文件)"}`, clearTranscript: true };
           }
           if (name === "export") {
             const ts = new Date().toISOString().replace(/[:.]/g, "-");
