@@ -18,12 +18,12 @@ function baseDeps(session: Session, streamChat: any, executeToolCalls: any) {
 }
 
 describe("L4.2/L4.3 advisor", () => {
-  it("连续空转 N 轮后,下一轮注入进度提醒(不持久、附在消息尾部)", async () => {
+  it("连续空转 N 轮后,进度提醒【持久 append 进会话】(下一轮请求带上;缓存安全)", async () => {
     process.env.DAO_ADVISE_EVERY = "2";
     const sentLog: any[] = [];
     let turn = 0;
     const streamChat = (opts: StreamChatOptions) => {
-      sentLog.push(opts.messages);
+      sentLog.push([...opts.messages]);
       turn++;
       return (async function* (): AsyncGenerator<never, AssistantMessage> {
         if (turn <= 3) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "read_file", arguments: "{}" } }] };
@@ -38,9 +38,9 @@ describe("L4.2/L4.3 advisor", () => {
 
     const advisoryIn = (msgs: any[]) => msgs.some((m) => typeof m.content === "string" && m.content.includes("进度提醒"));
     expect(advisoryIn(sentLog[0])).toBe(false); // 第1次:还没空转
-    expect(advisoryIn(sentLog[2])).toBe(true); // 第3次:已空转2轮 → 注入提醒
-    // 提醒不写回 session(只附在发送消息尾部)
-    expect(s.messages.some((m) => typeof m.content === "string" && m.content.includes("进度提醒"))).toBe(false);
+    expect(advisoryIn(sentLog[2])).toBe(true); // 第3次:已空转2轮 → 上一轮末已 append 提醒,本轮请求带上
+    // 提醒【持久写回 session】(append-only,缓存安全),而非用完即弃的尾部临时注入
+    expect(s.messages.some((m) => typeof m.content === "string" && m.content.includes("进度提醒"))).toBe(true);
   });
 
   it("有文件改动则不提醒(进度被重置)", async () => {
@@ -48,7 +48,7 @@ describe("L4.2/L4.3 advisor", () => {
     const sentLog: any[] = [];
     let turn = 0;
     const streamChat = (opts: StreamChatOptions) => {
-      sentLog.push(opts.messages);
+      sentLog.push([...opts.messages]);
       turn++;
       return (async function* (): AsyncGenerator<never, AssistantMessage> {
         if (turn <= 4) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "write_file", arguments: "{}" } }] };
