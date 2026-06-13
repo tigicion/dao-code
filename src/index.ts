@@ -50,8 +50,7 @@ import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
-import { relevantSkillsScored } from "./skills/discovery.js";
-import { loadUsage, saveUsage, recordUsage, usageScore } from "./skills/usage.js";
+import { loadUsage, saveUsage, recordUsage } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
@@ -370,7 +369,6 @@ async function main() {
   const skills = [...coreBundled, ...enabledDisk];
   // 使用频率加权(常用且最近用过的技能在发现/列表里靠前)。启动加载一次,记录时增量更新+落盘。
   let usageMap = await loadUsage(os.homedir());
-  const skillWeight = (name: string) => usageScore(usageMap, name, today);
   const skillsSection =
     skills.length > 0
       ? `\n\n# 可用 skill —— 开始任何任务前先扫这张表\n` +
@@ -475,8 +473,8 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
-  // 技能触发审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 offered/loaded)。
-  let skillSink: SkillAuditSink = { offered() {}, loaded() {} };
+  // 技能加载审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 loaded)。
+  let skillSink: SkillAuditSink = { loaded() {} };
   let skillRound = 0;
   // P3-17 预算提醒阈值(￥,可选):DAO_MAX_BUDGET 设了则超阈值提醒一次(默认不停);DAO_MAX_BUDGET_HARD=1 才硬停。
   { const b = Number(process.env.DAO_MAX_BUDGET); if (Number.isFinite(b) && b > 0) session.budgetCNY = b; }
@@ -905,13 +903,7 @@ async function main() {
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text });
           session.addUser(text);
-          skillRound++; // 新一轮:关联本轮 offered/loaded/activated
-          // 技能发现【只用于审计,不再注入 prompt】:每轮变化的尾部 system 注入会整段废掉前缀缓存
-          // (实测命中率从 95% 塌到 ~14%)。模型仍能从【常驻技能列表(稳定系统 prompt)】里按需 skill 加载。
-          {
-            const scored = relevantSkillsScored(text, skills, 5, skillWeight);
-            skillSink.offered(skillRound, text, scored.map((x) => ({ name: x.sk.name, score: x.score })));
-          }
+          skillRound++; // 新一轮:用于关联本轮 skill 加载(skillSink.loaded);模型从常驻技能列表按需加载,无 discovery 预筛。
           if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
           await withPresence(() => runTurn({
             session,
