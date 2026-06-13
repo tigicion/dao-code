@@ -10,6 +10,8 @@ export interface ToolContext {
   readFiles?: Set<string>;
   // 向用户提问(ask_user 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
+  // 结构化选择(ask_user 带 options 时用):↑↓ 选 + Enter 确认,自动附"自己填写""先讨论"两项;返回选中项文本/自填内容/讨论标记。
+  askChoice?: (question: string, options: string[]) => Promise<string>;
   // 网络抓取(web_search/fetch_url 用);注入,默认全局 fetch。
   fetchImpl?: typeof fetch;
   // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
