@@ -753,6 +753,34 @@ async function main() {
             if (sids.length === 0) return { handled: true, output: "本工作区无历史会话。" };
             return { handled: true, output: `历史会话(${sids.length},最近在后):\n` + sids.slice(-10).map((s) => "  " + s).join("\n") + "\n(恢复最近一个:重启时 dao -c;按会话切换的实时重载后续支持)" };
           }
+          if (name === "export") {
+            const ts = new Date().toISOString().replace(/[:.]/g, "-");
+            const dir = path.join(workspaceRoot, ".dao", "exports");
+            mkdirSync(dir, { recursive: true });
+            const file = path.join(dir, `session-${ts}.md`);
+            const md = session.messages
+              .map((m) => `## ${m.role}\n\n${typeof m.content === "string" ? m.content : JSON.stringify(m.content, null, 2)}`)
+              .join("\n\n---\n\n");
+            writeFileSync(file, md);
+            return { handled: true, output: `已导出对话 → ${file}(${session.messages.length} 条消息)` };
+          }
+          if (name === "config") {
+            return { handled: true, output: `配置:\n  模型 ${cfg.model} · baseUrl ${cfg.baseUrl} · 权限模式 ${getMode()}\n  设置文件:~/.dao/settings.json(用户)· <项目>/.dao/settings.json · .dao/settings.local.json\n(编辑这些文件改配置;权限规则见 /permissions,MCP 见 ~/.dao/mcp.json)` };
+          }
+          if (name === "effort") {
+            const valid = ["low", "medium", "high", "max"];
+            const arg = line.trim().split(/\s+/)[1];
+            const cur = process.env.DAO_REASONING_EFFORT || "max";
+            if (!arg) return { handled: true, output: `当前思考强度:${cur}。用法:/effort <${valid.join("|")}>` };
+            if (!valid.includes(arg)) return { handled: true, output: `无效:${arg}(可选 ${valid.join("/")})` };
+            process.env.DAO_REASONING_EFFORT = arg;
+            return { handled: true, output: `思考强度已设为 ${arg}(下一回合生效)` };
+          }
+          if (name === "status") {
+            const pct = Math.round((estimateTokens(session.messages) / CONTEXT_WINDOW) * 100);
+            const flags = [yolo ? "YOLO" : "", longTask ? "长任务" : "", coordinator ? "Coordinator" : ""].filter(Boolean).join("/") || "—";
+            return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
+          }
           if (name === "yolo") {
             yolo = !yolo;
             return { handled: true, output: yolo ? "⚡ YOLO 已开启:自动批准所有写/执行操作(deny 规则仍拦截)" : "YOLO 已关闭:恢复审批门" };
