@@ -11,7 +11,6 @@ import type { ApprovalGate } from "../approval/types.js";
 import type { Session } from "../session/session.js";
 import { apiToolsForMode } from "../tools/tools_for_mode.js";
 import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
-import { createStuckDetector } from "./stuck.js";
 
 export interface TurnDeps {
   session: Session;
@@ -49,13 +48,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const events = deps.events ?? plainEvents(deps.write);
   // 工具 ctx 透传取消信号(exec_shell 据此 SIGTERM);不改原 ctx 引用,按需补 signal。
   const toolCtx = signal ? { ...deps.ctx, signal } : deps.ctx;
-  const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || 150);
-  // 卡死检测:每累计 3 次重复同一调用/同一错误触发一次,逐级升级——
-  //   第 1、2 次(3、6 次重复):强制反思找根因、换本质不同的方法,不停;
-  //   第 3 次(9 次重复):停止重试,下一轮禁用工具、逼模型把卡点总结反馈给用户后结束。
-  const detector = createStuckDetector();
-  let stuckTriggers = 0;
-  let summarizeAndStop = false; // 置位后:下一轮不给工具,逼出纯文本总结,然后自然结束
+  // 边界保护对标 CC:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
+  // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
+  const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
   let transient = deps.transientSystem; // 可变:写操作 pivot 后会被刷新(见 afterTools)
   // 每批工具执行后:① 条件路径技能自动激活(注入正文一次);② 写 pivot 刷新软发现提示。
   const afterTools = (calls: ToolCall[], assistant: AssistantMessage): void => {
@@ -71,45 +66,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       if (r !== undefined) transient = r || undefined;
     }
   };
-  const handleStuck = (calls: ToolCall[], results: ToolMessage[]): boolean => {
-    detector.record(
-      calls.map((c) => ({ name: c.function.name, args: c.function.arguments })),
-      results.map((r) => ({ content: r.content })),
-    );
-    const reason = detector.stuck();
-    if (!reason) return false;
-    stuckTriggers++;
-    detector.reset(); // 每次触发后清窗口,重新数下一个 3 次
-    if (stuckTriggers >= 3) {
-      // 第 9 次小尝试仍卡 → 不再自动重试,转为向用户总结。
-      session.messages.push({
-        role: "system",
-        content: `[卡死止损]${reason}。你已多轮尝试无效,停止重复同样的操作。请直接向用户【总结】:卡在哪一步、试过哪些方法各自为何失败、根因推测、需要用户决定或提供什么。不要再调用任何工具。`,
-      });
-      events.notice(`[卡死:转为向用户总结]${reason}`);
-      summarizeAndStop = true;
-      return false; // 让下一轮(无工具)产出总结,而非直接掐断
-    }
-    // 第 3、6 次:强制反思,继续给机会。
-    const guidance =
-      stuckTriggers === 1
-        ? "停下来定位【根本原因】(为什么同样的操作没推进?),换个思路再试"
-        : "你已反思过一次仍在重复——必须先找到根因,然后换一个【本质不同】的方法;若确实无解,用 ask_user 问用户";
-    session.messages.push({
-      role: "system",
-      content: `[防卡死·第${stuckTriggers}次]${reason}。${guidance};不要重复同样的操作/撞同样的错。`,
-    });
-    events.notice(`[防卡死提醒·第${stuckTriggers}次]${reason}`);
-    return false;
-  };
   for (let t = 0; t < maxTurns; t++) {
     if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
     // SendMessage:回合边界消费父代理追加的指令(注入为 user 消息)。
     if (deps.drainPending) {
       for (const m of deps.drainPending()) session.messages.push({ role: "user", content: `[追加指令] ${m}` });
     }
-    // 卡死止损后的总结轮:不给任何工具,逼模型只产出纯文本总结,然后该轮 toolCalls 为空自然结束。
-    const tools = summarizeAndStop ? [] : apiToolsForMode(deps.registry, session.mode);
+    const tools = apiToolsForMode(deps.registry, session.mode);
     // 临时系统提示(相关技能发现)附在消息尾部,只这一回合发出、不写回 session.messages(不累积/缓存友好)。
     const sentMessages = transient
       ? [...session.messages, { role: "system" as const, content: transient }]
@@ -162,7 +125,6 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       }
       session.messages.push(...toolMessages);
       afterTools(toolCalls, assistant);
-      if (handleStuck(toolCalls, toolMessages)) return;
     } else {
       const toolMessages = await deps.executeToolCalls(toolCalls, deps.registry, toolCtx, deps.gate);
       for (const tc of toolCalls) {
@@ -171,7 +133,6 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       }
       session.messages.push(...toolMessages);
       afterTools(toolCalls, assistant);
-      if (handleStuck(toolCalls, toolMessages)) return;
     }
   }
   events.notice("\n[已达最大轮数,停止]\n");

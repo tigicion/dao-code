@@ -176,32 +176,6 @@ describe("runTurn", () => {
     expect(written.join("")).toContain("最大轮数");
   });
 
-  it("卡死逐级升级:第 3/6 次反思、第 9 次转为向用户总结(不再硬掐断)", async () => {
-    const s = new Session("SYS", "m");
-    s.addUser("poll download");
-    // 反复发完全相同的 poll 调用(模拟用户那段重复 exec_shell_poll)。
-    const repeat = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "p", type: "function", function: { name: "exec_shell_poll", arguments: '{"id":"proc-4"}' } }] })();
-    const summary = () => turn([{ kind: "content", text: "卡点总结:下载卡在…" }], { role: "assistant", content: "卡点总结:下载卡在…" })();
-    const written: string[] = [];
-    await runTurn({
-      session: s,
-      config,
-      registry: emptyReg(),
-      ctx,
-      gate: stubGate,
-      streamChat: scripted([repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat, summary]),
-      executeToolCalls: async () => [{ role: "tool", tool_call_id: "p", content: "running 8MB/s" }],
-      write: (t) => written.push(t),
-      maxTurns: 20,
-    });
-    const log = written.join("");
-    expect(log).toContain("[防卡死提醒·第1次]"); // 3 次重复
-    expect(log).toContain("[防卡死提醒·第2次]"); // 6 次重复
-    expect(log).toContain("[卡死:转为向用户总结]"); // 9 次重复
-    expect(log).not.toContain("已止损停止"); // 不再硬掐断
-    expect(s.messages.at(-1)).toMatchObject({ role: "assistant", content: "卡点总结:下载卡在…" });
-  });
-
   it("forwards the signal to streamChat", async () => {
     const s = new Session("SYS", "m");
     s.addUser("hi");
