@@ -355,9 +355,10 @@ export function App(deps: AppDeps) {
 
   useInput((ch, key) => {
     if (approval) {
-      const sensitive = !!approval.requests[apIdx]?.sensitive; // 敏感操作不接受"始终允许"
+      const reqAp = approval.requests[apIdx];
+      const noAlways = !!reqAp?.sensitive || !!reqAp?.noPersist; // 敏感 / 记不成规则 → 不接受"始终允许"
       const d: ApprovalDecision | null =
-        ch === "y" ? "once" : ch === "a" ? (sensitive ? null : "always") : ch === "n" ? "deny" : null;
+        ch === "y" ? "once" : ch === "a" ? (noAlways ? null : "always") : ch === "n" ? "deny" : null;
       if (d) {
         const req = approval.requests[apIdx];
         if (req) apDecisions.current.set(req.id, d);
@@ -528,6 +529,8 @@ export function App(deps: AppDeps) {
           <Text color={c("ink")}>{(approval.requests[apIdx]?.summary ?? "").slice(0, 600).replace(/^/gm, "  ")}</Text>
           {approval.requests[apIdx]?.sensitive ? (
             <Text color={c("dim")}>敏感操作(.ssh/.git/凭据等) · [y]是(仅本次) [n]否</Text>
+          ) : approval.requests[apIdx]?.noPersist ? (
+            <Text color={c("dim")}>此命令记不成通用规则 · [y]是(仅本次) [n]否</Text>
           ) : (
             <Text color={c("dim")}>[y]是(允许一次) [a]始终允许(记住,同类不再问) [n]否</Text>
           )}
