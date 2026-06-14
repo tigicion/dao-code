@@ -1,6 +1,6 @@
 import type { ChatMessage, Usage } from "../client/types.js";
 import type { Mode } from "../tools/tools_for_mode.js";
-import { estimateCostCNY, formatCNY } from "./cost.js";
+import { estimateCostByModel, formatCNY } from "./cost.js";
 
 export interface UsageTotals {
   promptTokens: number;
@@ -15,6 +15,8 @@ export class Session {
   mode: Mode = "normal";
   // 本会话累计 token 用量(含 cache 命中/未命中),供 /cost 与退出摘要算命中率。
   readonly usage: UsageTotals = { promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 };
+  // B-2 按模型分桶用量(主模型 + flash 子任务分开),供更准的￥计费。
+  private readonly modelUsage = new Map<string, UsageTotals>();
   private readonly systemPrompt: string;
   // P0-1 前缀缓存埋点:记录上一次 API 调用的输入规模与命中率,用于检测"前缀被改写导致命中骤降"。
   private lastCall?: { promptTokens: number; hitRatio: number };
@@ -42,11 +44,18 @@ export class Session {
     this.curFp = fp;
   }
 
-  addUsage(u: Usage): void {
+  addUsage(u: Usage, model: string = this.model): void {
     this.usage.promptTokens += u.prompt_tokens ?? 0;
     this.usage.completionTokens += u.completion_tokens ?? 0;
     this.usage.cacheHitTokens += u.prompt_cache_hit_tokens ?? 0;
     this.usage.cacheMissTokens += u.prompt_cache_miss_tokens ?? 0;
+    // B-2 按模型累加(用于分模型计价)。
+    const b = this.modelUsage.get(model) ?? { promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 };
+    b.promptTokens += u.prompt_tokens ?? 0;
+    b.completionTokens += u.completion_tokens ?? 0;
+    b.cacheHitTokens += u.prompt_cache_hit_tokens ?? 0;
+    b.cacheMissTokens += u.prompt_cache_miss_tokens ?? 0;
+    this.modelUsage.set(model, b);
 
     // 本次调用的命中率;只在"输入够大(非首问/短问)"时参与骤降判定,避免误报。
     const prompt = u.prompt_tokens ?? 0;
@@ -72,9 +81,9 @@ export class Session {
     return this.usage.promptTokens > 0 ? this.usage.cacheHitTokens / this.usage.promptTokens : 0;
   }
 
-  // P3-17 估算本会话￥成本(粗略,见 cost.ts)。
+  // P3-17/B-2 估算本会话￥成本:按模型分桶分别计价后相加(见 cost.ts)。
   costCNY(): number {
-    return estimateCostCNY(this.usage);
+    return estimateCostByModel(this.modelUsage);
   }
 
   // 预算【提醒阈值】(￥,可选):设了且累计成本超过它 → overBudget()=true,循环据此提醒一次。

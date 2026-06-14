@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { sandboxSpawn, sandboxActive } from "./sandbox.js";
 
-afterEach(() => { delete process.env.DAO_SANDBOX; });
+afterEach(() => { delete process.env.DAO_SANDBOX; delete process.env.DAO_SANDBOX_NO_NET; });
 
 describe("sandbox", () => {
   it("未启用 → null(照常 shell 执行)", () => {
@@ -21,6 +21,30 @@ describe("sandbox", () => {
       expect(r!.file).toBeTruthy();
       expect(r!.args).toContain("ls -l"); // 命令被裹进 sh -c
       expect(r!.args).toContain("/bin/sh");
+    }
+  });
+
+  it("默认不隔离网络(DAO_SANDBOX_NO_NET 未设)", () => {
+    process.env.DAO_SANDBOX = "1";
+    const r = sandboxSpawn("ls", "/tmp/work");
+    if (r && !("error" in r)) {
+      expect(r.args).not.toContain("--unshare-net");
+      expect(r.args.join(" ")).not.toMatch(/deny network/);
+    }
+  });
+
+  it("DAO_SANDBOX_NO_NET=1 → spec 反映网络隔离(按平台)", () => {
+    process.env.DAO_SANDBOX = "1";
+    process.env.DAO_SANDBOX_NO_NET = "1";
+    const r = sandboxSpawn("ls", "/tmp/work");
+    expect(r).not.toBeNull();
+    if (r && !("error" in r)) {
+      if (process.platform === "darwin") {
+        // macOS SBPL profile 含 (deny network*);profile 在 -p 后一个参数里。
+        expect(r.args.join(" ")).toMatch(/\(deny network\*\)/);
+      } else if (process.platform === "linux") {
+        expect(r.args).toContain("--unshare-net");
+      }
     }
   });
 });
