@@ -1116,9 +1116,12 @@ async function main() {
         cycleMode: () => {
           // yolo(bypassPermissions)不在 Shift+Tab 循环里——只能 `dao --yolo` 启动时开启。
           // 若当前正处于 yolo,Shift+Tab 退出到 default(可降权,不可在循环中升到 yolo)。
-          const order: PermissionMode[] = ["default", "acceptEdits", "auto", "plan"];
+          // acceptEdits(自动接受编辑)不在循环里——仍可用 /mode acceptEdits 显式进入,但不参与 Shift+Tab 轮换。
+          const order: PermissionMode[] = ["default", "auto", "plan"];
           const cur = getMode();
-          const next = cur === "bypassPermissions" ? "default" : order[(order.indexOf(cur) + 1) % order.length]!;
+          // 当前若在 acceptEdits(经 /mode 进入,不在循环里),Shift+Tab 视为从头进 default 的下一个。
+          const idx = order.indexOf(cur);
+          const next = cur === "bypassPermissions" ? "default" : order[(idx + 1) % order.length]!;
           yolo = false; // 循环永不进入 yolo
           session.mode = next === "plan" ? "plan" : "normal";
           permModeOverride = next;
