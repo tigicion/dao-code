@@ -1,5 +1,6 @@
 import type {
   AssistantMessage,
+  ChatMessage,
   StreamChatOptions,
   StreamDelta,
   ToolCall,
@@ -11,6 +12,7 @@ import type { ApprovalGate } from "../approval/types.js";
 import type { Session } from "../session/session.js";
 import { apiToolsForMode } from "../tools/tools_for_mode.js";
 import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
+import { isContextLengthError } from "../client/client.js";
 
 export interface TurnDeps {
   session: Session;
@@ -40,6 +42,10 @@ export interface TurnDeps {
   signal?: AbortSignal;
   // 回合边界消费的追加消息(SendMessage 给运行中子代理用):每个工具回合前注入为 user 消息。
   drainPending?: () => string[];
+  // L2.2 反应式压缩:streamChat 报"上下文超限"时调用它压缩后重试本轮(估算阈值之外的安全网)。
+  compact?: () => Promise<void>;
+  // L1.3 模型回退:主模型持续过载/异常时,本回合临时改用此模型跑完(如 flash)。省略=不回退。
+  fallbackModel?: string;
 }
 
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
@@ -66,6 +72,57 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       if (r !== undefined) transient = r || undefined;
     }
   };
+  // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时注入一次性软提醒(不持久、缓存友好)。
+  const ADVISE_EVERY = Number(process.env.DAO_ADVISE_EVERY) || 5;
+  const PROGRESS_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "todo_write"]);
+  let noProgress = 0;
+  let advisory: string | undefined;
+
+  // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
+  const reasoningEffort = process.env.DAO_REASONING_EFFORT || "max";
+  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>): Promise<AssistantMessage> => {
+    let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
+    let usedFallback = false;
+    for (;;) {
+      // 临时系统提示(相关技能发现 + advisor 提醒)附在消息尾部:只这一回合发出、不写回 session.messages(不累积/缓存友好)。
+      const extras: ChatMessage[] = [];
+      if (transient) extras.push({ role: "system", content: transient });
+      if (advisory) extras.push({ role: "system", content: advisory });
+      const sent = extras.length ? [...session.messages, ...extras] : session.messages;
+      const model = usedFallback && deps.fallbackModel ? deps.fallbackModel : session.model;
+      try {
+        const gen = deps.streamChat({
+          baseUrl: deps.config.baseUrl,
+          apiKey: deps.config.apiKey,
+          model,
+          messages: sent,
+          ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
+          // agent 类客户端默认最高思考强度;DAO_REASONING_EFFORT 可覆盖。思考模式下 temperature/top_p 无效。
+          extra: { reasoning_effort: reasoningEffort },
+          onUsage: (u) => session.addUsage(u),
+          signal,
+        });
+        return await consumeStream(gen, events);
+      } catch (e) {
+        if (signal?.aborted) throw e; // 用户取消:不重试
+        // L2.2 反应式压缩:上下文超限 → 压缩后重试本轮(最多 2 次)。
+        if (isContextLengthError(e) && deps.compact && ctxRetries < 2) {
+          ctxRetries++;
+          events.notice("\n[上下文超限,自动压缩后重试…]\n");
+          await deps.compact();
+          continue;
+        }
+        // L1.3 模型回退:过载/5xx/网络类异常 → 本回合临时换 fallback 模型再试一次。
+        if (deps.fallbackModel && !usedFallback && /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(e instanceof Error ? e.message : String(e))) {
+          usedFallback = true;
+          events.notice(`\n[主模型异常,本回合临时回退 ${deps.fallbackModel}…]\n`);
+          continue;
+        }
+        throw e; // 恢复手段用尽:上抛(致命或网络彻底不通)
+      }
+    }
+  };
+
   for (let t = 0; t < maxTurns; t++) {
     if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
     // SendMessage:回合边界消费父代理追加的指令(注入为 user 消息)。
@@ -73,24 +130,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       for (const m of deps.drainPending()) session.messages.push({ role: "user", content: `[追加指令] ${m}` });
     }
     const tools = apiToolsForMode(deps.registry, session.mode);
-    // 临时系统提示(相关技能发现)附在消息尾部,只这一回合发出、不写回 session.messages(不累积/缓存友好)。
-    const sentMessages = transient
-      ? [...session.messages, { role: "system" as const, content: transient }]
-      : session.messages;
-    const gen = deps.streamChat({
-      baseUrl: deps.config.baseUrl,
-      apiKey: deps.config.apiKey,
-      model: session.model,
-      messages: sentMessages,
-      ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
-      // agent 类客户端默认用最高思考强度(官方对 Claude Code/OpenCode 类亦自动升到 max)。
-      // 可用 DAO_REASONING_EFFORT 覆盖(实验:max 可能放大"过度推敲、到了正解不下手")。
-      // 思考模式下 temperature/top_p 无效,故不设采样参数。
-      extra: { reasoning_effort: process.env.DAO_REASONING_EFFORT || "max" },
-      onUsage: (u) => session.addUsage(u),
-      signal,
-    });
-    const assistant = await consumeStream(gen, events);
+    const assistant = await requestAssistant(tools);
     const toolCalls = assistant.tool_calls ?? [];
     const hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
     // 防御:空内容且无工具调用的回合(只有 reasoning、或被打断)不能入库——否则下一轮
@@ -133,6 +173,18 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       }
       session.messages.push(...toolMessages);
       afterTools(toolCalls, assistant);
+    }
+
+    // L4.2/L4.3 进度评估:本轮有无"实质推进"(写文件/改文件/推进任务清单)。
+    // 连续空转或临近上限 → 下一轮注入一次性 advisor 提醒,促其回看目标/收尾/求助,防长程漂移与空耗。
+    const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name));
+    noProgress = progressed ? 0 : noProgress + 1;
+    advisory = undefined;
+    if (noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
+      advisory = `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。回看 todo 确认方向;若已完成请调用 verify_done 收尾;若卡住请换思路或用 ask_user 向用户求助,不要空转。`;
+    }
+    if (Number.isFinite(maxTurns) && t >= maxTurns - 5) {
+      advisory = `${advisory ? advisory + " " : ""}[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`;
     }
   }
   events.notice("\n[已达最大轮数,停止]\n");

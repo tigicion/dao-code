@@ -284,7 +284,9 @@ export const COORDINATOR_DIRECTIVE = `[Coordinator 协作者模式已开启]
 
 准则:
 - 阶段一·研究:把任务拆成若干【相互独立】的调查子问题,用 agent 的 tasks[] 并行派研究 worker;
+  研究是【只读探查】——一律用 agent_type:"explore"(它默认跑便宜的 flash 模型,省成本);
   耗时的用 background:true 后台派,然后【结束本轮等结果回灌】,别干等。
+- 成本分工:研究/搜索/定位用 explore(flash);综合、实现、验证由你(主模型)做——把贵模型的预算花在决策与写码上。
 - worker 看不到当前对话——每个 worker 的 prompt 必须【自包含】:交代背景、目标、要产出什么、约束。
 - 阶段二·综合:汇总 worker 的发现,形成方案/计划,用 todo_write 落成清单(同一时刻一个 in_progress)。
 - 阶段三·实现:独立、可并行的实现分块并行派 worker;需要改同一文件的串行做(避免冲突)。
