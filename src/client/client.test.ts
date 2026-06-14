@@ -270,6 +270,53 @@ describe("streamChat", () => {
     expect(calls).toBe(1); // 致命:不重试、不兜底
   });
 
+  it("max_output_tokens 截断 → 续写补全(finish_reason=length 触发,拼接完整)", async () => {
+    let streamCalls = 0, contCalls = 0;
+    const fetchImpl = (async (_url: string, init: any) => {
+      const b = JSON.parse(init.body);
+      if (b.stream) {
+        streamCalls++;
+        return new Response(sseStream([
+          'data: {"choices":[{"delta":{"content":"前半"},"finish_reason":null}]}\n\n',
+          'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+          "data: [DONE]\n\n",
+        ]), { status: 200 });
+      }
+      contCalls++; // 非流式续写
+      return new Response(JSON.stringify({ choices: [{ message: { content: "后半" }, finish_reason: "stop" }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { message, deltas } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "写长文" }], fetchImpl }),
+    );
+    expect(streamCalls).toBe(1);
+    expect(contCalls).toBe(1); // 续写一次
+    expect(message.content).toBe("前半后半"); // 拼接完整
+    expect(deltas).toContainEqual({ kind: "content", text: "后半" });
+  });
+
+  it("背景查询遇 529 → 立即上抛,不重试/不兜底", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; return new Response("overloaded", { status: 529 }); }) as unknown as typeof fetch;
+    await expect(
+      run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 3, retryDelayMs: 0, background: true })),
+    ).rejects.toThrow(/529/);
+    expect(calls).toBe(1); // 背景 529:零重试、零兜底
+  });
+
+  it("Retry-After:429 给 0s → 立即重试成功(不等固定退避)", async () => {
+    let calls = 0;
+    const fetchImpl = (async (_url: string, init: any) => {
+      const b = JSON.parse(init.body); calls++;
+      if (b.stream && calls === 1) return new Response("rl", { status: 429, headers: { "retry-after": "0" } });
+      if (b.stream) return new Response(sseStream(['data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', "data: [DONE]\n\n"]), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { message } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 5000 }),
+    );
+    expect(message.content).toBe("ok"); // retry-after:0 → 立即重试,没卡 5s
+  }, 2000);
+
   it("isContextLengthError 识别上下文溢出消息", () => {
     expect(isContextLengthError(new Error("maximum context length is 65536 tokens"))).toBe(true);
     expect(isContextLengthError(new Error("prompt is too long"))).toBe(true);

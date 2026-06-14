@@ -69,4 +69,6 @@ export interface StreamChatOptions {
   maxRetries?: number;
   // 重试退避基数(毫秒);第 n 次等待 retryDelayMs*n。默认 600。
   retryDelayMs?: number;
+  // 背景查询(子代理/后台任务):遇 529 过载立即上抛、不重试,防并行子代理重试放大级联。
+  background?: boolean;
 }
