@@ -27,8 +27,61 @@ const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose
 // 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
 const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
 
-// 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源)。
-const SLASH_COMMANDS = ["model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor", "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume", "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin", "login", "logout", "simplify", "remember", "debug", "skillify", "batch", "loop", "theme", "bypass", "goal", "coordinator", "dod", "restore", "clear", "compact", "cost", "session", "audit", "help", "exit"];
+// 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源):命令名 + 一句简介。
+// 顺序即菜单展示顺序;简介保持精炼一行(对标 CC 的命令面板)。
+const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
+  ["model", "切换模型(Pro/Flash)"],
+  ["plan", "进入计划模式:只读规划,先出方案再动手"],
+  ["mode", "切换权限模式(default/acceptEdits/auto/plan)"],
+  ["skills", "查看可用技能"],
+  ["init", "扫描本仓库生成 DAO.md 项目指令"],
+  ["context", "查看上下文占用明细"],
+  ["tasks", "查看后台任务"],
+  ["mcp", "查看已连接的 MCP 服务"],
+  ["diff", "查看当前未提交改动"],
+  ["doctor", "自检环境与配置"],
+  ["review", "审查改动或 PR(正确性/安全/质量)"],
+  ["security-review", "对改动做安全审查(注入/泄密/越权…)"],
+  ["hooks", "查看已配置的钩子"],
+  ["agents", "查看可用子代理类型"],
+  ["files", "查看本会话读过的文件"],
+  ["memory", "查看/管理跨会话记忆"],
+  ["permissions", "查看/管理权限规则"],
+  ["resume", "恢复历史会话"],
+  ["rewind", "回退到此前某个检查点"],
+  ["branch", "从当前对话切出一个分支会话"],
+  ["rename", "重命名当前会话"],
+  ["export", "导出当前对话为 Markdown"],
+  ["copy", "复制上一条回答到剪贴板"],
+  ["btw", "随手往上下文加条备注(不触发动作)"],
+  ["config", "查看当前配置与设置文件位置"],
+  ["effort", "设置思考强度(low/medium/high/max)"],
+  ["status", "查看会话状态(模型/模式/上下文/用量)"],
+  ["plugin", "查看已装插件"],
+  ["login", "设置并保存 API key"],
+  ["logout", "清除保存的 API key"],
+  ["simplify", "质量清理未提交改动(不抓 bug)"],
+  ["remember", "记一条跨会话记忆"],
+  ["debug", "读最近会话日志诊断问题"],
+  ["skillify", "把本次会话经验提炼成技能"],
+  ["batch", "把大改拆成并行子代理实现"],
+  ["loop", "定时循环跑一个 prompt"],
+  ["theme", "切换深/浅色主题"],
+  ["bypass", "关闭免审批(yolo 仅启动时可开)"],
+  ["goal", "开启长任务自主模式并给出目标"],
+  ["coordinator", "开启多 agent 编排(研究→实现→验证)"],
+  ["dod", "设定验收命令(Definition of Done)"],
+  ["restore", "回退工作区到上一个检查点"],
+  ["clear", "清空上下文开新会话"],
+  ["compact", "压缩对话释放上下文"],
+  ["cost", "查看本会话花费"],
+  ["session", "查看/管理会话"],
+  ["audit", "查看子系统审计(缓存/技能/权限)"],
+  ["help", "查看帮助"],
+  ["exit", "退出"],
+];
+const SLASH_COMMANDS = COMMAND_META.map(([name]) => name);
+const MAX_SLASH_MENU = 10; // 菜单最多列几条,超出提示继续输入筛选(避免刷屏)
 
 // 多个候选时补到公共前缀(shell 习惯:再按 Tab 看候选行)。
 function commonPrefix(strs: string[]): string {
@@ -87,6 +140,7 @@ function activityLabel(name: string, argsJson: string): string {
     case "todo_write": return `更新任务清单`;
     case "ask_user": return `提问`;
     case "agent": return Array.isArray(a.tasks) ? `并行 ${a.tasks.length} 个子代理` : `子代理:${s(a.task).slice(0, 50)}`;
+    case "skill": return `Skill(${s(a.name) || "?"})`; // dao 技能无 plugin 命名空间,直接用入参名(name/slug)
     default: return name;
   }
 }
@@ -106,6 +160,11 @@ function resultDetail(name: string, ok: boolean, content: string): string {
     case "verify_done": return lines.filter((l) => l.includes("验收")).slice(-1)[0] ?? lines.slice(-1)[0]!.slice(0, 80);
     case "web_search": return content.startsWith("(") ? content : `${content.split("\n\n").length} 条`;
     case "fetch_url": return `${content.length} 字`;
+    case "skill": { // 工具返回 `# Skill: <真实名>…`;找不到时返回"未找到 skill…"(也走 ok 分支)
+      if (content.startsWith("未找到")) return lines[0]!.slice(0, 80);
+      const m = content.match(/^# Skill:\s*(.+)$/m);
+      return m ? `已加载技能 ${m[1]!.trim()}` : "已加载技能";
+    }
     default: return ""; // memory/todo/ask 等:标签已足够
   }
 }
@@ -707,15 +766,27 @@ export function App(deps: AppDeps) {
               {input.slice(cursor)}
             </Text>
           </Box>
-          {input.startsWith("/") && !input.includes(" ") ? (
-            <Text color={c("dim")}>
-              {"  "}
-              {SLASH_COMMANDS
-                .filter((cmd) => ("/" + cmd).startsWith(input))
-                .map((cmd) => "/" + cmd)
-                .join("  ") || "(无匹配命令)"}
-            </Text>
-          ) : null}
+          {input.startsWith("/") && !input.includes(" ") ? (() => {
+            // 命令面板(对标 CC):竖排,左命令右简介,列对齐;过多则截断并提示继续输入筛选。
+            const matched = COMMAND_META.filter(([name]) => ("/" + name).startsWith(input));
+            if (matched.length === 0) return <Text color={c("dim")}>{"  (无匹配命令)"}</Text>;
+            const shown = matched.slice(0, MAX_SLASH_MENU);
+            const w = Math.max(...shown.map(([name]) => name.length)) + 3; // "/name" 列宽(含 / 与右侧间距)
+            return (
+              <Box flexDirection="column">
+                {shown.map(([name, desc]) => (
+                  <Text key={name}>
+                    {"  "}
+                    <Text color={c("jade")}>{("/" + name).padEnd(w)}</Text>
+                    <Text color={c("dim")}>{desc}</Text>
+                  </Text>
+                ))}
+                {matched.length > shown.length ? (
+                  <Text color={c("dim")}>{`  …还有 ${matched.length - shown.length} 个,继续输入筛选`}</Text>
+                ) : null}
+              </Box>
+            );
+          })() : null}
           {(() => {
             const m = input.slice(0, cursor).match(/@(\S*)$/);
             const matches = m && deps.completeFiles ? deps.completeFiles(m[1] ?? "") : [];
