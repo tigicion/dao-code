@@ -38,8 +38,17 @@ export class PermissionGate implements ApprovalGate {
   private cumulativeDenials = 0;
   private static readonly CONSECUTIVE_LIMIT = 3;
   private static readonly CUMULATIVE_LIMIT = 20;
+  private static readonly AUTO_CLASSIFIER_DENY =
+    "auto 模式:AI 安全分类器未自动放行此调用(判定需谨慎,并非你手动拒绝)。如确属安全,可直接重试;或用 `/mode default` 切到人工审批后放行。";
+  private static readonly AUTO_EVAL_FAILED =
+    "auto 模式:AI 安全分类器评估失败(网络/服务波动),保守起见未自动放行(fail-closed,并非你手动拒绝)。请重试,或用 `/mode default` 改人工审批。";
+
+  // auto 自动裁决的拒绝来源(每次 requestBatch 重置)——让执行器回灌准确原因,而非笼统"用户拒绝"。
+  private denials = new Map<string, string>();
+  denialReason(id: string): string | undefined { return this.denials.get(id); }
 
   async requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>> {
+    this.denials.clear();
     // auto 模式:用 AI 分类器代替人工逐一裁决(出错保守拒绝,对标 fail-closed);不持久化规则(每次重判)。
     if (this.getMode() === "auto" && this.classify) {
       const out = new Map<string, boolean>();
@@ -53,16 +62,22 @@ export class PermissionGate implements ApprovalGate {
           needHuman.push(r);
           continue;
         }
-        const allow = await this.classify!(r.toolName, r.argsJson ?? "").catch(() => false);
+        // 区分"分类器判定拒绝"与"分类器调用本身失败"(网络/服务波动)——两者都 fail-closed,但回灌文案不同。
+        let allow = false;
+        try { allow = await this.classify!(r.toolName, r.argsJson ?? ""); }
+        catch { this.denials.set(r.id, PermissionGate.AUTO_EVAL_FAILED); allow = false; }
         if (allow) { this.consecutiveDenials = 0; out.set(r.id, true); }
-        else { this.consecutiveDenials++; this.cumulativeDenials++; out.set(r.id, false); }
+        else {
+          this.consecutiveDenials++; this.cumulativeDenials++; out.set(r.id, false);
+          if (!this.denials.has(r.id)) this.denials.set(r.id, PermissionGate.AUTO_CLASSIFIER_DENY);
+        }
       }
       if (needHuman.length) {
         const decisions = await this.prompt(needHuman);
         for (const r of needHuman) {
           const allow = (decisions.get(r.id) ?? "deny") !== "deny";
           if (allow) this.consecutiveDenials = 0;
-          out.set(r.id, allow);
+          out.set(r.id, allow); // needHuman 是真人决定:拒绝即用户拒绝,不设特殊 reason
         }
       }
       return out;

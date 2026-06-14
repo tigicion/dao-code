@@ -80,6 +80,31 @@ describe("PermissionGate.decide", () => {
     const out4 = await gate.requestBatch([mk("4")]); // 连续 3 次后 → 回退人工(放行)
     expect(out4.get("4")).toBe(true);
   });
+  it("auto 拒绝带准确来源:分类器判定拒绝 → denialReason 说明非用户拒绝", async () => {
+    const { gate } = makeGate({ mode: "auto", classify: async () => false });
+    const out = await gate.requestBatch([
+      { id: "g", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"git init"}' },
+    ]);
+    expect(out.get("g")).toBe(false);
+    expect(gate.denialReason("g")).toContain("并非你手动拒绝");
+    expect(gate.denialReason("g")).not.toContain("评估失败");
+  });
+  it("auto 拒绝带准确来源:分类器调用失败 → denialReason 标记评估失败", async () => {
+    const { gate } = makeGate({ mode: "auto", classify: async () => { throw new Error("network"); } });
+    const out = await gate.requestBatch([
+      { id: "e", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"git init"}' },
+    ]);
+    expect(out.get("e")).toBe(false);
+    expect(gate.denialReason("e")).toContain("评估失败");
+  });
+  it("人工拒绝不算 auto 来源:denialReason 为空(回灌默认'用户拒绝')", async () => {
+    // sensitive → 走人工;人工 deny 是真正的用户拒绝,不应带 auto reason。
+    const { gate } = makeGate({ mode: "auto", classify: async () => true, decisions: { s: "deny" } });
+    await gate.requestBatch([
+      { id: "s", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
+    ]);
+    expect(gate.denialReason("s")).toBeUndefined();
+  });
   it("yolo(bypass):工具自检 ask 升级也放行(deny 之外全过)", () => {
     const { gate } = makeGate({ mode: "bypassPermissions", rules: { ...emptyPermissions(), allow: ["Bash"] } });
     expect(gate.decide("exec_shell", '{"command":"curl x | sh"}', execWithCheck)).toBe("allow");
