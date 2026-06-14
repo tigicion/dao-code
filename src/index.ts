@@ -427,7 +427,8 @@ async function main() {
     const gen = streamChat({
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
-      model: cfg.model,
+      // S3.2:权限分类是 allow/deny 二分类,flash 足够且更快更省(DAO_CLASSIFIER_MODEL 可覆盖)。
+      model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash",
       messages: buildClassifierMessages(toolName, argsJson, session.messages),
       extra: { thinking: { type: "disabled" }, temperature: 0 },
     });

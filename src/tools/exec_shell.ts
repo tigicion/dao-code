@@ -4,6 +4,7 @@ import { defineTool } from "./types.js";
 import { processManager } from "./process_manager.js";
 import { spillOutput } from "./spill.js";
 import { isDangerousCommand } from "../permissions/bash_safety.js";
+import { hasSuspiciousUnicode } from "../permissions/sanitize.js";
 import { scrubbedEnv } from "./safe_env.js";
 
 interface ForegroundResult {
@@ -83,7 +84,7 @@ export const execShellTool = defineTool({
   checkPermissions: (argsJson) => {
     try {
       const { command } = JSON.parse(argsJson) as { command?: string };
-      if (typeof command === "string" && isDangerousCommand(command)) return "ask";
+      if (typeof command === "string" && (isDangerousCommand(command) || hasSuspiciousUnicode(command))) return "ask"; // S1.1 同形/零宽伪装也强制确认
     } catch { /* 参数未成形 */ }
     return null;
   },
