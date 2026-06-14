@@ -198,12 +198,12 @@ describe("runTurn", () => {
     expect(sentSignal).toBe(controller.signal);
   });
 
-  it("stops gracefully when aborted mid-stream: pushes partial reply, does not run tools", async () => {
+  it("aborted after assistant(tool_calls): 不执行工具,但补齐 tool 结果不留悬空(防下一轮 DeepSeek 400)", async () => {
     const s = new Session("SYS", "m");
     s.addUser("go");
     const controller = new AbortController();
     let executed = 0;
-    // 模拟 streamChat:流到一半触发 abort,返回部分消息(带 tool_calls)。
+    // 模拟:模型答完(带 tool_calls)随即用户 abort —— 工具尚未执行。
     const partialWithTool: AssistantMessage = {
       role: "assistant", content: "partial",
       tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
@@ -224,7 +224,14 @@ describe("runTurn", () => {
       signal: controller.signal,
     });
     expect(executed).toBe(0); // abort 后不执行工具
-    expect(s.messages.at(-1)).toEqual(partialWithTool); // 部分回复已入库
+    expect(s.messages.at(-2)).toEqual(partialWithTool); // 部分回复已入库
+    const last = s.messages.at(-1) as ToolMessage; // 紧跟一条取消用 tool 结果
+    expect(last.role).toBe("tool");
+    expect(last.tool_call_id).toBe("c0");
+    // 不变式:每个 assistant 的 tool_call 都有对应 tool 结果,历史可合法再发给 API。
+    const wanted = s.messages.filter((m) => m.role === "assistant").flatMap((m) => (m as AssistantMessage).tool_calls ?? []).map((tc) => tc.id);
+    const answered = new Set(s.messages.filter((m) => m.role === "tool").map((m) => (m as ToolMessage).tool_call_id));
+    expect(wanted.every((id) => answered.has(id))).toBe(true);
   });
 
   it("returns immediately without calling streamChat when already aborted", async () => {

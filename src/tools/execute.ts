@@ -152,6 +152,9 @@ export async function executeToolCalls(
   }
   await flush();
 
-  // 4. 按原顺序收集
-  return toolCalls.map((tc) => results.get(tc.id)!);
+  // 4. 按原顺序收集。兜底:即便某调用意外没产出结果(如中断),也补一条 tool 结果——
+  // 保证"每个 tool_call 都有对应 tool 消息",绝不向上返回缺口(下一轮会 DeepSeek 400)。
+  return toolCalls.map(
+    (tc) => results.get(tc.id) ?? { role: "tool", tool_call_id: tc.id, content: "工具未产生结果(可能被中断)。" },
+  );
 }
