@@ -42,6 +42,7 @@ import { loadAgentDefs } from "./agent/agent_defs.js";
 import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
 import { createWorktree } from "./agent/worktree.js";
 import { runDiagnosticsCmd } from "./tools/diagnostics.js";
+import { shouldTrustProject, addTrusted } from "./config/trust.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
@@ -116,6 +117,13 @@ async function main() {
   // --version/-v 必须在任何初始化(读配置/连 API)之前拦下,否则整句会被当 prompt 发给模型。
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     process.stdout.write(`dao-code v${VERSION}\n`);
+    return;
+  }
+  // 操作员命令:dao trust —— 信任当前目录,允许加载其项目级 .dao/settings.json 与 hooks.json。不连 API。
+  if (rawArgs[0] === "trust") {
+    const cwd = process.cwd();
+    await addTrusted(cwd);
+    process.stdout.write(`✓ 已信任 ${cwd}(下次启动将加载其 .dao/settings.json 与 hooks.json)\n`);
     return;
   }
   // 操作员命令:dao schedule add|list|remove —— 本地 OS crontab 定时跑 headless dao。不连 API。
@@ -398,13 +406,18 @@ async function main() {
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
 
+  // ---- 目录信任(P2-37):未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行 ----
+  const trustProject = await shouldTrustProject(workspaceRoot);
+  if (!trustProject) {
+    process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
+  }
   // ---- CC 风格权限:分层加载 settings.json(user < project < local)----
   const localSettingsFile = path.join(workspaceRoot, ".dao", "settings.local.json");
   // 优先级(低→高):user < project < local < CLI < enterprise(企业托管策略不可被下层覆盖)。
+  // 仅在信任时加载 project/local;否则只用用户级,杜绝未信任目录的规则/默认模式生效。
   const lowerPerms = await loadPermissions([
     path.join(os.homedir(), ".dao", "settings.json"),
-    path.join(workspaceRoot, ".dao", "settings.json"),
-    localSettingsFile,
+    ...(trustProject ? [path.join(workspaceRoot, ".dao", "settings.json"), localSettingsFile] : []),
   ]);
   const enterprisePerms = await loadPermissions([enterpriseSettingsPath()]);
   const loadedPerms = mergePermissions([lowerPerms, cliPerms, enterprisePerms]);
@@ -508,7 +521,8 @@ async function main() {
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
   const hooks = await loadHooks([
     path.join(os.homedir(), ".dao", "hooks.json"),
-    path.join(workspaceRoot, ".dao", "hooks.json"),
+    // 未信任目录:不加载项目 hooks(hooks 会在事件时执行命令,是最危险的自动执行面)。
+    ...(trustProject ? [path.join(workspaceRoot, ".dao", "hooks.json")] : []),
   ]);
   ctx.preToolHook = async (toolName, argsJson) => {
     const r = await runHooks(hooks, "PreToolUse", { cwd: workspaceRoot, toolName, payload: { tool: toolName, args: argsJson } });
