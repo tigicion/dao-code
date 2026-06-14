@@ -22,6 +22,7 @@ export interface SubagentDeps {
   signal?: AbortSignal; // 父代理 abort 时一并停子代理
   writeTranscript?: (messages: ChatMessage[]) => void; // 子代理转录落盘(sidechain 观测/可恢复)
   drainPending?: () => string[]; // SendMessage:回合边界消费父代理追加的指令
+  forkMessages?: ChatMessage[]; // ② fork:用父代理已缓存的消息前缀作起点(复用前缀缓存),task 作末尾指令
 }
 
 // 一次性派发:全新隔离会话(系统 prompt + task)跑到底,返回最终 assistant 文本。
@@ -29,7 +30,13 @@ export async function runSubagent(deps: SubagentDeps): Promise<string> {
   deps.write("\n[子代理开始]\n");
   const sub = new Session(deps.systemPrompt, deps.model);
   sub.mode = deps.mode;
-  sub.addUser(deps.task);
+  if (deps.forkMessages && deps.forkMessages.length > 0) {
+    // ② fork:继承父代理已缓存前缀(system 在 [0]),末尾追加子任务指令——只此处与父对话不同 → 命中父缓存。
+    sub.messages = [...deps.forkMessages];
+    sub.addUser(`[fork 子任务:只做这件事并返回结论,不要改动主任务状态] ${deps.task}`);
+  } else {
+    sub.addUser(deps.task);
+  }
   await deps.runTurn({
     session: sub,
     config: deps.config,

@@ -17,6 +17,8 @@ export class Session {
   readonly usage: UsageTotals = { promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 };
   // B-2 按模型分桶用量(主模型 + flash 子任务分开),供更准的￥计费。
   private readonly modelUsage = new Map<string, UsageTotals>();
+  // Q1 真实上下文 token:主模型最近一次调用的 prompt_tokens(比 chars/3 估算准,尤其中文)。供压缩触发用。
+  lastPromptTokens?: number;
   private readonly systemPrompt: string;
   // P0-1 前缀缓存埋点:记录上一次 API 调用的输入规模与命中率,用于检测"前缀被改写导致命中骤降"。
   private lastCall?: { promptTokens: number; hitRatio: number };
@@ -56,6 +58,8 @@ export class Session {
     b.cacheHitTokens += u.prompt_cache_hit_tokens ?? 0;
     b.cacheMissTokens += u.prompt_cache_miss_tokens ?? 0;
     this.modelUsage.set(model, b);
+    // Q1:记录主模型的真实输入 token(= 当前上下文规模),供压缩触发用真实值而非估算。
+    if (model === this.model && u.prompt_tokens) this.lastPromptTokens = u.prompt_tokens;
 
     // 本次调用的命中率;只在"输入够大(非首问/短问)"时参与骤降判定,避免误报。
     const prompt = u.prompt_tokens ?? 0;
