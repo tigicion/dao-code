@@ -167,10 +167,10 @@ async function main() {
   }
   const yoloFlag = rawArgs.includes("--yolo");
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
-  const taskFlag = rawArgs.includes("--task");
+  const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task"); // --task 为旧别名
   const coordinatorFlag = rawArgs.includes("--coordinator");
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
-  const flags = new Set(["--yolo", "--continue", "-c", "--task", "--coordinator", "--verbose", "--debug"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug"]);
   // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
@@ -387,7 +387,7 @@ async function main() {
   let inkAsk: ((q: string) => Promise<string>) | null = null;
   let inkAskChoice: ((q: string, opts: string[], multi?: boolean) => Promise<string>) | null = null;
 
-  // 长任务自主模式(--task / 运行时 /task):自主连续推进 + 自动批准 + 更高轮数上限。
+  // 长任务自主模式(--goal / 运行时 /goal [目标]):自主连续推进 + 自动批准 + 更高轮数上限。
   let longTask = taskFlag;
   // Coordinator 编排模式(--coordinator / 运行时 /coordinator):研究→综合→实现→验证多 agent 工作流。
   let coordinator = coordinatorFlag;
@@ -1030,7 +1030,7 @@ async function main() {
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。
-            if (!yolo) return { handled: true, output: "⚡ yolo(免审批)只能启动时开启:`dao --yolo`。会话内想自动批准请用 /mode auto(AI 判定,deny/敏感仍拦)。" };
+            if (!yolo) return { handled: true, output: "※ yolo(免审批)只能启动时开启:`dao --yolo`。会话内想自动批准请用 /mode auto(AI 判定,deny/敏感仍拦)。" };
             yolo = false;
             return { handled: true, output: "免审批已关闭:恢复审批门。" };
           }
@@ -1039,22 +1039,33 @@ async function main() {
             if (!arg) {
               return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|acceptEdits|auto|plan>(yolo 只能 \`dao --yolo\` 启动时开)` };
             }
-            if (arg === "plan") { session.mode = "plan"; permModeOverride = null; return { handled: true, output: "📋 已切到 plan(只读规划,拦写/执行)" }; }
-            if (arg === "bypassPermissions") return { handled: true, output: "⚡ yolo(bypassPermissions)只能 `dao --yolo` 启动时开启,不能会话内切换。会话内可用 /mode auto。" };
+            if (arg === "plan") { session.mode = "plan"; permModeOverride = null; return { handled: true, output: "◇ 已切到 plan(只读规划,拦写/执行)" }; }
+            if (arg === "bypassPermissions") return { handled: true, output: "※ yolo(bypassPermissions)只能 `dao --yolo` 启动时开启,不能会话内切换。会话内可用 /mode auto。" };
             if (arg === "default" || arg === "acceptEdits" || arg === "auto") {
               if (session.mode === "plan") session.mode = "normal";
               permModeOverride = arg as PermissionMode;
-              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "🤖 auto:需审批的调用改由 AI 分类器裁决(只读/工作区内编辑快速放行;deny/敏感仍拦;连续拒绝多次回退人工)。" : "权限模式已设为 default(按需审批)" };
+              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "⊙ auto:需审批的调用改由 AI 分类器裁决(只读/工作区内编辑快速放行;deny/敏感仍拦;连续拒绝多次回退人工)。" : "权限模式已设为 default(按需审批)" };
             }
             return { handled: true, output: `未知模式:${arg}(可选 default/acceptEdits/auto/plan)` };
           }
-          if (name === "task") {
+          if (name === "goal" || name === "task") { // task 为旧别名
+            const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
+            if (arg) {
+              // /goal <目标>:确保长任务模式已开,并立即把目标当作一个回合跑(不丢 prompt)。
+              if (!longTask) {
+                longTask = true;
+                // 自主模式用 auto(AI 判定自动批准),而非 yolo 全开——更安全;yolo 只能 --yolo 启动。
+                if (!yolo && session.mode !== "plan") permModeOverride = "auto";
+                session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
+              }
+              return { handled: true, prompt: arg };
+            }
+            // 无参数:沿用开关语义。
             longTask = !longTask;
             if (longTask) {
-              // 自主模式用 auto(AI 判定自动批准),而非 yolo 全开——更安全;yolo 只能 --yolo 启动。
               if (!yolo && session.mode !== "plan") permModeOverride = "auto";
               session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
-              return { handled: true, output: "🪢 长任务自主模式已开启:auto 自动批准(AI 判定)+ 自主连续推进 + 更高轮数;直接说出要做的长任务即可。" };
+              return { handled: true, output: "∞ 长任务自主模式已开启:auto 自动批准(AI 判定)+ 自主连续推进 + 更高轮数;直接 /goal <目标> 或说出要做的长任务即可。" };
             }
             if (!yolo) permModeOverride = null;
             return { handled: true, output: "长任务模式已关闭(权限模式恢复 default)。" };
@@ -1064,7 +1075,7 @@ async function main() {
             if (coordinator) {
               if (!yolo && session.mode !== "plan") permModeOverride = "auto";
               session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
-              return { handled: true, output: "🧭 Coordinator 模式已开启:auto 自动批准(AI 判定)+ 研究(并行)→综合→实现→验证 多 agent 编排;直接说出要做的较大任务即可。" };
+              return { handled: true, output: "❖ Coordinator 模式已开启:auto 自动批准(AI 判定)+ 研究(并行)→综合→实现→验证 多 agent 编排;直接说出要做的较大任务即可。" };
             }
             if (!yolo) permModeOverride = null;
             return { handled: true, output: "Coordinator 模式已关闭(权限模式恢复 default)。" };
