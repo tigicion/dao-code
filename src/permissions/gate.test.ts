@@ -60,6 +60,15 @@ describe("PermissionGate.decide", () => {
     expect(out.get("1")).toBe(true); // 分类器放行
     expect(out.get("2")).toBe(false); // 分类器拒绝
   });
+  it("auto 模式:sensitive 请求跳过分类器,直接走人工(S3.1)", async () => {
+    let classifyCalled = 0;
+    const { gate } = makeGate({ mode: "auto", classify: async () => { classifyCalled++; return true; }, decisions: { s: "deny" } });
+    const out = await gate.requestBatch([
+      { id: "s", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
+    ]);
+    expect(classifyCalled).toBe(0); // 分类器没被调用(敏感/危险不交 AI 自动放行)
+    expect(out.get("s")).toBe(false); // 由人工裁决(此处 deny)
+  });
   it("auto 模式:连续拒绝 3 次后回退人工审批", async () => {
     // 分类器一律拒绝;第 4 次起应改由 prompt(人工)裁决 —— 这里人工放行。
     const { gate } = makeGate({ mode: "auto", classify: async () => false, decisions: { "4": "once" } });

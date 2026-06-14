@@ -427,7 +427,8 @@ async function main() {
     const gen = streamChat({
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
-      model: cfg.model,
+      // S3.2:权限分类是 allow/deny 二分类,flash 足够且更快更省(DAO_CLASSIFIER_MODEL 可覆盖)。
+      model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash",
       messages: buildClassifierMessages(toolName, argsJson, session.messages),
       extra: { thinking: { type: "disabled" }, temperature: 0 },
     });
@@ -593,7 +594,12 @@ async function main() {
   };
 
   const KEEP_RECENT_TURNS = 2;
-  const CONTEXT_WINDOW = 1_000_000;
+  // L2.1:上下文窗口可被 env 覆盖(目标模型真实窗口若 <1M 必须设对,否则压缩永不触发→真实上限处崩)。
+  // 真正的安全网是反应式压缩(见 loop.ts compact 钩子):即便此值偏大,撞上下文超限也会自动压缩重试。
+  const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || 1_000_000;
+  // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。
+  const FALLBACK_MODEL = process.env.DAO_FALLBACK_MODEL === "off" ? undefined : (process.env.DAO_FALLBACK_MODEL || "deepseek-v4-flash");
+  const FLASH_MODEL = "deepseek-v4-flash";
 
   // 压缩用:对一批旧消息生成结构化中文摘要(独立一次 streamChat,不带工具,不流式渲染)。
   // 对标 CC:先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
@@ -625,7 +631,8 @@ async function main() {
     const gen = streamChat({
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
-      model: session.model,
+      // L2.5:摘要任务用便宜的 flash 即可,省钱更快(DAO_SUMMARY_MODEL 可覆盖)。
+      model: process.env.DAO_SUMMARY_MODEL || FLASH_MODEL,
       messages: [
         { role: "system", content: COMPACT_PROMPT },
         { role: "user", content: rendered },
@@ -645,11 +652,20 @@ async function main() {
     return (m ? m[1]! : out).trim() || "(摘要为空)";
   };
 
+  // L2.4 压缩熔断:连续 3 次摘要失败 → 直接抛(让 compactMessages 走硬截断兜底),不再浪费模型调用。
+  // 成功一次即复位。配合 compact.ts 的硬截断,长任务永不因压缩失败而中断。
+  let compactFails = 0;
+  const summarizeWithBreaker = async (msgs: ChatMessage[]): Promise<string> => {
+    if (compactFails >= 3) throw new Error("压缩熔断:连续摘要失败,改用硬截断");
+    try { const s = await summarize(msgs); compactFails = 0; return s; }
+    catch (e) { compactFails++; throw e; }
+  };
+
   const runCompaction = async (): Promise<void> => {
     const before = session.messages.length;
     session.messages = await compactMessages(
       session.messages,
-      { keepRecentTurns: KEEP_RECENT_TURNS, summarize },
+      { keepRecentTurns: KEEP_RECENT_TURNS, summarize: summarizeWithBreaker },
       todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
     );
     const after = session.messages.length;
@@ -666,6 +682,8 @@ async function main() {
       streamChat,
       executeToolCalls,
       write,
+      compact: runCompaction, // L2.2 反应式压缩
+      fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
     });
     if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
       write("\n[接近上限,自动压缩…]\n");
@@ -677,7 +695,7 @@ async function main() {
   const inkCompact = async (): Promise<void> => {
     session.messages = await compactMessages(
       session.messages,
-      { keepRecentTurns: KEEP_RECENT_TURNS, summarize },
+      { keepRecentTurns: KEEP_RECENT_TURNS, summarize: summarizeWithBreaker },
       todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
     );
   };
@@ -805,6 +823,8 @@ async function main() {
             streamChat,
             executeToolCalls,
             write: () => {},
+            compact: inkCompact, // L2.2 反应式压缩
+            fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,

@@ -107,6 +107,30 @@ describe("microcompactMessages", () => {
   });
 });
 
+// L2.3 压缩降级:summarize 抛错时,压缩不崩——硬截断保留 system 锚 + 近期 + 任务清单。
+describe("compactMessages 降级(summarize 失败→硬截断)", () => {
+  const user = (c: string) => ({ role: "user" as const, content: c });
+  const asst = (c: string) => ({ role: "assistant" as const, content: c });
+  it("summarize 抛错 → 不抛、回退硬截断(system + 标记 + tail + pinned)", async () => {
+    const msgs = [
+      { role: "system" as const, content: "SYS" },
+      user("旧1"), asst("a1"),
+      user("近1"), asst("b1"),
+      user("近2"), asst("c1"),
+    ];
+    const out = await compactMessages(
+      msgs,
+      { keepRecentTurns: 2, summarize: async () => { throw new Error("flash down"); } },
+      "[ ] 完成功能 X",
+    );
+    expect(out[0]).toEqual({ role: "system", content: "SYS" }); // 系统锚保留
+    expect(out.some((m) => typeof m.content === "string" && m.content.includes("早期对话已截断"))).toBe(true); // 硬截断标记
+    expect(out.some((m) => typeof m.content === "string" && m.content.includes("完成功能 X"))).toBe(true); // 任务清单穿过
+    expect(out.some((m) => m.content === "近2")).toBe(true); // 近期保留
+    expect(out.some((m) => m.content === "旧1")).toBe(false); // 早段舍弃
+  });
+});
+
 // P0-1 缓存不变式回归:压缩后,system 锚点逐字节不变、保留的近期段(tail)绝不被改写——
 // 这样压缩产物 [system, summary, ...tail] 的 system 段仍命中缓存,且 tail 内容未被
 // microcompact 污染。任何把 microcompact 漏到 tail 的回归都会让这些断言失败。

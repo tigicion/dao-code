@@ -45,6 +45,8 @@ export class PermissionGate implements ApprovalGate {
       const out = new Map<string, boolean>();
       const needHuman: ApprovalRequest[] = [];
       for (const r of requests) {
+        // S3.1:敏感目标/危险命令绝不交给分类器自动放行——直接走人工(即便 auto 模式)。
+        if (r.sensitive) { needHuman.push(r); continue; }
         // 熔断:连续≥3 或 累计≥20 次拒绝 → 该请求回退人工审批(保留分类器已做的判断不丢)。
         if (this.consecutiveDenials >= PermissionGate.CONSECUTIVE_LIMIT || this.cumulativeDenials >= PermissionGate.CUMULATIVE_LIMIT) {
           if (this.cumulativeDenials >= PermissionGate.CUMULATIVE_LIMIT) this.cumulativeDenials = 0; // 累计触发后重置

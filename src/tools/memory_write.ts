@@ -6,6 +6,7 @@ import { defineTool } from "./types.js";
 import { loadAllMemories, upsertMemory, routeScope } from "../memory/store.js";
 import { newMemory } from "../memory/types.js";
 import { contentHash } from "../memory/hash.js";
+import { findSecrets } from "../permissions/secrets.js";
 import { resolveInWorkspace } from "./paths.js";
 
 const memDir = (scope: "project" | "user" | "knowledge", ws: string, home?: string) => {
@@ -40,6 +41,9 @@ export const memoryWriteTool = defineTool({
     scope: z.enum(["project", "user", "knowledge"]).optional().describe("不填按类型定:procedural→knowledge(跨项目知识库),user/feedback→user,其余→project"),
   }),
   handler: async (args, ctx) => {
+    // S5.1:密钥绝不写进持久记忆。命中即拒(不落盘),让模型改记不含密钥的描述。
+    const secrets = findSecrets(args.text);
+    if (secrets.length) return `拒绝写入记忆:疑似含密钥(${secrets.join("、")})。请勿把凭据写进记忆;如需记录,改写成不含密钥的描述。`;
     // 显式 scope 优先;否则本地优先路由(没把握的进项目级)。
     const scope = args.scope ?? routeScope(args.type ?? "semantic", args.confidence);
     const dir = memDir(scope, ctx.workspaceRoot, ctx.homeDir);

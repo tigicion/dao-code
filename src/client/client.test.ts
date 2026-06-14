@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { streamChat } from "./client.js";
+import { streamChat, isContextLengthError } from "./client.js";
 import type { StreamDelta, AssistantMessage } from "./types.js";
 
 function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
@@ -199,13 +199,81 @@ describe("streamChat", () => {
     expect(message).toEqual({ role: "assistant", content: "hi" });
   });
 
-  it("连接持续失败:重试耗尽后抛清晰错误(非 undici 原始报错)", async () => {
+  it("连接持续失败:流式重试耗尽 + 非流式兜底也失败 → 抛清晰错误", async () => {
     let calls = 0;
     const fetchImpl = (async () => { calls++; throw new Error("fetch failed"); }) as unknown as typeof fetch;
     await expect(
       run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 0 })),
-    ).rejects.toThrow(/连接.*失败|重试/);
-    expect(calls).toBe(3); // 1 + 2 retries
+    ).rejects.toThrow(/连接.*失败|重试|非流式/);
+    expect(calls).toBe(4); // 1 + 2 流式重试 + 1 非流式兜底
+  });
+
+  it("流式持续失败 → 非流式兜底成功,返回完整消息", async () => {
+    let streamCalls = 0, nonStreamCalls = 0;
+    const fetchImpl = (async (_url: string, init: any) => {
+      const b = JSON.parse(init.body);
+      if (b.stream) { streamCalls++; throw new Error("fetch failed: ECONNRESET"); }
+      nonStreamCalls++;
+      return new Response(
+        JSON.stringify({ choices: [{ message: { role: "assistant", content: "recovered" } }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    let seen: any;
+    const { message, deltas } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 1, retryDelayMs: 0, onUsage: (u) => { seen = u; } }),
+    );
+    expect(streamCalls).toBe(2); // 1 + 1 retry
+    expect(nonStreamCalls).toBe(1);
+    expect(message.content).toBe("recovered");
+    expect(deltas).toContainEqual({ kind: "content", text: "recovered" }); // 兜底内容也显示
+    expect(seen?.prompt_tokens).toBe(5); // 非流式 usage 也计入
+  });
+
+  it("非流式兜底也能恢复 tool_calls", async () => {
+    const fetchImpl = (async (_url: string, init: any) => {
+      const b = JSON.parse(init.body);
+      if (b.stream) throw new Error("fetch failed");
+      return new Response(
+        JSON.stringify({ choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "read_file", arguments: "{}" } }] } }] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    const { message, deltas } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 0, retryDelayMs: 0 }),
+    );
+    expect(message.tool_calls?.[0]?.function.name).toBe("read_file");
+    expect(deltas).toContainEqual({ kind: "tool_call", index: 0, name: "read_file" });
+  });
+
+  it("503/529 过载:作为可重试处理(走重试/兜底)", async () => {
+    let calls = 0;
+    const fetchImpl = (async (_url: string, init: any) => {
+      const b = JSON.parse(init.body);
+      calls++;
+      if (b.stream) return new Response("overloaded", { status: 529 });
+      return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { message } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 1, retryDelayMs: 0 }),
+    );
+    expect(message.content).toBe("ok"); // 529 流式失败 → 非流式兜底
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
+  it("上下文超限错误直接上抛(交给上层反应式压缩),不重试不兜底", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => { calls++; return new Response("This model's maximum context length is 65536 tokens", { status: 400 }); }) as unknown as typeof fetch;
+    await expect(
+      run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 0 })),
+    ).rejects.toThrow(/context length/i);
+    expect(calls).toBe(1); // 致命:不重试、不兜底
+  });
+
+  it("isContextLengthError 识别上下文溢出消息", () => {
+    expect(isContextLengthError(new Error("maximum context length is 65536 tokens"))).toBe(true);
+    expect(isContextLengthError(new Error("prompt is too long"))).toBe(true);
+    expect(isContextLengthError(new Error("ECONNRESET"))).toBe(false);
   });
 
   it("流中途断开:返回已累积部分,不抛错、不重试", async () => {
