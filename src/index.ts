@@ -75,7 +75,7 @@ import { PermissionGate } from "./permissions/gate.js";
 import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
-import { createSessionStore, logEvents, findResumable, loadState } from "./session/log.js";
+import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
@@ -970,10 +970,10 @@ async function main() {
           }
           if (name === "resume") {
             const id = line.trim().split(/\s+/)[1];
-            let sids: string[] = [];
-            try { sids = readdirSync(sessionsDir); } catch { /* 无 */ }
-            if (sids.length === 0) return { handled: true, output: "本工作区无历史会话。" };
-            if (!id) return { handled: true, output: `历史会话(${sids.length}):\n` + sids.slice(-15).reverse().map((s) => { const st = loadState(sessionsDir, s); return `  ${s}${st?.title ? ` — ${st.title}` : ""}`; }).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
+            // P3-29 秒列:只读轻量 meta(不解析整份 state.json),并按最近更新排序。
+            const metas = listSessions(sessionsDir);
+            if (metas.length === 0) return { handled: true, output: "本工作区无历史会话。" };
+            if (!id) return { handled: true, output: `历史会话(${metas.length}):\n` + metas.slice(0, 15).map((m) => `  ${m.id}${m.title ? ` — ${m.title}` : ""}${m.done ? "" : " ·未完成"}`).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
             const st = loadState(sessionsDir, id);
             if (!st) return { handled: true, output: `未找到会话:${id}(/resume 看列表)` };
             session.messages = st.messages; // 整盘载入上下文(继续写入当前会话文件,不动原文件)
