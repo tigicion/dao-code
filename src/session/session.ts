@@ -77,7 +77,8 @@ export class Session {
     return estimateCostCNY(this.usage);
   }
 
-  // 预算上限(￥):设了且累计成本达上限 → overBudget()=true,自主循环据此停。
+  // 预算【提醒阈值】(￥,可选):设了且累计成本超过它 → overBudget()=true,循环据此提醒一次。
+  // 默认不硬停(把决定权留给用户);仅 DAO_MAX_BUDGET_HARD=1 才停。
   budgetCNY?: number;
   overBudget(): boolean {
     return this.budgetCNY !== undefined && this.costCNY() >= this.budgetCNY;
@@ -88,7 +89,7 @@ export class Session {
     if (promptTokens === 0) return "本会话暂无 token 统计。";
     const pct = (this.cacheHitRatio() * 100).toFixed(1);
     const cost = formatCNY(this.costCNY());
-    return `本会话用量:输入 ${promptTokens} tok(cache 命中 ${cacheHitTokens},命中率 ${pct}%)· 输出 ${completionTokens} tok · 约 ${cost}${this.budgetCNY !== undefined ? `/${formatCNY(this.budgetCNY)} 预算` : ""}`;
+    return `本会话用量:输入 ${promptTokens} tok(cache 命中 ${cacheHitTokens},命中率 ${pct}%)· 输出 ${completionTokens} tok · 约 ${cost}${this.budgetCNY !== undefined ? `(提醒阈值 ${formatCNY(this.budgetCNY)})` : ""}`;
   }
 
   addUser(text: string): void {

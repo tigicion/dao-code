@@ -468,7 +468,7 @@ async function main() {
   );
 
   const session = new Session(systemPrompt, cfg.model);
-  // P3-17 预算上限(￥):DAO_MAX_BUDGET 设了则自主/长任务循环达上限即停。
+  // P3-17 预算提醒阈值(￥,可选):DAO_MAX_BUDGET 设了则超阈值提醒一次(默认不停);DAO_MAX_BUDGET_HARD=1 才硬停。
   { const b = Number(process.env.DAO_MAX_BUDGET); if (Number.isFinite(b) && b > 0) session.budgetCNY = b; }
   // P0-1 前缀缓存埋点:命中率骤降(多半是压缩/注入改写了前缀)时,--verbose 下打到 stderr。
   // 前缀缓存命中比未命中省约 98%,这条日志让"压缩前后 cache 不塌"可验证。
