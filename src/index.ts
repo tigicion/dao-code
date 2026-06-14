@@ -1079,7 +1079,13 @@ async function main() {
             if (!st) return { handled: true, output: `未找到会话:${id}(/resume 看列表)` };
             session.messages = st.messages; // 整盘载入上下文(继续写入当前会话文件,不动原文件)
             session.setModel(st.model);
-            return { handled: true, output: `已载入会话 ${id} 的上下文(${st.messages.length} 条消息;继续写入当前会话)`, clearTranscript: true };
+            // 重放末段对话作回顾,让用户一眼看到"上次做到哪"(只取文本 user/assistant,末 6 条)。
+            const recap = transcriptFromMessages(st.messages);
+            const tail = recap.slice(-6);
+            const resumeItems: TranscriptItem[] = tail.length
+              ? [{ id: 0, kind: "notice", text: `── 会话 ${id} 最近对话(共 ${st.messages.length} 条消息,显示末 ${tail.length} 条)──` }, ...tail]
+              : [];
+            return { handled: true, output: `✓ 已载入会话 ${id},继续写入当前会话。`, clearTranscript: true, resumeItems };
           }
           if (name === "branch") {
             const label = line.trim().split(/\s+/).slice(1).join(" ");

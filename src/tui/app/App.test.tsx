@@ -110,7 +110,15 @@ describe("App", () => {
       <App {...makeDeps({
         listResume: () => [{ id: "s1", label: "s1 — 第一个" }, { id: "s2", label: "s2 ·未完成" }],
         runCommand: (l) => {
-          if (l.startsWith("/resume ")) { resumed = l; return { handled: true, output: "已载入会话", clearTranscript: true }; }
+          if (l.startsWith("/resume ")) {
+            resumed = l;
+            return { handled: true, output: "✓ 已载入会话 s2,继续写入当前会话。", clearTranscript: true,
+              resumeItems: [
+                { id: 0, kind: "notice", text: "── 会话 s2 最近对话(共 8 条消息,显示末 2 条)──" },
+                { id: 0, kind: "user", text: "上次问题：登录为何 500" },
+                { id: 0, kind: "assistant", text: "上次结论：是 token 过期" },
+              ] };
+          }
           return { handled: true };
         },
       })} />,
@@ -127,8 +135,11 @@ describe("App", () => {
     await delay();
     stdin.write("\r"); // ⏎ 载入
     await delay();
+    const g = lastFrame()!;
     expect(resumed).toBe("/resume s2"); // 选中第二项载入,无需再输命令
-    expect(lastFrame()!).toContain("已载入会话");
+    expect(g).toContain("已载入会话");
+    expect(g).toContain("最近对话"); // 回顾头
+    expect(g).toContain("上次结论：是 token 过期"); // 重放末段对话 → 知道上次做到哪
   });
 
   it("/resume 无参 + 无历史会话:提示而不开选择器", async () => {
