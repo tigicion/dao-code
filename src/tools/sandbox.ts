@@ -7,6 +7,11 @@ export function sandboxActive(): boolean {
   return process.env.DAO_SANDBOX === "1";
 }
 
+// 可选网络隔离:默认关闭(不破坏 npm/网络),DAO_SANDBOX_NO_NET=1 才切断子进程网络。
+export function sandboxNoNet(): boolean {
+  return process.env.DAO_SANDBOX_NO_NET === "1";
+}
+
 function binPath(name: string): string | null {
   for (const dir of ["/usr/bin", "/bin", "/usr/local/bin", "/opt/homebrew/bin"]) {
     const p = path.join(dir, name);
@@ -18,12 +23,15 @@ function binPath(name: string): string | null {
 // macOS Seatbelt 配置:默认放行(读/exec/网络),但只允许写工作区 + 临时目录 + 标准设备。
 function sbpl(cwd: string): string {
   const w = cwd.replace(/"/g, '\\"');
-  return [
+  const lines = [
     "(version 1)",
     "(allow default)",
     "(deny file-write*)",
     `(allow file-write* (subpath "${w}") (subpath "/tmp") (subpath "/private/tmp") (subpath "/private/var/folders") (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr") (literal "/dev/dtracehelper"))`,
-  ].join(" ");
+  ];
+  // 可选:切断网络(默认放行,DAO_SANDBOX_NO_NET=1 才加)。
+  if (sandboxNoNet()) lines.push("(deny network*)");
+  return lines.join(" ");
 }
 
 export interface SpawnSpec { file: string; args: string[] }
@@ -48,8 +56,10 @@ export function sandboxSpawn(command: string, cwd: string): SpawnSpec | { error:
       "--proc", "/proc",
       "--dev", "/dev",
       "--die-with-parent",
-      "/bin/sh", "-c", command,
     ];
+    // 可选:隔离网络命名空间(默认不加,DAO_SANDBOX_NO_NET=1 才切断网络)。
+    if (sandboxNoNet()) args.push("--unshare-net");
+    args.push("/bin/sh", "-c", command);
     return { file: bin, args };
   }
   return { error: "当前平台不支持沙箱(仅 macOS/Linux)" };

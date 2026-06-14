@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hasSuspiciousUnicode, hasNullByte } from "./sanitize.js";
+import { hasSuspiciousUnicode, hasNullByte, sanitizeText } from "./sanitize.js";
 
 describe("hasSuspiciousUnicode", () => {
   it("flags homoglyph / zero-width / fullwidth / null-byte", () => {
@@ -20,5 +20,26 @@ describe("hasNullByte", () => {
   it("detects null bytes only", () => {
     expect(hasNullByte("a\0b")).toBe(true);
     expect(hasNullByte("normal/path.ts")).toBe(false);
+  });
+});
+
+describe("sanitizeText", () => {
+  it("normalizes fullwidth homoglyphs to ascii", () => {
+    const r = sanitizeText("ｒｍ -rf /"); // 全角 rm
+    expect(r.clean).toBe("rm -rf /");
+    expect(r.suspicious).toBe(true);
+  });
+  it("strips zero-width / RTL override / null byte", () => {
+    expect(sanitizeText("rm​ -rf").clean).toBe("rm -rf"); // 含零宽空格
+    expect(sanitizeText("rm​ -rf").suspicious).toBe(true);
+    expect(sanitizeText("ls‮").clean).toBe("ls");
+    expect(sanitizeText("a\0b").clean).toBe("ab");
+    expect(sanitizeText("a\0b").suspicious).toBe(true);
+  });
+  it("leaves clean text unchanged with suspicious=false", () => {
+    expect(sanitizeText("rm -rf node_modules")).toEqual({ clean: "rm -rf node_modules", suspicious: false });
+    expect(sanitizeText("cat 项目/说明.md")).toEqual({ clean: "cat 项目/说明.md", suspicious: false });
+    expect(sanitizeText("echo hi\n  && ls\t-l")).toEqual({ clean: "echo hi\n  && ls\t-l", suspicious: false });
+    expect(sanitizeText("")).toEqual({ clean: "", suspicious: false });
   });
 });
