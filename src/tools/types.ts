@@ -8,6 +8,8 @@ export interface ToolContext {
   workspaceRoot: string;
   // 本会话已读文件的绝对路径集合(写工具据此判断"覆盖/编辑前是否已读");可选。
   readFiles?: Set<string>;
+  // P2-23 读时元信息(mtime/size):写前复核,文件自上次读后被外部改动则拒绝(防覆盖并发改动)。
+  readMeta?: Map<string, { mtime: number; size: number }>;
   // 向用户提问(ask_user 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
   // 结构化选择(ask_user 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
@@ -29,7 +31,7 @@ export interface ToolContext {
   // 给运行中的后台子代理追加指令(SendMessage);返回是否送达(任务在跑)。
   sendToTask?: (id: string, message: string) => boolean;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
-  createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void } | null;
+  createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
   runBackgroundAgent?: (task: string, agentType?: string) => string;
   // 接管一个已在运行的子代理 promise 转入后台(前台超时自动后台化用)。

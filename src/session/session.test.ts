@@ -76,6 +76,17 @@ describe("Session", () => {
     expect(hits[0]!.to).toBeCloseTo(0.05, 1);
   });
 
+  it("P1-47 归因:命中骤降时指出变化的前缀维度", () => {
+    const s = new Session("S", "m");
+    let info: any;
+    s.onCacheBust((i) => { info = i; });
+    s.notePrefix({ model: "pro", sys: "h1", tools: "t1", tail: "x" });
+    s.addUsage({ prompt_tokens: 20000, completion_tokens: 1, total_tokens: 20001, prompt_cache_hit_tokens: 19000, prompt_cache_miss_tokens: 1000 });
+    s.notePrefix({ model: "pro", sys: "h2", tools: "t1", tail: "x" }); // 只有 sys 变了
+    s.addUsage({ prompt_tokens: 21000, completion_tokens: 1, total_tokens: 21001, prompt_cache_hit_tokens: 500, prompt_cache_miss_tokens: 20500 });
+    expect(info.changed).toEqual(["sys"]); // 归因到系统提示变化
+  });
+
   it("onCacheBust does NOT fire on a healthy or first/small turn", () => {
     const s = new Session("S", "m");
     const hits: unknown[] = [];

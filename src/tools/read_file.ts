@@ -29,6 +29,7 @@ export const readFileTool = defineTool({
     // 二进制探测:含 NUL 字节大概率是二进制,整块乱码塞进上下文无意义。
     if (raw.includes("\u0000")) return `Error: 看起来是二进制文件(含 NUL 字节),read_file 只读文本。`;
     ctx.readFiles?.add(abs);
+    ctx.readMeta?.set(abs, { mtime: st.mtimeMs, size: st.size }); // P2-23 记录读时元信息
     const lines = raw.split("\n");
     const start = args.offset ? args.offset - 1 : 0;
     if (start >= lines.length && lines.length > 0) {
