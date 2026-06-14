@@ -21,7 +21,7 @@ const MODE_LABEL: Record<string, string> = {
   bypassPermissions: "※ 全部权限(免审批)",
 };
 const modeLabel = (m: string): string => MODE_LABEL[m] ?? m;
-const MAX_LIVE_LINES = 24; // 流式动态区显示尾部行数;完成后整段进 <Static>。比旧值大,流式更完整(仍小于常见终端高,避免 ink#359 整屏闪)。
+const MAX_LIVE_LINES = 12; // 流式动态区尾部行数的【上限】;实际取 liveCap(按屏高自适应)。完成后整段进 <Static>,故不丢内容。
 const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
 const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose 全显)
 // 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
@@ -698,6 +698,10 @@ export function App(deps: AppDeps) {
   const spin = SPINNER[tick % SPINNER.length] ?? "⠋";
   // 思考/做事 spinner 词:本回合随机起点 + 随时间缓慢轮换(约 1.8s 换一个)。
   const verb = daoVerb(wordBaseRef.current + Math.floor(tick / 20));
+  // 流式预览高度【自适应屏高】:给状态行/输入框/边距留 ~10 行,杜绝动态区超过屏高 →
+  // 否则 ink 每个 token 重绘时会把超出部分滚动、连带重画 <Static>(欢迎屏太极闪现)+ 整屏闪。
+  // 完整思考/答案在回合结束都会进 <Static>,预览短一点不丢内容。每个 token 都会重渲染,故 resize 也能跟上。
+  const liveCap = Math.max(4, Math.min(MAX_LIVE_LINES, (process.stdout.rows ?? 40) - 10));
 
   return (
     <Box flexDirection="column">
@@ -719,9 +723,9 @@ export function App(deps: AppDeps) {
         <Box flexDirection="column" marginTop={1}>
           {/* 推理预览:只显示思考文本(spinner/动词/耗时统一放下方状态行,避免重复)。 */}
           {live.reasoning && !live.content ? (
-            <Text color={c("dim")}>{tail(live.reasoning, MAX_LIVE_LINES)}</Text>
+            <Text color={c("dim")}>{tail(live.reasoning, liveCap)}</Text>
           ) : null}
-          {live.content ? <Text>{tail(live.content, MAX_LIVE_LINES)}</Text> : null}
+          {live.content ? <Text>{tail(live.content, liveCap)}</Text> : null}
           {/* 唯一的状态行:spinner + 当前活动/动词 + 耗时 + 工具数 + 排队数(长任务也看得见在干嘛)。 */}
           <Text color={c("dim")}>
             {spin} {live.lastActivity || (live.content ? "生成回答" : verb)}…{" "}
