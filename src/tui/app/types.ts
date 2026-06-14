@@ -55,6 +55,8 @@ export interface AppDeps {
   register: (ui: { approvalPrompt: ApprovalPrompt; askUser: (q: string) => Promise<string>; askChoice: (q: string, options: string[], multi?: boolean) => Promise<string> }) => void;
   // @文件补全:给前缀(子串),返回匹配的工作区相对路径(已截断);省略则不补全。
   completeFiles?: (prefix: string) => string[];
+  // /resume 无参时的交互选择:返回本工作区历史会话(已按最近排序),App 弹出上下选择器;省略则退回文本列表。
+  listResume?: () => { id: string; label: string }[];
   // 续跑:用上次会话重建的 transcript 初始条目(已带 id)。
   initialItems?: TranscriptItem[];
   // 异步后台任务:取出待注入的 <task-notification>(空闲时自动作为新回合喂给模型)。

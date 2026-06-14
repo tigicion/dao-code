@@ -218,6 +218,7 @@ export function App(deps: AppDeps) {
   const [choiceIdx, setChoiceIdx] = useState(0);
   const [choiceChecked, setChoiceChecked] = useState<Set<number>>(new Set()); // 多选已勾选的下标
   const [choiceWarn, setChoiceWarn] = useState(false); // 多选下空集回车 → 提示先勾选,而非静默提交
+  const [resumePick, setResumePick] = useState<{ items: { id: string; label: string }[]; idx: number } | null>(null); // /resume 会话选择器
   const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = "其他(自己输入)";
   const CHOICE_DISCUSS = "先讨论一下";
@@ -368,6 +369,13 @@ export function App(deps: AppDeps) {
         pushItem({ id: nextId(), kind: "notice", text: `已开启循环:每 ${arg} 跑一次「${loopPrompt.slice(0, 40)}」(/loop off 停止)` });
         return;
       }
+      // /resume 无参:弹出可上下选择的会话列表(选中即载入,无需再输命令)。带 id 时走 runCommand 直接载入。
+      if (name === "resume" && text.split(/\s+/).length === 1) {
+        const list = deps.listResume?.() ?? [];
+        if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "本工作区无历史会话。" }); return; }
+        setResumePick({ items: list, idx: 0 });
+        return;
+      }
       const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
@@ -446,7 +454,24 @@ export function App(deps: AppDeps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, taskTick, queued]);
 
+  // 选中会话 → 委派 /resume <id>(载入逻辑在 index),并应用其结果(重置 transcript + 提示)。
+  const loadResume = (id: string) => {
+    const res = deps.runCommand("/resume " + id);
+    if (res.clearTranscript) setItems(welcomeCommitted.current ? [{ id: 0, kind: "welcome" }] : []);
+    if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
+    setStatus(deps.getStatus());
+  };
+
   useInput((ch, key) => {
+    if (resumePick) {
+      const n = resumePick.items.length;
+      if (key.upArrow) { setResumePick((p) => p && { ...p, idx: Math.max(0, p.idx - 1) }); return; }
+      if (key.downArrow) { setResumePick((p) => p && { ...p, idx: Math.min(n - 1, p.idx + 1) }); return; }
+      if (ch && /[1-9]/.test(ch)) { const i = Number(ch) - 1; if (i < n) { const id = resumePick.items[i]!.id; setResumePick(null); loadResume(id); } return; }
+      if (key.return) { const id = resumePick.items[resumePick.idx]!.id; setResumePick(null); loadResume(id); return; }
+      if (key.escape) { setResumePick(null); pushItem({ id: nextId(), kind: "notice", text: "已取消载入。" }); return; }
+      return;
+    }
     if (approval) {
       const reqAp = approval.requests[apIdx];
       const noAlways = !!reqAp?.sensitive || !!reqAp?.noPersist; // 敏感 / 记不成规则 → 不接受"始终允许"
@@ -711,6 +736,28 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
+      {resumePick && (() => {
+        const items = resumePick.items, n = items.length, WIN = 10;
+        const start = Math.max(0, Math.min(resumePick.idx - Math.floor(WIN / 2), Math.max(0, n - WIN)));
+        const shown = items.slice(start, start + WIN);
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>载入历史会话({n}):↑↓ 选择 · ⏎ 载入 · Esc 取消</Text>
+            {start > 0 ? <Text color={c("dim")}>{`  ↑ 还有 ${start} 个`}</Text> : null}
+            {shown.map((it, j) => {
+              const i = start + j;
+              const focused = i === resumePick.idx;
+              return (
+                <Text key={it.id} color={focused ? c("jade") : c("ink")}>
+                  {focused ? "❯ " : "  "}{it.label}
+                </Text>
+              );
+            })}
+            {start + WIN < n ? <Text color={c("dim")}>{`  ↓ 还有 ${n - start - WIN} 个`}</Text> : null}
+          </Box>
+        );
+      })()}
+
       {choice && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
           <Text color={c("jade")}>{choice.question}</Text>
@@ -755,7 +802,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && !choice && (
+      {!approval && !ask && !choice && !resumePick && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -806,7 +853,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {modeHint && !approval && !ask && !choice ? (
+      {modeHint && !approval && !ask && !choice && !resumePick ? (
         <Text color={c("jade")}>{"  "}权限模式 → {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>∞ {bgRunning} 个后台任务运行中…</Text> : null}

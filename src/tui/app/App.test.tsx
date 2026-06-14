@@ -104,6 +104,42 @@ describe("App", () => {
     expect(got.trim()).toBe("/session"); // 没补全的话会是 "/sess"
   });
 
+  it("/resume 无参:弹出会话选择器,↑↓ 选择 + ⏎ 载入", async () => {
+    let resumed = "";
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listResume: () => [{ id: "s1", label: "s1 — 第一个" }, { id: "s2", label: "s2 ·未完成" }],
+        runCommand: (l) => {
+          if (l.startsWith("/resume ")) { resumed = l; return { handled: true, output: "已载入会话", clearTranscript: true }; }
+          return { handled: true };
+        },
+      })} />,
+    );
+    for (const ch of "/resume") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 提交 /resume → 开选择器
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("载入历史会话");
+    expect(f).toContain("s1 — 第一个");
+    expect(f).toContain("s2 ·未完成");
+    stdin.write("\x1b[B"); // ↓ 移到 s2
+    await delay();
+    stdin.write("\r"); // ⏎ 载入
+    await delay();
+    expect(resumed).toBe("/resume s2"); // 选中第二项载入,无需再输命令
+    expect(lastFrame()!).toContain("已载入会话");
+  });
+
+  it("/resume 无参 + 无历史会话:提示而不开选择器", async () => {
+    const { lastFrame, stdin } = render(<App {...makeDeps({ listResume: () => [] })} />);
+    for (const ch of "/resume") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(lastFrame()!).toContain("本工作区无历史会话");
+  });
+
   it("edit_file 工具结果渲染红绿 diff(路径 + 增删行)", async () => {
     const { lastFrame, stdin } = render(
       <App
