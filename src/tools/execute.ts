@@ -3,6 +3,7 @@ import type { Capability, ToolContext } from "./types.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ApprovalGate, ApprovalRequest } from "../approval/types.js";
 import { isSensitiveCall, isDangerousCall } from "../permissions/engine.js";
+import { auditDecision } from "../permissions/audit.js";
 import { rememberRule } from "../permissions/identity.js";
 
 // 给审批/展示用的人类可读摘要:命令保留【真实换行】(而非原始 JSON 的字面 \n),路径类只显路径。
@@ -94,6 +95,19 @@ export async function executeToolCalls(
     const tc = toolCalls.find((t) => t.id === r.id)!;
     if (approvals.get(tc.id)) toRun.add(tc.id);
     else results.set(tc.id, rejectMsg(tc, "用户拒绝执行该工具。"));
+  }
+
+  // S3.3 审计:记录写/执行/网络类工具的最终裁决(放行/拒绝)到 .dao/audit.log。
+  const auditIso = new Date().toISOString();
+  for (const tc of toolCalls) {
+    const cap = registry.get(tc.function.name)?.capability;
+    if (cap === "write" || cap === "exec" || cap === "network") {
+      auditDecision(ctx.workspaceRoot, auditIso, {
+        tool: tc.function.name, capability: cap,
+        decision: toRun.has(tc.id) ? "allow" : "deny",
+        summary: describeCall(tc.function.name, tc.function.arguments),
+      });
+    }
   }
 
   // 3. 按 capability 并发安全执行:安全工具积成一批并行(限并发);遇到 write/exec 先 flush 再独占运行(屏障)。
