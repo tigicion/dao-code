@@ -17,7 +17,11 @@ export class Session {
   private readonly systemPrompt: string;
   // P0-1 前缀缓存埋点:记录上一次 API 调用的输入规模与命中率,用于检测"前缀被改写导致命中骤降"。
   private lastCall?: { promptTokens: number; hitRatio: number };
-  private cacheBustWarner?: (info: { from: number; to: number; promptTokens: number }) => void;
+  private cacheBustWarner?: (info: { from: number; to: number; promptTokens: number; changed: string[] }) => void;
+  // P1-47 缓存归因:记录每次请求的"影响缓存的前缀维度"指纹(模型/系统提示/工具集/尾部注入),
+  // 命中骤降时对比上一次,指出是哪一维变了(便于定位"谁破了缓存")。
+  private prevFp?: Record<string, string>;
+  private curFp?: Record<string, string>;
 
   constructor(systemPrompt: string, model: string) {
     this.systemPrompt = systemPrompt;
@@ -27,8 +31,14 @@ export class Session {
 
   // 注册"前缀缓存疑似被破"回调(--verbose 下打日志)。前缀缓存是 dao 的成本差异化,
   // 命中骤降通常意味着压缩/注入意外改写了消息前缀——埋点让这种回归可见。
-  onCacheBust(fn: (info: { from: number; to: number; promptTokens: number }) => void): void {
+  onCacheBust(fn: (info: { from: number; to: number; promptTokens: number; changed: string[] }) => void): void {
     this.cacheBustWarner = fn;
+  }
+
+  // 每次请求前由 loop 调用:登记本次影响缓存的维度指纹(值应为短哈希/标识)。
+  notePrefix(fp: Record<string, string>): void {
+    this.prevFp = this.curFp;
+    this.curFp = fp;
   }
 
   addUsage(u: Usage): void {
@@ -43,10 +53,17 @@ export class Session {
     if (prompt >= 4000) {
       // 上一回合命中高(前缀健康)、本回合骤降 ≥0.5 → 多半是前缀被改写。
       if (this.lastCall && this.lastCall.hitRatio >= 0.5 && this.lastCall.hitRatio - ratio >= 0.5) {
-        this.cacheBustWarner?.({ from: this.lastCall.hitRatio, to: ratio, promptTokens: prompt });
+        this.cacheBustWarner?.({ from: this.lastCall.hitRatio, to: ratio, promptTokens: prompt, changed: this.changedDims() });
       }
       this.lastCall = { promptTokens: prompt, hitRatio: ratio };
     }
+  }
+
+  // 对比相邻两次请求的前缀指纹,返回变化的维度名(归因)。
+  private changedDims(): string[] {
+    if (!this.prevFp || !this.curFp) return [];
+    const keys = new Set([...Object.keys(this.prevFp), ...Object.keys(this.curFp)]);
+    return [...keys].filter((k) => this.prevFp![k] !== this.curFp![k]);
   }
 
   // cache 命中 token 占输入 token 的比例(0–1)。无输入时返回 0。

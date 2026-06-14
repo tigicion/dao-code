@@ -28,7 +28,18 @@ export const writeFileTool = defineTool({
       if (exists && ctx.readFiles && !ctx.readFiles.has(abs)) {
         throw new Error(`覆盖已存在文件前请先用 read_file 读过它:${args.path}`);
       }
+      // P2-23 mtime/size 复核:文件自上次 read 后被外部改动 → 拒绝(防整体重写覆盖用户/外部的并发编辑)。
+      if (exists) {
+        const meta = ctx.readMeta?.get(abs);
+        if (meta) {
+          const cur = await fs.stat(abs);
+          if (cur.mtimeMs !== meta.mtime || cur.size !== meta.size) {
+            throw new Error(`文件自上次 read_file 后已被外部改动:${args.path}。请重新 read_file 看最新内容再写,以免覆盖他人改动。`);
+          }
+        }
+      }
       await atomicWrite(abs, args.content);
+      try { const w = await fs.stat(abs); ctx.readMeta?.set(abs, { mtime: w.mtimeMs, size: w.size }); } catch { /* ignore */ } // 写后刷新基线
       ctx.readFiles?.add(abs);
       return `已写入 ${args.path}(${args.content.split("\n").length} 行)`;
     });

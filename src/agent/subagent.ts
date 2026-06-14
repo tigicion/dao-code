@@ -35,7 +35,7 @@ export async function runSubagent(deps: SubagentDeps): Promise<string> {
     config: deps.config,
     registry: deps.registry,
     // 子代理用独立 readFiles(不污染主代理"已读"集合,避免绕过写前须读护栏)。
-    ctx: { ...deps.ctx, subagentDepth: (deps.ctx.subagentDepth ?? 0) + 1, readFiles: new Set() },
+    ctx: { ...deps.ctx, subagentDepth: (deps.ctx.subagentDepth ?? 0) + 1, readFiles: new Set(), readMeta: new Map() },
     gate: deps.gate,
     streamChat: deps.streamChat,
     executeToolCalls: deps.executeToolCalls,
