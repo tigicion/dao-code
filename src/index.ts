@@ -1157,7 +1157,12 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("\n" + (err as Error).message);
-  process.exit(1);
-});
+// 收尾后显式退出:distill 的 flash HTTP keep-alive socket 等滞留 handle 会让 Node 排不空事件循环、
+// 不自然退出(看起来卡在"✓ 记忆无需更新"那行)。要紧的 await(distill/upsert/mcp.close)都已在 main 内完成。
+main().then(
+  () => process.exit(0),
+  (err) => {
+    console.error("\n" + (err as Error).message);
+    process.exit(1);
+  },
+);
