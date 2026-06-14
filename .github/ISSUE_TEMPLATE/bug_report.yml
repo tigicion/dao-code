@@ -1,0 +1,41 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ 安全漏洞请勿在此公开,走 [SECURITY.md](../../SECURITY.md) 的私密上报。
+  - type: textarea
+    id: what
+    attributes:
+      label: 现象
+      description: 发生了什么?期望是什么?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 运行 `dao ...`
+        2. 输入 ...
+        3. 看到 ...
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境
+      description: dao 版本(`dao --version`)、OS、Node 版本、模型
+      placeholder: |
+        dao: 0.1.2
+        OS: macOS 14
+        Node: 20.x
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图(可选)
+      description: 可加 `dao --verbose` 的输出(请先脱敏,勿贴 API key)

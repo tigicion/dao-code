@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞(私密上报)
+    url: https://github.com/tigicion/dao-code/security/advisories/new
+    about: 安全问题请勿走公开 issue,点这里私密上报。
+  - name: 提问 / 讨论
+    url: https://github.com/tigicion/dao-code/discussions
+    about: 用法疑问、想法讨论请到 Discussions。

@@ -8,7 +8,7 @@ describe("paint", () => {
   it("none 档:原样返回,无 ANSI", () => {
     const out = paint("道", "jade", caps("none"));
     expect(out).toBe("道");
-    // eslint-disable-next-line no-control-regex
+     
     expect(/\x1b\[/.test(out)).toBe(false);
   });
   it("truecolor 档:含 38;2;r;g;b 前景", () => {
