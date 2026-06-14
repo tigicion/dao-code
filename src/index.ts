@@ -451,8 +451,8 @@ async function main() {
   // P0-1 前缀缓存埋点:命中率骤降(多半是压缩/注入改写了前缀)时,--verbose 下打到 stderr。
   // 前缀缓存命中比未命中省约 98%,这条日志让"压缩前后 cache 不塌"可验证。
   if (verbose) {
-    session.onCacheBust(({ from, to, promptTokens }) =>
-      console.error(`[cache] 前缀缓存命中率骤降 ${(from * 100).toFixed(0)}%→${(to * 100).toFixed(0)}%(本回合输入 ${promptTokens} tok)——检查压缩/注入是否改写了消息前缀`),
+    session.onCacheBust(({ from, to, promptTokens, changed }) =>
+      console.error(`[cache] 前缀缓存命中率骤降 ${(from * 100).toFixed(0)}%→${(to * 100).toFixed(0)}%(本回合输入 ${promptTokens} tok)${changed.length ? `——变化维度:${changed.join("/")}` : "(前缀维度未变,可能 5min TTL 过期/服务端)"}`),
     );
   }
   // settings/CLI/企业策略指定的初始模式:plan→会话只读规划;bypassPermissions→等价 YOLO。
