@@ -59,6 +59,9 @@ export async function compactMessages(
 ): Promise<ChatMessage[]> {
   if (messages.length === 0) return messages;
   // 先 microcompact:清掉旧的可重现工具结果,缩小待摘要部分(对标 CC 压缩前置步骤)。
+  // 【缓存不变式】microcompact 只改 i<cutoff 的消息,而下面保留的 tail = messages.slice(cutoff),
+  // 二者不相交 → 保留段逐字节不变、system[0] 也不变,压缩产物前缀可立即重新命中缓存。
+  // 由 compact.test.ts「compactMessages 缓存不变式」钉死,改这段务必保持该断言通过。
   messages = microcompactMessages(messages, opts.keepRecentTurns);
   const system = messages[0]!;
   const rest = messages.slice(1);

@@ -447,6 +447,13 @@ async function main() {
   );
 
   const session = new Session(systemPrompt, cfg.model);
+  // P0-1 前缀缓存埋点:命中率骤降(多半是压缩/注入改写了前缀)时,--verbose 下打到 stderr。
+  // 前缀缓存命中比未命中省约 98%,这条日志让"压缩前后 cache 不塌"可验证。
+  if (verbose) {
+    session.onCacheBust(({ from, to, promptTokens }) =>
+      console.error(`[cache] 前缀缓存命中率骤降 ${(from * 100).toFixed(0)}%→${(to * 100).toFixed(0)}%(本回合输入 ${promptTokens} tok)——检查压缩/注入是否改写了消息前缀`),
+    );
+  }
   // settings/CLI/企业策略指定的初始模式:plan→会话只读规划;bypassPermissions→等价 YOLO。
   // default/acceptEdits 由 getMode 读 loadedPerms.defaultMode 处理,无需在此设置。
   if (loadedPerms.defaultMode === "plan") session.mode = "plan";
