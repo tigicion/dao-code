@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createSessionStore, loadState, findResumable } from "./log.js";
+import { createSessionStore, loadState, findResumable, listSessions, loadMeta } from "./log.js";
 import type { ChatMessage } from "../client/types.js";
 
 let base: string;
@@ -58,5 +58,26 @@ describe("SessionStore", () => {
 
   it("空目录 findResumable 返回 null", () => {
     expect(findResumable(path.join(base, "nope"), "/w")).toBeNull();
+  });
+
+  it("P3-29 Lite-Log:saveState 写 meta.json,listSessions 只读 meta(不含 messages)", () => {
+    const s = createSessionStore(base);
+    s.saveState({ ...stateInput("/w"), title: "重构记忆" });
+    const meta = loadMeta(base, s.id)!;
+    expect(meta.title).toBe("重构记忆");
+    expect(meta.userMessageCount).toBe(1);
+    expect(meta.messageCount).toBe(3);
+    expect((meta as any).messages).toBeUndefined(); // meta 不含正文
+    const list = listSessions(base, "/w");
+    expect(list.map((m) => m.id)).toContain(s.id);
+    expect(listSessions(base, "/other")).toEqual([]); // 按 cwd 过滤
+  });
+
+  it("P3-29 listSessions 收齐本工作区会话且按 updatedAt 降序", () => {
+    const a = createSessionStore(base); a.saveState(stateInput("/w"));
+    const b = createSessionStore(base); b.saveState(stateInput("/w"));
+    const list = listSessions(base, "/w");
+    expect(list.map((m) => m.id).sort()).toEqual([a.id, b.id].sort()); // 两个都在
+    for (let i = 1; i < list.length; i++) expect(list[i - 1]!.updatedAt).toBeGreaterThanOrEqual(list[i]!.updatedAt); // 降序不变式
   });
 });
