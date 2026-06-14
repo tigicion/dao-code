@@ -31,15 +31,21 @@ export interface TaskManager {
   onChange(cb: () => void): void; // 任务状态变化(启动/完成/失败/取消)时回调,驱动 UI 刷新与通知处理
 }
 
+// 转义注入文本里的 XML 元字符:description/result/message 来自用户任务或子代理输出,
+// 可能含 < > &(甚至字面 </message>),不转义会破坏父代理对通知块的解析。
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function notificationXml(t: BgTask): string {
   const body = t.status === "completed" ? (t.result ?? "") : (t.error ?? "");
   return [
     `<task-notification>`,
     `<task-id>${t.id}</task-id>`,
-    `<description>${t.description}</description>`,
+    `<description>${escapeXml(t.description)}</description>`,
     `<status>${t.status}</status>`,
     `<result>`,
-    body,
+    escapeXml(body),
     `</result>`,
     `</task-notification>`,
   ].join("\n");
@@ -49,9 +55,9 @@ function taskMessageXml(t: BgTask, message: string): string {
   return [
     `<task-message>`,
     `<task-id>${t.id}</task-id>`,
-    `<description>${t.description}</description>`,
+    `<description>${escapeXml(t.description)}</description>`,
     `<message>`,
-    message,
+    escapeXml(message),
     `</message>`,
     `</task-message>`,
   ].join("\n");

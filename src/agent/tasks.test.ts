@@ -117,3 +117,17 @@ describe("集成:后台子代理 mid-run 消息流回父", () => {
     release("最终结论");
   });
 });
+
+describe("通知 XML 转义(防破坏父代理解析)", () => {
+  it("mid-run 消息与 description 里的 < > & 及字面 </message> 被转义", async () => {
+    const tm = createTaskManager();
+    let release!: (v: string) => void;
+    const id = tm.launch("调查 <x> & </desc>", () => new Promise<string>((res) => { release = res; }));
+    tm.emitFromTask(id, "发现 a<b && c </message> 注入");
+    const out = tm.drainNotifications().join("\n");
+    expect(out).not.toContain("</message> 注入"); // 字面闭合标签不得原样泄漏
+    expect(out).toContain("&lt;b &amp;&amp; c &lt;/message&gt;");
+    expect(out).toContain("调查 &lt;x&gt; &amp; &lt;/desc&gt;"); // description 也转义
+    release("done");
+  });
+});
