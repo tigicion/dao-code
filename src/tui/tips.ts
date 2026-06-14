@@ -12,7 +12,7 @@ export const TIPS: string[] = [
   "大任务:/task 自主连续推进,或 /coordinator 研究→综合→实现→验证 多 agent 编排",
   "/batch 把大改拆给多个 worktree 子代理并行做,各自一个分支",
   "/loop 5m <要做的事> 会话内周期跑;dao schedule 用本地 cron 定时跑",
-  "Shift+Tab 循环权限模式:默认 → 接受编辑 → auto(AI 裁决) → 规划 → 免审批",
+  "Shift+Tab 循环权限模式:默认 → auto(AI 裁决) → 规划;接受编辑用 /mode acceptEdits 进",
   "/bypass 免审批(慎用);deny 规则与敏感路径(.ssh/.git/凭据…)仍会拦你",
   "dao 会自动记忆;/remember <事> 手动记一条,/memory 看用户/知识/项目三层记忆",
   "/effort 调思考强度(low/medium/high/max);/cost 看用量与缓存命中率",

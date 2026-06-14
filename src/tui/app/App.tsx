@@ -449,7 +449,7 @@ export function App(deps: AppDeps) {
     }
     if (key.escape && busy) { controllerRef.current?.abort(); return; }
     if (key.ctrl && ch === "c") { exit(); return; }
-    // Shift+Tab:循环权限模式(default→acceptEdits→plan→bypassPermissions),随时可用。
+    // Shift+Tab:循环权限模式(default→auto→plan),随时可用。acceptEdits/bypass 不在循环里。
     if (key.tab && key.shift && deps.cycleMode) {
       const m = deps.cycleMode();
       setStatus(deps.getStatus());
