@@ -148,6 +148,8 @@ export function App(deps: AppDeps) {
   const [choiceIdx, setChoiceIdx] = useState(0);
   const [choiceFilling, setChoiceFilling] = useState(false);
   const [choiceChecked, setChoiceChecked] = useState<Set<number>>(new Set()); // 多选已勾选的下标
+  const [choiceWarn, setChoiceWarn] = useState(false); // 多选下空集回车 → 提示先勾选,而非静默提交
+  const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = "其他(自己输入)";
   const CHOICE_DISCUSS = "先讨论一下";
   const controllerRef = useRef<AbortController | null>(null);
@@ -196,7 +198,7 @@ export function App(deps: AppDeps) {
       });
     const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
     const askChoice = (question: string, options: string[], multi?: boolean) =>
-      new Promise<string>((resolve) => { setChoice({ question, options, multi: !!multi, resolve }); setChoiceIdx(0); setChoiceFilling(false); setChoiceChecked(new Set()); });
+      new Promise<string>((resolve) => { setChoice({ question, options, multi: !!multi, resolve }); setChoiceIdx(0); setChoiceFilling(false); setChoiceChecked(new Set()); setChoiceWarn(false); });
     deps.register({ approvalPrompt, askUser, askChoice });
   }, [deps]);
 
@@ -394,9 +396,20 @@ export function App(deps: AppDeps) {
       return;
     }
     if (choice) {
-      const allOpts = [...choice.options, CHOICE_FILL, CHOICE_DISCUSS];
-      const fillIdx = choice.options.length, discussIdx = choice.options.length + 1;
-      const done = (val: string) => { choice.resolve(val); setChoice(null); setChoiceFilling(false); setAskInput(""); setChoiceChecked(new Set()); };
+      const nOpt = choice.options.length;
+      // 多选多出一行"✓ 完成"用于提交;正常项上回车=勾选,故需要独立的提交入口。
+      const extras = choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS];
+      const allOpts = [...choice.options, ...extras];
+      const doneRowIdx = choice.multi ? nOpt : -1;
+      const fillIdx = nOpt + (choice.multi ? 1 : 0);
+      const discussIdx = nOpt + (choice.multi ? 2 : 1);
+      const done = (val: string) => { choice.resolve(val); setChoice(null); setChoiceFilling(false); setAskInput(""); setChoiceChecked(new Set()); setChoiceWarn(false); };
+      const toggle = (i: number) => { setChoiceWarn(false); setChoiceChecked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; }); };
+      const submitMulti = () => { // 提交已勾选;空集不静默提交,提示先勾选(避免误触丢问题)
+        const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
+        if (!picked.length) { setChoiceWarn(true); return; }
+        done(picked.join(", "));
+      };
       if (choiceFilling) { // "其他(自己输入)"子模式:用户敲自由文本
         if (key.return) {
           const custom = askInput.trim();
@@ -413,11 +426,9 @@ export function App(deps: AppDeps) {
       if (ch && /[1-9]/.test(ch)) {
         const i = Number(ch) - 1;
         if (i < allOpts.length) {
-          if (choice.multi && i < choice.options.length) {
-            setChoiceIdx(i);
-            setChoiceChecked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
-          } else if (!choice.multi) {
-            if (i < choice.options.length) done(choice.options[i]!);
+          if (choice.multi && i < nOpt) { setChoiceIdx(i); toggle(i); }
+          else if (!choice.multi) {
+            if (i < nOpt) done(choice.options[i]!);
             else if (i === fillIdx) { setChoiceIdx(i); setChoiceFilling(true); setAskInput(""); }
             else done("我想先讨论一下,先别急着定方向。");
           } else setChoiceIdx(i);
@@ -428,16 +439,15 @@ export function App(deps: AppDeps) {
       if (key.downArrow) { setChoiceIdx((i) => Math.min(allOpts.length - 1, i + 1)); return; }
       // 空格(多选):切换当前正常项的勾选。
       if (choice.multi && ch === " ") {
-        if (choiceIdx < choice.options.length) setChoiceChecked((s) => { const n = new Set(s); n.has(choiceIdx) ? n.delete(choiceIdx) : n.add(choiceIdx); return n; });
+        if (choiceIdx < nOpt) toggle(choiceIdx);
         return;
       }
       if (key.return) {
         if (choiceIdx === fillIdx) { setChoiceFilling(true); setAskInput(""); }
         else if (choiceIdx === discussIdx) done("我想先讨论一下,先别急着定方向。");
-        else if (choice.multi) { // 确认已勾选集合
-          const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
-          done(picked.length ? picked.join(", ") : "(用户未选)");
-        } else done(choice.options[choiceIdx]!);
+        else if (choiceIdx === doneRowIdx) submitMulti();      // 多选:在"完成"行回车 → 提交
+        else if (choice.multi) toggle(choiceIdx);               // 多选:在正常项回车 → 勾选(不结束,可继续选)
+        else done(choice.options[choiceIdx]!);                  // 单选:回车即选中
       }
       return;
     }
@@ -621,9 +631,9 @@ export function App(deps: AppDeps) {
             </>
           ) : (
             <>
-              {[...choice.options, CHOICE_FILL, CHOICE_DISCUSS].map((o, i) => {
+              {[...choice.options, ...(choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS])].map((o, i) => {
                 const focused = i === choiceIdx;
-                // 多选:正常项显示 checkbox;"其他/讨论"两项不参与勾选,仍按序号呈现。
+                // 多选:正常项显示 checkbox;"完成/其他/讨论"不参与勾选,仍按序号呈现。
                 const box = choice.multi && i < choice.options.length ? (choiceChecked.has(i) ? "[x] " : "[ ] ") : "";
                 return (
                   <Text key={i} color={focused ? c("jade") : c("ink")}>
@@ -632,8 +642,9 @@ export function App(deps: AppDeps) {
                 );
               })}
               <Text color={c("dim")}>
-                {choice.multi ? "数字/空格 勾选 · ↑↓ 移动 · ⏎ 确认" : "数字快选 · ↑↓ 移动 · ⏎ 确认"}
+                {choice.multi ? "⏎/空格 勾选当前项 · ↑↓ 移动 · 到「完成」回车提交" : "数字快选 · ↑↓ 移动 · ⏎ 确认"}
               </Text>
+              {choiceWarn ? <Text color={c("vermilion")}>还没勾选任何项:用 ⏎/空格 勾选,或选「先讨论一下」</Text> : null}
             </>
           )}
         </Box>
