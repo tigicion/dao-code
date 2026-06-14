@@ -6,6 +6,7 @@ import { spillOutput } from "./spill.js";
 import { isDangerousCommand } from "../permissions/bash_safety.js";
 import { hasSuspiciousUnicode } from "../permissions/sanitize.js";
 import { scrubbedEnv } from "./safe_env.js";
+import { sandboxSpawn } from "./sandbox.js";
 
 interface ForegroundResult {
   stdout: string;
@@ -32,7 +33,12 @@ function runForeground(
     let stdout = "";
     let stderr = "";
     let capped = false;
-    const child = spawn(command, { cwd, shell: true, detached: true, env: scrubbedEnv() }); // S5.2 env 脱敏
+    // S4 沙箱:启用则裹进 Seatbelt/bubblewrap(工作区可写、其余只读);未启用照常 shell 执行。
+    const sb = sandboxSpawn(command, cwd);
+    if (sb && "error" in sb) { resolve({ stdout: "", stderr: `沙箱不可用:${sb.error}`, code: 1, aborted: false, timedOut: false }); return; }
+    const child = sb
+      ? spawn(sb.file, sb.args, { cwd, detached: true, env: scrubbedEnv() })
+      : spawn(command, { cwd, shell: true, detached: true, env: scrubbedEnv() }); // S5.2 env 脱敏
     const killGroup = (sig: NodeJS.Signals) => {
       try {
         if (child.pid) process.kill(-child.pid, sig);
