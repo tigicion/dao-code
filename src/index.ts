@@ -1316,6 +1316,11 @@ async function main() {
         },
         completeFiles: (prefix) =>
           (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),
+        listResume: () =>
+          listSessions(sessionsDir).map((m) => ({
+            id: m.id,
+            label: `${m.id}${m.title ? ` — ${m.title}` : ""}${m.done ? "" : " ·未完成"}`,
+          })),
         initialItems,
         drainNotifications: () => taskManager.drainNotifications(),
         subscribeTasks: (cb) => taskManager.onChange(cb),
