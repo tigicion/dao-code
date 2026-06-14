@@ -56,9 +56,11 @@ export async function loadAgentDefsFrom(dir: string): Promise<AgentDef[]> {
 }
 
 // 项目优先覆盖用户同名定义。
-export async function loadAgentDefs(projectDir: string, userDir: string): Promise<AgentDef[]> {
+export async function loadAgentDefs(projectDir: string, userDir: string, pluginDirs: string[] = []): Promise<AgentDef[]> {
+  const plugins = (await Promise.all(pluginDirs.map(loadAgentDefsFrom))).flat();
   const [user, project] = await Promise.all([loadAgentDefsFrom(userDir), loadAgentDefsFrom(projectDir)]);
   const byName = new Map<string, AgentDef>();
+  for (const d of plugins) byName.set(d.name, d); // 插件最低优先
   for (const d of user) byName.set(d.name, d);
   for (const d of project) byName.set(d.name, d); // 项目覆盖
   return [...byName.values()];

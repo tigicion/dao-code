@@ -45,9 +45,11 @@ async function loadFrom(dir: string): Promise<CustomCommand[]> {
   return out;
 }
 
-export async function loadCustomCommands(projectDir: string, userDir: string): Promise<Map<string, CustomCommand>> {
+export async function loadCustomCommands(projectDir: string, userDir: string, pluginDirs: string[] = []): Promise<Map<string, CustomCommand>> {
+  const plugins = (await Promise.all(pluginDirs.map(loadFrom))).flat();
   const [user, project] = await Promise.all([loadFrom(userDir), loadFrom(projectDir)]);
   const byName = new Map<string, CustomCommand>();
+  for (const c of plugins) byName.set(c.name, c); // 插件最低优先
   for (const c of user) byName.set(c.name, c);
   for (const c of project) byName.set(c.name, c); // 项目覆盖
   return byName;
