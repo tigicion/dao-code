@@ -9,7 +9,7 @@ function gen(deltas: StreamDelta[], message: AssistantMessage) {
   })();
 }
 function strip(s: string): string {
-  // eslint-disable-next-line no-control-regex
+   
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
 

@@ -403,7 +403,7 @@ export function App(deps: AppDeps) {
       const fillIdx = nOpt + (choice.multi ? 1 : 0);
       const discussIdx = nOpt + (choice.multi ? 2 : 1);
       const done = (val: string) => { choice.resolve(val); setChoice(null); setAskInput(""); setChoiceChecked(new Set()); setChoiceWarn(false); };
-      const toggle = (i: number) => { setChoiceWarn(false); setChoiceChecked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; }); };
+      const toggle = (i: number) => { setChoiceWarn(false); setChoiceChecked((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; }); };
       const submitMulti = () => { // 提交已勾选;空集不静默提交,提示先勾选(避免误触丢问题)
         const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
         if (!picked.length) { setChoiceWarn(true); return; }
