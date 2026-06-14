@@ -29,7 +29,7 @@ jobs:
             bun build ./src/index.ts --compile --target="$t" --outfile "dist-bin/$out"
           done
           ls -lh dist-bin
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist-bin/*
           generate_release_notes: true
