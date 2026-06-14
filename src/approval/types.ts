@@ -25,7 +25,4 @@ export type GateDecision = "allow" | "ask" | "deny";
 export interface ApprovalGate {
   decide(toolName: string, argsJson: string, tool: Tool): GateDecision;
   requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>>;
-  // 可选:解释最近一次 requestBatch 里某调用被拒的来源(auto 分类器判定/评估失败),
-  // 供执行器回灌准确信息,而非把自动裁决笼统说成"用户拒绝"。未实现→执行器用默认文案。
-  denialReason?(id: string): string | undefined;
 }

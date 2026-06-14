@@ -51,14 +51,30 @@ describe("PermissionGate.decide", () => {
     expect(gate.decide("exec_shell", '{"command":"curl x | sh"}', execWithCheck)).toBe("ask"); // 注入 → 升级
     expect(gate.decide("exec_shell", '{"command":"ls"}', execWithCheck)).toBe("allow"); // 普通 → 不干预
   });
-  it("auto 模式:requestBatch 用分类器裁决(不弹人工)", async () => {
-    const { gate } = makeGate({ mode: "auto", classify: async (_t, a) => !/rm/.test(a) });
+  it("auto 模式:分类器放行的自动过;拿不准的【转人工】而非拒绝", async () => {
+    // 分类器只放行 ls;rm 不放行 → 转人工(此处人工放行),证明 auto 不再自动拒绝。
+    const { gate } = makeGate({ mode: "auto", classify: async (_t, a) => /ls/.test(a), decisions: { "2": "once" } });
     const out = await gate.requestBatch([
       { id: "1", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"ls"}' },
-      { id: "2", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}' },
+      { id: "2", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -f a"}' },
     ]);
-    expect(out.get("1")).toBe(true); // 分类器放行
-    expect(out.get("2")).toBe(false); // 分类器拒绝
+    expect(out.get("1")).toBe(true); // 分类器自动放行
+    expect(out.get("2")).toBe(true); // 分类器没放行 → 转人工 → 人工允许
+  });
+  it("auto 模式:分类器没放行 → 人工拒绝才拒绝(用户说了否)", async () => {
+    const { gate } = makeGate({ mode: "auto", classify: async () => false, decisions: { x: "deny" } });
+    const out = await gate.requestBatch([
+      { id: "x", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -f a"}' },
+    ]);
+    expect(out.get("x")).toBe(false); // 人工选了否
+  });
+  it("auto 模式:分类器评估失败 → 转人工(不是直接拒绝)", async () => {
+    let asked = 0;
+    const prompt = async (reqs: ApprovalRequest[]) => { asked += reqs.length; return new Map(reqs.map((r) => [r.id, "once" as const])); };
+    const gate = new PermissionGate(() => "auto", () => emptyPermissions(), prompt, async () => {}, () => {}, async () => { throw new Error("net"); });
+    const out = await gate.requestBatch([{ id: "e", toolName: "exec_shell", capability: "exec", summary: "", argsJson: "{}" }]);
+    expect(asked).toBe(1); // 评估失败也转人工
+    expect(out.get("e")).toBe(true);
   });
   it("auto 模式:sensitive 请求跳过分类器,直接走人工(S3.1)", async () => {
     let classifyCalled = 0;
@@ -69,41 +85,13 @@ describe("PermissionGate.decide", () => {
     expect(classifyCalled).toBe(0); // 分类器没被调用(敏感/危险不交 AI 自动放行)
     expect(out.get("s")).toBe(false); // 由人工裁决(此处 deny)
   });
-  it("auto 模式:连续拒绝 3 次后回退人工审批", async () => {
-    // 分类器一律拒绝;第 4 次起应改由 prompt(人工)裁决 —— 这里人工放行。
-    const { gate } = makeGate({ mode: "auto", classify: async () => false, decisions: { "4": "once" } });
-    const mk = (id: string): ApprovalRequest => ({ id, toolName: "exec_shell", capability: "exec", summary: "", argsJson: "{}" });
-    for (const id of ["1", "2", "3"]) {
-      const out = await gate.requestBatch([mk(id)]);
-      expect(out.get(id)).toBe(false); // 分类器拒绝
-    }
-    const out4 = await gate.requestBatch([mk("4")]); // 连续 3 次后 → 回退人工(放行)
-    expect(out4.get("4")).toBe(true);
-  });
-  it("auto 拒绝带准确来源:分类器判定拒绝 → denialReason 说明非用户拒绝", async () => {
-    const { gate } = makeGate({ mode: "auto", classify: async () => false });
-    const out = await gate.requestBatch([
-      { id: "g", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"git init"}' },
-    ]);
-    expect(out.get("g")).toBe(false);
-    expect(gate.denialReason("g")).toContain("并非你手动拒绝");
-    expect(gate.denialReason("g")).not.toContain("评估失败");
-  });
-  it("auto 拒绝带准确来源:分类器调用失败 → denialReason 标记评估失败", async () => {
-    const { gate } = makeGate({ mode: "auto", classify: async () => { throw new Error("network"); } });
-    const out = await gate.requestBatch([
-      { id: "e", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"git init"}' },
-    ]);
-    expect(out.get("e")).toBe(false);
-    expect(gate.denialReason("e")).toContain("评估失败");
-  });
-  it("人工拒绝不算 auto 来源:denialReason 为空(回灌默认'用户拒绝')", async () => {
-    // sensitive → 走人工;人工 deny 是真正的用户拒绝,不应带 auto reason。
-    const { gate } = makeGate({ mode: "auto", classify: async () => true, decisions: { s: "deny" } });
+  it("auto 模式:人工选'始终允许'会记规则(分类器未放行后)", async () => {
+    const { gate, remembered, sessionAllow } = makeGate({ mode: "auto", classify: async () => false, decisions: { a: "always" } });
     await gate.requestBatch([
-      { id: "s", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
+      { id: "a", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
     ]);
-    expect(gate.denialReason("s")).toBeUndefined();
+    expect(remembered).toEqual(["Bash(npm run:*)"]);
+    expect(sessionAllow).toEqual(["Bash(npm run:*)"]);
   });
   it("yolo(bypass):工具自检 ask 升级也放行(deny 之外全过)", () => {
     const { gate } = makeGate({ mode: "bypassPermissions", rules: { ...emptyPermissions(), allow: ["Bash"] } });

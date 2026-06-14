@@ -33,58 +33,28 @@ export class PermissionGate implements ApprovalGate {
     return d;
   }
 
-  // auto 模式拒绝跟踪(对标 CC denialTracking):连续拒绝/累计拒绝达阈值 → 回退人工审批,防分类器误杀卡死。
-  private consecutiveDenials = 0;
-  private cumulativeDenials = 0;
-  private static readonly CONSECUTIVE_LIMIT = 3;
-  private static readonly CUMULATIVE_LIMIT = 20;
-  private static readonly AUTO_CLASSIFIER_DENY =
-    "auto 模式:AI 安全分类器未自动放行此调用(判定需谨慎,并非你手动拒绝)。如确属安全,可直接重试;或用 `/mode default` 切到人工审批后放行。";
-  private static readonly AUTO_EVAL_FAILED =
-    "auto 模式:AI 安全分类器评估失败(网络/服务波动),保守起见未自动放行(fail-closed,并非你手动拒绝)。请重试,或用 `/mode default` 改人工审批。";
-
-  // auto 自动裁决的拒绝来源(每次 requestBatch 重置)——让执行器回灌准确原因,而非笼统"用户拒绝"。
-  private denials = new Map<string, string>();
-  denialReason(id: string): string | undefined { return this.denials.get(id); }
-
   async requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>> {
-    this.denials.clear();
-    // auto 模式:用 AI 分类器代替人工逐一裁决(出错保守拒绝,对标 fail-closed);不持久化规则(每次重判)。
+    const out = new Map<string, boolean>();
+    // auto 模式:AI 分类器只负责【把确信安全的自动放行】;其余(判定需谨慎 / 评估失败 / 敏感目标)
+    // 一律【转人工审批】,而不是直接拒绝——auto = "安全的自动过,拿不准的问你",绝不替你拒。
+    // (只读类工具 / 只读 shell / 工作区内编辑已在 engine.decide 短路为 allow,根本不会到这。)
+    let toAsk = requests;
     if (this.getMode() === "auto" && this.classify) {
-      const out = new Map<string, boolean>();
       const needHuman: ApprovalRequest[] = [];
       for (const r of requests) {
-        // S3.1:敏感目标/危险命令绝不交给分类器自动放行——直接走人工(即便 auto 模式)。
-        if (r.sensitive) { needHuman.push(r); continue; }
-        // 熔断:连续≥3 或 累计≥20 次拒绝 → 该请求回退人工审批(保留分类器已做的判断不丢)。
-        if (this.consecutiveDenials >= PermissionGate.CONSECUTIVE_LIMIT || this.cumulativeDenials >= PermissionGate.CUMULATIVE_LIMIT) {
-          if (this.cumulativeDenials >= PermissionGate.CUMULATIVE_LIMIT) this.cumulativeDenials = 0; // 累计触发后重置
-          needHuman.push(r);
-          continue;
-        }
-        // 区分"分类器判定拒绝"与"分类器调用本身失败"(网络/服务波动)——两者都 fail-closed,但回灌文案不同。
+        if (r.sensitive) { needHuman.push(r); continue; } // S3.1 敏感/危险:绝不交分类器
         let allow = false;
-        try { allow = await this.classify!(r.toolName, r.argsJson ?? ""); }
-        catch { this.denials.set(r.id, PermissionGate.AUTO_EVAL_FAILED); allow = false; }
-        if (allow) { this.consecutiveDenials = 0; out.set(r.id, true); }
-        else {
-          this.consecutiveDenials++; this.cumulativeDenials++; out.set(r.id, false);
-          if (!this.denials.has(r.id)) this.denials.set(r.id, PermissionGate.AUTO_CLASSIFIER_DENY);
-        }
+        try { allow = await this.classify(r.toolName, r.argsJson ?? ""); }
+        catch { allow = false; } // 分类器评估失败 → 不自动放行,转人工(不是拒绝)
+        if (allow) out.set(r.id, true);
+        else needHuman.push(r);
       }
-      if (needHuman.length) {
-        const decisions = await this.prompt(needHuman);
-        for (const r of needHuman) {
-          const allow = (decisions.get(r.id) ?? "deny") !== "deny";
-          if (allow) this.consecutiveDenials = 0;
-          out.set(r.id, allow); // needHuman 是真人决定:拒绝即用户拒绝,不设特殊 reason
-        }
-      }
-      return out;
+      if (needHuman.length === 0) return out;
+      toAsk = needHuman; // 分类器拿不准的,继续走下面的人工审批
     }
-    const decisions = await this.prompt(requests);
-    const out = new Map<string, boolean>();
-    for (const r of requests) {
+    // 人工审批(default 模式全部走这;auto 模式只有分类器未放行的走这)。
+    const decisions = await this.prompt(toAsk);
+    for (const r of toAsk) {
       const d = decisions.get(r.id) ?? "deny";
       if ((d === "always" || d === "session") && r.argsJson !== undefined) {
         const rule = rememberRule(r.toolName, r.argsJson);

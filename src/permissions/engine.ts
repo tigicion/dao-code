@@ -1,7 +1,7 @@
 import type { Capability } from "../tools/types.js";
 import { evaluate, type Decision } from "./rules.js";
 import { toCcIdentity } from "./identity.js";
-import { isDangerousCommand } from "./bash_safety.js";
+import { isDangerousCommand, isReadOnlyShellCommand } from "./bash_safety.js";
 import type { PermissionsConfig, PermissionMode } from "./settings.js";
 
 export interface DecideParams {
@@ -20,6 +20,12 @@ const SENSITIVE_TARGET =
 export function isSensitiveCall(toolName: string, argsJson: string): boolean {
   const id = toCcIdentity(toolName, argsJson);
   return !!id?.value && SENSITIVE_TARGET.test(id.value);
+}
+
+// 从 exec_shell 的 argsJson 取出 command 字符串(解析失败→空串,快速路径据此不放行)。
+function extractCommand(argsJson: string): string {
+  try { return (JSON.parse(argsJson) as { command?: string })?.command ?? ""; }
+  catch { return ""; }
 }
 
 // S2.1 危险 shell 命令(rm -rf /、curl|sh、提权…):exec_shell 专属判定。
@@ -51,7 +57,10 @@ export function decide(p: DecideParams): Decision {
   const d = decideBase(p);
   // auto 模式:把"需确认"的调用尽量在 AI 分类器之前快速放行(对标 CC 快速路径②③)。
   if (d === "ask" && p.mode === "auto") {
-    if (AUTO_ALLOWLIST.has(p.toolName)) return "allow"; // ③ 安全白名单
+    if (AUTO_ALLOWLIST.has(p.toolName)) return "allow"; // ③ 安全白名单(只读类工具)
+    // ③' 只读 shell 命令(ls/cat/git status…)快速放行:免一次分类器、也不被拒绝熔断牵连。
+    // 触及敏感目标(已在上面 mustConfirm→ask)或危险命令的不会走到这(isReadOnlyShellCommand 内部再次双保险)。
+    if (p.toolName === "exec_shell" && !mustConfirm(p) && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
     if (decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow"; // ② acceptEdits 会放行(工作区内编辑)
     return "ask"; // ④ 交分类器
   }

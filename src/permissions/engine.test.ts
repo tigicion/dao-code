@@ -57,6 +57,29 @@ describe("decide — auto 模式快速路径(分类器之前)", () => {
     expect(decide({ toolName: "fetch_url", argsJson: '{"url":"http://x"}', capability: "network", mode: "auto", ...base })).toBe("ask");
     expect(decide({ toolName: "edit_file", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "auto", ...base })).toBe("ask");
   });
+  it("③' 只读 shell 命令(ls/cat/git status/管道)→ 直接 allow,不走分类器", () => {
+    const ro = (cmd: string) => decide({ toolName: "exec_shell", argsJson: JSON.stringify({ command: cmd }), capability: "exec", mode: "auto", ...base });
+    expect(ro("ls /Users/x/proj/sub/")).toBe("allow");
+    expect(ro("cat package.json")).toBe("allow");
+    expect(ro("git status")).toBe("allow");
+    expect(ro("git log --oneline -20")).toBe("allow");
+    expect(ro("ls -la | grep foo")).toBe("allow"); // 管道:两段都只读
+    expect(ro("pwd")).toBe("allow");
+  });
+  it("只读快速路径的安全边界:写/链式/重定向/危险/敏感 → 仍 ask", () => {
+    const sh = (cmd: string) => decide({ toolName: "exec_shell", argsJson: JSON.stringify({ command: cmd }), capability: "exec", mode: "auto", ...base });
+    expect(sh("rm -f a")).toBe("ask"); // 非只读
+    expect(sh("git push")).toBe("ask"); // git 非只读子命令
+    expect(sh("ls > out.txt")).toBe("ask"); // 重定向(会写文件)
+    expect(sh("ls && rm -rf x")).toBe("ask"); // 链式
+    expect(sh("cat $(whoami)")).toBe("ask"); // 命令替换
+    expect(sh("find . -delete")).toBe("ask"); // find 带破坏动作
+    expect(sh("cat ~/.ssh/id_rsa")).toBe("ask"); // cat 虽只读,但敏感目标 → mustConfirm 拦
+    expect(sh("npm test")).toBe("ask"); // 非白名单程序 → 交分类器
+  });
+  it("只读快速路径只在 auto 生效:default 下 ls 仍 ask", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "default", ...base })).toBe("ask");
+  });
 });
 
 describe("decide — 模式默认(无规则命中)", () => {

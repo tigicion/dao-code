@@ -53,3 +53,49 @@ export function isDangerousCommand(command: string): string | null {
   }
   return null;
 }
+
+// 只读 shell 命令白名单:这些程序只查看、不改文件/不外联/不提权。
+const SAFE_READONLY_CMDS = new Set([
+  "ls", "pwd", "cat", "head", "tail", "wc", "file", "stat", "du", "df", "tree",
+  "echo", "printf", "which", "type", "whereis", "basename", "dirname", "realpath", "readlink",
+  "date", "whoami", "hostname", "uname", "id", "env", "printenv", "uptime", "locale",
+  "grep", "egrep", "fgrep", "rg", "ag", "sort", "uniq", "cut", "nl", "column", "comm", "tr", "tac", "rev", "fold", "expand",
+  "cksum", "sha1sum", "sha256sum", "md5", "md5sum", "diff", "cmp", "jq", "yq", "xxd", "od", "strings",
+]);
+// git 只读子命令(push/reset/clean/stash 等改动类不在内)。
+const SAFE_GIT_SUB = new Set([
+  "status", "log", "diff", "show", "branch", "remote", "tag", "describe", "rev-parse",
+  "ls-files", "ls-tree", "blame", "shortlog", "reflog", "whatchanged", "cat-file",
+  "for-each-ref", "name-rev", "symbolic-ref", "rev-list", "config",
+]);
+
+// 判定一条 shell 命令是否【纯只读、可在 auto 模式快速放行】——保守优先,拿不准就返回 false(交分类器/人工)。
+// 仅放行:每个管道段首词都是只读程序;无重定向/命令替换/后台/链式/子shell;非危险命令。
+// 不替代敏感目标判定(cat ~/.ssh/id_rsa 由 mustConfirm 拦,调用方应先查 mustConfirm)。
+export function isReadOnlyShellCommand(command: string): boolean {
+  if (typeof command !== "string") return false;
+  const s = command.trim();
+  if (!s) return false;
+  if (isDangerousCommand(s)) return false; // 双保险
+  // 拒绝可能改写/外联/链接危险命令的元字符:重定向 > < >>、命令替换 $() ` `、后台/链式 & &&、换行
+  if (/[;&<>\n`]/.test(s)) return false;
+  if (/\$\(/.test(s)) return false;
+  if (/\|\|/.test(s)) return false; // 只允许管道 |,不允许逻辑或 ||
+  const segs = s.split("|").map((x) => x.trim()).filter(Boolean);
+  if (!segs.length) return false;
+  for (const seg of segs) {
+    const toks = seg.split(/\s+/);
+    const cmd = (toks[0] ?? "").replace(/^.*\//, ""); // 去路径前缀:/bin/ls → ls
+    if (cmd === "git") {
+      if (!toks[1] || !SAFE_GIT_SUB.has(toks[1])) return false;
+      continue;
+    }
+    if (cmd === "find") {
+      // find 默认只查;但 -delete/-exec/-fprint 等会改文件或执行命令 → 不放行。
+      if (/(^|\s)-(delete|exec|execdir|ok|okdir|fprint|fprintf|fls)\b/.test(seg)) return false;
+      continue;
+    }
+    if (!SAFE_READONLY_CMDS.has(cmd)) return false;
+  }
+  return true;
+}

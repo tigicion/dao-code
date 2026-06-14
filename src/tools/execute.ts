@@ -94,8 +94,8 @@ export async function executeToolCalls(
   for (const r of gatedRequests) {
     const tc = toolCalls.find((t) => t.id === r.id)!;
     if (approvals.get(tc.id)) toRun.add(tc.id);
-    // auto 模式的自动裁决拒绝带准确来源(分类器判定/评估失败);人工拒绝才是"用户拒绝"。
-    else results.set(tc.id, rejectMsg(tc, gate.denialReason?.(tc.id) ?? "用户拒绝执行该工具。"));
+    // 走到这里的拒绝都是人工审批里用户选了"否"(auto 模式不再自动拒绝,拿不准的会转人工)。
+    else results.set(tc.id, rejectMsg(tc, "用户拒绝执行该工具。"));
   }
 
   // S3.3 审计:记录写/执行/网络类工具的最终裁决(放行/拒绝)到 .dao/audit.log。

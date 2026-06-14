@@ -1143,7 +1143,7 @@ async function main() {
             if (arg === "default" || arg === "acceptEdits" || arg === "auto") {
               if (session.mode === "plan") session.mode = "normal";
               permModeOverride = arg as PermissionMode;
-              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "⊙ auto:需审批的调用改由 AI 分类器裁决(只读/工作区内编辑快速放行;deny/敏感仍拦;连续拒绝多次回退人工)。" : "权限模式已设为 default(按需审批)" };
+              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "⊙ auto:只读命令/工作区内编辑自动放行;其余交 AI 分类器,确信安全的自动过、拿不准的转人工审批(不会替你拒绝);deny 规则/敏感目标仍按规则拦。" : "权限模式已设为 default(按需审批)" };
             }
             return { handled: true, output: `未知模式:${arg}(可选 default/acceptEdits/auto/plan)` };
           }
