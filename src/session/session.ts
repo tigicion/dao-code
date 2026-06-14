@@ -1,5 +1,6 @@
 import type { ChatMessage, Usage } from "../client/types.js";
 import type { Mode } from "../tools/tools_for_mode.js";
+import { estimateCostCNY, formatCNY } from "./cost.js";
 
 export interface UsageTotals {
   promptTokens: number;
@@ -71,11 +72,23 @@ export class Session {
     return this.usage.promptTokens > 0 ? this.usage.cacheHitTokens / this.usage.promptTokens : 0;
   }
 
+  // P3-17 估算本会话￥成本(粗略,见 cost.ts)。
+  costCNY(): number {
+    return estimateCostCNY(this.usage);
+  }
+
+  // 预算上限(￥):设了且累计成本达上限 → overBudget()=true,自主循环据此停。
+  budgetCNY?: number;
+  overBudget(): boolean {
+    return this.budgetCNY !== undefined && this.costCNY() >= this.budgetCNY;
+  }
+
   usageSummary(): string {
     const { promptTokens, completionTokens, cacheHitTokens } = this.usage;
     if (promptTokens === 0) return "本会话暂无 token 统计。";
     const pct = (this.cacheHitRatio() * 100).toFixed(1);
-    return `本会话用量:输入 ${promptTokens} tok(cache 命中 ${cacheHitTokens},命中率 ${pct}%,命中部分约省 98% 费用)· 输出 ${completionTokens} tok`;
+    const cost = formatCNY(this.costCNY());
+    return `本会话用量:输入 ${promptTokens} tok(cache 命中 ${cacheHitTokens},命中率 ${pct}%)· 输出 ${completionTokens} tok · 约 ${cost}${this.budgetCNY !== undefined ? `/${formatCNY(this.budgetCNY)} 预算` : ""}`;
   }
 
   addUser(text: string): void {

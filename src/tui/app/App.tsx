@@ -864,7 +864,7 @@ function StatusBar({
         {status.mode === "plan" ? <Text color={c("gold")}>◇ plan(只读规划) · </Text> : ""}
         {status.permMode === "acceptEdits" ? <Text color={c("jade")}>✎ 自动接受编辑 · </Text> : ""}
         {status.permMode === "auto" ? <Text color={c("jade")}>⊙ 智能判定 · </Text> : ""}
-        {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}% · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
+        {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}%{status.costCNY ? ` · ￥${status.costCNY.toFixed(status.costCNY < 1 ? 3 : 2)}` : ""} · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
         {status.branch ? ` · ⎇ ${status.branch}` : ""}
       </Text>
     </Box>
