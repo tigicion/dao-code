@@ -17,7 +17,7 @@ describe("人民币计费", () => {
     const p = loadPrices({ DAO_PRICE_INPUT_MISS: "4", DAO_PRICE_OUTPUT: "16" } as any);
     expect(p.inputMiss).toBe(4);
     expect(p.output).toBe(16);
-    expect(p.inputHit).toBe(0.5); // 未覆盖用默认
+    expect(p.inputHit).toBe(0.025); // 未覆盖用默认(Pro 命中价)
   });
   it("formatCNY 小额显示更多小数", () => {
     expect(formatCNY(0.004)).toContain("0.0040");
