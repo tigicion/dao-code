@@ -41,6 +41,7 @@ import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
 import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
 import { createWorktree } from "./agent/worktree.js";
+import { runDiagnosticsCmd } from "./tools/diagnostics.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
@@ -601,6 +602,9 @@ async function main() {
   // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。
   const FALLBACK_MODEL = process.env.DAO_FALLBACK_MODEL === "off" ? undefined : (process.env.DAO_FALLBACK_MODEL || "deepseek-v4-flash");
   const FLASH_MODEL = "deepseek-v4-flash";
+  // P2-11 编辑后诊断命令(如 "tsc --noEmit"):设了才在写/改文件后跑、把报错回灌模型。
+  const DIAG_CMD = process.env.DAO_DIAGNOSTICS_CMD?.trim();
+  const makeDiagnose = (signal?: AbortSignal) => (DIAG_CMD ? () => runDiagnosticsCmd(DIAG_CMD, workspaceRoot, signal) : undefined);
 
   // 压缩用:对一批旧消息生成结构化中文摘要(独立一次 streamChat,不带工具,不流式渲染)。
   // 对标 CC:先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
@@ -685,6 +689,7 @@ async function main() {
       write,
       compact: runCompaction, // L2.2 反应式压缩
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
+      diagnose: makeDiagnose(), // P2-11 编辑后诊断
     });
     if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
       write("\n[接近上限,自动压缩…]\n");
@@ -826,6 +831,7 @@ async function main() {
             write: () => {},
             compact: inkCompact, // L2.2 反应式压缩
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
+            diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
