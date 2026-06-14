@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
@@ -6,13 +6,17 @@ import os from "node:os";
 
 const exec = promisify(execFile);
 
-// 插件 = ~/.dao/plugins/<名>/ 目录,含 plugin.json({name, description})+ skills/ 子目录。
-// 基础能力:安装(git/本地)、列出、删除;插件的 skills 复用现有 skill 加载器并入技能集。
+// 插件 = ~/.dao/plugins/<名>/ 目录,含 plugin.json({name, description})。
+// 可携带多种组件:skills/、commands/、agents/、hooks.json(均与 .dao/ 下同格式)。
+// 基础能力:安装(git/本地)、列出、删除;各组件复用现有加载器并入对应注册表。
 export interface PluginInfo {
   name: string;
   description: string;
   dir: string;
   skillsDir: string; // <plugin>/skills,交给 loadSkills 加载
+  commandsDir?: string; // <plugin>/commands(存在时),.md 自定义命令,同 .dao/commands
+  agentsDir?: string; // <plugin>/agents(存在时),.md 代理定义,同 .dao/agents
+  hooksFile?: string; // <plugin>/hooks.json(存在时),同 .dao/hooks.json
 }
 
 export function pluginsRoot(): string {
@@ -36,9 +40,36 @@ export async function loadPlugins(root = pluginsRoot()): Promise<PluginInfo[]> {
     } catch {
       continue; // 缺/坏 manifest → 不是插件
     }
-    out.push({ name: manifest.name ?? name, description: manifest.description ?? "", dir, skillsDir: path.join(dir, "skills") });
+    const info: PluginInfo = { name: manifest.name ?? name, description: manifest.description ?? "", dir, skillsDir: path.join(dir, "skills") };
+    const commandsDir = path.join(dir, "commands");
+    if (existsSync(commandsDir)) info.commandsDir = commandsDir;
+    const agentsDir = path.join(dir, "agents");
+    if (existsSync(agentsDir)) info.agentsDir = agentsDir;
+    const hooksFile = path.join(dir, "hooks.json");
+    if (existsSync(hooksFile)) info.hooksFile = hooksFile;
+    out.push(info);
   }
   return out;
+}
+
+// 聚合所有插件的各组件目录/文件(过滤 undefined),供 index.ts 并入对应注册表。
+export function pluginComponentDirs(plugins: PluginInfo[]): {
+  skillDirs: string[];
+  commandDirs: string[];
+  agentDirs: string[];
+  hookFiles: string[];
+} {
+  const skillDirs: string[] = [];
+  const commandDirs: string[] = [];
+  const agentDirs: string[] = [];
+  const hookFiles: string[] = [];
+  for (const p of plugins) {
+    skillDirs.push(p.skillsDir);
+    if (p.commandsDir) commandDirs.push(p.commandsDir);
+    if (p.agentsDir) agentDirs.push(p.agentsDir);
+    if (p.hooksFile) hookFiles.push(p.hooksFile);
+  }
+  return { skillDirs, commandDirs, agentDirs, hookFiles };
 }
 
 // 安装:git URL 或本地路径 → ~/.dao/plugins/<manifest.name>。要求含 plugin.json。

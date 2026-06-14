@@ -22,7 +22,7 @@ import { installSkills } from "./skills/install.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
 import { scheduleTool } from "./tools/schedule_tool.js";
 import { skillInstallTool } from "./tools/skill_install.js";
-import { loadPlugins, installPlugin, removePlugin, pluginsRoot } from "./plugins.js";
+import { loadPlugins, installPlugin, removePlugin, pluginsRoot, pluginComponentDirs } from "./plugins.js";
 import { loadProjectInstructions } from "./project_doc.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
@@ -41,7 +41,7 @@ import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
 import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
 import { createWorktree } from "./agent/worktree.js";
-import { runDiagnosticsCmd } from "./tools/diagnostics.js";
+import { runDiagnosticsCmd, detectDiagnosticsCmd } from "./tools/diagnostics.js";
 import { shouldTrustProject, addTrusted } from "./config/trust.js";
 import { maybeCleanup } from "./agent/cleanup.js";
 import { maybeCheckUpdate } from "./config/update_check.js";
@@ -326,18 +326,23 @@ async function main() {
   // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
   const memoryText = buildMemorySection(selectForInjection(validated, today));
 
-  // 自定义子代理类型(.dao/agents/*.md):专属 prompt/工具白名单/模型。
+  // B-5 插件多组件:插件除 skills 外还可带 commands/agents/hooks;先加载插件、聚合其组件目录。
+  const installedPlugins = await loadPlugins();
+  const pluginComp = pluginComponentDirs(installedPlugins);
+  // 自定义子代理类型(.dao/agents/*.md + 插件 agents/):专属 prompt/工具白名单/模型。
   const diskAgentDefs = await loadAgentDefs(
     path.join(workspaceRoot, ".dao", "agents"),
     path.join(os.homedir(), ".dao", "agents"),
+    pluginComp.agentDirs,
   );
   // 并入内置子代理(explore/verify);同名磁盘定义优先(可覆盖)。
   const diskAgentNames = new Set(diskAgentDefs.map((d) => d.name));
   const agentDefs = [...diskAgentDefs, ...BUNDLED_AGENTS.filter((a) => !diskAgentNames.has(a.name))];
-  // 自定义 slash 命令(.dao/commands/*.md):/name 展开成 prompt。
+  // 自定义 slash 命令(.dao/commands/*.md + 插件 commands/):/name 展开成 prompt。
   const customCommands = await loadCustomCommands(
     path.join(workspaceRoot, ".dao", "commands"),
     path.join(os.homedir(), ".dao", "commands"),
+    pluginComp.commandDirs,
   );
   const agentTypesSection =
     agentDefs.length > 0
@@ -345,7 +350,6 @@ async function main() {
         agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
       : "";
   // 开箱即用 skill(.dao/skills/ + 已装插件的 skills/):启动只列 name+description,模型用 skill 工具按需取正文。
-  const installedPlugins = await loadPlugins();
   const pluginSkills = (await Promise.all(installedPlugins.map((p) => loadSkills(p.skillsDir)))).flat();
   const diskSkills = [
     ...(await loadSkills(path.join(os.homedir(), ".dao", "skills"), path.join(workspaceRoot, ".dao", "skills"))),
@@ -451,6 +455,7 @@ async function main() {
       model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash",
       messages: buildClassifierMessages(toolName, argsJson, session.messages),
       extra: { thinking: { type: "disabled" }, temperature: 0 },
+      onUsage: (u) => session.addUsage(u, process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash"), // B-2 记 flash 用量
     });
     let out = "";
     let r = await gen.next();
@@ -529,6 +534,7 @@ async function main() {
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
   const hooks = await loadHooks([
     path.join(os.homedir(), ".dao", "hooks.json"),
+    ...pluginComp.hookFiles, // B-5 插件 hooks
     // 未信任目录:不加载项目 hooks(hooks 会在事件时执行命令,是最危险的自动执行面)。
     ...(trustProject ? [path.join(workspaceRoot, ".dao", "hooks.json")] : []),
   ]);
@@ -625,7 +631,9 @@ async function main() {
   const FALLBACK_MODEL = process.env.DAO_FALLBACK_MODEL === "off" ? undefined : (process.env.DAO_FALLBACK_MODEL || "deepseek-v4-flash");
   const FLASH_MODEL = "deepseek-v4-flash";
   // P2-11 编辑后诊断命令(如 "tsc --noEmit"):设了才在写/改文件后跑、把报错回灌模型。
-  const DIAG_CMD = process.env.DAO_DIAGNOSTICS_CMD?.trim();
+  // 显式 DAO_DIAGNOSTICS_CMD 优先;否则 DAO_DIAGNOSTICS=1 时按项目自动探测(tsc/eslint)。默认不跑。
+  const DIAG_CMD = process.env.DAO_DIAGNOSTICS_CMD?.trim()
+    || (process.env.DAO_DIAGNOSTICS === "1" ? detectDiagnosticsCmd(workspaceRoot) : undefined);
   const makeDiagnose = (signal?: AbortSignal) => (DIAG_CMD ? () => runDiagnosticsCmd(DIAG_CMD, workspaceRoot, signal) : undefined);
 
   // 压缩用:对一批旧消息生成结构化中文摘要(独立一次 streamChat,不带工具,不流式渲染)。
@@ -666,6 +674,7 @@ async function main() {
       ],
       // 摘要不需要深推理:关思考更快更省,温度 0 让压缩结果可复现。
       extra: { thinking: { type: "disabled" }, temperature: 0 },
+      onUsage: (u) => session.addUsage(u, process.env.DAO_SUMMARY_MODEL || FLASH_MODEL), // B-2 记摘要用量
     });
     let out = "";
     let r = await gen.next();
@@ -748,12 +757,17 @@ async function main() {
     if (!hasRealTurn) return;
     write("\n正在更新记忆(蒸馏本次对话,需几秒)…\n"); // 退出后蒸馏要时间,先告知用户别以为卡住
     try {
+      // B-1 fork-cache:默认复用主对话前缀缓存(同主模型,几乎免费且更聪明);DAO_DISTILL_FORK=0 回退 flash 截断。
+      const fork = process.env.DAO_DISTILL_FORK !== "0";
+      const distillModel = fork ? session.model : "deepseek-v4-flash";
       const cands = await distill({
         streamChat,
         config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
-        model: "deepseek-v4-flash", // 蒸馏一律用便宜的 flash,与会话所选模型无关
+        model: distillModel,
         messages: session.messages,
         today,
+        fork,
+        onUsage: (u) => session.addUsage(u as never, distillModel), // B-2 计入蒸馏用量
       });
       // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
       const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
