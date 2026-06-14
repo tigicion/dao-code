@@ -59,4 +59,34 @@ describe("Session", () => {
     expect(s.cacheHitRatio()).toBe(0);
     expect(new Session("S", "m").usageSummary()).toMatch(/暂无/);
   });
+
+  // P0-1 缓存埋点:前缀缓存被改写时,某一回合命中率会从高位骤降。onCacheBust 应能捕获到,
+  // 用于在 --verbose 下暴露"压缩/注入意外破了前缀缓存"。
+  it("onCacheBust fires when a high cache-hit prefix suddenly collapses", () => {
+    const s = new Session("S", "m");
+    const hits: { from: number; to: number; promptTokens: number }[] = [];
+    s.onCacheBust((info) => hits.push(info));
+    // 第一回合:大输入、高命中(前缀缓存健康)
+    s.addUsage({ prompt_tokens: 20000, completion_tokens: 10, total_tokens: 20010, prompt_cache_hit_tokens: 19000, prompt_cache_miss_tokens: 1000 });
+    expect(hits).toHaveLength(0);
+    // 第二回合:命中率骤降(前缀被改写)→ 触发
+    s.addUsage({ prompt_tokens: 21000, completion_tokens: 10, total_tokens: 21010, prompt_cache_hit_tokens: 1000, prompt_cache_miss_tokens: 20000 });
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.from).toBeCloseTo(0.95, 1);
+    expect(hits[0]!.to).toBeCloseTo(0.05, 1);
+  });
+
+  it("onCacheBust does NOT fire on a healthy or first/small turn", () => {
+    const s = new Session("S", "m");
+    const hits: unknown[] = [];
+    s.onCacheBust(() => hits.push(1));
+    // 首轮天然 0 命中(无前缀),不应误报
+    s.addUsage({ prompt_tokens: 18000, completion_tokens: 5, total_tokens: 18005, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 18000 });
+    // 持续健康
+    s.addUsage({ prompt_tokens: 19000, completion_tokens: 5, total_tokens: 19005, prompt_cache_hit_tokens: 18000, prompt_cache_miss_tokens: 1000 });
+    s.addUsage({ prompt_tokens: 20000, completion_tokens: 5, total_tokens: 20005, prompt_cache_hit_tokens: 19000, prompt_cache_miss_tokens: 1000 });
+    // 小输入回合即便命中低也不报(省得首问/短问误触)
+    s.addUsage({ prompt_tokens: 500, completion_tokens: 5, total_tokens: 505, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 500 });
+    expect(hits).toHaveLength(0);
+  });
 });

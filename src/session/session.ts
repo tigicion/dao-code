@@ -15,6 +15,9 @@ export class Session {
   // 本会话累计 token 用量(含 cache 命中/未命中),供 /cost 与退出摘要算命中率。
   readonly usage: UsageTotals = { promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 };
   private readonly systemPrompt: string;
+  // P0-1 前缀缓存埋点:记录上一次 API 调用的输入规模与命中率,用于检测"前缀被改写导致命中骤降"。
+  private lastCall?: { promptTokens: number; hitRatio: number };
+  private cacheBustWarner?: (info: { from: number; to: number; promptTokens: number }) => void;
 
   constructor(systemPrompt: string, model: string) {
     this.systemPrompt = systemPrompt;
@@ -22,11 +25,28 @@ export class Session {
     this.messages = [{ role: "system", content: systemPrompt }];
   }
 
+  // 注册"前缀缓存疑似被破"回调(--verbose 下打日志)。前缀缓存是 dao 的成本差异化,
+  // 命中骤降通常意味着压缩/注入意外改写了消息前缀——埋点让这种回归可见。
+  onCacheBust(fn: (info: { from: number; to: number; promptTokens: number }) => void): void {
+    this.cacheBustWarner = fn;
+  }
+
   addUsage(u: Usage): void {
     this.usage.promptTokens += u.prompt_tokens ?? 0;
     this.usage.completionTokens += u.completion_tokens ?? 0;
     this.usage.cacheHitTokens += u.prompt_cache_hit_tokens ?? 0;
     this.usage.cacheMissTokens += u.prompt_cache_miss_tokens ?? 0;
+
+    // 本次调用的命中率;只在"输入够大(非首问/短问)"时参与骤降判定,避免误报。
+    const prompt = u.prompt_tokens ?? 0;
+    const ratio = prompt > 0 ? (u.prompt_cache_hit_tokens ?? 0) / prompt : 0;
+    if (prompt >= 4000) {
+      // 上一回合命中高(前缀健康)、本回合骤降 ≥0.5 → 多半是前缀被改写。
+      if (this.lastCall && this.lastCall.hitRatio >= 0.5 && this.lastCall.hitRatio - ratio >= 0.5) {
+        this.cacheBustWarner?.({ from: this.lastCall.hitRatio, to: ratio, promptTokens: prompt });
+      }
+      this.lastCall = { promptTokens: prompt, hitRatio: ratio };
+    }
   }
 
   // cache 命中 token 占输入 token 的比例(0–1)。无输入时返回 0。
