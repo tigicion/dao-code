@@ -43,6 +43,7 @@ import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
 import { createWorktree } from "./agent/worktree.js";
 import { runDiagnosticsCmd } from "./tools/diagnostics.js";
 import { shouldTrustProject, addTrusted } from "./config/trust.js";
+import { maybeCleanup } from "./agent/cleanup.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
@@ -411,6 +412,7 @@ async function main() {
   if (!trustProject) {
     process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
   }
+  void maybeCleanup(workspaceRoot); // P2-58/67 卫生清理:每日一次、非阻塞、best-effort
   // ---- CC 风格权限:分层加载 settings.json(user < project < local)----
   const localSettingsFile = path.join(workspaceRoot, ".dao", "settings.local.json");
   // 优先级(低→高):user < project < local < CLI < enterprise(企业托管策略不可被下层覆盖)。
