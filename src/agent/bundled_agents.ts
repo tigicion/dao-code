@@ -6,6 +6,9 @@ export const BUNDLED_AGENTS: AgentDef[] = [
   {
     name: "explore",
     description: "只读·彻底探查子代理:多策略搜索代码库/资料,跨多位置与命名惯例,只回提炼后的结论(适合范围广、要点散的调查,可并行派多个)。",
+    // 探查=搜索+定位+提炼,不写代码、不做深推理 → 默认用便宜的 flash 省成本(对标 CC Explore=haiku)。
+    // 要更强可设 DAO_EXPLORE_MODEL=<模型>,或放 .dao/agents/explore.md 覆盖。
+    model: process.env.DAO_EXPLORE_MODEL || "deepseek-v4-flash",
     tools: ["read_file", "list_dir", "grep_files", "file_search", "fetch_url", "web_search"],
     prompt: `你是探查子代理(explore)。任务:把某个问题在代码库/资料里【彻底查清】,只回提炼后的结论——不要把文件内容整块倒回去。
 - 多策略搜索:一种搜法没结果就换——查多个位置、试不同命名惯例(camelCase/snake_case/缩写/别名)、找相关与邻近文件、顺调用链上下追。
