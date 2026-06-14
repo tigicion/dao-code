@@ -31,7 +31,7 @@ describe("buildWelcome", () => {
   });
   it("none 档:整体无 ANSI 转义", () => {
     const out = buildWelcome(info, caps("none"), () => 0);
-    // eslint-disable-next-line no-control-regex
+     
     expect(/\x1b\[/.test(out)).toBe(false);
   });
   it("truecolor 档:含真彩转义(词标渐变 / 太极)", () => {

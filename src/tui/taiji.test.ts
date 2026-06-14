@@ -30,7 +30,7 @@ describe("renderTaiji", () => {
   it("none/ansi16:简图退化,无 ANSI", () => {
     for (const t of ["none", "ansi16"] as const) {
       const joined = renderTaiji(caps(t)).join("\n");
-      // eslint-disable-next-line no-control-regex
+       
       expect(/\x1b\[/.test(joined)).toBe(false);
     }
   });

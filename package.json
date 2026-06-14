@@ -2,7 +2,11 @@
   "name": "dao-code",
   "version": "0.1.2",
   "description": "DAO CODE —— 道家美学的 DeepSeek V4 终端编码 agent(Ink TUI · 太极欢迎屏 · 流式+工具+审批 · 持久记忆 · prompt-cache 感知)",
+  "author": "tigicion",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "dao": "dist/index.js"
   },
@@ -31,7 +35,8 @@
     "verify:mem": "tsx scripts/verify-memory.ts",
     "accept:mem": "bash scripts/accept-memory.sh",
     "accept:cache": "bash scripts/accept-cache.sh",
-    "debug:distill": "tsx scripts/debug-distill.ts"
+    "debug:distill": "tsx scripts/debug-distill.ts",
+    "lint": "eslint ."
   },
   "keywords": [
     "ai",
@@ -62,10 +67,14 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.17",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.6.0",
     "ink-testing-library": "^4.0.0",
     "react-devtools-core": "^7.0.1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
+    "typescript-eslint": "^8.61.0",
     "vitest": "^2.1.0"
   }
 }
