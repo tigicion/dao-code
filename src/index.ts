@@ -44,6 +44,9 @@ import { createWorktree } from "./agent/worktree.js";
 import { runDiagnosticsCmd } from "./tools/diagnostics.js";
 import { shouldTrustProject, addTrusted } from "./config/trust.js";
 import { maybeCleanup } from "./agent/cleanup.js";
+import { maybeCheckUpdate } from "./config/update_check.js";
+import { notify } from "./tui/notifier.js";
+import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
@@ -72,7 +75,7 @@ import { PermissionGate } from "./permissions/gate.js";
 import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
-import { createSessionStore, logEvents, findResumable, loadState } from "./session/log.js";
+import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
 import { createCheckpointer } from "./session/checkpoint.js";
 import { runRepl } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
@@ -413,6 +416,7 @@ async function main() {
     process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
   }
   void maybeCleanup(workspaceRoot); // P2-58/67 卫生清理:每日一次、非阻塞、best-effort
+  void maybeCheckUpdate((msg) => process.stderr.write(`ℹ ${msg}\n`)); // P3-59 更新检查:每日一次、非阻塞、仅提示
   // ---- CC 风格权限:分层加载 settings.json(user < project < local)----
   const localSettingsFile = path.join(workspaceRoot, ".dao", "settings.local.json");
   // 优先级(低→高):user < project < local < CLI < enterprise(企业托管策略不可被下层覆盖)。
@@ -464,6 +468,8 @@ async function main() {
   );
 
   const session = new Session(systemPrompt, cfg.model);
+  // P3-17 预算上限(￥):DAO_MAX_BUDGET 设了则自主/长任务循环达上限即停。
+  { const b = Number(process.env.DAO_MAX_BUDGET); if (Number.isFinite(b) && b > 0) session.budgetCNY = b; }
   // P0-1 前缀缓存埋点:命中率骤降(多半是压缩/注入改写了前缀)时,--verbose 下打到 stderr。
   // 前缀缓存命中比未命中省约 98%,这条日志让"压缩前后 cache 不塌"可验证。
   if (verbose) {
@@ -693,8 +699,21 @@ async function main() {
     write(after < before ? `\n[已压缩对话:${before} → ${after} 条消息]\n` : `\n[对话较短,无需压缩]\n`);
   };
 
+  // P3-63 防休眠 + 长回合完成通知:回合期间持 wakelock;耗时超阈值则完成时弹桌面通知。
+  const NOTIFY_MIN_MS = Number(process.env.DAO_NOTIFY_MIN_MS) || 30000;
+  const withPresence = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const release = acquireWakeLock();
+    const start = Date.now();
+    try { return await fn(); }
+    finally {
+      release();
+      const ms = Date.now() - start;
+      if (ms > NOTIFY_MIN_MS) notify("dao", `完成一轮(${Math.round(ms / 1000)}s)`);
+    }
+  };
+
   const runOneTurn = async () => {
-    await runTurn({
+    await withPresence(() => runTurn({
       session,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
       registry,
@@ -706,7 +725,7 @@ async function main() {
       compact: runCompaction, // L2.2 反应式压缩
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
-    });
+    }));
     if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
       write("\n[接近上限,自动压缩…]\n");
       await runCompaction();
@@ -836,7 +855,7 @@ async function main() {
           store.append({ t: "user", text });
           session.addUser(text);
           if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
-          await runTurn({
+          await withPresence(() => runTurn({
             session,
             config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
             registry,
@@ -862,7 +881,7 @@ async function main() {
               const query = `${content} ${paths.join(" ")}`.trim();
               return formatDiscovery(relevantSkills(query, skills, 5, skillWeight)); // 命中→新提示;未命中→""清除陈旧提示
             },
-          });
+          }));
           store.append({ t: "turn_end" });
           if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
             const before = session.messages.length;
@@ -951,10 +970,10 @@ async function main() {
           }
           if (name === "resume") {
             const id = line.trim().split(/\s+/)[1];
-            let sids: string[] = [];
-            try { sids = readdirSync(sessionsDir); } catch { /* 无 */ }
-            if (sids.length === 0) return { handled: true, output: "本工作区无历史会话。" };
-            if (!id) return { handled: true, output: `历史会话(${sids.length}):\n` + sids.slice(-15).reverse().map((s) => { const st = loadState(sessionsDir, s); return `  ${s}${st?.title ? ` — ${st.title}` : ""}`; }).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
+            // P3-29 秒列:只读轻量 meta(不解析整份 state.json),并按最近更新排序。
+            const metas = listSessions(sessionsDir);
+            if (metas.length === 0) return { handled: true, output: "本工作区无历史会话。" };
+            if (!id) return { handled: true, output: `历史会话(${metas.length}):\n` + metas.slice(0, 15).map((m) => `  ${m.id}${m.title ? ` — ${m.title}` : ""}${m.done ? "" : " ·未完成"}`).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
             const st = loadState(sessionsDir, id);
             if (!st) return { handled: true, output: `未找到会话:${id}(/resume 看列表)` };
             session.messages = st.messages; // 整盘载入上下文(继续写入当前会话文件,不动原文件)
@@ -1168,6 +1187,7 @@ async function main() {
           promptTokens: session.usage.promptTokens,
           completionTokens: session.usage.completionTokens,
           cacheHitRatio: session.cacheHitRatio(),
+          costCNY: session.costCNY(),
           yolo,
           longTask,
           coordinator,

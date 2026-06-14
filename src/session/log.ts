@@ -36,6 +36,17 @@ export interface PersistedState {
   done: boolean;
 }
 
+// P3-29 Lite-Log:轻量元信息(不含 messages),供 /resume 秒列与可恢复扫描,不必解析整份 state.json。
+export interface SessionMeta {
+  id: string;
+  cwd: string;
+  title?: string;
+  updatedAt: number;
+  done: boolean;
+  messageCount: number;
+  userMessageCount: number;
+}
+
 export interface SessionStore {
   id: string;
   dir: string;
@@ -57,8 +68,21 @@ export function createSessionStore(baseDir: string, id?: string): SessionStore {
   try { mkdirSync(dir, { recursive: true }); } catch {}
   const eventsPath = path.join(dir, "events.jsonl");
   const statePath = path.join(dir, "state.json");
+  const metaPath = path.join(dir, "meta.json");
   let last: PersistedState | null = null;
-  const flush = () => { if (last) try { writeFileSync(statePath, JSON.stringify(last)); } catch {} };
+  const flush = () => {
+    if (!last) return;
+    try { writeFileSync(statePath, JSON.stringify(last)); } catch {}
+    // 同步写轻量 meta(秒列用):只含元信息,不含 messages。
+    try {
+      const meta: SessionMeta = {
+        id: last.id, cwd: last.cwd, title: last.title, updatedAt: last.updatedAt, done: last.done,
+        messageCount: last.messages.length,
+        userMessageCount: last.messages.filter((m) => m.role === "user").length,
+      };
+      writeFileSync(metaPath, JSON.stringify(meta));
+    } catch {}
+  };
   return {
     id: sid,
     dir,
@@ -110,16 +134,43 @@ export function logEvents(inner: TurnEvents, store: SessionStore): TurnEvents {
   };
 }
 
+// 轻量读取会话元信息(秒列用)。优先 meta.json;旧会话无 meta 时回退从 state.json 派生(兼容)。
+export function loadMeta(baseDir: string, id: string): SessionMeta | null {
+  try {
+    return JSON.parse(readFileSync(path.join(baseDir, id, "meta.json"), "utf8")) as SessionMeta;
+  } catch {
+    const st = loadState(baseDir, id); // 回退:老会话补算一次
+    if (!st) return null;
+    return {
+      id: st.id, cwd: st.cwd, title: st.title, updatedAt: st.updatedAt, done: st.done,
+      messageCount: st.messages.length, userMessageCount: st.messages.filter((m) => m.role === "user").length,
+    };
+  }
+}
+
+// 列出某工作区下的会话元信息(按最近更新降序);只读 meta.json,不解析整份 state。
+export function listSessions(baseDir: string, cwd?: string): SessionMeta[] {
+  if (!existsSync(baseDir)) return [];
+  const want = cwd ? canon(cwd) : undefined;
+  const out: SessionMeta[] = [];
+  for (const sid of readdirSync(baseDir)) {
+    const m = loadMeta(baseDir, sid);
+    if (!m) continue;
+    if (want && canon(m.cwd) !== want) continue;
+    out.push(m);
+  }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 // 找出可恢复的会话:未完成(done:false)、同一工作区、至少有过一轮真实用户对话;取最近一个。
+// 先用轻量 meta 扫描定位最佳候选,只对它 loadState(避免解析所有 state.json)。
 export function findResumable(baseDir: string, cwd: string): PersistedState | null {
   if (!existsSync(baseDir)) return null;
   const want = canon(cwd);
-  let best: PersistedState | null = null;
-  for (const sid of readdirSync(baseDir)) {
-    const st = loadState(baseDir, sid);
-    if (!st || st.done || canon(st.cwd) !== want) continue;
-    if (!st.messages.some((m) => m.role === "user")) continue;
-    if (!best || st.updatedAt > best.updatedAt) best = st;
+  let bestId: string | null = null, bestAt = -1;
+  for (const m of listSessions(baseDir, want)) {
+    if (m.done || m.userMessageCount === 0) continue;
+    if (m.updatedAt > bestAt) { bestAt = m.updatedAt; bestId = m.id; }
   }
-  return best;
+  return bestId ? loadState(baseDir, bestId) : null;
 }
