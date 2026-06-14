@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
+import { blockedUrlReason } from "./ssrf.js";
 
 function htmlToText(html: string): string {
   return html
@@ -26,6 +27,8 @@ export const fetchUrlTool = defineTool({
     max_chars: z.number().int().min(100).optional().describe("最多返回字符数,默认 20000"),
   }),
   handler: async (args, ctx) => {
+    const blocked = blockedUrlReason(args.url); // S5.3 SSRF:拦内网/环回/云元数据端点
+    if (blocked) return `Error: 拒绝抓取(${blocked})`;
     const fetchImpl = ctx.fetchImpl ?? fetch;
     // 超时 30s + 尊重 ctx.signal(ESC):坏 URL/慢站不会永久挂死整个回合。
     const signals = [AbortSignal.timeout(30000), ...(ctx.signal ? [ctx.signal] : [])];

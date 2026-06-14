@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { scrubbedEnv } from "./safe_env.js";
 
 // 杀整个进程组(detached 下 child 是组长,-pid 杀它及其 shell 派生的所有孙进程,避免孤儿)。
 function killTree(child: ChildProcess, sig: NodeJS.Signals): void {
@@ -35,7 +36,7 @@ class ProcessManager {
 
   start(command: string, cwd: string): string {
     const id = `proc-${++this.counter}`;
-    const child = spawn(command, { cwd, shell: true, detached: true });
+    const child = spawn(command, { cwd, shell: true, detached: true, env: scrubbedEnv() }); // S5.2 env 脱敏
     const proc: BgProc = {
       id,
       command,

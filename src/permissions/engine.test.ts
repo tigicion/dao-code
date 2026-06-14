@@ -10,8 +10,9 @@ describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默
     const rules = { ...emptyPermissions(), deny: ["Bash(rm:*)"] };
     expect(decide({ toolName: "exec_shell", argsJson: rm, capability: "exec", mode: "bypassPermissions", rules })).toBe("deny");
   });
-  it("bypassPermissions:无 deny 时一律放行(连 exec 也放行)", () => {
-    expect(decide({ toolName: "exec_shell", argsJson: rm, capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
+  it("bypassPermissions:放行普通 exec;但危险命令仍 ask(S3.1 bypass-immune)", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"npm run test"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
+    expect(decide({ toolName: "exec_shell", argsJson: rm, capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask"); // rm -rf / 危险 → 即便 yolo 也要确认
   });
   it("ask 规则强制询问(优先于 allow)", () => {
     const rules = { ...emptyPermissions(), allow: ["Bash"], ask: ["Bash(rm:*)"] };
@@ -24,10 +25,10 @@ describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默
 });
 
 describe("decide — CC 1g:安全敏感目标", () => {
-  it("bypass(yolo)下写 .ssh/.git/凭据 → allow(deny 之外全过,用户自担风险)", () => {
-    expect(decide({ toolName: "write_file", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
-    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
-    expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
+  it("bypass(yolo)下写/执行敏感目标 → 仍 ask(S3.1 bypass-immune,对标 CC)", () => {
+    expect(decide({ toolName: "write_file", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
+    expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
   });
   it("acceptEdits / auto 下编辑敏感路径仍 ask(不自动放行)", () => {
     expect(decide({ toolName: "edit_file", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "acceptEdits", ...base })).toBe("ask");
