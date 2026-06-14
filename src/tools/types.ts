@@ -28,6 +28,9 @@ export interface ToolContext {
     workspaceRoot?: string,
     drainPending?: () => string[],
   ) => Promise<string>;
+  // ② fork 子代理:继承父代理已缓存的消息前缀(同 system/模型/工具),复用前缀缓存近乎免费;
+  // 适合"带全量上下文做一个分支子任务"。任务作末尾指令,只此处与父对话不同。
+  runForkAgent?: (task: string, signal?: AbortSignal, drainPending?: () => string[]) => Promise<string>;
   // 给运行中的后台子代理追加指令(SendMessage);返回是否送达(任务在跑)。
   sendToTask?: (id: string, message: string) => boolean;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。

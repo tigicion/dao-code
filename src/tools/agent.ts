@@ -30,6 +30,10 @@ export const agentTool = defineTool({
       .boolean()
       .optional()
       .describe("git worktree 隔离:子代理在独立工作树+分支里改文件,并行改文件互不冲突。改动留在分支供事后 review/merge。"),
+    fork: z
+      .boolean()
+      .optional()
+      .describe("fork 模式:子代理继承你当前的【完整上下文】(复用前缀缓存,近乎免费)再做这件事。适合'带全量背景做一个分支调查/尝试';与 agent_type/isolate 互斥。"),
   }),
   handler: async (args, ctx) => {
     if ((ctx.subagentDepth ?? 0) >= 1) {
@@ -51,9 +55,11 @@ export const agentTool = defineTool({
       return `已后台启动 ${ids.length} 个子代理${type ? `(类型 ${type})` : ""}(${ids.join(", ")});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
     }
     const run = ctx.runSubagent;
-    const isolate = !!args.isolate && !!ctx.createWorktree;
+    const fork = !!args.fork && !!ctx.runForkAgent; // ② fork 优先(继承父上下文 + 复用缓存)
+    const isolate = !fork && !!args.isolate && !!ctx.createWorktree;
     // 隔离运行:为该子代理建 worktree,在其中跑;改动留在分支供 review。非 git 仓库则回退共享。
     const runOne = async (t: string): Promise<string> => {
+      if (fork) return ctx.runForkAgent!(t, ctx.signal);
       if (isolate) {
         const wt = ctx.createWorktree!(`a${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`);
         if (wt) {
