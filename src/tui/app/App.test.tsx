@@ -151,6 +151,18 @@ describe("App", () => {
     expect(lastFrame()!).toContain("本工作区无历史会话");
   });
 
+  it("选择器:剥离选项自带的 A)/枚举,避免与界面编号 1. 2. 叠加", async () => {
+    let ask: ((q: string, options: string[], multi?: boolean) => Promise<string>) | null = null;
+    const { lastFrame } = render(<App {...makeDeps({ register: ({ askChoice }) => { ask = askChoice; } })} />);
+    await delay();
+    void ask!("贴纸拖动方式?", ["A) 拖拽模式", "B) 先选后放", "C) 纯画布"]);
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("1. 拖拽模式"); // 界面编号保留,模型自带的 "A) " 被剥离
+    expect(f).toContain("2. 先选后放");
+    expect(f).not.toContain("A)"); // 不再出现 "1. A) …" 这种叠加
+  });
+
   it("edit_file 工具结果渲染红绿 diff(路径 + 增删行)", async () => {
     const { lastFrame, stdin } = render(
       <App

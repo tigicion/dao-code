@@ -83,6 +83,10 @@ const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
 const SLASH_COMMANDS = COMMAND_META.map(([name]) => name);
 const MAX_SLASH_MENU = 10; // 菜单最多列几条,超出提示继续输入筛选(避免刷屏)
 
+// 剥离选项开头模型自带的枚举记号(A) / A. / A、 / 1) / 1. 等),避免和界面自动编号(1. 2. 3.)叠成「1. A) …」。
+// 仅作展示用;返回给模型的值仍是原始选项串。要求字母/1-2位数字后紧跟分隔符,故「A and B」「go.mod」「C++」不会误删。
+const stripEnum = (s: string): string => s.replace(/^\s*(?:[A-Za-z]|\d{1,2})[).、:：）]\s*/, "");
+
 // 多个候选时补到公共前缀(shell 习惯:再按 Tab 看候选行)。
 function commonPrefix(strs: string[]): string {
   if (!strs.length) return "";
@@ -787,7 +791,7 @@ export function App(deps: AppDeps) {
               }
               return (
                 <Text key={i} color={focused ? c("jade") : c("ink")}>
-                  {focused ? "❯ " : "  "}{i + 1}. {box}{o}
+                  {focused ? "❯ " : "  "}{i + 1}. {box}{i < choice.options.length ? stripEnum(o) : o}
                 </Text>
               );
             });
