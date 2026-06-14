@@ -1,5 +1,6 @@
 import path from "node:path";
 import { realpathSync } from "node:fs";
+import { hasSuspiciousUnicode } from "../permissions/sanitize.js";
 
 const within = (root: string, abs: string): boolean => {
   const rel = path.relative(root, abs);
@@ -32,6 +33,8 @@ function realEscapes(root: string, abs: string): boolean {
 // 供"可申请权限访问区外"的读类工具用:external=true 时由调用方走审批,而非直接拒绝。
 export function classifyPath(workspaceRoot: string, p: string): { abs: string; external: boolean } {
   const root = path.resolve(workspaceRoot);
+  // S1.2:含 null 字节/零宽/同形伪装的路径一律按"区外"处理 → 走审批,不静默放行。
+  if (hasSuspiciousUnicode(p)) return { abs: path.resolve(root, p.replace(/\0/g, "")), external: true };
   const abs = path.resolve(root, p);
   return { abs, external: !within(root, abs) || realEscapes(root, abs) };
 }
