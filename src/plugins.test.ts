@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadPlugins, installPlugin, removePlugin } from "./plugins.js";
+import { loadPlugins, installPlugin, removePlugin, pluginComponentDirs } from "./plugins.js";
 
 let root: string, src: string;
 beforeEach(async () => {
@@ -27,6 +27,50 @@ describe("loadPlugins", () => {
   });
   it("根不存在 → 空", async () => {
     expect(await loadPlugins(path.join(root, "nope"))).toEqual([]);
+  });
+  it("多组件:存在 commands/ agents/ hooks.json 时填充对应字段", async () => {
+    const p = path.join(root, "multi");
+    await fs.mkdir(path.join(p, "skills"), { recursive: true });
+    await fs.mkdir(path.join(p, "commands"), { recursive: true });
+    await fs.mkdir(path.join(p, "agents"), { recursive: true });
+    await fs.writeFile(path.join(p, "hooks.json"), "{}");
+    await fs.writeFile(path.join(p, "plugin.json"), JSON.stringify({ name: "multi", description: "多组件" }));
+    const [info] = await loadPlugins(root);
+    expect(info!.skillsDir).toBe(path.join(p, "skills"));
+    expect(info!.commandsDir).toBe(path.join(p, "commands"));
+    expect(info!.agentsDir).toBe(path.join(p, "agents"));
+    expect(info!.hooksFile).toBe(path.join(p, "hooks.json"));
+  });
+  it("仅 skills/ → command/agent/hook 字段为 undefined", async () => {
+    const p = path.join(root, "skonly");
+    await fs.mkdir(path.join(p, "skills"), { recursive: true });
+    await fs.writeFile(path.join(p, "plugin.json"), JSON.stringify({ name: "skonly", description: "纯技能" }));
+    const [info] = await loadPlugins(root);
+    expect(info!.skillsDir).toBe(path.join(p, "skills"));
+    expect(info!.commandsDir).toBeUndefined();
+    expect(info!.agentsDir).toBeUndefined();
+    expect(info!.hooksFile).toBeUndefined();
+  });
+});
+
+describe("pluginComponentDirs", () => {
+  it("聚合各组件并过滤 undefined", async () => {
+    const full = path.join(root, "full");
+    await fs.mkdir(path.join(full, "skills"), { recursive: true });
+    await fs.mkdir(path.join(full, "commands"), { recursive: true });
+    await fs.mkdir(path.join(full, "agents"), { recursive: true });
+    await fs.writeFile(path.join(full, "hooks.json"), "{}");
+    await fs.writeFile(path.join(full, "plugin.json"), JSON.stringify({ name: "full", description: "" }));
+    const partial = path.join(root, "partial");
+    await fs.mkdir(path.join(partial, "skills"), { recursive: true });
+    await fs.writeFile(path.join(partial, "plugin.json"), JSON.stringify({ name: "partial", description: "" }));
+
+    const plugins = await loadPlugins(root);
+    const agg = pluginComponentDirs(plugins);
+    expect(agg.skillDirs.sort()).toEqual([path.join(full, "skills"), path.join(partial, "skills")].sort());
+    expect(agg.commandDirs).toEqual([path.join(full, "commands")]);
+    expect(agg.agentDirs).toEqual([path.join(full, "agents")]);
+    expect(agg.hookFiles).toEqual([path.join(full, "hooks.json")]);
   });
 });
 
