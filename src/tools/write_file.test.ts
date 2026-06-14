@@ -58,6 +58,25 @@ describe("write_file tool", () => {
     await fs.rm(abs, { force: true });
   });
 
+  it("P2-23:文件自读后被外部改动 → 拒绝覆盖(防 clobber)", async () => {
+    const abs = path.join(root, "exists.txt");
+    await fs.writeFile(abs, "old", "utf8");
+    const st = await fs.stat(abs);
+    const readMeta = new Map([[abs, { mtime: st.mtimeMs - 1000, size: 999 }]]); // 模拟"读时元信息"与现状不符
+    await expect(
+      writeFileTool.handler({ path: "exists.txt", content: "new" }, { workspaceRoot: root, readFiles: new Set([abs]), readMeta }),
+    ).rejects.toThrow(/已被外部改动/);
+  });
+
+  it("P2-23:元信息一致 → 正常覆盖", async () => {
+    const abs = path.join(root, "exists.txt");
+    await fs.writeFile(abs, "old", "utf8");
+    const st = await fs.stat(abs);
+    const readMeta = new Map([[abs, { mtime: st.mtimeMs, size: st.size }]]);
+    await writeFileTool.handler({ path: "exists.txt", content: "new" }, { workspaceRoot: root, readFiles: new Set([abs]), readMeta });
+    expect(await fs.readFile(abs, "utf8")).toBe("new");
+  });
+
   it("declares write capability and required approval", () => {
     expect(writeFileTool.capability).toBe("write");
     expect(writeFileTool.approval).toBe("required");

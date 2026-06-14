@@ -462,6 +462,7 @@ async function main() {
   const ctx: ToolContext = {
     workspaceRoot,
     readFiles: new Set<string>(),
+    readMeta: new Map<string, { mtime: number; size: number }>(),
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
     askChoice: async (q: string, opts: string[], multi?: boolean) => {
