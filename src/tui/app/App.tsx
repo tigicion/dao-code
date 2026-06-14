@@ -146,7 +146,6 @@ export function App(deps: AppDeps) {
   // 自动附"其他(自己输入)"(进 askInput 子模式)与"先讨论一下"两项。
   const [choice, setChoice] = useState<{ question: string; options: string[]; multi: boolean; resolve: (s: string) => void } | null>(null);
   const [choiceIdx, setChoiceIdx] = useState(0);
-  const [choiceFilling, setChoiceFilling] = useState(false);
   const [choiceChecked, setChoiceChecked] = useState<Set<number>>(new Set()); // 多选已勾选的下标
   const [choiceWarn, setChoiceWarn] = useState(false); // 多选下空集回车 → 提示先勾选,而非静默提交
   const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
@@ -198,7 +197,7 @@ export function App(deps: AppDeps) {
       });
     const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
     const askChoice = (question: string, options: string[], multi?: boolean) =>
-      new Promise<string>((resolve) => { setChoice({ question, options, multi: !!multi, resolve }); setChoiceIdx(0); setChoiceFilling(false); setChoiceChecked(new Set()); setChoiceWarn(false); });
+      new Promise<string>((resolve) => { setChoice({ question, options, multi: !!multi, resolve }); setChoiceIdx(0); setChoiceChecked(new Set()); setChoiceWarn(false); });
     deps.register({ approvalPrompt, askUser, askChoice });
   }, [deps]);
 
@@ -403,48 +402,56 @@ export function App(deps: AppDeps) {
       const doneRowIdx = choice.multi ? nOpt : -1;
       const fillIdx = nOpt + (choice.multi ? 1 : 0);
       const discussIdx = nOpt + (choice.multi ? 2 : 1);
-      const done = (val: string) => { choice.resolve(val); setChoice(null); setChoiceFilling(false); setAskInput(""); setChoiceChecked(new Set()); setChoiceWarn(false); };
+      const done = (val: string) => { choice.resolve(val); setChoice(null); setAskInput(""); setChoiceChecked(new Set()); setChoiceWarn(false); };
       const toggle = (i: number) => { setChoiceWarn(false); setChoiceChecked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; }); };
       const submitMulti = () => { // 提交已勾选;空集不静默提交,提示先勾选(避免误触丢问题)
         const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
         if (!picked.length) { setChoiceWarn(true); return; }
         done(picked.join(", "));
       };
-      if (choiceFilling) { // "其他(自己输入)"子模式:用户敲自由文本
-        if (key.return) {
-          const custom = askInput.trim();
-          if (choice.multi) { // 多选:自填项并入已勾选的正常项
-            const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
-            if (custom) picked.push(custom);
-            done(picked.length ? picked.join(", ") : "(用户未选)");
-          } else done(custom || "(空)");
-        } else if (key.backspace || key.delete) setAskInput((s) => s.slice(0, -1));
-        else if (ch && !key.ctrl && !key.meta) setAskInput((s) => s + ch);
+      const submitFill = () => { // 提交"自己输入"行的自由文本(多选则并入已勾选项)
+        const custom = askInput.trim();
+        if (choice.multi) {
+          const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
+          if (custom) picked.push(custom);
+          done(picked.length ? picked.join(", ") : "(用户未选)");
+        } else done(custom || "(空)");
+      };
+      // 移动焦点(函数式更新,正确处理连续按键);落到"自己输入"行则置空,准备直接输入(灰色提示态)。
+      const moveBy = (d: number) => setChoiceIdx((i) => { const ni = Math.max(0, Math.min(allOpts.length - 1, i + d)); if (ni === fillIdx) setAskInput(""); return ni; });
+      const jumpTo = (ni: number) => { setChoiceIdx(ni); if (ni === fillIdx) setAskInput(""); };
+
+      // 焦点在"自己输入"行:该行就是内联输入框——按键即编辑(数字/空格也算文本),回车提交,上下移动离开。
+      if (choiceIdx === fillIdx) {
+        if (key.return) { submitFill(); return; }
+        if (key.upArrow) { moveBy(-1); return; }
+        if (key.downArrow) { moveBy(1); return; }
+        if (key.backspace || key.delete) { setAskInput((s) => s.slice(0, -1)); return; }
+        if (ch && !key.ctrl && !key.meta) { setAskInput((s) => s + ch); return; }
         return;
       }
-      // 数字键:跳到该项。单选直接触发;多选切换勾选(仅正常项)。
+      // 数字键:跳到该项。单选直接触发;多选切换勾选(仅正常项);跳到"自己输入"行则置空待输入。
       if (ch && /[1-9]/.test(ch)) {
         const i = Number(ch) - 1;
         if (i < allOpts.length) {
           if (choice.multi && i < nOpt) { setChoiceIdx(i); toggle(i); }
           else if (!choice.multi) {
             if (i < nOpt) done(choice.options[i]!);
-            else if (i === fillIdx) { setChoiceIdx(i); setChoiceFilling(true); setAskInput(""); }
+            else if (i === fillIdx) jumpTo(i);
             else done("我想先讨论一下,先别急着定方向。");
-          } else setChoiceIdx(i);
+          } else jumpTo(i);
         }
         return;
       }
-      if (key.upArrow) { setChoiceIdx((i) => Math.max(0, i - 1)); return; }
-      if (key.downArrow) { setChoiceIdx((i) => Math.min(allOpts.length - 1, i + 1)); return; }
+      if (key.upArrow) { moveBy(-1); return; }
+      if (key.downArrow) { moveBy(1); return; }
       // 空格(多选):切换当前正常项的勾选。
       if (choice.multi && ch === " ") {
         if (choiceIdx < nOpt) toggle(choiceIdx);
         return;
       }
       if (key.return) {
-        if (choiceIdx === fillIdx) { setChoiceFilling(true); setAskInput(""); }
-        else if (choiceIdx === discussIdx) done("我想先讨论一下,先别急着定方向。");
+        if (choiceIdx === discussIdx) done("我想先讨论一下,先别急着定方向。");
         else if (choiceIdx === doneRowIdx) submitMulti();      // 多选:在"完成"行回车 → 提交
         else if (choice.multi) toggle(choiceIdx);               // 多选:在正常项回车 → 勾选(不结束,可继续选)
         else done(choice.options[choiceIdx]!);                  // 单选:回车即选中
@@ -556,7 +563,7 @@ export function App(deps: AppDeps) {
   // 粘贴:bracketed paste 下整段作一个字符串进来(不经 useInput),原样追加进输入框、不自动提交。
   usePaste((text) => {
     if (approval) return;
-    if (choice) { if (choiceFilling) setAskInput((s) => s + text); return; }
+    if (choice) { if (choiceIdx === choice.options.length + (choice.multi ? 1 : 0)) setAskInput((s) => s + text); return; } // 焦点在"自己输入"行才接受粘贴
     if (ask) { setAskInput((s) => s + text); return; }
     // 大段粘贴(>280 字符或 >6 行)折叠成占位符,全文存 pasteRef,提交时展开;小段照常内联。
     let ins = text;
@@ -624,29 +631,37 @@ export function App(deps: AppDeps) {
       {choice && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
           <Text color={c("jade")}>{choice.question}</Text>
-          {choiceFilling ? (
-            <>
-              <Text color={c("ink")}>› {askInput}<Text color={c("jade")}>▎</Text></Text>
-              <Text color={c("dim")}>输入你的答案,⏎ 确认</Text>
-            </>
-          ) : (
-            <>
-              {[...choice.options, ...(choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS])].map((o, i) => {
-                const focused = i === choiceIdx;
-                // 多选:正常项显示 checkbox;"完成/其他/讨论"不参与勾选,仍按序号呈现。
-                const box = choice.multi && i < choice.options.length ? (choiceChecked.has(i) ? "[x] " : "[ ] ") : "";
+          {(() => {
+            const rows = [...choice.options, ...(choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS])];
+            const fillIdx = choice.options.length + (choice.multi ? 1 : 0);
+            return rows.map((o, i) => {
+              const focused = i === choiceIdx;
+              // 多选:正常项显示 checkbox;"完成/其他/讨论"不参与勾选,仍按序号呈现。
+              const box = choice.multi && i < choice.options.length ? (choiceChecked.has(i) ? "[x] " : "[ ] ") : "";
+              // "自己输入"行:焦点在此即内联输入框——有内容显内容+光标,空则灰色提示;未聚焦仍显灰色提示。
+              if (i === fillIdx) {
                 return (
-                  <Text key={i} color={focused ? c("jade") : c("ink")}>
-                    {focused ? "❯ " : "  "}{i + 1}. {box}{o}
+                  <Text key={i} color={focused ? c("jade") : c("dim")}>
+                    {focused ? "❯ " : "  "}{i + 1}. {focused
+                      ? (askInput ? <Text color={c("ink")}>{askInput}</Text> : <Text color={c("dim")}>自己输入…</Text>)
+                      : <Text color={c("dim")}>其他(自己输入)</Text>}
+                    {focused ? <Text color={c("jade")}>▎</Text> : null}
                   </Text>
                 );
-              })}
-              <Text color={c("dim")}>
-                {choice.multi ? "⏎/空格 勾选当前项 · ↑↓ 移动 · 到「完成」回车提交" : "数字快选 · ↑↓ 移动 · ⏎ 确认"}
-              </Text>
-              {choiceWarn ? <Text color={c("vermilion")}>还没勾选任何项:用 ⏎/空格 勾选,或选「先讨论一下」</Text> : null}
-            </>
-          )}
+              }
+              return (
+                <Text key={i} color={focused ? c("jade") : c("ink")}>
+                  {focused ? "❯ " : "  "}{i + 1}. {box}{o}
+                </Text>
+              );
+            });
+          })()}
+          <Text color={c("dim")}>
+            {choiceIdx === choice.options.length + (choice.multi ? 1 : 0)
+              ? "直接打字输入,⏎ 提交 · ↑↓ 移开"
+              : choice.multi ? "⏎/空格 勾选当前项 · ↑↓ 移动 · 到「完成」回车提交" : "数字快选 · ↑↓ 移动 · ⏎ 确认"}
+          </Text>
+          {choiceWarn ? <Text color={c("vermilion")}>还没勾选任何项:用 ⏎/空格 勾选,或选「先讨论一下」</Text> : null}
         </Box>
       )}
 

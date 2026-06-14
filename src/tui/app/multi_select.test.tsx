@@ -76,6 +76,21 @@ describe("multi-select (ask_user)", () => {
     expect(resolved).toBe(false);
   });
 
+  it("自己输入:方向键移到该行→直接打字→回车提交自填文本", async () => {
+    const { stdin, lastFrame, getAskChoice } = mount();
+    await delay();
+    const p = getAskChoice()("选一个", ["甲", "乙"], false); // 行:甲(0) 乙(1) 其他(2) 讨论(3)
+    await delay();
+    stdin.write(DOWN); stdin.write(DOWN); // 移到"其他(自己输入)"行
+    await delay();
+    expect(lastFrame()).toContain("自己输入…"); // 聚焦时显示灰色提示(空)
+    for (const ch of "我的想法") stdin.write(ch); // 直接打字
+    await delay();
+    expect(lastFrame()).toContain("我的想法"); // 内联显示已输入
+    stdin.write("\r");
+    expect(await p).toBe("我的想法"); // 回车提交自填
+  });
+
   it("single: 回车即选中当前项并结束", async () => {
     const { stdin, getAskChoice } = mount();
     await delay();
