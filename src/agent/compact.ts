@@ -73,28 +73,37 @@ export async function compactMessages(
   if (userIdx.length <= opts.keepRecentTurns) return messages;
 
   const tailStart = userIdx[userIdx.length - opts.keepRecentTurns]!;
-  const toSummarize = rest.slice(0, tailStart);
+  let toSummarize = rest.slice(0, tailStart);
   const tail = rest.slice(tailStart);
   if (toSummarize.length === 0) return messages;
 
   const pinnedMsg = (): ChatMessage[] =>
     pinned && pinned.trim() ? [{ role: "system", content: `[当前任务清单(请据此继续,勿偏离)]\n${pinned}` }] : [];
 
+  // ④ 增量压缩:若待摘要段开头就是【上次压缩留下的摘要】,把它原样保留(不再二次摘要,免精度流失+更省),
+  // 只摘要其后的新消息,再把"旧摘要 + 新增"拼起来。重复压缩因此越来越便宜、且不丢早期要点。
+  const SUMMARY_MARK = "[早期对话摘要";
+  let priorSummary = "";
+  if (toSummarize[0]?.role === "system" && typeof toSummarize[0].content === "string" && toSummarize[0].content.startsWith(SUMMARY_MARK)) {
+    priorSummary = toSummarize[0].content;
+    toSummarize = toSummarize.slice(1);
+  }
+  if (toSummarize.length === 0) return messages; // 只剩旧摘要、无新内容 → 不动
+
   // L2.3 降级阶梯:摘要失败(flash 挂/熔断打开)→ 硬截断兜底,绝不让"压缩本身"把长任务搞崩。
-  // 硬截断只丢早段细节,保留 system 锚 + 最近 N 轮 + 任务清单——任务可继续,只是少了早期上下文。
   let summary: string;
   try {
     summary = await opts.summarize(toSummarize);
   } catch {
     const marker: ChatMessage = {
       role: "system",
-      content: "[早期对话已截断(摘要暂不可用):为继续任务保留了系统提示、最近若干轮与任务清单,早段细节已舍弃。如缺关键背景,请向用户确认。]",
+      content: `${priorSummary ? priorSummary + "\n\n" : ""}[早期对话已截断(摘要暂不可用):为继续任务保留了系统提示、最近若干轮与任务清单,早段细节已舍弃。如缺关键背景,请向用户确认。]`,
     };
     return [system, marker, ...pinnedMsg(), ...tail];
   }
-  const summaryMsg: ChatMessage = {
-    role: "system",
-    content: `[早期对话摘要——上下文超限已压缩,以下是早段对话的摘要]\n${summary}\n\n从中断处直接继续,不要复述摘要、不要寒暄,像没中断过一样接着上一个任务。`,
-  };
+  const merged = priorSummary
+    ? `${priorSummary}\n\n[续·本次新增]\n${summary}` // 旧摘要保留 + 追加新增
+    : `[早期对话摘要——上下文超限已压缩,以下是早段对话的摘要]\n${summary}\n\n从中断处直接继续,不要复述摘要、不要寒暄,像没中断过一样接着上一个任务。`;
+  const summaryMsg: ChatMessage = { role: "system", content: merged };
   return [system, summaryMsg, ...pinnedMsg(), ...tail];
 }

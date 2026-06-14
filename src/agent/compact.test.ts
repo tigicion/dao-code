@@ -131,6 +131,29 @@ describe("compactMessages 降级(summarize 失败→硬截断)", () => {
   });
 });
 
+// ④ 增量压缩:已有旧摘要时,旧摘要原样保留、只摘要新消息,拼成"旧+新"。
+describe("compactMessages 增量(④)", () => {
+  const user = (c: string) => ({ role: "user" as const, content: c });
+  const asst = (c: string) => ({ role: "assistant" as const, content: c });
+  it("保留旧摘要 verbatim + 追加新增,不二次摘要旧摘要", async () => {
+    const msgs = [
+      { role: "system" as const, content: "SYS" },
+      { role: "system" as const, content: "[早期对话摘要——上下文超限已压缩,以下是早段对话的摘要]\n旧:做了 A" },
+      user("新1"), asst("n1"), user("新2"), asst("n2"), user("近1"), asst("c1"),
+    ];
+    let summarizeInput = "";
+    const out = await compactMessages(
+      msgs,
+      { keepRecentTurns: 1, summarize: async (m) => { summarizeInput = m.map((x) => x.content).join("|"); return "新摘要:做了 B"; } },
+    );
+    const sum = out.find((m) => typeof m.content === "string" && m.content.includes("旧:做了 A"))!;
+    expect(sum.content).toContain("旧:做了 A"); // 旧摘要保留
+    expect(sum.content).toContain("新摘要:做了 B"); // 追加新增
+    expect(summarizeInput).not.toContain("旧:做了 A"); // 旧摘要没被再喂去摘要(省 + 不丢真)
+    expect(summarizeInput).toContain("新1"); // 只摘要新消息
+  });
+});
+
 // P0-1 缓存不变式回归:压缩后,system 锚点逐字节不变、保留的近期段(tail)绝不被改写——
 // 这样压缩产物 [system, summary, ...tail] 的 system 段仍命中缓存,且 tail 内容未被
 // microcompact 污染。任何把 microcompact 漏到 tail 的回归都会让这些断言失败。
