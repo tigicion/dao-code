@@ -8,6 +8,7 @@ export interface Worktree {
   root: string;
   branch: string;
   cleanup: () => void; // 移除 worktree + 删分支(改动会丢,仅在确认无需保留时调用)
+  hasChanges: () => boolean; // 工作树是否有未提交改动(判断该保留还是清理)
 }
 
 export function createWorktree(repoRoot: string, id: string): Worktree | null {
@@ -32,6 +33,14 @@ export function createWorktree(repoRoot: string, id: string): Worktree | null {
         execFileSync("git", ["branch", "-D", branch], { cwd: repoRoot, stdio: "ignore" });
       } catch {
         /* 忽略 */
+      }
+    },
+    hasChanges: () => {
+      try {
+        const out = execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
+        return out.trim().length > 0;
+      } catch {
+        return true; // 判断不了 → 保守保留(不误删)
       }
     },
   };
