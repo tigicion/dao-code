@@ -137,6 +137,26 @@ describe("executeToolCalls (approval-aware)", () => {
 });
 
 import { describeCall } from "./execute.js";
+describe("③ exec 错误级联", () => {
+  it("本批前一个 exec 失败 → 跳过后续 exec(防 install 挂了还跑 build)", async () => {
+    const r = new ToolRegistry();
+    let secondRan = false;
+    r.register(defineTool({
+      name: "exec_shell", description: "", capability: "exec", approval: "auto",
+      schema: z.object({ n: z.number().optional() }),
+      handler: async (a: { n?: number }) => { if (a.n === 2) { secondRan = true; return "ok2 [exit 0]"; } return "boom\n[exit 1]"; },
+    }));
+    const { gate } = gateWith(true);
+    const out = await executeToolCalls(
+      [call("a", "exec_shell", '{"n":1}'), call("b", "exec_shell", '{"n":2}')],
+      r, ctx, gate,
+    );
+    expect(out.find((m) => m.tool_call_id === "a")!.content).toContain("[exit 1]");
+    expect(out.find((m) => m.tool_call_id === "b")!.content).toContain("已跳过");
+    expect(secondRan).toBe(false); // 第二个 exec 没执行
+  });
+});
+
 describe("describeCall", () => {
   it("exec_shell → $ 命令(保留真实换行,不是字面 \\n)", () => {
     const out = describeCall("exec_shell", JSON.stringify({ command: "cat > f << EOF\nhi\nEOF" }));

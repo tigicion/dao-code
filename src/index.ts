@@ -88,7 +88,7 @@ import { runInkApp } from "./tui/app/run.js";
 import { walkFiles } from "./tools/walk.js";
 import type { ApprovalPrompt } from "./approval/types.js";
 import { VERSION } from "./version.js";
-import { compactMessages, shouldCompact, estimateTokens } from "./agent/compact.js";
+import { compactMessages, estimateTokens } from "./agent/compact.js";
 import { todoStore, formatTodos } from "./tools/todo_store.js";
 import type { ChatMessage } from "./client/types.js";
 import type { ToolContext } from "./tools/types.js";
@@ -579,6 +579,20 @@ async function main() {
     });
   };
 
+  // ② fork 子代理:用父对话已缓存前缀做起点(复用缓存),全量 system/工具/模型与父一致。
+  ctx.runForkAgent = (task: string, signal?: AbortSignal, drainPending?: () => string[]) => {
+    // 剪掉尾部"未配对的 assistant(tool_calls)/tool"消息,使前缀以完整交换收尾(可合法追加 user);
+    // 这段前缀正是此前回合发过的、已被缓存的内容。
+    const fork = [...session.messages];
+    while (fork.length && (fork[fork.length - 1]!.role === "tool" || (fork[fork.length - 1]!.role === "assistant" && (fork[fork.length - 1] as { tool_calls?: unknown }).tool_calls))) fork.pop();
+    return runSubagent({
+      task, systemPrompt, model: session.model, mode: session.mode,
+      config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
+      registry, ctx, gate, streamChat, executeToolCalls, write: subagentWrite, runTurn,
+      signal, drainPending, forkMessages: fork,
+    });
+  };
+
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
@@ -627,6 +641,8 @@ async function main() {
   // L2.1:上下文窗口可被 env 覆盖(目标模型真实窗口若 <1M 必须设对,否则压缩永不触发→真实上限处崩)。
   // 真正的安全网是反应式压缩(见 loop.ts compact 钩子):即便此值偏大,撞上下文超限也会自动压缩重试。
   const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || 1_000_000;
+  // Q1 当前上下文 token:优先用主模型上次真实 prompt_tokens(准,尤其中文),无则回退 chars/3 估算。
+  const contextTokens = () => session.lastPromptTokens ?? estimateTokens(session.messages);
   // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。
   const FALLBACK_MODEL = process.env.DAO_FALLBACK_MODEL === "off" ? undefined : (process.env.DAO_FALLBACK_MODEL || "deepseek-v4-flash");
   const FLASH_MODEL = "deepseek-v4-flash";
@@ -735,7 +751,7 @@ async function main() {
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
     }));
-    if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
+    if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
       write("\n[接近上限,自动压缩…]\n");
       await runCompaction();
     }
@@ -897,7 +913,7 @@ async function main() {
             },
           }));
           store.append({ t: "turn_end" });
-          if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
+          if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
             const before = session.messages.length;
             events.notice("[接近上限,自动压缩…]");
             await inkCompact();
@@ -923,7 +939,7 @@ async function main() {
             return { handled: true, output: `技能(${diskSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") };
           }
           if (name === "context") {
-            const used = estimateTokens(session.messages);
+            const used = contextTokens();
             const sys = estimateTokens(session.messages.slice(0, 1));
             const pct = Math.round((used / CONTEXT_WINDOW) * 100);
             return { handled: true, output: `上下文:~${used.toLocaleString()} / ${CONTEXT_WINDOW.toLocaleString()} tok(${pct}%)\n  系统+技能 ~${sys.toLocaleString()} · 对话 ~${(used - sys).toLocaleString()}\n  ${pct >= 85 ? "接近上限,下回合将自动压缩(也可 /compact)" : "余量充足"}` };
@@ -1059,7 +1075,7 @@ async function main() {
             return { handled: true, output: `思考强度已设为 ${arg}(下一回合生效)` };
           }
           if (name === "status") {
-            const pct = Math.round((estimateTokens(session.messages) / CONTEXT_WINDOW) * 100);
+            const pct = Math.round((contextTokens() / CONTEXT_WINDOW) * 100);
             const flags = [yolo ? "免审批" : "", longTask ? "长任务" : "", coordinator ? "Coordinator" : ""].filter(Boolean).join("/") || "—";
             return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
           }
@@ -1206,7 +1222,7 @@ async function main() {
           longTask,
           coordinator,
           branch: gitBranch,
-          contextPct: (estimateTokens(session.messages) / CONTEXT_WINDOW) * 100,
+          contextPct: (contextTokens() / CONTEXT_WINDOW) * 100,
         }),
         cycleMode: () => {
           // yolo(bypassPermissions)不在 Shift+Tab 循环里——只能 `dao --yolo` 启动时开启。

@@ -115,6 +115,10 @@ export async function executeToolCalls(
     const cap = registry.get(tc.function.name)?.capability;
     return cap !== undefined && SAFE_CAPS.has(cap);
   };
+  // ③ exec 结果是否表示失败(非零退出/超时/中断/Error)——用于错误级联。
+  const looksFailed = (content: string): boolean =>
+    content.startsWith("Error") || /\[exit ([1-9]\d*)\]|\[超时|\[已中断\]/.test(content);
+  let barrierAborted = false;
   let batch: ToolCall[] = [];
   const flush = async () => {
     if (batch.length === 0) return;
@@ -134,7 +138,15 @@ export async function executeToolCalls(
     if (isSafe(tc)) batch.push(tc);
     else {
       await flush(); // 屏障:先跑完已积累的安全批
-      results.set(tc.id, await dispatchOne(tc, registry, ctx)); // 独占运行 write/exec
+      // ③ 错误级联:本批里前一个 exec_shell 已失败 → 跳过后续 exec/write,
+      // 防"npm install 挂了还接着 npm run build"这类连锁错误(对标 CC Bash 级联)。
+      if (barrierAborted) {
+        results.set(tc.id, { role: "tool", tool_call_id: tc.id, content: "已跳过:本批前一个命令失败,为避免连锁错误未执行。请先处理上一个错误再重试。" });
+        continue;
+      }
+      const r = await dispatchOne(tc, registry, ctx); // 独占运行 write/exec
+      results.set(tc.id, r);
+      if (registry.get(tc.function.name)?.capability === "exec" && looksFailed(r.content)) barrierAborted = true;
     }
   }
   await flush();
