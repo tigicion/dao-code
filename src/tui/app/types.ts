@@ -31,6 +31,7 @@ export interface StatusInfo {
   promptTokens: number;
   completionTokens: number;
   cacheHitRatio: number;
+  costCNY?: number; // P3-17 本会话估算￥成本
   yolo: boolean;
   longTask?: boolean; // 长任务自主模式
   coordinator?: boolean; // Coordinator 编排模式
