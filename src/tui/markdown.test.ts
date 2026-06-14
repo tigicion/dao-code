@@ -43,4 +43,19 @@ describe("renderMarkdown", () => {
     expect(body).toHaveLength(2);
     expect(displayWidth(body[0]!)).toBe(displayWidth(body[1]!));
   });
+
+  it("宽表格按给定宽度折行:不溢出、所有行等宽、内容不丢", () => {
+    const long = "很长的中文内容需要折行".repeat(6);
+    const md = `| 问题 | 为什么 |\n|---|---|\n| 短 | ${long} |`;
+    const out = renderMarkdown(md, 40);
+    const lines = strip(out).split("\n").filter((l) => l.trim());
+    // 每条物理行显示宽度 ≤ 40(不溢出 → 终端不会再硬折行打散边框)
+    for (const l of lines) expect(displayWidth(l)).toBeLessThanOrEqual(40);
+    // 所有边框/内容行等宽 → 边框对齐
+    const w0 = displayWidth(lines[0]!);
+    for (const l of lines) expect(displayWidth(l)).toBe(w0);
+    // 折行后内容仍完整(去掉边框与空白后应能拼回长串)
+    const joined = lines.join("").replace(/[│┌┐└┘├┤┬┴─\s]/g, "");
+    expect(joined).toContain("很长的中文内容需要折行很长的中文内容需要折行");
+  });
 });
