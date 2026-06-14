@@ -29,7 +29,7 @@ export interface ToolContext {
   // 给运行中的后台子代理追加指令(SendMessage);返回是否送达(任务在跑)。
   sendToTask?: (id: string, message: string) => boolean;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
-  createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void } | null;
+  createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
   runBackgroundAgent?: (task: string, agentType?: string) => string;
   // 接管一个已在运行的子代理 promise 转入后台(前台超时自动后台化用)。

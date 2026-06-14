@@ -58,7 +58,10 @@ export const agentTool = defineTool({
         const wt = ctx.createWorktree!(`a${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`);
         if (wt) {
           const r = await run(t, ctx.signal, type, wt.root);
-          return `${r}\n[隔离:改动在分支 ${wt.branch}]`;
+          // P2-48 清理策略(对标 CC):有改动→保留分支供 review/merge;无改动→自动删,不留垃圾 worktree。
+          if (wt.hasChanges()) return `${r}\n[隔离:改动在分支 ${wt.branch}(已保留,可 review/merge)]`;
+          wt.cleanup();
+          return r;
         }
       }
       return run(t, ctx.signal, type);
