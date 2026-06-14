@@ -1,8 +1,10 @@
 import type { UsageTotals } from "./session.js";
 
 // P3-17 人民币计费:按 token 用量估算￥成本。前缀缓存命中的输入按更低的"命中价"计。
-// 默认价为 DeepSeek 公开价量级(￥/百万 token),仅供估算;可用 env 覆盖以匹配实际模型/档位:
+// 默认价 = DeepSeek-V4-Pro 公开价(￥/百万 token);可用 env 覆盖匹配实际模型/档位:
 //   DAO_PRICE_INPUT_HIT(缓存命中输入)/ DAO_PRICE_INPUT_MISS(未命中输入)/ DAO_PRICE_OUTPUT(输出)
+// 参考价(￥/1M):Pro 命中 0.025 / 未命中 3 / 输出 6;Flash 命中 0.02 / 未命中 1 / 输出 2。
+// dao 把 pro+flash 用量混在一个桶,这里按 Pro 一套价估算(flash 部分会略高估),用于成本感知,不作账单。
 export interface Prices { inputHit: number; inputMiss: number; output: number } // ￥ / 1M tokens
 
 const num = (env: string | undefined, def: number): number => {
@@ -12,9 +14,9 @@ const num = (env: string | undefined, def: number): number => {
 
 export function loadPrices(env: NodeJS.ProcessEnv = process.env): Prices {
   return {
-    inputHit: num(env.DAO_PRICE_INPUT_HIT, 0.5),
-    inputMiss: num(env.DAO_PRICE_INPUT_MISS, 2),
-    output: num(env.DAO_PRICE_OUTPUT, 8),
+    inputHit: num(env.DAO_PRICE_INPUT_HIT, 0.025),
+    inputMiss: num(env.DAO_PRICE_INPUT_MISS, 3),
+    output: num(env.DAO_PRICE_OUTPUT, 6),
   };
 }
 
