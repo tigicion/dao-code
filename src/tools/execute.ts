@@ -2,7 +2,7 @@ import type { ToolCall, ToolMessage } from "../client/types.js";
 import type { Capability, ToolContext } from "./types.js";
 import type { ToolRegistry } from "./registry.js";
 import type { ApprovalGate, ApprovalRequest } from "../approval/types.js";
-import { isSensitiveCall } from "../permissions/engine.js";
+import { isSensitiveCall, isDangerousCall } from "../permissions/engine.js";
 import { rememberRule } from "../permissions/identity.js";
 
 // 给审批/展示用的人类可读摘要:命令保留【真实换行】(而非原始 JSON 的字面 \n),路径类只显路径。
@@ -76,7 +76,8 @@ export async function executeToolCalls(
     if (decision === "allow") toRun.add(tc.id);
     else if (decision === "deny") results.set(tc.id, rejectMsg(tc, "该操作被权限规则拒绝(deny)。如需放行,请在 .dao/settings.json 调整 permissions。"));
     else {
-      const sensitive = isSensitiveCall(tc.function.name, tc.function.arguments);
+      // sensitive=true 既抑制"始终允许",又让 auto 模式跳过分类器直接走人工(敏感目标/危险命令)。
+      const sensitive = isSensitiveCall(tc.function.name, tc.function.arguments) || isDangerousCall(tc.function.name, tc.function.arguments);
       gatedRequests.push({
         id: tc.id, toolName: tc.function.name, capability: tool!.capability,
         summary: describeCall(tc.function.name, tc.function.arguments), argsJson: tc.function.arguments,
