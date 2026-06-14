@@ -8,6 +8,8 @@ export interface ToolContext {
   workspaceRoot: string;
   // 本会话已读文件的绝对路径集合(写工具据此判断"覆盖/编辑前是否已读");可选。
   readFiles?: Set<string>;
+  // P2-23 读时元信息(mtime/size):写前复核,文件自上次读后被外部改动则拒绝(防覆盖并发改动)。
+  readMeta?: Map<string, { mtime: number; size: number }>;
   // 向用户提问(ask_user 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
   // 结构化选择(ask_user 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
