@@ -1,5 +1,6 @@
 import type { Memory, MemoryType } from "./types.js";
 import { newMemory } from "./types.js";
+import { findSecrets } from "../permissions/secrets.js";
 
 const SYS = `你是记忆蒸馏器。从对话里抽取值得【跨会话长期记住】的事实,按下面 5 种 type 准确归类——type 决定它存到哪一层(用户级 / 知识库 / 项目级),选错会污染全局,务必慎重。
 
@@ -70,6 +71,7 @@ export async function distill(p: {
     const importance = typeof it.importance === "number" ? it.importance : 5;
     if (importance < 4) continue; // salience 门
     if (isCatalogNoise(it.text)) { if (dbg) console.error(`[distill] 目录倾倒后备过滤丢弃:${it.text}`); continue; }
+    if (findSecrets(it.text).length) { if (dbg) console.error(`[distill] 疑似含密钥,丢弃不入记忆:${it.text.slice(0, 40)}…`); continue; } // S5.1
     mems.push(newMemory({
       name: it.text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem",
       text: it.text, type: it.type, today: p.today, importance,
