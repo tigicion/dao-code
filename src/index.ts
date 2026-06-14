@@ -44,6 +44,8 @@ import { createWorktree } from "./agent/worktree.js";
 import { runDiagnosticsCmd } from "./tools/diagnostics.js";
 import { shouldTrustProject, addTrusted } from "./config/trust.js";
 import { maybeCleanup } from "./agent/cleanup.js";
+import { notify } from "./tui/notifier.js";
+import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
 import { loadSkills } from "./skills/skills.js";
 import { BUNDLED_SKILLS } from "./skills/bundled.js";
@@ -695,8 +697,21 @@ async function main() {
     write(after < before ? `\n[已压缩对话:${before} → ${after} 条消息]\n` : `\n[对话较短,无需压缩]\n`);
   };
 
+  // P3-63 防休眠 + 长回合完成通知:回合期间持 wakelock;耗时超阈值则完成时弹桌面通知。
+  const NOTIFY_MIN_MS = Number(process.env.DAO_NOTIFY_MIN_MS) || 30000;
+  const withPresence = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const release = acquireWakeLock();
+    const start = Date.now();
+    try { return await fn(); }
+    finally {
+      release();
+      const ms = Date.now() - start;
+      if (ms > NOTIFY_MIN_MS) notify("dao", `完成一轮(${Math.round(ms / 1000)}s)`);
+    }
+  };
+
   const runOneTurn = async () => {
-    await runTurn({
+    await withPresence(() => runTurn({
       session,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
       registry,
@@ -708,7 +723,7 @@ async function main() {
       compact: runCompaction, // L2.2 反应式压缩
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
-    });
+    }));
     if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
       write("\n[接近上限,自动压缩…]\n");
       await runCompaction();
@@ -838,7 +853,7 @@ async function main() {
           store.append({ t: "user", text });
           session.addUser(text);
           if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
-          await runTurn({
+          await withPresence(() => runTurn({
             session,
             config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
             registry,
@@ -864,7 +879,7 @@ async function main() {
               const query = `${content} ${paths.join(" ")}`.trim();
               return formatDiscovery(relevantSkills(query, skills, 5, skillWeight)); // 命中→新提示;未命中→""清除陈旧提示
             },
-          });
+          }));
           store.append({ t: "turn_end" });
           if (shouldCompact(session.messages, CONTEXT_WINDOW)) {
             const before = session.messages.length;
