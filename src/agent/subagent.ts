@@ -49,6 +49,7 @@ export async function runSubagent(deps: SubagentDeps): Promise<string> {
     write: deps.write,
     signal: deps.signal,
     drainPending: deps.drainPending,
+    background: true, // 子代理:遇 529 不重试/不回退,防并行子代理级联放大
     maxTurns: 200, // 子代理硬上限 200 轮(对标 CC fork subagent);主会话不限轮数靠 compact
   });
   deps.write("\n[子代理完成]\n");

@@ -77,8 +77,31 @@ export async function* streamChat(
     return { role: "assistant", content: typeof msg.content === "string" && msg.content ? msg.content : null, ...(tc.length ? { tool_calls: tc } : {}) };
   }
 
+  // 续写一次(非流式):把已产出内容作为 assistant 消息回灌 + 让模型直接接着写,返回新增文本与其 finish_reason。
+  async function continueOutput(soFar: string): Promise<{ text: string; finish?: string }> {
+    const contBody: Record<string, unknown> = {
+      ...body, stream: false,
+      messages: [...opts.messages, { role: "assistant", content: soFar }, { role: "user", content: "继续输出剩余内容,直接接着上次结尾写,不要重复已经说过的部分,也不要寒暄。" }],
+    };
+    delete contBody.stream_options;
+    const t = AbortSignal.timeout(idleMs);
+    const sig = opts.signal ? AbortSignal.any([opts.signal, t]) : t;
+    const res = await fetchImpl(`${opts.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${opts.apiKey}` },
+      body: JSON.stringify(contBody),
+      signal: sig,
+    });
+    if (!res.ok) return { text: "" };
+    const data: any = await res.json();
+    if (data?.usage) opts.onUsage?.(data.usage as Usage);
+    const c = data?.choices?.[0];
+    return { text: typeof c?.message?.content === "string" ? c.message.content : "", finish: typeof c?.finish_reason === "string" ? c.finish_reason : undefined };
+  }
+
   // 累积状态(每次尝试前重置——仅在尚未产出任何 delta 时才会重试)。
   let content = "";
+  let finishReason: string | undefined; // length=输出被截断(触发续写恢复)
   const toolAcc: { id: string; name: string; args: string }[] = [];
   const announced = new Set<number>();
 
@@ -93,6 +116,7 @@ export async function* streamChat(
     }
     // usage chunk(choices 常为空)在 [DONE] 前到达——先抓它再判 delta。
     if (parsed?.usage) opts.onUsage?.(parsed.usage as Usage);
+    if (typeof parsed?.choices?.[0]?.finish_reason === "string") finishReason = parsed.choices[0].finish_reason; // 截断检测
     const delta = parsed?.choices?.[0]?.delta;
     if (!delta) return [];
     const out: StreamDelta[] = [];
@@ -129,6 +153,7 @@ export async function* streamChat(
   for (let attempt = 0; ; attempt++) {
     // 每次尝试独立的看门狗 + 累积状态(重试 = 从头重来)。
     content = "";
+    finishReason = undefined;
     toolAcc.length = 0;
     announced.clear();
     const watchdog = new AbortController();
@@ -151,8 +176,12 @@ export async function* streamChat(
       if (!res.ok) {
         clearTimeout(idleTimer);
         const text = await res.text().catch(() => "");
-        const e = new Error(`DeepSeek API error ${res.status}: ${text}`) as Error & { retryableStatus?: boolean };
+        const e = new Error(`DeepSeek API error ${res.status}: ${text}`) as Error & { retryableStatus?: boolean; status?: number; retryAfterMs?: number };
+        e.status = res.status;
         if (RETRYABLE_STATUS.has(res.status)) e.retryableStatus = true; // 过载/限流/网关 → 可重试 + 兜底
+        // Retry-After honoring:429/503 时服务端给的等待时长优先于指数退避(秒数;HTTP-date 容错跳过)。
+        const ra = res.headers.get("retry-after");
+        if (ra) { const s = Number(ra); if (Number.isFinite(s) && s >= 0) e.retryAfterMs = Math.min(s * 1000, 120_000); }
         throw e; // 其余(400 含上下文超限/401/403)致命:原样上抛,交给上层
       }
       if (!res.body) throw new Error("DeepSeek API returned an empty body");
@@ -180,12 +209,18 @@ export async function* streamChat(
       if (isAbort(err) && !idledOut) break; // ESC/用户取消:优雅返回已累积部分
       // 上下文超限是致命且可救(上层压缩后重试):立即上抛,不重试/不兜底。
       if (isContextLengthError(err)) throw err;
+      // 背景查询(子代理/后台任务)遇 529 过载:立即上抛、不重试/不兜底,防 N 个并行子代理重试放大级联。
+      if (opts.background && (err as { status?: number }).status === 529) throw err;
       if (idledOut && yieldedAny) throw new Error(idleErrMsg); // 停滞但已产出部分:清晰报错(保持原契约,避免半截工具调用)
       const recoverable = idledOut || isRetryable(err); // idle 停滞 / 瞬断 / 过载状态
       if (recoverable && yieldedAny) break; // 已产出内容的中途断开 → 返回部分(不重试,避免重复)
       if (recoverable) {
-        // 尚无产出:先退避重试流式(带 jitter);重试耗尽 → 非流式兜底一次;仍失败 → 抛清晰错误。
-        if (attempt < maxRetries) { await sleep(retryDelayMs * (attempt + 1) + Math.floor(Math.random() * 250)); continue; }
+        // 尚无产出:先退避重试流式(Retry-After 优先,否则指数退避+jitter);重试耗尽 → 非流式兜底一次。
+        if (attempt < maxRetries) {
+          const ra = (err as { retryAfterMs?: number }).retryAfterMs;
+          await sleep(ra !== undefined ? ra : retryDelayMs * (attempt + 1) + Math.floor(Math.random() * 250));
+          continue;
+        }
         try {
           const msg = await nonStreamingFallback();
           if (typeof msg.content === "string" && msg.content) yield { kind: "content", text: msg.content };
@@ -212,6 +247,22 @@ export async function* streamChat(
       type: "function" as const,
       function: { name: a.name, arguments: a.args },
     }));
+
+  // max_output_tokens 续写恢复:输出被 max_tokens 截断(finish_reason=length)、且是纯文本(无工具调用)、
+  // 非首问 → 注入"继续"补完剩余,拼接成完整回答(对标 CC 多轮续写)。最多 DAO_MAX_CONTINUE 次。
+  const maxContinue = Number(process.env.DAO_MAX_CONTINUE) || 3;
+  let conts = 0;
+  while (finishReason === "length" && tool_calls.length === 0 && content && conts < maxContinue && !opts.signal?.aborted) {
+    conts++;
+    let more: { text: string; finish?: string };
+    try {
+      more = await continueOutput(content);
+    } catch { break; } // 续写失败:返回已有部分,不让恢复反过来搞崩
+    if (!more.text) break;
+    yield { kind: "content", text: more.text }; // 续写部分也实时显示
+    content += more.text;
+    finishReason = more.finish;
+  }
 
   const message: AssistantMessage = {
     role: "assistant",
