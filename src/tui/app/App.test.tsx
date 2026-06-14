@@ -60,6 +60,36 @@ describe("App", () => {
     expect(lastFrame()!).toContain("命令:/help /exit");
   });
 
+  it("斜杠命令面板:竖排显示命令 + 简介", async () => {
+    const { lastFrame, stdin } = render(<App {...makeDeps()} />);
+    for (const ch of "/mem") stdin.write(ch);
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("/memory");
+    expect(f).toContain("跨会话记忆"); // 简介(/memory 的描述)在右侧
+  });
+
+  it("skill 工具:加载成功显示 Skill(name) + 已加载技能", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (_t, { events }) => {
+          events.toolResult(
+            { id: "c1", type: "function" as const, function: { name: "skill", arguments: JSON.stringify({ name: "debugging" }) } },
+            { role: "tool", tool_call_id: "c1", content: "# Skill: Systematic Debugging\n\n正文……" },
+          );
+          events.assistantDone({ role: "assistant", content: "ok" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("Skill(debugging)"); // 入参名(无命名空间)
+    expect(f).toContain("已加载技能 Systematic Debugging"); // 从正文 # Skill: 取真实名
+  });
+
   it("Tab 补全斜杠命令:唯一匹配补成全名+空格", async () => {
     let got = "";
     const { stdin } = render(
