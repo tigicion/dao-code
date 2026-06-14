@@ -10,3 +10,6 @@ dist-bin/
 .codeds/
 evals/report.md
 evals/runs/
+
+# 私有项目指令(不提交)
+DAO.local.md
