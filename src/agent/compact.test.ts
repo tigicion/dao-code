@@ -106,3 +106,32 @@ describe("microcompactMessages", () => {
     expect(microcompactMessages(msgs, 2)).toEqual(msgs);
   });
 });
+
+// P0-1 缓存不变式回归:压缩后,system 锚点逐字节不变、保留的近期段(tail)绝不被改写——
+// 这样压缩产物 [system, summary, ...tail] 的 system 段仍命中缓存,且 tail 内容未被
+// microcompact 污染。任何把 microcompact 漏到 tail 的回归都会让这些断言失败。
+describe("compactMessages 缓存不变式", () => {
+  const asst = (id: string, name: string) => ({ role: "assistant" as const, content: "", tool_calls: [{ id, type: "function" as const, function: { name, arguments: "{}" } }] });
+  const tool = (id: string, content: string) => ({ role: "tool" as const, tool_call_id: id, content });
+  const user = (c: string) => ({ role: "user" as const, content: c });
+  it("system 锚点逐字节不变,保留段(tail)原样、不被 microcompact 清理", async () => {
+    const msgs = [
+      { role: "system" as const, content: "SYS-ANCHOR" },
+      user("旧1"), asst("a1", "read_file"), tool("a1", "旧的可重现结果"),
+      user("近1"), asst("a2", "read_file"), tool("a2", "近期可重现结果-必须保留"),
+      user("近2"), asst("a3", "write_file"), tool("a3", "近期写结果"),
+    ];
+    const tailBefore = msgs.slice(4); // 最近 2 个 user 轮:近1…、近2…
+    const out = await compactMessages(msgs, { keepRecentTurns: 2, summarize: async () => "SUMMARY" });
+
+    // system 锚点逐字节不变(同一引用)→ 压缩后系统段仍命中缓存
+    expect(out[0]).toBe(msgs[0]);
+    expect(out[0]).toEqual({ role: "system", content: "SYS-ANCHOR" });
+    // 结构:system + 摘要 + 保留 tail
+    expect(out[1]).toMatchObject({ role: "system" });
+    expect((out[1]!.content as string)).toContain("SUMMARY");
+    // 保留段逐条原样(含近期可重现结果),绝不被 CLEARED_MARK 污染
+    expect(out.slice(out.length - tailBefore.length)).toEqual(tailBefore);
+    expect(out.find((m) => m.role === "tool" && (m as any).tool_call_id === "a2")!.content).toBe("近期可重现结果-必须保留");
+  });
+});
