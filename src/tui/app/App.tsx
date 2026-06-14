@@ -369,11 +369,16 @@ export function App(deps: AppDeps) {
         pushItem({ id: nextId(), kind: "notice", text: `已开启循环:每 ${arg} 跑一次「${loopPrompt.slice(0, 40)}」(/loop off 停止)` });
         return;
       }
-      // /resume 无参:弹出可上下选择的会话列表(选中即载入,无需再输命令)。带 id 时走 runCommand 直接载入。
-      if (name === "resume" && text.split(/\s+/).length === 1) {
-        const list = deps.listResume?.() ?? [];
-        if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "本工作区无历史会话。" }); return; }
-        setResumePick({ items: list, idx: 0 });
+      // /resume 无参:弹出可上下选择的会话列表(选中即载入,无需再输命令);带 id 时直接载入。两路都经 loadResume(会重放末段对话)。
+      if (name === "resume") {
+        const rid = text.split(/\s+/)[1];
+        if (!rid) {
+          const list = deps.listResume?.() ?? [];
+          if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "本工作区无历史会话。" }); return; }
+          setResumePick({ items: list, idx: 0 });
+          return;
+        }
+        loadResume(rid);
         return;
       }
       const res = deps.runCommand(full);
@@ -458,6 +463,7 @@ export function App(deps: AppDeps) {
   const loadResume = (id: string) => {
     const res = deps.runCommand("/resume " + id);
     if (res.clearTranscript) setItems(welcomeCommitted.current ? [{ id: 0, kind: "welcome" }] : []);
+    if (res.resumeItems?.length) for (const it of res.resumeItems) pushItem({ ...it, id: nextId() }); // 重放末段对话
     if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
     setStatus(deps.getStatus());
   };
