@@ -856,13 +856,14 @@ async function main() {
       // 一次性调用(含 eval 每次跑)不蒸馏:蒸馏只属于真实的交互式工作会话,
       // 既省掉快速查询的 flash 开销,也自动把 eval 排除在外、测量更干净。
       // 同理不做缓存审计:此路径无会话 store/id(无从按 id 审计),cacheSink 保持 no-op。
-      // hook 钩子:SessionStart 注入 + UserPromptSubmit 裁决(与交互态同等防护;无 SessionEnd——一次性无明确"会话"边界)。
+      // hook 钩子:SessionStart 注入 + UserPromptSubmit 裁决 + SessionEnd(与交互态同等防护;对齐 CC——headless `-p` 一次性运行同样触发 SessionEnd)。
       await injectSessionStart();
       const up = await gateUserPrompt(argvPrompt);
       if (up.blocked) { write(`[提交被 hook 阻止] ${up.reason || ""}\n`); return; }
       session.addUser(argvPrompt);
       if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
       await runOneTurn();
+      await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(CC 对等:一次性运行也触发)
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
       return;
     }
