@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { readFileSync } from "node:fs";
 import { exec } from "node:child_process";
 
 export type HookType = "command" | "prompt" | "agent" | "http" | "callback" | "function";
@@ -47,34 +47,45 @@ export function parseHookOutput(stdout: string, stderr: string, code: number): P
   }
 }
 
-// 生命周期钩子(对标 CC):在关键点跑用户配置的命令,用于校验/注入上下文/阻断/审计/格式化。
-// 配置:.dao/hooks.json(+ 用户 ~/.dao/hooks.json)。形如:
-// { "PreToolUse": [{ "matcher": "write_file|edit_file", "command": "..." }],
-//   "PostToolUse": [...], "UserPromptSubmit": [...], "SessionStart": [...], "SessionEnd": [...] }
-// 命令收到 JSON payload(stdin)+ 环境变量(DAO_HOOK_EVENT / DAO_TOOL_NAME);
-// 对可阻断事件(PreToolUse/UserPromptSubmit),命令非 0 退出 = 阻断,其输出作为原因。
+export interface HookFileRef { path: string; pluginRoot?: string }
 
-export interface HookEntry {
-  matcher?: string; // 工具名正则(PreToolUse/PostToolUse 用);省略=匹配全部
-  command: string;
-}
-export type HookConfig = Record<string, HookEntry[]>;
-
-export async function loadHooks(files: string[]): Promise<HookConfig> {
-  const merged: HookConfig = {};
-  for (const f of files) {
-    try {
-      const cfg = JSON.parse(await fs.readFile(f, "utf8")) as HookConfig;
-      for (const [ev, entries] of Object.entries(cfg)) {
-        if (Array.isArray(entries)) (merged[ev] ??= []).push(...entries);
+// 读 CC 格式 hook 配置文件,规范化为 HookSpec[]。解外层 {"hooks":{}} 包;裸 {event:[]} 也接受。
+export function loadHooks(refs: HookFileRef[]): HookSpec[] {
+  const specs: HookSpec[] = [];
+  for (const ref of refs) {
+    let raw: unknown;
+    try { raw = JSON.parse(readFileSync(ref.path, "utf8")); } catch { continue; }
+    if (!raw || typeof raw !== "object") continue;
+    const root = raw as Record<string, unknown>;
+    const events = (root.hooks && typeof root.hooks === "object" ? root.hooks : root) as Record<string, unknown>;
+    for (const [event, groups] of Object.entries(events)) {
+      if (!Array.isArray(groups)) continue;
+      for (const g of groups as Record<string, unknown>[]) {
+        const matcher = typeof g.matcher === "string" ? g.matcher : undefined;
+        const groupIf = typeof g.if === "string" ? g.if : undefined;
+        const inner = Array.isArray(g.hooks) ? (g.hooks as Record<string, unknown>[]) : [g];
+        for (const hk of inner) {
+          const type = (hk.type as HookType) ?? "command";
+          const ifClause = typeof hk.if === "string" ? hk.if : groupIf;
+          specs.push({
+            event, matcher, if: ifClause, type,
+            ...(typeof hk.command === "string" ? { command: hk.command } : {}),
+            ...(typeof hk.url === "string" ? { url: hk.url } : {}),
+            ...(typeof hk.prompt === "string" ? { prompt: hk.prompt } : {}),
+            ...(typeof hk.async === "boolean" ? { async: hk.async } : {}),
+            ...(typeof hk.timeout === "number" ? { timeout: hk.timeout } : {}),
+            ...(ref.pluginRoot ? { pluginRoot: ref.pluginRoot } : {}),
+          });
+        }
       }
-    } catch {
-      /* 文件不存在/非法 JSON → 跳过 */
     }
   }
-  return merged;
+  return specs;
 }
 
+// NOTE: Old runOne / HookResult / runHooks commented out — Task 4 rewrites them with new HookSpec-based signature.
+// They referenced the removed HookConfig/HookEntry types and would not compile.
+/*
 function runOne(command: string, cwd: string, payload: unknown, env: Record<string, string>): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     const child = exec(
@@ -90,7 +101,7 @@ function runOne(command: string, cwd: string, payload: unknown, env: Record<stri
     try {
       child.stdin?.end(JSON.stringify(payload ?? {}));
     } catch {
-      /* 无 stdin 也无妨 */
+      // 无 stdin 也无妨
     }
   });
 }
@@ -125,3 +136,4 @@ export async function runHooks(
   }
   return { block, reason: reasons.join("\n"), context: ctxs.join("\n") };
 }
+*/

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseHookOutput } from "./hooks.js";
+import { parseHookOutput, loadHooks } from "./hooks.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 describe("parseHookOutput", () => {
   it("exit 2 -> block, stderr as reason", () => {
@@ -20,5 +23,28 @@ describe("parseHookOutput", () => {
   });
   it("non-JSON stdout becomes additionalContext", () => {
     expect(parseHookOutput("plain text", "", 0).additionalContext).toBe("plain text");
+  });
+});
+
+describe("loadHooks (CC 嵌套格式)", () => {
+  it("解外层 {hooks} + 嵌套 hooks[],规范化为 HookSpec[],带 pluginRoot", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "hk-"));
+    const f = path.join(dir, "hooks.json");
+    writeFileSync(f, JSON.stringify({ hooks: { SessionStart: [
+      { matcher: "startup|clear", hooks: [{ type: "command", command: "echo hi", timeout: 5000 }] },
+    ] } }));
+    const specs = loadHooks([{ path: f, pluginRoot: "/PLUGIN" }]);
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({ event: "SessionStart", matcher: "startup|clear", type: "command", command: "echo hi", timeout: 5000, pluginRoot: "/PLUGIN" });
+  });
+  it("裸 {event:[...]} 也接受(无外层 hooks 包)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "hk-"));
+    const f = path.join(dir, "h2.json");
+    writeFileSync(f, JSON.stringify({ PreToolUse: [{ matcher: "write_file", hooks: [{ type: "command", command: "x", if: "Write(*.ts)" }] }] }));
+    const specs = loadHooks([{ path: f }]);
+    expect(specs[0]).toMatchObject({ event: "PreToolUse", matcher: "write_file", if: "Write(*.ts)", type: "command", command: "x" });
+  });
+  it("坏文件跳过", () => {
+    expect(loadHooks([{ path: "/no/such/file.json" }])).toEqual([]);
   });
 });
