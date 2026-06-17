@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { exec } from "node:child_process";
+import { matchesIfClause } from "../permissions/engine.js";
 
 export type HookType = "command" | "prompt" | "agent" | "http" | "callback" | "function";
 
@@ -81,6 +82,23 @@ export function loadHooks(refs: HookFileRef[]): HookSpec[] {
     }
   }
   return specs;
+}
+
+export interface SelectCtx { toolName?: string; argsJson?: string; source?: string }
+
+// 选中本事件下匹配的 hook:matcher(工具事件按工具名 / SessionStart 按来源)+ if 预过滤。
+export function selectHooks(specs: HookSpec[], event: string, ctx: SelectCtx): HookSpec[] {
+  return specs.filter((s) => {
+    if (s.event !== event) return false;
+    if (s.matcher) {
+      const target = event === "SessionStart" ? ctx.source : ctx.toolName;
+      if (!target || !new RegExp(s.matcher).test(target)) return false;
+    }
+    if (s.if && ctx.toolName) {
+      if (!matchesIfClause(s.if, ctx.toolName, ctx.argsJson ?? "{}")) return false;
+    }
+    return true;
+  });
 }
 
 // NOTE: Old runOne / HookResult / runHooks commented out — Task 4 rewrites them with new HookSpec-based signature.

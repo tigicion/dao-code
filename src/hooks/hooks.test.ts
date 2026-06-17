@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseHookOutput, loadHooks } from "./hooks.js";
+import { parseHookOutput, loadHooks, selectHooks } from "./hooks.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -46,5 +46,23 @@ describe("loadHooks (CC 嵌套格式)", () => {
   });
   it("坏文件跳过", () => {
     expect(loadHooks([{ path: "/no/such/file.json" }])).toEqual([]);
+  });
+});
+
+const spec = (o: Partial<import("./hooks.js").HookSpec>): import("./hooks.js").HookSpec =>
+  ({ event: "X", type: "command", command: "c", ...o } as import("./hooks.js").HookSpec);
+
+describe("selectHooks", () => {
+  it("工具事件:matcher 匹配工具名", () => {
+    const specs = [spec({ event: "PreToolUse", matcher: "write_file|edit_file" }), spec({ event: "PreToolUse", matcher: "exec_shell" })];
+    const sel = selectHooks(specs, "PreToolUse", { toolName: "write_file", argsJson: "{}" });
+    expect(sel).toHaveLength(1);
+  });
+  it("SessionStart:matcher 匹配来源", () => {
+    const specs = [spec({ event: "SessionStart", matcher: "startup|clear" }), spec({ event: "SessionStart", matcher: "resume" })];
+    expect(selectHooks(specs, "SessionStart", { source: "startup" })).toHaveLength(1);
+  });
+  it("无 matcher → 全选", () => {
+    expect(selectHooks([spec({ event: "SessionStart" })], "SessionStart", { source: "resume" })).toHaveLength(1);
   });
 });
