@@ -1,6 +1,52 @@
 import { promises as fs } from "node:fs";
 import { exec } from "node:child_process";
 
+export type HookType = "command" | "prompt" | "agent" | "http" | "callback" | "function";
+
+export interface HookSpec {
+  event: string;
+  matcher?: string;
+  if?: string;
+  type: HookType;
+  command?: string;
+  url?: string;
+  prompt?: string;
+  callbackId?: string;
+  async?: boolean;
+  timeout?: number;
+  pluginRoot?: string;
+}
+
+export interface HookOutcome {
+  block: boolean;
+  reason: string;
+  additionalContext: string;
+  permissionDecision?: "allow" | "ask" | "deny";
+  updatedInput?: Record<string, unknown>;
+}
+
+// Parse one hook's output (exit code + stdout JSON/plain text).
+export function parseHookOutput(stdout: string, stderr: string, code: number): Partial<HookOutcome> {
+  if (code === 2) return { block: true, reason: (stderr || stdout).trim() };
+  if (code !== 0) return {};
+  const s = stdout.trim();
+  if (!s) return {};
+  try {
+    const j = JSON.parse(s) as Record<string, unknown>;
+    const hso = (j.hookSpecificOutput ?? {}) as Record<string, unknown>;
+    const ctx = (hso.additionalContext ?? j.additionalContext ?? j.additional_context) as string | undefined;
+    const pd = hso.permissionDecision as HookOutcome["permissionDecision"] | undefined;
+    const ui = (hso.updatedInput ?? j.updatedInput) as Record<string, unknown> | undefined;
+    const o: Partial<HookOutcome> = {};
+    if (typeof ctx === "string") o.additionalContext = ctx;
+    if (pd === "allow" || pd === "ask" || pd === "deny") o.permissionDecision = pd;
+    if (ui && typeof ui === "object") o.updatedInput = ui;
+    return o;
+  } catch {
+    return { additionalContext: s };
+  }
+}
+
 // 生命周期钩子(对标 CC):在关键点跑用户配置的命令,用于校验/注入上下文/阻断/审计/格式化。
 // 配置:.dao/hooks.json(+ 用户 ~/.dao/hooks.json)。形如:
 // { "PreToolUse": [{ "matcher": "write_file|edit_file", "command": "..." }],
