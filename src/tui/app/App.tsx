@@ -68,8 +68,7 @@ const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
   ["loop", "定时循环跑一个 prompt"],
   ["theme", "切换深/浅色主题"],
   ["bypass", "关闭免审批(yolo 仅启动时可开)"],
-  ["goal", "开启长任务自主模式并给出目标"],
-  ["coordinator", "开启多 agent 编排(研究→实现→验证)"],
+  ["goal", "开启长任务自主模式并给出目标(大任务自动分阶段编排)"],
   ["dod", "设定验收命令(Definition of Done)"],
   ["restore", "回退工作区到上一个检查点"],
   ["clear", "清空上下文开新会话"],
@@ -1028,7 +1027,6 @@ function StatusBar({
     <Box marginTop={1}>
       <Text color={c("dim")}>
         {/* 耗时只在上方 live 行显示一次,这里不再重复 */}
-        {status.coordinator ? <Text color={c("gold")}>❖ Coordinator · </Text> : ""}
         {status.longTask ? <Text color={c("gold")}>∞ 长任务 · </Text> : ""}
         {status.yolo ? <Text color={c("vermilion")}>※ YOLO · </Text> : ""}
         {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}

@@ -9,7 +9,7 @@ export const TIPS: string[] = [
   "/restore 把工作区文件回退到上一个检查点;回退前会自动存档,可再找回",
   "/resume 列出历史会话并载入其上下文;/branch 存分支,/rename 命名会话",
   "/diff 看未提交改动;/review 让 dao 审一遍(也能审 gh PR);/security-review 查安全",
-  "大任务:/goal <目标> 自主连续推进(直接带目标开跑),或 /coordinator 研究→综合→实现→验证 多 agent 编排",
+  "大任务:/goal <目标> 自主连续推进(直接带目标开跑);任务够大时会自动按研究→综合→实现→验证分阶段编排子代理",
   "/batch 把大改拆给多个 worktree 子代理并行做,各自一个分支",
   "/loop 5m <要做的事> 会话内周期跑;dao schedule 用本地 cron 定时跑",
   "Shift+Tab 循环权限模式:默认 → auto(AI 裁决) → 规划;接受编辑用 /mode acceptEdits 进",

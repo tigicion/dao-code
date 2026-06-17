@@ -72,7 +72,7 @@ import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { PermissionGate } from "./permissions/gate.js";
 import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
-import { buildSystemPrompt, LONG_TASK_DIRECTIVE, COORDINATOR_DIRECTIVE } from "./prompt/system_prompt.js";
+import { buildSystemPrompt, LONG_TASK_DIRECTIVE } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
 import { createCacheAuditSink, type CacheAuditSink, formatCacheReport } from "./session/cache_audit.js";
@@ -185,8 +185,7 @@ async function main() {
   }
   const yoloFlag = rawArgs.includes("--yolo");
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
-  const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task"); // --task 为旧别名
-  const coordinatorFlag = rawArgs.includes("--coordinator");
+  const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task") || rawArgs.includes("--coordinator"); // --task/--coordinator 为旧别名,均进长任务自主模式(已并入)
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug"]);
   // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
@@ -408,12 +407,11 @@ async function main() {
   let inkAsk: ((q: string) => Promise<string>) | null = null;
   let inkAskChoice: ((q: string, opts: string[], multi?: boolean) => Promise<string>) | null = null;
 
-  // 长任务自主模式(--goal / 运行时 /goal [目标]):自主连续推进 + 自动批准 + 更高轮数上限。
+  // 长任务自主模式(--goal/--task/--coordinator / 运行时 /goal [目标]):自主连续推进 + 自动批准 + 更高轮数上限。
+  // 阶段化多 agent 编排(原 Coordinator)已并入本模式,见 LONG_TASK_DIRECTIVE。
   let longTask = taskFlag;
-  // Coordinator 编排模式(--coordinator / 运行时 /coordinator):研究→综合→实现→验证多 agent 工作流。
-  let coordinator = coordinatorFlag;
   // YOLO(免审批,deny 之外全过,慎用):只能启动时开启——来源 --yolo / DAO_AUTO_APPROVE。
-  // 长任务/Coordinator 不再强开 yolo,改用 auto(AI 判定自动批准,见下方 permModeOverride 初始化)。
+  // 长任务不再强开 yolo,改用 auto(AI 判定自动批准,见下方 permModeOverride 初始化)。
   let yolo = yoloFlag || !!process.env.DAO_AUTO_APPROVE;
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
@@ -439,8 +437,8 @@ async function main() {
   const sessionAllow: string[] = [];
   const getRules = () => ({ ...loadedPerms, allow: [...loadedPerms.allow, ...sessionAllow] });
   // 运行时模式覆盖(/mode acceptEdits 等);null = 用 settings 的 defaultMode。
-  // --task / --coordinator 启动:用 auto(AI 判定自动批准)推进自主流程,而非 yolo 全开。
-  let permModeOverride: PermissionMode | null = (taskFlag || coordinatorFlag) && !yolo ? "auto" : null;
+  // --goal/--task/--coordinator 启动:用 auto(AI 判定自动批准)推进自主流程,而非 yolo 全开。
+  let permModeOverride: PermissionMode | null = taskFlag && !yolo ? "auto" : null;
   // 有效权限模式:plan 会话模式 > YOLO(=bypass)> 运行时覆盖 > settings 默认 > default。
   const getMode = (): PermissionMode =>
     session.mode === "plan"
@@ -946,7 +944,6 @@ async function main() {
       const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
       let sessionTitle: string | undefined; // /rename 设置
       if (longTask && !continueFlag) session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
-      if (coordinator && !continueFlag) session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
       await injectSessionStart(); // SessionStart 注入(resume 替换后、首个回合前;幂等见 injectSessionStart)
       const persist = () =>
         store.saveState({
@@ -1192,7 +1189,7 @@ async function main() {
           }
           if (name === "status") {
             const pct = Math.round((contextTokens() / CONTEXT_WINDOW) * 100);
-            const flags = [yolo ? "免审批" : "", longTask ? "长任务" : "", coordinator ? "Coordinator" : ""].filter(Boolean).join("/") || "—";
+            const flags = [yolo ? "免审批" : "", longTask ? "长任务" : ""].filter(Boolean).join("/") || "—";
             return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
           }
           if (name === "plugin") {
@@ -1286,14 +1283,13 @@ async function main() {
             return { handled: true, output: "长任务模式已关闭(权限模式恢复 default)。" };
           }
           if (name === "coordinator") {
-            coordinator = !coordinator;
-            if (coordinator) {
+            // Coordinator 已并入长任务自主模式(阶段化编排现写在 LONG_TASK_DIRECTIVE 里)。保留为别名:开启长任务。
+            if (!longTask) {
+              longTask = true;
               if (!yolo && session.mode !== "plan") permModeOverride = "auto";
-              session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
-              return { handled: true, output: "❖ Coordinator 模式已开启:auto 自动批准(AI 判定)+ 研究(并行)→综合→实现→验证 多 agent 编排;直接说出要做的较大任务即可。" };
+              session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
             }
-            if (!yolo) permModeOverride = null;
-            return { handled: true, output: "Coordinator 模式已关闭(权限模式恢复 default)。" };
+            return { handled: true, output: "❖ Coordinator 已并入长任务自主模式:已开启(auto 自动批准 + 自主推进 + 任务大时自动按研究→综合→实现→验证分阶段)。直接说出要做的较大任务即可。" };
           }
           if (name === "dod") {
             const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
@@ -1336,7 +1332,6 @@ async function main() {
           costCNY: session.costCNY(),
           yolo,
           longTask,
-          coordinator,
           branch: gitBranch,
           contextPct: (contextTokens() / CONTEXT_WINDOW) * 100,
         }),

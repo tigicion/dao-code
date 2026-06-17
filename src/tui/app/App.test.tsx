@@ -482,15 +482,15 @@ describe("App", () => {
     expect(submitted).toEqual(["go", "next"]);
   });
 
-  it("Coordinator 模式 → 状态栏显示标识", () => {
+  it("长任务模式 → 状态栏显示标识", () => {
     const { lastFrame } = render(
       <App
         {...makeDeps({
-          getStatus: () => ({ model: "m", mode: "normal", promptTokens: 0, completionTokens: 0, cacheHitRatio: 0, yolo: true, coordinator: true, contextPct: 0 }),
+          getStatus: () => ({ model: "m", mode: "normal", promptTokens: 0, completionTokens: 0, cacheHitRatio: 0, yolo: true, longTask: true, contextPct: 0 }),
         })}
       />,
     );
-    expect(lastFrame()).toContain("Coordinator");
+    expect(lastFrame()).toContain("长任务");
   });
 
   it("后台任务通知 → 自动作为新回合处理(注入结果)", async () => {
