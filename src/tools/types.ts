@@ -64,7 +64,15 @@ export interface ToolContext {
   approveExternalRead?: (absPath: string) => Promise<boolean>;
   approveExternalWrite?: (absPath: string) => Promise<boolean>;
   // 生命周期钩子(hooks):工具执行前/后触发用户配置的命令。pre 返回 block 则拦截该工具。
-  preToolHook?: (toolName: string, argsJson: string) => Promise<{ block: boolean; reason: string }>;
+  // permissionDecision:hook 对权限的"最后一公里"裁决(deny 拦截 / ask 强制审批 / allow 在非敏感时放行);
+  // updatedInput:hook 改写后的工具入参(派发前替换);additionalContext:附到工具结果让模型看见。
+  preToolHook?: (toolName: string, argsJson: string) => Promise<{
+    block: boolean;
+    reason: string;
+    additionalContext?: string;
+    permissionDecision?: "allow" | "ask" | "deny";
+    updatedInput?: Record<string, unknown>;
+  }>;
   postToolHook?: (toolName: string, argsJson: string, result: string) => Promise<void>;
   // 审计 sink(index 注入;无 store 路径为 NOOP)。
   toolAudit?: import("./tool_audit.js").ToolAuditSink;
