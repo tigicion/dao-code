@@ -561,6 +561,25 @@ async function main() {
   ctx.postToolHook = async (toolName, argsJson, result) => {
     await runHooks(hooks, "PostToolUse", { cwd: workspaceRoot, toolName, argsJson, payload: { tool: toolName, args: argsJson, result } });
   };
+  // SessionStart 注入(三入口共用):把 additionalContext 一次性注入,紧随系统提示。
+  // 须在 resume 替换 session.messages 之后、首个回合之前调用。该注入是【每次启动重新生成】的合成前缀,
+  // 会被 persist 落盘 → resume 又重放;用哨兵标记在注入前剔除上次同标记消息,使其跨多次 --continue 幂等
+  // (始终只一条,内容为本次最新)。注入在 index 1(系统提示之后),首次压缩时被并入摘要;无论是否压缩都不累积。
+  const SS_MARK = "[[dao:session-start-hook]]";
+  const injectSessionStart = async (): Promise<void> => {
+    session.messages = session.messages.filter((m) => !(m.role === "system" && typeof m.content === "string" && (m.content as string).startsWith(SS_MARK)));
+    const ss = await runHooks(hooks, "SessionStart", { cwd: workspaceRoot, source: continueFlag ? "resume" : "startup" });
+    if (ss.additionalContext.trim()) {
+      const sysIdx = session.messages[0]?.role === "system" ? 1 : 0;
+      session.messages.splice(sysIdx, 0, { role: "system", content: `${SS_MARK}\n${ss.additionalContext}` });
+    }
+  };
+  // UserPromptSubmit 裁决(三入口共用):可阻断本次提交,或把命令输出作上下文注入。
+  const gateUserPrompt = async (text: string): Promise<{ blocked: boolean; reason?: string; additionalContext?: string }> => {
+    const up = await runHooks(hooks, "UserPromptSubmit", { cwd: workspaceRoot, payload: { prompt: text } });
+    if (up.block) return { blocked: true, reason: up.reason };
+    return { blocked: false, additionalContext: up.additionalContext.trim() ? up.additionalContext : undefined };
+  };
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
   ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[], auditAgent: "sub" | "bg" = "sub") => {
@@ -837,7 +856,12 @@ async function main() {
       // 一次性调用(含 eval 每次跑)不蒸馏:蒸馏只属于真实的交互式工作会话,
       // 既省掉快速查询的 flash 开销,也自动把 eval 排除在外、测量更干净。
       // 同理不做缓存审计:此路径无会话 store/id(无从按 id 审计),cacheSink 保持 no-op。
+      // hook 钩子:SessionStart 注入 + UserPromptSubmit 裁决(与交互态同等防护;无 SessionEnd——一次性无明确"会话"边界)。
+      await injectSessionStart();
+      const up = await gateUserPrompt(argvPrompt);
+      if (up.blocked) { write(`[提交被 hook 阻止] ${up.reason || ""}\n`); return; }
       session.addUser(argvPrompt);
+      if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
       await runOneTurn();
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
       return;
@@ -909,17 +933,7 @@ async function main() {
       let sessionTitle: string | undefined; // /rename 设置
       if (longTask && !continueFlag) session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
       if (coordinator && !continueFlag) session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
-      // SessionStart hook:把 additionalContext 一次性注入(紧随系统提示,整会话稳定 → 缓存安全)。
-      // 须在 resume 替换 session.messages 之后、首个 runTurn 之前注入,落在稳定前缀里不被覆盖。
-      // 该注入是【每次启动重新生成】的合成前缀,会被 persist 落盘 → resume 又重放;若直接 splice 会逐次累积。
-      // 用哨兵标记:注入前先剔除上次留下的同标记消息,使其跨多次 --continue 幂等(始终只一条,内容为本次最新)。
-      const SS_MARK = "[[dao:session-start-hook]]";
-      session.messages = session.messages.filter((m) => !(m.role === "system" && typeof m.content === "string" && (m.content as string).startsWith(SS_MARK)));
-      const ssOutcome = await runHooks(hooks, "SessionStart", { cwd: workspaceRoot, source: continueFlag ? "resume" : "startup" });
-      if (ssOutcome.additionalContext.trim()) {
-        const sysIdx = session.messages[0]?.role === "system" ? 1 : 0;
-        session.messages.splice(sysIdx, 0, { role: "system", content: `${SS_MARK}\n${ssOutcome.additionalContext}` });
-      }
+      await injectSessionStart(); // SessionStart 注入(resume 替换后、首个回合前;幂等见 injectSessionStart)
       const persist = () =>
         store.saveState({
           cwd: workspaceRoot,
@@ -934,8 +948,8 @@ async function main() {
         verbose,
         submit: async (text, { events, signal }) => {
           // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。
-          const up = await runHooks(hooks, "UserPromptSubmit", { cwd: workspaceRoot, payload: { prompt: text } });
-          if (up.block) { events.notice(`[提交被 hook 阻止] ${up.reason || ""}`); return; }
+          const up = await gateUserPrompt(text);
+          if (up.blocked) { events.notice(`[提交被 hook 阻止] ${up.reason || ""}`); return; }
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text });
           session.addUser(text);
@@ -1354,7 +1368,9 @@ async function main() {
         write("\n> ");
         return nextLine();
       };
-      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction });
+      await injectSessionStart(); // SessionStart 注入(首回合前)
+      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt });
+      await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
     }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
