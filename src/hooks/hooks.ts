@@ -101,57 +101,41 @@ export function selectHooks(specs: HookSpec[], event: string, ctx: SelectCtx): H
   });
 }
 
-// NOTE: Old runOne / HookResult / runHooks commented out — Task 4 rewrites them with new HookSpec-based signature.
-// They referenced the removed HookConfig/HookEntry types and would not compile.
-/*
-function runOne(command: string, cwd: string, payload: unknown, env: Record<string, string>): Promise<{ code: number; out: string }> {
+function runCommandHook(spec: HookSpec, cwd: string, payload: unknown, baseEnv: Record<string, string>): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve) => {
-    const child = exec(
-      command,
-      { cwd, timeout: 30000, env: { ...process.env, ...env }, maxBuffer: 4 * 1024 * 1024 },
+    const env: Record<string, string> = { ...baseEnv };
+    if (spec.pluginRoot) { env.CLAUDE_PLUGIN_ROOT = spec.pluginRoot; env.DAO_PLUGIN_ROOT = spec.pluginRoot; }
+    const child = exec(spec.command!, { cwd, timeout: spec.timeout ?? 30000, env: { ...process.env, ...env }, maxBuffer: 4 * 1024 * 1024 },
       (err: { code?: number } | null, stdout, stderr) => {
         const code = err && typeof err.code === "number" ? err.code : err ? 1 : 0;
-        resolve({ code, out: (String(stdout) + String(stderr)).trim() });
-      },
-    );
-    // 命令可能不读 stdin 就退出 → 写入触发异步 EPIPE;监听 error 忽略之,避免未处理错误。
+        resolve({ code, out: String(stdout), err: String(stderr) });
+      });
     child.stdin?.on("error", () => {});
-    try {
-      child.stdin?.end(JSON.stringify(payload ?? {}));
-    } catch {
-      // 无 stdin 也无妨
-    }
+    try { child.stdin?.end(JSON.stringify(payload ?? {})); } catch { /* 无 stdin 也无妨 */ }
   });
 }
 
-export interface HookResult {
-  block: boolean; // 是否阻断(可阻断事件:某命令非 0 退出)
-  reason: string; // 阻断原因(阻断命令的输出)
-  context: string; // 成功命令的 stdout(可注入上下文)
-}
+const STRONGER: Record<string, number> = { allow: 0, ask: 1, deny: 2 };
 
-export async function runHooks(
-  cfg: HookConfig,
-  event: string,
-  opts: { cwd: string; toolName?: string; payload?: unknown },
-): Promise<HookResult> {
-  const entries = (cfg[event] ?? []).filter(
-    (e) => !e.matcher || (opts.toolName ? new RegExp(e.matcher).test(opts.toolName) : false),
-  );
-  let block = false;
-  const reasons: string[] = [];
-  const ctxs: string[] = [];
-  for (const e of entries) {
-    const env: Record<string, string> = { DAO_HOOK_EVENT: event };
-    if (opts.toolName) env.DAO_TOOL_NAME = opts.toolName;
-    const r = await runOne(e.command, opts.cwd, opts.payload, env);
-    if (r.code !== 0) {
-      block = true;
-      if (r.out) reasons.push(r.out);
-    } else if (r.out) {
-      ctxs.push(r.out);
-    }
+export interface RunCtx { cwd: string; toolName?: string; argsJson?: string; source?: string; payload?: unknown }
+
+// 跑某事件的全部选中 hook(P1 只执行 command 类型),合成 HookOutcome。
+export async function runHooks(specs: HookSpec[], event: string, ctx: RunCtx): Promise<HookOutcome> {
+  const sel = selectHooks(specs, event, { toolName: ctx.toolName, argsJson: ctx.argsJson, source: ctx.source });
+  const outcome: HookOutcome = { block: false, reason: "", additionalContext: "" };
+  const reasons: string[] = []; const ctxs: string[] = [];
+  for (const s of sel) {
+    if (s.type !== "command" || !s.command) continue; // 其余类型 P3 补
+    const baseEnv: Record<string, string> = { DAO_HOOK_EVENT: event, CLAUDE_PROJECT_DIR: ctx.cwd };
+    if (ctx.toolName) baseEnv.DAO_TOOL_NAME = ctx.toolName;
+    const r = await runCommandHook(s, ctx.cwd, ctx.payload, baseEnv);
+    const p = parseHookOutput(r.out, r.err, r.code);
+    if (p.block) { outcome.block = true; if (p.reason) reasons.push(p.reason); }
+    if (p.additionalContext) ctxs.push(p.additionalContext);
+    if (p.permissionDecision && (outcome.permissionDecision === undefined || STRONGER[p.permissionDecision] > STRONGER[outcome.permissionDecision])) outcome.permissionDecision = p.permissionDecision;
+    if (p.updatedInput) outcome.updatedInput = p.updatedInput;
   }
-  return { block, reason: reasons.join("\n"), context: ctxs.join("\n") };
+  outcome.reason = reasons.join("\n");
+  outcome.additionalContext = ctxs.join("\n");
+  return outcome;
 }
-*/

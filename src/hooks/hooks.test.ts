@@ -66,3 +66,26 @@ describe("selectHooks", () => {
     expect(selectHooks([spec({ event: "SessionStart" })], "SessionStart", { source: "resume" })).toHaveLength(1);
   });
 });
+
+import { runHooks } from "./hooks.js";
+
+describe("runHooks (command + 合成)", () => {
+  it("执行 command,解析 additionalContext,注入 CLAUDE_PLUGIN_ROOT", async () => {
+    const specs = [spec({ event: "SessionStart", type: "command",
+      command: `node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{additionalContext:"ROOT="+process.env.CLAUDE_PLUGIN_ROOT}}))'`,
+      pluginRoot: "/PR" })];
+    const out = await runHooks(specs, "SessionStart", { cwd: process.cwd(), source: "startup" });
+    expect(out.additionalContext).toContain("ROOT=/PR");
+  });
+  it("多 hook:permissionDecision 取 deny>ask>allow,context 拼接", async () => {
+    const mk = (pd: string, ctx: string) => spec({ event: "PreToolUse", type: "command",
+      command: `node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{permissionDecision:"${pd}",additionalContext:"${ctx}"}}))'` });
+    const out = await runHooks([mk("allow", "a"), mk("deny", "b"), mk("ask", "c")], "PreToolUse", { cwd: process.cwd(), toolName: "x", argsJson: "{}" });
+    expect(out.permissionDecision).toBe("deny");
+    expect(out.additionalContext).toContain("a"); expect(out.additionalContext).toContain("b");
+  });
+  it("exit 2 → block", async () => {
+    const out = await runHooks([spec({ event: "PreToolUse", type: "command", command: `node -e 'process.stderr.write("NO");process.exit(2)'` })], "PreToolUse", { cwd: process.cwd(), toolName: "x", argsJson: "{}" });
+    expect(out.block).toBe(true); expect(out.reason).toContain("NO");
+  });
+});
