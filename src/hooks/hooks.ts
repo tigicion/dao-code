@@ -115,7 +115,7 @@ function runCommandHook(spec: HookSpec, cwd: string, payload: unknown, baseEnv: 
   });
 }
 
-const STRONGER: Record<string, number> = { allow: 0, ask: 1, deny: 2 };
+const STRONGER: Record<"allow" | "ask" | "deny", number> = { allow: 0, ask: 1, deny: 2 };
 
 export interface RunCtx { cwd: string; toolName?: string; argsJson?: string; source?: string; payload?: unknown }
 
@@ -132,7 +132,10 @@ export async function runHooks(specs: HookSpec[], event: string, ctx: RunCtx): P
     const p = parseHookOutput(r.out, r.err, r.code);
     if (p.block) { outcome.block = true; if (p.reason) reasons.push(p.reason); }
     if (p.additionalContext) ctxs.push(p.additionalContext);
-    if (p.permissionDecision && (outcome.permissionDecision === undefined || STRONGER[p.permissionDecision] > STRONGER[outcome.permissionDecision])) outcome.permissionDecision = p.permissionDecision;
+    if (p.permissionDecision) {
+      const cur = outcome.permissionDecision;
+      if (cur === undefined || STRONGER[p.permissionDecision] > STRONGER[cur]) outcome.permissionDecision = p.permissionDecision;
+    }
     if (p.updatedInput) outcome.updatedInput = p.updatedInput;
   }
   outcome.reason = reasons.join("\n");
