@@ -547,20 +547,20 @@ async function main() {
   ctx.adaptSkill = makeSkillAdapter({ daoTools, catalog: toolCatalog, callFlash, homeDir: os.homedir() });
 
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
-  const hooks = await loadHooks([
-    path.join(os.homedir(), ".dao", "hooks.json"),
-    ...pluginComp.hookFiles, // B-5 插件 hooks
+  // loadHooks 现为同步,收 HookFileRef[];插件 hook 文件在 <插件目录>/hooks.json,其 pluginRoot=该目录(CLAUDE_PLUGIN_ROOT)。
+  const hooks = loadHooks([
+    { path: path.join(os.homedir(), ".dao", "hooks.json") },
+    ...pluginComp.hookFiles.map((p: string) => ({ path: p, pluginRoot: path.dirname(p) })), // B-5 插件 hooks
     // 未信任目录:不加载项目 hooks(hooks 会在事件时执行命令,是最危险的自动执行面)。
-    ...(trustProject ? [path.join(workspaceRoot, ".dao", "hooks.json")] : []),
+    ...(trustProject ? [{ path: path.join(workspaceRoot, ".dao", "hooks.json") }] : []),
   ]);
   ctx.preToolHook = async (toolName, argsJson) => {
-    const r = await runHooks(hooks, "PreToolUse", { cwd: workspaceRoot, toolName, payload: { tool: toolName, args: argsJson } });
-    return { block: r.block, reason: r.reason };
+    const o = await runHooks(hooks, "PreToolUse", { cwd: workspaceRoot, toolName, argsJson, payload: { tool: toolName, args: argsJson } });
+    return { block: o.block, reason: o.reason, additionalContext: o.additionalContext, permissionDecision: o.permissionDecision, updatedInput: o.updatedInput };
   };
   ctx.postToolHook = async (toolName, argsJson, result) => {
-    await runHooks(hooks, "PostToolUse", { cwd: workspaceRoot, toolName, payload: { tool: toolName, args: argsJson, result } });
+    await runHooks(hooks, "PostToolUse", { cwd: workspaceRoot, toolName, argsJson, payload: { tool: toolName, args: argsJson, result } });
   };
-  await runHooks(hooks, "SessionStart", { cwd: workspaceRoot }); // 会话开始钩子
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
   ctx.runSubagent = (task: string, signal?: AbortSignal, agentType?: string, wsRoot?: string, drainPending?: () => string[], auditAgent: "sub" | "bg" = "sub") => {
@@ -909,6 +909,17 @@ async function main() {
       let sessionTitle: string | undefined; // /rename 设置
       if (longTask && !continueFlag) session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
       if (coordinator && !continueFlag) session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
+      // SessionStart hook:把 additionalContext 一次性注入(紧随系统提示,整会话稳定 → 缓存安全)。
+      // 须在 resume 替换 session.messages 之后、首个 runTurn 之前注入,落在稳定前缀里不被覆盖。
+      // 该注入是【每次启动重新生成】的合成前缀,会被 persist 落盘 → resume 又重放;若直接 splice 会逐次累积。
+      // 用哨兵标记:注入前先剔除上次留下的同标记消息,使其跨多次 --continue 幂等(始终只一条,内容为本次最新)。
+      const SS_MARK = "[[dao:session-start-hook]]";
+      session.messages = session.messages.filter((m) => !(m.role === "system" && typeof m.content === "string" && (m.content as string).startsWith(SS_MARK)));
+      const ssOutcome = await runHooks(hooks, "SessionStart", { cwd: workspaceRoot, source: continueFlag ? "resume" : "startup" });
+      if (ssOutcome.additionalContext.trim()) {
+        const sysIdx = session.messages[0]?.role === "system" ? 1 : 0;
+        session.messages.splice(sysIdx, 0, { role: "system", content: `${SS_MARK}\n${ssOutcome.additionalContext}` });
+      }
       const persist = () =>
         store.saveState({
           cwd: workspaceRoot,
@@ -929,7 +940,7 @@ async function main() {
           store.append({ t: "user", text });
           session.addUser(text);
           skillRound++; // 新一轮:用于关联本轮 skill 加载(skillSink.loaded);模型从常驻技能列表按需加载,无 discovery 预筛。
-          if (up.context) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.context}` });
+          if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
           await withPresence(() => runTurn({
             session,
             config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
@@ -1165,7 +1176,7 @@ async function main() {
             return { handled: true, output: `已装插件(${installedPlugins.length}):\n` + lines.join("\n") + "\n(增删:dao plugin add/remove,重启生效)" };
           }
           if (name === "hooks") {
-            const lines = Object.entries(hooks).flatMap(([ev, entries]) => entries.map((e) => `  ${ev}${e.matcher ? `[${e.matcher}]` : ""}: ${e.command}`));
+            const lines = hooks.map((h) => `  ${h.event}${h.matcher ? `[${h.matcher}]` : ""}: ${h.type === "command" ? h.command : h.type}`);
             if (lines.length === 0) return { handled: true, output: "未配置 hooks。在 ~/.dao/hooks.json 或 <项目>/.dao/hooks.json 配(事件:PreToolUse/PostToolUse/UserPromptSubmit/SessionStart/SessionEnd)。" };
             return { handled: true, output: `已配置 hooks:\n${lines.join("\n")}` };
           }

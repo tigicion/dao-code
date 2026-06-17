@@ -1,5 +1,5 @@
 import type { Capability } from "../tools/types.js";
-import { evaluate, type Decision } from "./rules.js";
+import { evaluate, type Decision, parseRule, ruleMatches } from "./rules.js";
 import { toCcIdentity } from "./identity.js";
 import { isDangerousCommand, isReadOnlyShellCommand } from "./bash_safety.js";
 import type { PermissionsConfig, PermissionMode } from "./settings.js";
@@ -65,6 +65,14 @@ export function decide(p: DecideParams): Decision {
     return "ask"; // ④ 交分类器
   }
   return d;
+}
+
+// `if` 预过滤:CC 规则式(如 "Bash(git push *)")是否匹配此工具调用。
+// 复用 rules.ts 的 parseRule + ruleMatches(同权限引擎路径,语义一致)。
+export function matchesIfClause(ifPattern: string, toolName: string, argsJson: string): boolean {
+  const id = toCcIdentity(toolName, argsJson);
+  if (!id) return false;
+  return ruleMatches(parseRule(ifPattern), id);
 }
 
 function decideBase(p: DecideParams): Decision {

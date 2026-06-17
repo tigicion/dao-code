@@ -1,81 +1,144 @@
-import { promises as fs } from "node:fs";
+import { readFileSync } from "node:fs";
 import { exec } from "node:child_process";
+import { matchesIfClause } from "../permissions/engine.js";
 
-// 生命周期钩子(对标 CC):在关键点跑用户配置的命令,用于校验/注入上下文/阻断/审计/格式化。
-// 配置:.dao/hooks.json(+ 用户 ~/.dao/hooks.json)。形如:
-// { "PreToolUse": [{ "matcher": "write_file|edit_file", "command": "..." }],
-//   "PostToolUse": [...], "UserPromptSubmit": [...], "SessionStart": [...], "SessionEnd": [...] }
-// 命令收到 JSON payload(stdin)+ 环境变量(DAO_HOOK_EVENT / DAO_TOOL_NAME);
-// 对可阻断事件(PreToolUse/UserPromptSubmit),命令非 0 退出 = 阻断,其输出作为原因。
+export type HookType = "command" | "prompt" | "agent" | "http" | "callback" | "function";
 
-export interface HookEntry {
-  matcher?: string; // 工具名正则(PreToolUse/PostToolUse 用);省略=匹配全部
-  command: string;
+export interface HookSpec {
+  event: string;
+  matcher?: string;
+  if?: string;
+  type: HookType;
+  command?: string;
+  url?: string;
+  prompt?: string;
+  callbackId?: string;
+  async?: boolean;
+  timeout?: number;
+  pluginRoot?: string;
 }
-export type HookConfig = Record<string, HookEntry[]>;
 
-export async function loadHooks(files: string[]): Promise<HookConfig> {
-  const merged: HookConfig = {};
-  for (const f of files) {
-    try {
-      const cfg = JSON.parse(await fs.readFile(f, "utf8")) as HookConfig;
-      for (const [ev, entries] of Object.entries(cfg)) {
-        if (Array.isArray(entries)) (merged[ev] ??= []).push(...entries);
+export interface HookOutcome {
+  block: boolean;
+  reason: string;
+  additionalContext: string;
+  permissionDecision?: "allow" | "ask" | "deny";
+  updatedInput?: Record<string, unknown>;
+}
+
+// Parse one hook's output (exit code + stdout JSON/plain text).
+export function parseHookOutput(stdout: string, stderr: string, code: number): Partial<HookOutcome> {
+  if (code === 2) return { block: true, reason: (stderr || stdout).trim() };
+  if (code !== 0) return {};
+  const s = stdout.trim();
+  if (!s) return {};
+  try {
+    const j = JSON.parse(s) as Record<string, unknown>;
+    const hso = (j.hookSpecificOutput ?? {}) as Record<string, unknown>;
+    const ctx = (hso.additionalContext ?? j.additionalContext ?? j.additional_context) as string | undefined;
+    const pd = hso.permissionDecision as HookOutcome["permissionDecision"] | undefined;
+    const ui = (hso.updatedInput ?? j.updatedInput) as Record<string, unknown> | undefined;
+    const o: Partial<HookOutcome> = {};
+    if (typeof ctx === "string") o.additionalContext = ctx;
+    if (pd === "allow" || pd === "ask" || pd === "deny") o.permissionDecision = pd;
+    if (ui && typeof ui === "object") o.updatedInput = ui;
+    return o;
+  } catch {
+    return { additionalContext: s };
+  }
+}
+
+export interface HookFileRef { path: string; pluginRoot?: string }
+
+// 读 CC 格式 hook 配置文件,规范化为 HookSpec[]。解外层 {"hooks":{}} 包;裸 {event:[]} 也接受。
+export function loadHooks(refs: HookFileRef[]): HookSpec[] {
+  const specs: HookSpec[] = [];
+  for (const ref of refs) {
+    let raw: unknown;
+    try { raw = JSON.parse(readFileSync(ref.path, "utf8")); } catch { continue; }
+    if (!raw || typeof raw !== "object") continue;
+    const root = raw as Record<string, unknown>;
+    const events = (root.hooks && typeof root.hooks === "object" ? root.hooks : root) as Record<string, unknown>;
+    for (const [event, groups] of Object.entries(events)) {
+      if (!Array.isArray(groups)) continue;
+      for (const g of groups as Record<string, unknown>[]) {
+        const matcher = typeof g.matcher === "string" ? g.matcher : undefined;
+        const groupIf = typeof g.if === "string" ? g.if : undefined;
+        const inner = Array.isArray(g.hooks) ? (g.hooks as Record<string, unknown>[]) : [g];
+        for (const hk of inner) {
+          const type = (hk.type as HookType) ?? "command";
+          const ifClause = typeof hk.if === "string" ? hk.if : groupIf;
+          specs.push({
+            event, matcher, if: ifClause, type,
+            ...(typeof hk.command === "string" ? { command: hk.command } : {}),
+            ...(typeof hk.url === "string" ? { url: hk.url } : {}),
+            ...(typeof hk.prompt === "string" ? { prompt: hk.prompt } : {}),
+            ...(typeof hk.async === "boolean" ? { async: hk.async } : {}),
+            ...(typeof hk.timeout === "number" ? { timeout: hk.timeout } : {}),
+            ...(ref.pluginRoot ? { pluginRoot: ref.pluginRoot } : {}),
+          });
+        }
       }
-    } catch {
-      /* 文件不存在/非法 JSON → 跳过 */
     }
   }
-  return merged;
+  return specs;
 }
 
-function runOne(command: string, cwd: string, payload: unknown, env: Record<string, string>): Promise<{ code: number; out: string }> {
-  return new Promise((resolve) => {
-    const child = exec(
-      command,
-      { cwd, timeout: 30000, env: { ...process.env, ...env }, maxBuffer: 4 * 1024 * 1024 },
-      (err: { code?: number } | null, stdout, stderr) => {
-        const code = err && typeof err.code === "number" ? err.code : err ? 1 : 0;
-        resolve({ code, out: (String(stdout) + String(stderr)).trim() });
-      },
-    );
-    // 命令可能不读 stdin 就退出 → 写入触发异步 EPIPE;监听 error 忽略之,避免未处理错误。
-    child.stdin?.on("error", () => {});
-    try {
-      child.stdin?.end(JSON.stringify(payload ?? {}));
-    } catch {
-      /* 无 stdin 也无妨 */
+export interface SelectCtx { toolName?: string; argsJson?: string; source?: string }
+
+// 选中本事件下匹配的 hook:matcher(工具事件按工具名 / SessionStart 按来源)+ if 预过滤。
+export function selectHooks(specs: HookSpec[], event: string, ctx: SelectCtx): HookSpec[] {
+  return specs.filter((s) => {
+    if (s.event !== event) return false;
+    if (s.matcher) {
+      const target = event === "SessionStart" ? ctx.source : ctx.toolName;
+      if (!target || !new RegExp(s.matcher).test(target)) return false;
     }
+    if (s.if && ctx.toolName) {
+      if (!matchesIfClause(s.if, ctx.toolName, ctx.argsJson ?? "{}")) return false;
+    }
+    return true;
   });
 }
 
-export interface HookResult {
-  block: boolean; // 是否阻断(可阻断事件:某命令非 0 退出)
-  reason: string; // 阻断原因(阻断命令的输出)
-  context: string; // 成功命令的 stdout(可注入上下文)
+function runCommandHook(spec: HookSpec, cwd: string, payload: unknown, baseEnv: Record<string, string>): Promise<{ code: number; out: string; err: string }> {
+  return new Promise((resolve) => {
+    const env: Record<string, string> = { ...baseEnv };
+    if (spec.pluginRoot) { env.CLAUDE_PLUGIN_ROOT = spec.pluginRoot; env.DAO_PLUGIN_ROOT = spec.pluginRoot; }
+    const child = exec(spec.command!, { cwd, timeout: spec.timeout ?? 30000, env: { ...process.env, ...env }, maxBuffer: 4 * 1024 * 1024 },
+      (err: { code?: number } | null, stdout, stderr) => {
+        const code = err && typeof err.code === "number" ? err.code : err ? 1 : 0;
+        resolve({ code, out: String(stdout), err: String(stderr) });
+      });
+    child.stdin?.on("error", () => {});
+    try { child.stdin?.end(JSON.stringify(payload ?? {})); } catch { /* 无 stdin 也无妨 */ }
+  });
 }
 
-export async function runHooks(
-  cfg: HookConfig,
-  event: string,
-  opts: { cwd: string; toolName?: string; payload?: unknown },
-): Promise<HookResult> {
-  const entries = (cfg[event] ?? []).filter(
-    (e) => !e.matcher || (opts.toolName ? new RegExp(e.matcher).test(opts.toolName) : false),
-  );
-  let block = false;
-  const reasons: string[] = [];
-  const ctxs: string[] = [];
-  for (const e of entries) {
-    const env: Record<string, string> = { DAO_HOOK_EVENT: event };
-    if (opts.toolName) env.DAO_TOOL_NAME = opts.toolName;
-    const r = await runOne(e.command, opts.cwd, opts.payload, env);
-    if (r.code !== 0) {
-      block = true;
-      if (r.out) reasons.push(r.out);
-    } else if (r.out) {
-      ctxs.push(r.out);
+const STRONGER: Record<"allow" | "ask" | "deny", number> = { allow: 0, ask: 1, deny: 2 };
+
+export interface RunCtx { cwd: string; toolName?: string; argsJson?: string; source?: string; payload?: unknown }
+
+// 跑某事件的全部选中 hook(P1 只执行 command 类型),合成 HookOutcome。
+export async function runHooks(specs: HookSpec[], event: string, ctx: RunCtx): Promise<HookOutcome> {
+  const sel = selectHooks(specs, event, { toolName: ctx.toolName, argsJson: ctx.argsJson, source: ctx.source });
+  const outcome: HookOutcome = { block: false, reason: "", additionalContext: "" };
+  const reasons: string[] = []; const ctxs: string[] = [];
+  for (const s of sel) {
+    if (s.type !== "command" || !s.command) continue; // 其余类型 P3 补
+    const baseEnv: Record<string, string> = { DAO_HOOK_EVENT: event, CLAUDE_PROJECT_DIR: ctx.cwd };
+    if (ctx.toolName) baseEnv.DAO_TOOL_NAME = ctx.toolName;
+    const r = await runCommandHook(s, ctx.cwd, ctx.payload, baseEnv);
+    const p = parseHookOutput(r.out, r.err, r.code);
+    if (p.block) { outcome.block = true; if (p.reason) reasons.push(p.reason); }
+    if (p.additionalContext) ctxs.push(p.additionalContext);
+    if (p.permissionDecision) {
+      const cur = outcome.permissionDecision;
+      if (cur === undefined || STRONGER[p.permissionDecision] > STRONGER[cur]) outcome.permissionDecision = p.permissionDecision;
     }
+    if (p.updatedInput) outcome.updatedInput = p.updatedInput;
   }
-  return { block, reason: reasons.join("\n"), context: ctxs.join("\n") };
+  outcome.reason = reasons.join("\n");
+  outcome.additionalContext = ctxs.join("\n");
+  return outcome;
 }
