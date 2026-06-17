@@ -38,31 +38,36 @@ const looksFailed = (content: string): boolean =>
 // 缓存后透传给 dispatchOne 复用(绝不二次执行 hook 命令)。
 type PreHookOutcome = Awaited<ReturnType<NonNullable<ToolContext["preToolHook"]>>>;
 
+// PreToolUse 钩子改写后的最终入参(updatedInput 已 apply);effectiveArgs 是唯一真相:
+// 既用于裁决(gate.decide/敏感检测),也用于派发/审计/PostToolUse——杜绝"按旧参裁决、按新参执行"。
+function applyUpdatedInput(argsJson: string, outcome: PreHookOutcome | undefined): string {
+  return outcome?.updatedInput ? JSON.stringify(outcome.updatedInput) : argsJson;
+}
+
 async function dispatchOne(
   tc: ToolCall,
   registry: ToolRegistry,
   ctx: ToolContext,
   preOutcome?: PreHookOutcome, // 裁决阶段已跑过的 hook 结果;给了就复用,不再调 preToolHook
+  effectiveArgs?: string, // 裁决阶段已 apply updatedInput 的最终入参;给了就用,不在此重复改写
 ): Promise<ToolMessage> {
   const name = tc.function.name;
-  const argsJson = tc.function.arguments;
   const cap = registry.get(name)?.capability ?? "unknown";
   const startMs = Date.now();
-  let auditArgs = argsJson; // 实际派发用的入参(updatedInput 改写后)写进审计
+  // PreToolUse 钩子:优先用裁决阶段缓存的结果;无缓存(其他调用路径)才自行跑一次。
+  const argsJson = tc.function.arguments;
+  const h = preOutcome ?? (ctx.preToolHook ? await ctx.preToolHook(name, argsJson) : undefined);
+  // 最终入参:裁决阶段已算好就直接用(单一真相);否则在此 apply(其他调用路径的兜底)。
+  const finalArgs = effectiveArgs ?? applyUpdatedInput(argsJson, h);
   const audit = (content: string) => {
     const ok = !looksFailed(content) && !content.includes("被 hook 阻止");
-    ctx.toolAudit?.call(name, cap, ok, Date.now() - startMs, auditArgs);
+    ctx.toolAudit?.call(name, cap, ok, Date.now() - startMs, finalArgs);
   };
   try {
-    // PreToolUse 钩子:优先用裁决阶段缓存的结果;无缓存(其他调用路径)才自行跑一次。
-    const h = preOutcome ?? (ctx.preToolHook ? await ctx.preToolHook(name, argsJson) : undefined);
     if (h?.block) { const c = `[被 hook 阻止] ${h.reason || "(无原因)"}`; audit(c); return { role: "tool", tool_call_id: tc.id, content: c }; }
-    // updatedInput:派发前改写工具入参;additionalContext:附到工具结果让模型看见。
-    let effectiveArgs = argsJson;
-    if (h?.updatedInput) { effectiveArgs = JSON.stringify(h.updatedInput); auditArgs = effectiveArgs; }
-    let content = await registry.dispatch(name, effectiveArgs, ctx);
-    if (h?.additionalContext) content = `${content}\n[hook 提示] ${h.additionalContext}`;
-    if (ctx.postToolHook) await ctx.postToolHook(name, effectiveArgs, content); // PostToolUse(副作用,如自动格式化)
+    let content = await registry.dispatch(name, finalArgs, ctx);
+    if (h?.additionalContext) content = `${content}\n[hook 提示] ${h.additionalContext}`; // 附到工具结果让模型看见
+    if (ctx.postToolHook) await ctx.postToolHook(name, finalArgs, content); // PostToolUse(副作用,如自动格式化)
     audit(content);
     return { role: "tool", tool_call_id: tc.id, content };
   } catch (err) {
@@ -90,9 +95,14 @@ export async function executeToolCalls(
 ): Promise<ToolMessage[]> {
   // 0. PreToolUse 钩子:每工具只跑一次,缓存结果(裁决阶段 block/permissionDecision 与派发阶段
   //    updatedInput/additionalContext 共用同一次执行,绝不重复跑 hook 命令)。
+  // 安全不变量:hook 的 updatedInput 改写后的【最终入参】是裁决与派发的唯一真相——
+  // 先 apply 再 gate.decide/敏感检测,杜绝"按原参放行、按改写参(可能 rm -rf)执行"的绕过。
   const preHooks = new Map<string, PreHookOutcome>();
-  if (ctx.preToolHook) {
-    for (const tc of toolCalls) preHooks.set(tc.id, await ctx.preToolHook(tc.function.name, tc.function.arguments));
+  const effArgs = new Map<string, string>(); // tc.id → updatedInput apply 后的最终入参
+  for (const tc of toolCalls) {
+    const outcome = ctx.preToolHook ? await ctx.preToolHook(tc.function.name, tc.function.arguments) : undefined;
+    if (outcome) preHooks.set(tc.id, outcome);
+    effArgs.set(tc.id, applyUpdatedInput(tc.function.arguments, outcome));
   }
 
   // 1. 逐次裁决:产出"待运行"集合与即时拒绝消息。
@@ -101,7 +111,8 @@ export async function executeToolCalls(
   const toRun = new Set<string>();
   for (const tc of toolCalls) {
     const tool = registry.get(tc.function.name);
-    let decision = tool ? gate.decide(tc.function.name, tc.function.arguments, tool) : "allow";
+    const args = effArgs.get(tc.id)!; // 最终入参(已 apply updatedInput);裁决一律基于它
+    let decision = tool ? gate.decide(tc.function.name, args, tool) : "allow";
     const cap0 = tool?.capability ?? "unknown";
     // PreToolUse 钩子的"最后一公里"裁决覆盖规则判定:
     // block/deny 最强(直接拒);ask 强制人工审批;allow 仅在非敏感/非危险时把 ask 降为放行,绝不覆盖规则 deny。
@@ -109,7 +120,7 @@ export async function executeToolCalls(
     if (hook?.block || hook?.permissionDecision === "deny") decision = "deny";
     else if (hook?.permissionDecision === "ask" && decision !== "deny") decision = "ask";
     else if (hook?.permissionDecision === "allow" && decision === "ask") {
-      const risky = isSensitiveCall(tc.function.name, tc.function.arguments) || isDangerousCall(tc.function.name, tc.function.arguments);
+      const risky = isSensitiveCall(tc.function.name, args) || isDangerousCall(tc.function.name, args);
       if (!risky) decision = "allow";
     }
     if (decision === "allow") { toRun.add(tc.id); ctx.permAudit?.decided(tc.function.name, cap0, "allow", "rule"); }
@@ -121,12 +132,12 @@ export async function executeToolCalls(
     }
     else {
       // sensitive=true 既抑制"始终允许",又让 auto 模式跳过分类器直接走人工(敏感目标/危险命令)。
-      const sensitive = isSensitiveCall(tc.function.name, tc.function.arguments) || isDangerousCall(tc.function.name, tc.function.arguments);
+      const sensitive = isSensitiveCall(tc.function.name, args) || isDangerousCall(tc.function.name, args);
       gatedRequests.push({
         id: tc.id, toolName: tc.function.name, capability: tool!.capability,
-        summary: describeCall(tc.function.name, tc.function.arguments), argsJson: tc.function.arguments,
+        summary: describeCall(tc.function.name, args), argsJson: args,
         sensitive,
-        noPersist: !sensitive && rememberRule(tc.function.name, tc.function.arguments) === null, // 记不成规则 → 不提供"始终允许"
+        noPersist: !sensitive && rememberRule(tc.function.name, args) === null, // 记不成规则 → 不提供"始终允许"
       });
     }
   }
@@ -150,7 +161,7 @@ export async function executeToolCalls(
       auditDecision(ctx.workspaceRoot, auditIso, {
         tool: tc.function.name, capability: cap,
         decision: toRun.has(tc.id) ? "allow" : "deny",
-        summary: describeCall(tc.function.name, tc.function.arguments),
+        summary: describeCall(tc.function.name, effArgs.get(tc.id)!), // 审计记最终入参的摘要
       });
     }
   }
@@ -170,7 +181,7 @@ export async function executeToolCalls(
     const worker = async () => {
       while (i < group.length) {
         const tc = group[i++]!;
-        results.set(tc.id, await dispatchOne(tc, registry, ctx, preHooks.get(tc.id)));
+        results.set(tc.id, await dispatchOne(tc, registry, ctx, preHooks.get(tc.id), effArgs.get(tc.id)));
       }
     };
     await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENCY, group.length) }, worker));
@@ -186,7 +197,7 @@ export async function executeToolCalls(
         results.set(tc.id, { role: "tool", tool_call_id: tc.id, content: "已跳过:本批前一个命令失败,为避免连锁错误未执行。请先处理上一个错误再重试。" });
         continue;
       }
-      const r = await dispatchOne(tc, registry, ctx, preHooks.get(tc.id)); // 独占运行 write/exec
+      const r = await dispatchOne(tc, registry, ctx, preHooks.get(tc.id), effArgs.get(tc.id)); // 独占运行 write/exec
       results.set(tc.id, r);
       if (registry.get(tc.function.name)?.capability === "exec" && looksFailed(r.content)) barrierAborted = true;
     }

@@ -911,10 +911,14 @@ async function main() {
       if (coordinator && !continueFlag) session.messages.push({ role: "system", content: COORDINATOR_DIRECTIVE });
       // SessionStart hook:把 additionalContext 一次性注入(紧随系统提示,整会话稳定 → 缓存安全)。
       // 须在 resume 替换 session.messages 之后、首个 runTurn 之前注入,落在稳定前缀里不被覆盖。
+      // 该注入是【每次启动重新生成】的合成前缀,会被 persist 落盘 → resume 又重放;若直接 splice 会逐次累积。
+      // 用哨兵标记:注入前先剔除上次留下的同标记消息,使其跨多次 --continue 幂等(始终只一条,内容为本次最新)。
+      const SS_MARK = "[[dao:session-start-hook]]";
+      session.messages = session.messages.filter((m) => !(m.role === "system" && typeof m.content === "string" && (m.content as string).startsWith(SS_MARK)));
       const ssOutcome = await runHooks(hooks, "SessionStart", { cwd: workspaceRoot, source: continueFlag ? "resume" : "startup" });
       if (ssOutcome.additionalContext.trim()) {
         const sysIdx = session.messages[0]?.role === "system" ? 1 : 0;
-        session.messages.splice(sysIdx, 0, { role: "system", content: ssOutcome.additionalContext });
+        session.messages.splice(sysIdx, 0, { role: "system", content: `${SS_MARK}\n${ssOutcome.additionalContext}` });
       }
       const persist = () =>
         store.saveState({
