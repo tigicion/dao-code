@@ -37,12 +37,12 @@ export interface McpConnections {
 }
 
 // 连接错误(stdio server 崩了/管道断了):据此触发重连。普通工具错误不重连(避免掩盖)。
-function isConnError(e: unknown): boolean {
+export function isConnError(e: unknown): boolean {
   const m = e instanceof Error ? `${e.name} ${e.message}` : String(e);
   return /closed|not connected|disconnected|EPIPE|ECONNRESET|terminated|write after end|broken pipe|transport/i.test(m);
 }
 
-function unpack(res: unknown): string {
+export function unpack(res: unknown): string {
   const content = ((res as { content?: unknown })?.content as Array<{ type: string; text?: string }>) ?? [];
   const text = content.map((c) => (c.type === "text" ? (c.text ?? "") : JSON.stringify(c))).join("\n").trim();
   return text || "(无输出)";
