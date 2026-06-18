@@ -56,7 +56,7 @@ import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { messageParentTool } from "./tools/message_parent.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
-import { loadMcpConfig, connectMcpServers } from "./mcp/mcp.js";
+import { loadMcpConfig, connectMcpServers, type ElicitHandler } from "./mcp/mcp.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy, routeScope } from "./memory/store.js";
@@ -293,12 +293,16 @@ async function main() {
     registry.register(t);
   }
 
-  // MCP:连配置的 server,把其工具注册进来(名字 mcp__server__tool)。失败的 server 不影响其余/启动。
+  // MCP:连配置的 server,把其工具/资源/提示注册进来(名字 mcp__server__*)。失败的 server 不影响其余/启动。
   const mcpConfig = await loadMcpConfig([
     path.join(os.homedir(), ".dao", "mcp.json"),
     path.join(workspaceRoot, ".dao", "mcp.json"),
   ]);
-  const mcp = await connectMcpServers(mcpConfig);
+  // elicitation 处理器:连接发生在 UI 就绪前,故经可变引用延迟绑定(下方 inkAsk 声明后赋值)。未绑定则婉拒。
+  let mcpElicit: ElicitHandler | null = null;
+  const mcp = await connectMcpServers(mcpConfig, {
+    onElicit: (m, s) => (mcpElicit ? mcpElicit(m, s) : Promise.resolve({ action: "decline" as const })),
+  });
   for (const t of mcp.tools) registry.register(t);
 
   const toolSummaries = registry
@@ -406,6 +410,24 @@ async function main() {
   let inkApprovalPrompt: ApprovalPrompt | null = null;
   let inkAsk: ((q: string) => Promise<string>) | null = null;
   let inkAskChoice: ((q: string, opts: string[], multi?: boolean) => Promise<string>) | null = null;
+
+  // MCP elicitation → ask 层(运行时 server 中途要结构化输入):无字段=确认;有字段=逐项收字符串,留空即取消。
+  mcpElicit = async (message, requestedSchema) => {
+    const askQ = (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `));
+    const propsObj = requestedSchema?.properties;
+    const props = propsObj && typeof propsObj === "object" ? Object.keys(propsObj as Record<string, unknown>) : [];
+    if (props.length === 0) {
+      const a = (await askQ(`MCP server 请求确认:${message}(y 接受 / 其它拒绝)`)).trim().toLowerCase();
+      return a === "y" || a === "yes" ? { action: "accept", content: {} } : { action: "decline" };
+    }
+    const content: Record<string, unknown> = {};
+    for (const k of props) {
+      const v = (await askQ(`MCP 输入「${k}」(${message})— 留空取消:`)).trim();
+      if (!v) return { action: "cancel" };
+      content[k] = v;
+    }
+    return { action: "accept", content };
+  };
 
   // 长任务自主模式(--goal/--task/--coordinator / 运行时 /goal [目标]):自主连续推进 + 自动批准 + 更高轮数上限。
   // 阶段化多 agent 编排(原 Coordinator)已并入本模式,见 LONG_TASK_DIRECTIVE。
@@ -1023,7 +1045,7 @@ async function main() {
           }
           if (name === "mcp") {
             if (mcp.servers.length === 0) return { handled: true, output: "未配置 MCP 服务器。在 ~/.dao/mcp.json 或 <项目>/.dao/mcp.json 写 mcpServers 即可。" };
-            return { handled: true, output: "MCP 服务器:\n" + mcp.servers.map((s) => `  ${s.ok ? "✓" : "✗"} ${s.name} · ${s.tools} 个工具${s.error ? ` · ${s.error}` : ""}`).join("\n") };
+            return { handled: true, output: "MCP 服务器:\n" + mcp.servers.map((s) => `  ${s.ok ? "✓" : "✗"} ${s.name} · ${s.tools} 工具${s.resources ? ` · ${s.resources} 资源` : ""}${s.prompts ? ` · ${s.prompts} 提示` : ""}${s.error ? ` · ${s.error}` : ""}`).join("\n") };
           }
           if (name === "diff") {
             try {
