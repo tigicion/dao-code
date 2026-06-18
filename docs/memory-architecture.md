@@ -99,9 +99,14 @@
 
 ---
 
-## 五、落地顺序
+## 五、落地状态
 
-1. **读取层(本文档先落地)**:`buildIndex` + 两层注入(高价值全文 + 全量索引)+ `memory_read` 工具。解缺陷 #2,不依赖写入层,可独立验证。
-2. **写入热边界 + 增量 + 后台**:解缺陷 #1(冷缓存全价)。
-3. **provisional→confirmed 耐久门 + tier 解耦 + importance 粗档**:解缺陷 #3、控质量。
-4. **统一回合边界监控层**,挂记忆捕获 + 挑战者/纠偏 fork(反思层,非记忆模块)。
+1. ✅ **读取层**:`selectFullText` + `selectIndexNames` + `buildIndexSection` + `memory_read` 工具。解缺陷 #2。(`9b77c59`)
+2. ✅ **写入热边界 + 增量 + 后台**:`capture_policy` + 回合边界 `captureMemories`,退出不再蒸。解缺陷 #1。(`0c263e7`)
+3. ✅ **耐久门 + tier 解耦 + importance 粗档**:provisional=uses0、confirmed=uses≥1,GC 快剪未确认;routeScope 只按作用域;importance 3 档。解缺陷 #3。(`d708777`)
+4. ✅ **反思层**:`turn_health`(确定性回合监控,治"活动≠进展")+ 挑战者/纠偏 fork(同模型热缓存,结论作 advisory 参考)。
+   - 挑战者:连续失败/同错复发触发(`DAO_FAIL_STREAK`/`DAO_REPEAT_ERR`)。
+   - 纠偏者:仅长任务、每 N 轮(`DAO_REFOCUS_EVERY`,默认 0=关)。
+   - `DAO_REFLECT=0` 全关;一次性/eval 不反思。additive 接入,不动既有 idle advisor。
+
+> 反思层是独立子系统(非记忆模块),与记忆捕获共用同一回合边界监控点。

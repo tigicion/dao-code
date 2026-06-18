@@ -13,6 +13,8 @@ import type { Session } from "../session/session.js";
 import { apiToolsForMode } from "../tools/tools_for_mode.js";
 import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
 import { isContextLengthError } from "../client/client.js";
+import { looksFailed } from "../tools/execute.js";
+import { assessTurn, initHealth, errSignature, defaultHealthConfig } from "./turn_health.js";
 
 // 廉价稳定哈希(djb2):只用于"是否变化"的缓存归因指纹,不求抗碰撞。
 function cheapHash(s: string): string {
@@ -55,6 +57,10 @@ export interface TurnDeps {
   auditSink?: CacheAuditSink;
   // 本 runTurn 在 agent 树中的身份(main/子/fork/后台);depth 用于 agentKey 分桶。
   auditId?: { agent: CacheAuditInput["agent"]; subId?: string; depth: number };
+  // 反思层:卡住(连续失败/同错复发)→ 挑战者;长任务周期 → 纠偏者。返回精简结论,作为 advisory 注入参考。
+  // 省略则不反思(子代理/eval 不传)。impl 在 index.ts(fork 调用,复用热缓存)。
+  reflect?: (kind: "challenger" | "refocuser") => Promise<string | null>;
+  longTask?: boolean; // 长任务模式(纠偏者仅在此模式按周期触发)
 }
 
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
@@ -70,6 +76,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const ADVISE_EVERY = Number(process.env.DAO_ADVISE_EVERY) || 5;
   const PROGRESS_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "todo_write"]);
   let noProgress = 0;
+  // 反思层:确定性回合监控状态(跨本 runTurn 的各模型回合累积)。
+  let health = initHealth();
+  const healthCfg = defaultHealthConfig();
 
   // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
   const reasoningEffort = process.env.DAO_REASONING_EFFORT || "max";
@@ -167,6 +176,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       return;
     }
 
+    let turnToolMessages: ToolMessage[] = []; // 本轮工具结果(供反思层算失败信号)
     if (session.mode === "plan") {
       // plan 模式的结构性强制:系统 prompt 仍列出全部工具,模型可能调用写/执行工具,
       // 但它们不在本轮允许表里——直接拒绝执行(不派发、不弹审批),回一条"不可用"消息。
@@ -190,6 +200,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         const m = toolMessages.find((tm) => tm.tool_call_id === tc.id);
         if (m) events.toolResult(tc, m);
       }
+      turnToolMessages = toolMessages;
       session.messages.push(...toolMessages);
     } else {
       const toolMessages = await deps.executeToolCalls(toolCalls, deps.registry, toolCtx, deps.gate);
@@ -197,6 +208,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         const m = toolMessages.find((tm) => tm.tool_call_id === tc.id);
         if (m) events.toolResult(tc, m);
       }
+      turnToolMessages = toolMessages;
       session.messages.push(...toolMessages);
     }
 
@@ -220,6 +232,22 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     }
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
       advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`);
+    }
+    // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者(同模型 fork,命中热缓存);结论作 advisory 参考。
+    if (deps.reflect && !signal?.aborted) {
+      const fails = turnToolMessages.filter((m) => looksFailed(m.content));
+      const outcome = {
+        progressed,
+        toolFailures: fails.length,
+        errSig: fails.length ? errSignature(fails[fails.length - 1]!.content) : undefined,
+      };
+      const d = assessTurn(health, outcome, healthCfg, { longTask: !!deps.longTask });
+      health = d.next;
+      if (d.challenger || d.refocuser) {
+        events.notice(`\n[反思:${d.challenger ? "审视当前进展" : "纠偏长任务方向"}…]\n`);
+        const verdict = await deps.reflect(d.challenger ? "challenger" : "refocuser");
+        if (verdict) advisories.push(`[${d.challenger ? "审视者" : "纠偏者"}·参考]\n${verdict}`);
+      }
     }
     if (advisories.length) session.messages.push({ role: "system", content: advisories.join(" ") });
   }

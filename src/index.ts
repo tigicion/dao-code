@@ -66,6 +66,7 @@ import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
 import { shouldCaptureMemory } from "./memory/capture_policy.js";
+import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
 import { makeFlashAdjudicator } from "./memory/adjudicate.js";
@@ -830,6 +831,8 @@ async function main() {
       compact: runCompaction, // L2.2 反应式压缩
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
+      reflect: argvPrompt ? undefined : reflect, // 反思层:一次性/eval 不反思
+      longTask, // 纠偏者仅长任务按周期触发
     }));
     // 写入层(缺陷#1):热回合边界增量蒸馏——门控、后台;压缩前同步先捕获(防 compact 改 messages 竞态)。
     // 一次性/eval 路径(argvPrompt)不捕获:保持快速查询零 flash 开销、eval 测量干净。
@@ -903,6 +906,27 @@ async function main() {
   };
   // 触发阈值:自上次蒸以来新增对话 token ≥ 此值即捕获(锚"一块真实新工作量",非压缩阈值;可调)。
   const DISTILL_TOKENS = Number(process.env.DAO_DISTILL_TOKENS) || 15000;
+
+  // 反思层 fork:同模型(命中主对话热缓存)对进展做精简复核,返回结论(由 loop 作 advisory 注入参考)。
+  // DAO_REFLECT=0 关闭。失败静默返回 null,绝不影响主流程。
+  const reflect = async (kind: "challenger" | "refocuser"): Promise<string | null> => {
+    if (process.env.DAO_REFLECT === "0") return null;
+    try {
+      const tail = kind === "challenger" ? CHALLENGER_PROMPT : REFOCUSER_PROMPT;
+      const gen = streamChat({
+        baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: session.model,
+        messages: [...session.messages, { role: "user", content: tail }],
+        extra: { temperature: 0 },
+        onUsage: (u) => session.addUsage(u as never, session.model),
+      });
+      let out = ""; let r = await gen.next();
+      while (!r.done) { if (r.value?.kind === "content") out += r.value.text; r = await gen.next(); }
+      if (!out && typeof r.value?.content === "string") out = r.value.content;
+      return out.trim() || null;
+    } catch {
+      return null;
+    }
+  };
 
   try {
     if (argvPrompt) {
@@ -1022,6 +1046,8 @@ async function main() {
             compact: inkCompact, // L2.2 反应式压缩
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
+            reflect, // 反思层:卡住→挑战者、长任务漂移→纠偏者
+            longTask, // 纠偏者仅长任务按周期触发
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,

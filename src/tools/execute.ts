@@ -30,8 +30,8 @@ export function describeCall(name: string, argsJson: string): string {
 const SAFE_CAPS = new Set<Capability>(["read", "network", "plan"]);
 const MAX_CONCURRENCY = 8; // 安全工具批的并发上限,避免一口气打满 fd / 连接
 
-// 工具结果是否表示失败(非零退出/超时/中断/Error)——用于错误级联与审计 ok 判定。
-const looksFailed = (content: string): boolean =>
+// 工具结果是否表示失败(非零退出/超时/中断/Error)——用于错误级联、审计 ok 判定、反思层失败信号。
+export const looksFailed = (content: string): boolean =>
   content.startsWith("Error") || /\[exit ([1-9]\d*)\]|\[超时|\[已中断\]/.test(content);
 
 // PreToolUse 钩子产物(== ctx.preToolHook 的返回);executeToolCalls 在裁决阶段每工具只跑一次,
