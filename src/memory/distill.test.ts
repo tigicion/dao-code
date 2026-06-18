@@ -50,6 +50,35 @@ describe("distill", () => {
     expect(mems[0]).toMatchObject({ type: "feedback", importance: 8 });
   });
 
+  it("fork 模式:带上 tools + reasoning_effort(对齐主循环→命中热缓存),且不关思考", async () => {
+    let opts: any;
+    await distill({
+      streamChat: (o: any) => { opts = o; return fakeStream("[]"); },
+      config: { baseUrl: "x", apiKey: "x" }, model: "deepseek-v4-pro",
+      messages: [{ role: "system", content: "SYS" }, { role: "user", content: "hi" }],
+      today: "2026-06-07", fork: true,
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      reasoningEffort: "max",
+    } as any);
+    expect(opts.tools).toHaveLength(1); // 带主循环同款 tools
+    expect(opts.parallelToolCalls).toBe(true);
+    expect(opts.extra?.reasoning_effort).toBe("max"); // 思考开,对齐请求形态
+    expect(opts.extra?.thinking).toBeUndefined(); // 不再 disabled
+    expect(opts.messages[0]?.content).toBe("SYS"); // fork:含 system,前缀与主循环一致
+  });
+
+  it("非 fork(flash legacy):不带 tools、关思考(本就不复用缓存)", async () => {
+    let opts: any;
+    await distill({
+      streamChat: (o: any) => { opts = o; return fakeStream("[]"); },
+      config: { baseUrl: "x", apiKey: "x" }, model: "deepseek-v4-flash",
+      messages: [{ role: "user", content: "hi" }], today: "2026-06-07",
+      tools: [{ type: "function", function: { name: "read_file" } }], // 即便传了也不带(非 fork)
+    } as any);
+    expect(opts.tools).toBeUndefined();
+    expect(opts.extra?.thinking).toEqual({ type: "disabled" });
+  });
+
   it("returns [] on non-JSON", async () => {
     const mems = await distill({ streamChat: () => fakeStream("抱歉无法"), config: {}, model: "x", messages: [], today: "2026-06-07" } as any);
     expect(mems).toEqual([]);

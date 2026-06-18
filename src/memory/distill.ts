@@ -47,6 +47,10 @@ export async function distill(p: {
   messages: { role: string; content: string | null }[]; today: string;
   fork?: boolean; // B-1 fork-cache:复用主对话已缓存前缀(同模型),在尾部追加抽取指令——更省更聪明
   incremental?: boolean; // 写入层:热边界增量蒸——聚焦最近进展、跳过已记的(重叠交去重兜底)
+  // fork 缓存复用要前缀【字节一致】:必须带上与主循环【同一份 tools】+【同样的思考强度】,
+  // 否则 DeepSeek 缓存的前缀(system+tools+历史)对不上 → 命中崩到 ~1%(实测教训)。
+  tools?: unknown[];
+  reasoningEffort?: string;
   onUsage?: (u: unknown) => void; // B-2 计费:把蒸馏的 token 用量回报给会话
 }): Promise<Memory[]> {
   // B-1 fork 模式:直接把"完整对话(含 system,与主循环一致的前缀)"原样发出 + 尾部追加抽取指令,
@@ -61,10 +65,15 @@ export async function distill(p: {
         { role: "system", content: SYS },
         { role: "user", content: p.messages.filter((m) => m.role !== "system").map((m) => `${m.role}: ${m.content ?? ""}`).join("\n").slice(-24000) },
       ];
+  // fork:对齐主循环请求形态(带同一份 tools + 同样思考强度)→ 命中热前缀缓存(~99%);
+  //       思考开启会先吐 reasoning,但 extractJson 只取 JSON 数组,无碍。
+  // 非 fork(flash legacy):关思考省成本、不带 tools(本就不复用缓存)。
+  const reqExtra = p.fork ? { reasoning_effort: p.reasoningEffort ?? "max" } : { thinking: { type: "disabled" }, temperature: 0 };
   const gen = p.streamChat({
     baseUrl: p.config.baseUrl, apiKey: p.config.apiKey, model: p.model,
     messages,
-    extra: { thinking: { type: "disabled" }, temperature: 0 },
+    ...(p.fork && p.tools && p.tools.length ? { tools: p.tools, parallelToolCalls: true } : {}),
+    extra: reqExtra,
     ...(p.onUsage ? { onUsage: p.onUsage } : {}),
   });
   let out = ""; let r = await gen.next();

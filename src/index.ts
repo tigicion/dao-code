@@ -65,6 +65,7 @@ import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
 import { shouldCaptureMemory } from "./memory/capture_policy.js";
+import { apiToolsForMode } from "./tools/tools_for_mode.js";
 import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
@@ -878,6 +879,9 @@ async function main() {
         today,
         fork,
         incremental: opts?.incremental,
+        // fork 缓存复用:带上与主循环【同一份 tools + 同思考强度】,前缀才字节一致、命中热缓存。
+        tools: fork ? apiToolsForMode(registry, session.mode) : undefined,
+        reasoningEffort: process.env.DAO_REASONING_EFFORT || "max",
         onUsage: (u) => {
           session.addUsage(u as never, distillModel); // B-2 计入蒸馏用量
           cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: "", tools: "", tail: "" });
