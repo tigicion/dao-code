@@ -3,12 +3,11 @@ import path from "node:path";
 import type { Memory, MemoryType } from "./types.js";
 import { newMemory } from "./types.js";
 
-// 记忆落到哪一层(本地优先):没把握的推断(confidence<0.6)一律进项目级,绝不污染全局——
-// 一次误判只脏一个项目、且会随项目 GC 清掉。把握足够时才按类型进全局层:
-// procedural→知识库,user/feedback→用户级,其余→项目级。
+// 记忆落到哪一层 = 信息的【作用域】,由 type 决定,【与 confidence 无关】——
+// confidence 改喂 GC 的 provisional 耐久门(没把握又没被重确认的,过宽限期快剪),不再决定存哪层。
+//   procedural(跨项目通用)→ 知识库;user/feedback(关于用户)→ 用户级;semantic/episodic(本项目)→ 项目级。
 export type Scope = "project" | "user" | "knowledge";
-export function routeScope(type: MemoryType, confidence: number | undefined): Scope {
-  if (typeof confidence === "number" && confidence < 0.6) return "project";
+export function routeScope(type: MemoryType): Scope {
   if (type === "procedural") return "knowledge";
   if (type === "user" || type === "feedback") return "user";
   return "project";

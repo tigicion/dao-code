@@ -33,18 +33,36 @@ function lowValueUserInference(mem: Memory): boolean {
   return mem.type === "user" && (mem.confidence ?? 1) < 0.5 && (mem.uses ?? 0) === 0 && mem.importance < 6;
 }
 
+// provisional 耐久门宽限期(天):没被重确认(uses=0)的新记忆,过此期仍没复现就快剪。可调。
+export const PROVISIONAL_WINDOW_DAYS = Number(process.env.DAO_PROVISIONAL_DAYS) || 7;
+
+// provisional = 从未被重确认(uses=0)。confirmed = uses≥1(被去重合并过 = 再次出现过)。
+// 写入层高频蒸馏下:反复出现的真知识很快 uses≥1 转 confirmed;中途一次性状态(后来被推翻的方案)
+// 留在 uses=0,过宽限期被本门快剪——不必等 Ebbinghaus 的 ~54 天。
+function isUnconfirmedProvisional(mem: Memory, today: string): boolean {
+  return (
+    (mem.uses ?? 0) === 0 &&
+    daysBetween(mem.created, today) > PROVISIONAL_WINDOW_DAYS &&
+    mem.importance < 6 && // 高重要(≥6)即便一次也留
+    (mem.confidence ?? 1) < 0.8 // 高信心(≥0.8)即便一次也留
+  );
+}
+
 // 是否应剪除。保护:确证的 user 模型 / feedback(用户给的工作方式指导,丢了会重蹈覆辙)/ importance≥6 / locked / 频繁重确认(高 uses 抬高留存)。
 export function shouldPrune(mem: Memory, today: string): boolean {
   // (a) 已被取代且 validUntil + 7 天宽限期已过。
   if (mem.status === "superseded" && mem.validUntil && addDays(mem.validUntil, 7) < today) return true;
-  // (b) 留存跌破阈值且非保护类。user/feedback 受保护——但低价值 user 推断除外。
   const protectedType = (mem.type === "user" && !lowValueUserInference(mem)) || mem.type === "feedback";
+  // (b) 留存跌破阈值且非保护类。user/feedback 受保护——但低价值 user 推断除外。
   if (
     retention(mem, today) < 0.3 &&
     mem.importance < 6 &&
     !protectedType &&
     mem.locked !== true
   ) return true;
+  // (c) provisional 耐久门:未重确认的低信心/低重要新记忆,过宽限期快剪(治中途一次性状态)。
+  //     user/feedback/locked 不受此门影响。
+  if (isUnconfirmedProvisional(mem, today) && !protectedType && mem.locked !== true) return true;
   return false;
 }
 

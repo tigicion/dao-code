@@ -44,8 +44,8 @@ export const memoryWriteTool = defineTool({
     // S5.1:密钥绝不写进持久记忆。命中即拒(不落盘),让模型改记不含密钥的描述。
     const secrets = findSecrets(args.text);
     if (secrets.length) return `拒绝写入记忆:疑似含密钥(${secrets.join("、")})。请勿把凭据写进记忆;如需记录,改写成不含密钥的描述。`;
-    // 显式 scope 优先;否则本地优先路由(没把握的进项目级)。
-    const scope = args.scope ?? routeScope(args.type ?? "semantic", args.confidence);
+    // 显式 scope 优先;否则按 type 的作用域路由(与 confidence 无关)。
+    const scope = args.scope ?? routeScope(args.type ?? "semantic");
     const dir = memDir(scope, ctx.workspaceRoot, ctx.homeDir);
     const today = ctx.today ?? new Date().toISOString().slice(0, 10);
     let sourceHash: string | undefined;

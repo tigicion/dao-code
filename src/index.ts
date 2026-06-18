@@ -887,7 +887,7 @@ async function main() {
       for (const cand of cands) {
         const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
         // 本地优先路由:没把握的推断(confidence<0.6)落项目级不污染全局;否则按类型进对应层。
-        const scope = routeScope(cand.type, cand.confidence);
+        const scope = routeScope(cand.type);
         const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
         const res = await upsertMemory(dir, cand, existing, adjudicate);
         if (res.action === "updated") updated++; else added++;

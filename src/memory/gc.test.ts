@@ -97,6 +97,35 @@ describe("shouldPrune", () => {
   });
 });
 
+describe("shouldPrune — provisional 耐久门(uses=0 未重确认)", () => {
+  // created 在宽限期外(>7天前),lastUsed=今天(故 Ebbinghaus 留存仍高,只有本门会动它)。
+  const OLD_CREATED = "2026-05-01"; // 距 TODAY 37 天 > 7
+  it("未重确认 + 低信心 + 低重要 + 过宽限期 → 剪(治中途一次性状态)", () => {
+    const m = mem({ name: "a", type: "semantic", uses: 0, importance: 5, confidence: 0.5, created: OLD_CREATED, lastUsed: TODAY });
+    expect(shouldPrune(m, TODAY)).toBe(true);
+  });
+  it("已重确认(uses≥1)→ 不受本门影响(confirmed)", () => {
+    const m = mem({ name: "a", type: "semantic", uses: 1, importance: 5, confidence: 0.5, created: OLD_CREATED, lastUsed: TODAY });
+    expect(shouldPrune(m, TODAY)).toBe(false);
+  });
+  it("宽限期内(刚创建)→ 不剪,给复现机会", () => {
+    const m = mem({ name: "a", type: "semantic", uses: 0, importance: 5, confidence: 0.5, created: TODAY, lastUsed: TODAY });
+    expect(shouldPrune(m, TODAY)).toBe(false);
+  });
+  it("高重要(≥6)即便一次也留", () => {
+    const m = mem({ name: "a", type: "semantic", uses: 0, importance: 7, confidence: 0.5, created: OLD_CREATED, lastUsed: TODAY });
+    expect(shouldPrune(m, TODAY)).toBe(false);
+  });
+  it("高信心(≥0.8)即便一次也留", () => {
+    const m = mem({ name: "a", type: "semantic", uses: 0, importance: 5, confidence: 0.9, created: OLD_CREATED, lastUsed: TODAY });
+    expect(shouldPrune(m, TODAY)).toBe(false);
+  });
+  it("user/feedback 不受本门影响", () => {
+    const fb = mem({ name: "fb", type: "feedback", uses: 0, importance: 5, confidence: 0.5, created: OLD_CREATED, lastUsed: TODAY });
+    expect(shouldPrune(fb, TODAY)).toBe(false);
+  });
+});
+
 describe("gcMemories", () => {
   let dir: string;
   beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), "gc-")); });
