@@ -45,13 +45,17 @@ export async function distill(p: {
   config: { baseUrl: string; apiKey: string }; model: string;
   messages: { role: string; content: string | null }[]; today: string;
   fork?: boolean; // B-1 fork-cache:复用主对话已缓存前缀(同模型),在尾部追加抽取指令——更省更聪明
+  incremental?: boolean; // 写入层:热边界增量蒸——聚焦最近进展、跳过已记的(重叠交去重兜底)
   onUsage?: (u: unknown) => void; // B-2 计费:把蒸馏的 token 用量回报给会话
 }): Promise<Memory[]> {
   // B-1 fork 模式:直接把"完整对话(含 system,与主循环一致的前缀)"原样发出 + 尾部追加抽取指令,
   // 命中主循环刚写过的前缀缓存(Pro 命中价比未命中便宜 ~120×),几乎免费且用主模型更聪明。
   // 非 fork(legacy):排除 system、渲染最近 24000 字符成一条 user 消息,走 flash(无缓存复用)。
+  const forkTail = p.incremental
+    ? `${SYS}\n\n现在,从【上面对话中最近的进展】抽取【尚未记录过】的新事实,跳过早先已记的早期内容;只输出 JSON 数组(无其它文字)。`
+    : `${SYS}\n\n现在,基于【上面的完整对话】抽取记忆,只输出 JSON 数组(无其它文字)。`;
   const messages = p.fork
-    ? [...p.messages, { role: "user", content: `${SYS}\n\n现在,基于【上面的完整对话】抽取记忆,只输出 JSON 数组(无其它文字)。` }]
+    ? [...p.messages, { role: "user", content: forkTail }]
     : [
         { role: "system", content: SYS },
         { role: "user", content: p.messages.filter((m) => m.role !== "system").map((m) => `${m.role}: ${m.content ?? ""}`).join("\n").slice(-24000) },

@@ -65,6 +65,7 @@ import { gatherAudit, formatAudit } from "./memory/audit.js";
 import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
+import { shouldCaptureMemory } from "./memory/capture_policy.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
 import { makeFlashAdjudicator } from "./memory/adjudicate.js";
@@ -830,6 +831,16 @@ async function main() {
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
     }));
+    // 写入层(缺陷#1):热回合边界增量蒸馏——门控、后台;压缩前同步先捕获(防 compact 改 messages 竞态)。
+    // 一次性/eval 路径(argvPrompt)不捕获:保持快速查询零 flash 开销、eval 测量干净。
+    if (!argvPrompt) {
+      const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
+      const newTokens = estimateTokens(session.messages) - lastDistillTokens;
+      if (shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent }).capture) {
+        if (compactionImminent) await captureMemories({ incremental: true });
+        else void captureMemories({ incremental: true });
+      }
+    }
     if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
       write("\n[接近上限,自动压缩…]\n");
       await runCompaction();
@@ -845,14 +856,16 @@ async function main() {
     );
   };
 
-  // 会话结束蒸馏:独立一次 flash + 关思考(distill 内部已设)抽取原子事实/用户模型,
-  // 去重后 upsert 到项目记忆。全程 try/catch,失败绝不阻塞退出。仅当有 ≥1 轮真实用户对话时触发。
-  const distillOnExit = async (): Promise<void> => {
-    const hasRealTurn = session.messages.some((m) => m.role === "user");
-    if (!hasRealTurn) return;
-    write("\n正在更新记忆(蒸馏本次对话,需几秒)…\n"); // 退出后蒸馏要时间,先告知用户别以为卡住
+  // 写入层(缺陷#1):记忆捕获 = fork 增量蒸 → 去重 upsert。在【热回合边界】调用(增量、可后台)。
+  // fork 默认开:复用主对话前缀缓存(同主模型,热则近免费);DAO_DISTILL_FORK=0 退 flash。
+  // 退出时【不再】触发——everything 已在热边界增量捕获过,退出蒸馏只会撞冷缓存全价。
+  let captureBusy = false; // 防并发:上一次后台蒸馏未完成则跳过本次
+  let lastDistillTokens = 0; // 增量标记:上次成功蒸馏时的对话 token 估算(决定"新增多少")
+  const captureMemories = async (opts?: { incremental?: boolean }): Promise<void> => {
+    if (captureBusy) return;
+    if (!session.messages.some((m) => m.role === "user")) return;
+    captureBusy = true;
     try {
-      // B-1 fork-cache:默认复用主对话前缀缓存(同主模型,几乎免费且更聪明);DAO_DISTILL_FORK=0 回退 flash 截断。
       const fork = process.env.DAO_DISTILL_FORK !== "0";
       const distillModel = fork ? session.model : "deepseek-v4-flash";
       const cands = await distill({
@@ -862,6 +875,7 @@ async function main() {
         messages: session.messages,
         today,
         fork,
+        incremental: opts?.incremental,
         onUsage: (u) => {
           session.addUsage(u as never, distillModel); // B-2 计入蒸馏用量
           cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: "", tools: "", tail: "" });
@@ -869,7 +883,7 @@ async function main() {
       });
       // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
       const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
-      let n = 0, added = 0, updated = 0;
+      let added = 0, updated = 0;
       for (const cand of cands) {
         const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
         // 本地优先路由:没把握的推断(confidence<0.6)落项目级不污染全局;否则按类型进对应层。
@@ -877,15 +891,18 @@ async function main() {
         const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
         const res = await upsertMemory(dir, cand, existing, adjudicate);
         if (res.action === "updated") updated++; else added++;
-        n++;
       }
       memoryAudit.distilled(cands.length, added, updated);
-      write(n > 0 ? `✓ 已更新记忆:${n} 条\n` : `✓ 记忆无需更新\n`);
+      lastDistillTokens = estimateTokens(session.messages); // 成功后更新增量标记(失败则不更新,下回合重试该切片)
     } catch (e) {
       if (process.env.DAO_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
-      // 失败不阻塞退出。
+      // 失败静默,不阻塞会话。
+    } finally {
+      captureBusy = false;
     }
   };
+  // 触发阈值:自上次蒸以来新增对话 token ≥ 此值即捕获(锚"一块真实新工作量",非压缩阈值;可调)。
+  const DISTILL_TOKENS = Number(process.env.DAO_DISTILL_TOKENS) || 15000;
 
   try {
     if (argvPrompt) {
@@ -1010,6 +1027,15 @@ async function main() {
             signal,
           }));
           store.append({ t: "turn_end" });
+          // 写入层(缺陷#1):热回合边界增量蒸馏——门控、后台;压缩前必须先捕获(同步,防 compact 改 messages 竞态)。
+          {
+            const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
+            const newTokens = estimateTokens(session.messages) - lastDistillTokens;
+            if (shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent }).capture) {
+              if (compactionImminent) await captureMemories({ incremental: true }); // 压缩前同步捕获
+              else void captureMemories({ incremental: true }); // 否则后台,不阻塞下一轮 prompt
+            }
+          }
           if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
             const before = session.messages.length;
             events.notice("[接近上限,自动压缩…]");
@@ -1408,7 +1434,7 @@ async function main() {
       await mcp.close();
     }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
-    await distillOnExit();
+    // 退出【不再】蒸馏:记忆已在各热回合边界增量捕获;退出时缓存已凉,全量蒸只会撞冷缓存全价。
   } finally {
     closeRl();
   }
