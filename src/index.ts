@@ -35,6 +35,7 @@ import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
 import { memorySearchTool } from "./tools/memory_search.js";
+import { memoryReadTool } from "./tools/memory_read.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
 import { createTaskManager } from "./agent/tasks.js";
@@ -63,7 +64,7 @@ import { loadAllMemories, upsertMemory, migrateLegacy, routeScope } from "./memo
 import { gatherAudit, formatAudit } from "./memory/audit.js";
 import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
-import { buildMemorySection, selectForInjection } from "./memory/inject.js";
+import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
 import { makeFlashAdjudicator } from "./memory/adjudicate.js";
@@ -288,7 +289,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, memoryReadTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
   ]) {
     registry.register(t);
   }
@@ -331,9 +332,11 @@ async function main() {
     const { verdict } = await validateMemory(mem, workspaceRoot, today);
     validated.push({ mem, verdict });
   }
-  // store 过大时按 top-K 封顶注入(user 模型必留);会话启动无 query,确定性选择。
-  const injectedMems = selectForInjection(validated, today);
-  const memoryText = buildMemorySection(injectedMems);
+  // 两层读取:高价值整句全文常驻 + 长尾只给 slug 名索引(memory_read 按需取整句)。
+  // 都在会话开始算定、整会话固定(进会话固定区),不刷新、不破前缀缓存。
+  const injectedMems = selectFullText(validated, today);
+  const indexNames = selectIndexNames(validated, today, injectedMems);
+  const memoryText = buildMemorySection(injectedMems) + buildIndexSection(indexNames);
   const recallStale = validated.filter((v) => v.verdict === "stale").length;
   const recallChanged = validated.filter((v) => v.verdict === "changed").length;
   const recallTypes: Record<string, number> = {};

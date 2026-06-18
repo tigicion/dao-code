@@ -35,3 +35,45 @@ export function selectForInjection(
   const topRest = [...rest].sort((a, b) => score(b.mem) - score(a.mem)).slice(0, take);
   return [...userFacts, ...topRest];
 }
+
+const retentionScore = (m: Memory, today: string): number =>
+  m.importance * Math.pow(0.995, daysBetween(m.lastUsed, today));
+
+// 两层读取(读路径重构):
+// ① 高价值【整句全文】常驻:user/feedback/locked 全留 + 其余按留存取 top,封顶 fullCap。
+// ② 长尾只给【slug 名】索引(slug 本就是 text 派生的概要,省 token);模型看到相关名用 memory_read 取整句。
+// 都在会话开始算定、整会话固定(进会话固定区)——不刷新、不破前缀缓存。
+export function selectFullText(
+  items: { mem: Memory; verdict: Verdict }[],
+  today: string,
+  fullCap = 40,
+): { mem: Memory; verdict: Verdict }[] {
+  const live = items.filter((x) => x.verdict !== "stale");
+  const isHigh = (m: Memory) => m.type === "user" || m.type === "feedback" || !!m.locked;
+  const high = live.filter((x) => isHigh(x.mem));
+  const rest = live.filter((x) => !isHigh(x.mem));
+  const take = Math.max(0, fullCap - high.length);
+  const topRest = [...rest].sort((a, b) => retentionScore(b.mem, today) - retentionScore(a.mem, today)).slice(0, take);
+  return [...high, ...topRest];
+}
+
+// 全文集之外的 live 记忆名(按留存排序,封顶);长尾的可发现性靠这层 + memory_read。
+export function selectIndexNames(
+  items: { mem: Memory; verdict: Verdict }[],
+  today: string,
+  fullText: { mem: Memory; verdict: Verdict }[],
+  indexCap = 200,
+): string[] {
+  const inFull = new Set(fullText.map((x) => x.mem.name));
+  const live = items.filter((x) => x.verdict !== "stale" && !inFull.has(x.mem.name));
+  return [...live]
+    .sort((a, b) => retentionScore(b.mem, today) - retentionScore(a.mem, today))
+    .slice(0, indexCap)
+    .map((x) => x.mem.name);
+}
+
+// 索引段:只列 slug 名 + 用法提示。空则不注入。
+export function buildIndexSection(names: string[]): string {
+  if (names.length === 0) return "";
+  return `\n\n[记忆索引 · 其余 ${names.length} 条(名字即概要;需要整句细节用 memory_read 读)]\n${names.map((n) => `- ${n}`).join("\n")}`;
+}
