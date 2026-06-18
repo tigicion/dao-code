@@ -47,7 +47,7 @@ function mustConfirm(p: DecideParams): boolean {
 // 即便被升级到"需确认"也直接放行,省一次分类器调用。危险工具(exec_shell/网络/外部写)不在内,必须过分类器。
 const AUTO_ALLOWLIST = new Set([
   "read_file", "grep_files", "file_search", "list_dir",
-  "todo_write", "ask_user", "memory_search", "skill", "verify_done", "echo",
+  "todo_write", "ask_user", "memory_read", "skill", "verify_done", "echo",
 ]);
 
 // 单次工具调用的权限裁决,1:1 复刻 CC 优先级:

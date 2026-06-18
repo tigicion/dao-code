@@ -15,7 +15,7 @@ export function routeScope(type: MemoryType): Scope {
 import { parseMemoryFile, serializeMemory } from "./frontmatter.js";
 
 import { textSimilarity } from "../text/similarity.js";
-export { textSimilarity }; // 对外导出保持不变(memory_search 等仍从 store 引用)
+export { textSimilarity }; // 对外导出(memory_read 的关键词匹配从 store 引用)
 
 // ≥DUP_THRESHOLD:确定性自动合并(无 LLM)。
 // [GRAY_LOW, DUP_THRESHOLD):灰区——只对最相似的那一条喊 flash 裁判判是否同一事实(每候选至多 1 次)。

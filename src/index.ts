@@ -34,7 +34,6 @@ import { fetchUrlTool } from "./tools/fetch_url.js";
 import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
-import { memorySearchTool } from "./tools/memory_search.js";
 import { memoryReadTool } from "./tools/memory_read.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
@@ -291,7 +290,7 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memorySearchTool, memoryReadTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
   ]) {
     registry.register(t);
   }

@@ -19,7 +19,7 @@ export function shouldCompact(messages: ChatMessage[], maxTokens: number, ratio 
 }
 
 // 可重现的只读工具:其结果旧了可清掉(需要时重新获取);写/执行结果是关键状态,保留。
-const REPRODUCIBLE_TOOLS = new Set(["read_file", "list_dir", "grep_files", "file_search", "fetch_url", "web_search", "memory_search", "skill"]);
+const REPRODUCIBLE_TOOLS = new Set(["read_file", "list_dir", "grep_files", "file_search", "fetch_url", "web_search", "memory_read", "skill"]);
 const CLEARED_MARK = "[旧工具结果已清理,需要时可重新获取]";
 
 // 【缓存约束】microcompact 会改动旧消息 → 破坏 DeepSeek 前缀缓存。只可在 compactMessages 内调用
