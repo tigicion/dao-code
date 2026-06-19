@@ -36,7 +36,11 @@ export async function loadPlugins(root = pluginsRoot()): Promise<PluginInfo[]> {
     const dir = path.join(root, name);
     let manifest: { name?: string; description?: string };
     try {
-      manifest = JSON.parse(await fs.readFile(path.join(dir, "plugin.json"), "utf8"));
+      // dao 布局:<根>/plugin.json;CC 布局:<根>/.claude-plugin/plugin.json。两者都认(兼容 CC 插件生态)。
+      const manifestPath = existsSync(path.join(dir, "plugin.json"))
+        ? path.join(dir, "plugin.json")
+        : path.join(dir, ".claude-plugin", "plugin.json");
+      manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
     } catch {
       continue; // 缺/坏 manifest → 不是插件
     }
@@ -45,8 +49,11 @@ export async function loadPlugins(root = pluginsRoot()): Promise<PluginInfo[]> {
     if (existsSync(commandsDir)) info.commandsDir = commandsDir;
     const agentsDir = path.join(dir, "agents");
     if (existsSync(agentsDir)) info.agentsDir = agentsDir;
-    const hooksFile = path.join(dir, "hooks.json");
-    if (existsSync(hooksFile)) info.hooksFile = hooksFile;
+    // dao 布局:<根>/hooks.json;CC 布局:<根>/hooks/hooks.json。两者都认。
+    const hooksFlat = path.join(dir, "hooks.json");
+    const hooksNested = path.join(dir, "hooks", "hooks.json");
+    if (existsSync(hooksFlat)) info.hooksFile = hooksFlat;
+    else if (existsSync(hooksNested)) info.hooksFile = hooksNested;
     out.push(info);
   }
   return out;
@@ -57,17 +64,17 @@ export function pluginComponentDirs(plugins: PluginInfo[]): {
   skillDirs: string[];
   commandDirs: string[];
   agentDirs: string[];
-  hookFiles: string[];
+  hookFiles: { file: string; root: string }[]; // 带【插件根】:CLAUDE_PLUGIN_ROOT 必须是根,不是 hooks/ 子目录
 } {
   const skillDirs: string[] = [];
   const commandDirs: string[] = [];
   const agentDirs: string[] = [];
-  const hookFiles: string[] = [];
+  const hookFiles: { file: string; root: string }[] = [];
   for (const p of plugins) {
     skillDirs.push(p.skillsDir);
     if (p.commandsDir) commandDirs.push(p.commandsDir);
     if (p.agentsDir) agentDirs.push(p.agentsDir);
-    if (p.hooksFile) hookFiles.push(p.hooksFile);
+    if (p.hooksFile) hookFiles.push({ file: p.hooksFile, root: p.dir });
   }
   return { skillDirs, commandDirs, agentDirs, hookFiles };
 }

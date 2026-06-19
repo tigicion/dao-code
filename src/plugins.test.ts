@@ -41,6 +41,20 @@ describe("loadPlugins", () => {
     expect(info!.agentsDir).toBe(path.join(p, "agents"));
     expect(info!.hooksFile).toBe(path.join(p, "hooks.json"));
   });
+  it("CC 布局:.claude-plugin/plugin.json + hooks/hooks.json 也认(兼容 CC 插件生态)", async () => {
+    const p = path.join(root, "ccplugin");
+    await fs.mkdir(path.join(p, "skills"), { recursive: true });
+    await fs.mkdir(path.join(p, ".claude-plugin"), { recursive: true });
+    await fs.writeFile(path.join(p, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "ccplugin", description: "CC 布局" }));
+    await fs.mkdir(path.join(p, "hooks"), { recursive: true });
+    await fs.writeFile(path.join(p, "hooks", "hooks.json"), "{}");
+    const [info] = await loadPlugins(root);
+    expect(info!.name).toBe("ccplugin"); // 认出 .claude-plugin/plugin.json
+    expect(info!.hooksFile).toBe(path.join(p, "hooks", "hooks.json")); // 认出 hooks/hooks.json
+    // pluginRoot 必须是插件根(不是 hooks/),否则 CLAUDE_PLUGIN_ROOT 错
+    const agg = pluginComponentDirs([info!]);
+    expect(agg.hookFiles).toEqual([{ file: path.join(p, "hooks", "hooks.json"), root: p }]);
+  });
   it("仅 skills/ → command/agent/hook 字段为 undefined", async () => {
     const p = path.join(root, "skonly");
     await fs.mkdir(path.join(p, "skills"), { recursive: true });
@@ -70,7 +84,7 @@ describe("pluginComponentDirs", () => {
     expect(agg.skillDirs.sort()).toEqual([path.join(full, "skills"), path.join(partial, "skills")].sort());
     expect(agg.commandDirs).toEqual([path.join(full, "commands")]);
     expect(agg.agentDirs).toEqual([path.join(full, "agents")]);
-    expect(agg.hookFiles).toEqual([path.join(full, "hooks.json")]);
+    expect(agg.hookFiles).toEqual([{ file: path.join(full, "hooks.json"), root: full }]);
   });
 });
 

@@ -580,7 +580,7 @@ async function main() {
   // loadHooks 现为同步,收 HookFileRef[];插件 hook 文件在 <插件目录>/hooks.json,其 pluginRoot=该目录(CLAUDE_PLUGIN_ROOT)。
   const hooks = loadHooks([
     { path: path.join(os.homedir(), ".dao", "hooks.json") },
-    ...pluginComp.hookFiles.map((p: string) => ({ path: p, pluginRoot: path.dirname(p) })), // B-5 插件 hooks
+    ...pluginComp.hookFiles.map((h) => ({ path: h.file, pluginRoot: h.root })), // B-5 插件 hooks(pluginRoot=插件根,兼容 CC 的 hooks/ 子目录布局)
     // 未信任目录:不加载项目 hooks(hooks 会在事件时执行命令,是最危险的自动执行面)。
     ...(trustProject ? [{ path: path.join(workspaceRoot, ".dao", "hooks.json") }] : []),
   ]);
