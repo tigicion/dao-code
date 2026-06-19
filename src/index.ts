@@ -374,6 +374,9 @@ async function main() {
     ...pluginSkills,
   ];
   const diskNames = new Set(diskSkills.map((s) => s.name));
+  // TODO(skill 重叠策略,暂不做):现仅按【精确 name】去重(disk 覆盖 core)。不同名的【语义重复】
+  //   (如 dao 原生 debugging vs superpowers Systematic Debugging / Root Cause Tracing)抓不到,会同列、稀释触发。
+  //   方案待定:① 列表标来源 [内置/用户/插件] ② 包级声明"取代哪些" ③ 让用户 /skills 关冗余。倾向保留 dao 原生(更贴)。
   // 内置【核心】技能:描述固定加载进模型上下文(可自动触发),但不进用户的 /skills 列表、不可关。
   const coreBundled = BUNDLED_SKILLS.filter((b) => b.core && !diskNames.has(b.name)).map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name } as import("./skills/skills.js").Skill));
   // 禁用集(~/.dao/skills-disabled.json):被禁用的【磁盘】技能不注入上下文(省 token),/skills 可开关。
@@ -390,8 +393,8 @@ async function main() {
   const skillsSection =
     skills.length > 0
       ? `\n\n# 可用 skill —— 开始任何任务前先扫这张表\n` +
-        `【强制要求】只要某个 skill 可能与当前任务相关(哪怕只有一点可能,尤其描述写"在…之前/必须用"的,` +
-        `如做新功能前的 brainstorming、调试前的根因流程),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
+        `【强制要求】只要某个 skill 可能与当前任务相关(哪怕只有一点可能,尤其其"何时用"写明"在…之前/必须用"的——` +
+        `这类标了【触发时机】的,匹配上就该先加载),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
         `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
         `加载后,skill 正文是【必须照做的流程】(含其中"给用户选项/确认/分阶段"的步骤),不是参考——优先级高于你的默认习惯,仅让位于用户当前明确指令与安全/证据。\n` +
         skills.map((s) => {
