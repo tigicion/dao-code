@@ -19,6 +19,9 @@ export class Session {
   private readonly modelUsage = new Map<string, UsageTotals>();
   // Q1 真实上下文 token:主模型最近一次调用的 prompt_tokens(比 chars/3 估算准,尤其中文)。供压缩触发用。
   lastPromptTokens?: number;
+  // 主循环最近一次请求实际发出的 messages 长度(=已被 DeepSeek 缓存的前缀边界)。
+  // 蒸馏据此 slice,只发已缓存的前缀(不含回合后追加的最终回应/中途注入),命中热缓存。
+  lastSentLength = 0;
   private readonly systemPrompt: string;
   // P0-1 前缀缓存埋点:记录上一次 API 调用的输入规模与命中率,用于检测"前缀被改写导致命中骤降"。
   private lastCall?: { promptTokens: number; hitRatio: number };

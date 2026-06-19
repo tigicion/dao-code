@@ -90,6 +90,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       // 消息,被当作前置指令块——尾部一变就把其后【整段对话】的前缀缓存全废掉(实测命中率从 95% 塌到 ~14%)。
       // 提醒/激活类内容一律【append 进 session.messages】(append-only 增长,缓存安全),而不是这里临时拼。
       const sent = session.messages;
+      if (deps.auditId?.agent === "main") session.lastSentLength = sent.length; // 记已缓存前缀边界,供蒸馏对齐(只主会话)
       const model = usedFallback && deps.fallbackModel ? deps.fallbackModel : session.model;
       // P1-47 缓存归因 + 缓存审计:先算原始内容,notePrefix 与审计共用。tail 恒为空(已无尾部临时注入)。
       const sysRaw = typeof session.messages[0]?.content === "string" ? (session.messages[0]!.content as string) : "";

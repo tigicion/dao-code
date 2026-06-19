@@ -1,6 +1,18 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
 
+// 子代理模型名归一化:模型常把 "deepseek-v4-pro" 写成 "deepseek-v4"/"pro"/"flash" → raw 传 API 会失败。
+// 含 flash/pro 的归到对应全名;已是有效全名保留;其余(如裸 "deepseek-v4")→ undefined(继承父模型),
+// 绝不把无效名透传给 API(实测一次子代理派发因 "deepseek-v4" 失败)。
+export function normalizeModel(m: string | undefined): string | undefined {
+  if (!m) return undefined;
+  const s = m.trim().toLowerCase();
+  if (s === "deepseek-v4-pro" || s === "deepseek-v4-flash") return s;
+  if (s.includes("flash")) return "deepseek-v4-flash";
+  if (s.includes("pro")) return "deepseek-v4-pro";
+  return undefined; // 无法识别 → 继承父模型,不透传无效名
+}
+
 export const agentTool = defineTool({
   name: "agent",
   description:
@@ -69,6 +81,7 @@ export const agentTool = defineTool({
     if (args.fork && (args.model || args.mode)) {
       return "fork 与 model/mode 覆盖互斥:fork 的价值是复用父代理的前缀缓存,而换模型/改模式会让该缓存失效、fork 失去意义。请去掉 model/mode,或改用普通子代理(去掉 fork)。";
     }
+    const reqModel = normalizeModel(args.model); // 归一化/兜底:无效模型名不透传给 API
     const fork = !!args.fork && !!ctx.runForkAgent; // ② fork 优先(继承父上下文 + 复用缓存)
     const isolate = !fork && !!args.isolate && !!ctx.createWorktree;
     // 隔离运行:为该子代理建 worktree,在其中跑;改动留在分支供 review。非 git 仓库则回退共享。
@@ -77,20 +90,20 @@ export const agentTool = defineTool({
       if (isolate) {
         const wt = ctx.createWorktree!(`a${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`);
         if (wt) {
-          const r = await run({ task: t, signal: ctx.signal, agentType: type, workspaceRoot: wt.root, model: args.model, mode: args.mode });
+          const r = await run({ task: t, signal: ctx.signal, agentType: type, workspaceRoot: wt.root, model: reqModel, mode: args.mode });
           // P2-48 清理策略(对标 CC):有改动→保留分支供 review/merge;无改动→自动删,不留垃圾 worktree。
           if (wt.hasChanges()) return `${r}\n[隔离:改动在分支 ${wt.branch}(已保留,可 review/merge)]`;
           wt.cleanup();
           return r;
         }
       }
-      return run({ task: t, signal: ctx.signal, agentType: type, model: args.model, mode: args.mode });
+      return run({ task: t, signal: ctx.signal, agentType: type, model: reqModel, mode: args.mode });
     };
     const tasks = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
     if (tasks.length === 0) return "请提供 task 或 tasks。";
     // 单个前台子代理:跑超过阈值(默认 60s)自动转后台,主循环不被长子任务一直阻塞。
     if (tasks.length === 1 && !isolate && ctx.adoptBackground) {
-      const p = run({ task: tasks[0]!, signal: ctx.signal, agentType: type, model: args.model, mode: args.mode });
+      const p = run({ task: tasks[0]!, signal: ctx.signal, agentType: type, model: reqModel, mode: args.mode });
       const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<{ bg: true }>((res) => { timer = setTimeout(() => res({ bg: true }), ms); });

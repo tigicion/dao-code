@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { agentTool } from "./agent.js";
+import { agentTool, normalizeModel } from "./agent.js";
+
+describe("normalizeModel — 子代理模型名兜底", () => {
+  it("有效全名保留", () => {
+    expect(normalizeModel("deepseek-v4-pro")).toBe("deepseek-v4-pro");
+    expect(normalizeModel("deepseek-v4-flash")).toBe("deepseek-v4-flash");
+  });
+  it("含 flash/pro 的归一", () => {
+    expect(normalizeModel("flash")).toBe("deepseek-v4-flash");
+    expect(normalizeModel("Pro")).toBe("deepseek-v4-pro");
+  });
+  it("无法识别(裸 deepseek-v4 / 乱写)→ undefined 继承父模型,不透传无效名", () => {
+    expect(normalizeModel("deepseek-v4")).toBeUndefined();
+    expect(normalizeModel("gpt-4")).toBeUndefined();
+    expect(normalizeModel(undefined)).toBeUndefined();
+  });
+});
 
 describe("agent tool", () => {
   it("delegates the task to ctx.runSubagent and returns its result", async () => {

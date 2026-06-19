@@ -896,20 +896,26 @@ async function main() {
     try {
       const fork = process.env.DAO_DISTILL_FORK !== "0";
       const distillModel = fork ? session.model : "deepseek-v4-flash";
+      // 只发【上一次主请求已缓存的前缀】(slice 到 lastSentLength),不含回合后追加的最终回应/中途注入——
+      // 否则那截未缓存内容会拉低命中(实测子代理大回合命中崩到 0.19)。fork 才需要对齐缓存;非 fork 走截断。
+      const distillTools = fork ? apiToolsForMode(registry, session.mode) : undefined;
+      const distillMsgs = fork && session.lastSentLength > 0 ? session.messages.slice(0, session.lastSentLength) : session.messages;
       const cands = await distill({
         streamChat,
         config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
         model: distillModel,
-        messages: session.messages,
+        messages: distillMsgs,
         today,
         fork,
         incremental: opts?.incremental,
         // fork 缓存复用:带上与主循环【同一份 tools + 同思考强度】,前缀才字节一致、命中热缓存。
-        tools: fork ? apiToolsForMode(registry, session.mode) : undefined,
+        tools: distillTools,
         reasoningEffort: process.env.DAO_REASONING_EFFORT || "max",
         onUsage: (u) => {
           session.addUsage(u as never, distillModel); // B-2 计入蒸馏用量
-          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: "", tools: "", tail: "" });
+          // 审计记【真 raw 指纹】(cache_audit 内部自己 hash,与主循环同算法)→ 便于下次对比 distill vs main 前缀是否一致。
+          const sysRaw = typeof session.messages[0]?.content === "string" ? (session.messages[0]!.content as string) : "";
+          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: sysRaw, tools: JSON.stringify(distillTools ?? []), tail: "" });
         },
       });
       // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
