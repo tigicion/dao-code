@@ -1,6 +1,6 @@
 {
   "name": "dao-code",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "DAO CODE —— 道家美学的 DeepSeek V4 终端编码 agent(Ink TUI · 太极欢迎屏 · 流式+工具+审批 · 持久记忆 · prompt-cache 感知)",
   "author": "tigicion",
   "type": "module",

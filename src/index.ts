@@ -685,13 +685,14 @@ async function main() {
   let externalReadGranted = alwaysApproved.has("external-read");
   let externalWriteGranted = alwaysApproved.has("external-write");
   // CC additionalDirectories:settings 里预先授权的工作区外目录,直接放行不弹窗。
-  // TODO(skill 资源区外,先不做):skill/插件正文常引同目录伴随文件(如 superpowers 的 implementer-prompt.md),
-  //   它们在 ~/.dao/skills、~/.dao/plugins(区外)→ 每次读都弹"区外路径"审批。修法:把这两个 dao 自管目录
-  //   自动加进 extraDirs(只读放行)——它们是 dao 受信目录,读其内容是合法的 skill 行为,不该追问。
   const extraDirs = loadedPerms.additionalDirectories.map((d) => path.resolve(workspaceRoot, d));
   const underExtra = (abs: string) => extraDirs.some((d) => abs === d || abs.startsWith(d.endsWith("/") ? d : d + "/"));
+  // dao 自管的 skill/插件目录:skill 正文常引同目录伴随文件(如 superpowers 的 implementer-prompt.md),
+  // 它们在区外但是受信内容,【只读】放行不追问(写仍走审批——故只用于 approveExternalRead,不进 extraDirs)。
+  const daoSkillDirs = [path.join(os.homedir(), ".dao", "skills"), path.join(os.homedir(), ".dao", "plugins")];
+  const underDaoSkills = (abs: string) => daoSkillDirs.some((d) => abs.startsWith(d.endsWith("/") ? d : d + "/"));
   ctx.approveExternalRead = async (abs: string): Promise<boolean> => {
-    if (yolo || externalReadGranted || underExtra(abs)) return true;
+    if (yolo || externalReadGranted || underExtra(abs) || underDaoSkills(abs)) return true; // dao skill/插件资源:只读放行
     if (!inkApprovalPrompt) return false; // 非交互(管道/eval)默认拒绝区外访问
     const decisions = await inkApprovalPrompt([
       { id: "ext", toolName: "读取(工作区外)", capability: "read", summary: `访问工作区外路径:${abs}` },
