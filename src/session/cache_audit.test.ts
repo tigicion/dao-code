@@ -53,6 +53,30 @@ describe("cache_audit sink", () => {
     expect(existsSync(path.join(dir, "cache.jsonl"))).toBe(false);
   });
 
+  it("distill vs 末轮 main:消息前缀一致 → vsMain 无分歧(firstDiffAt 到末尾)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ca-"));
+    const sink = createCacheAuditSink(dir, {});
+    const prefix = JSON.stringify([{ role: "user", content: "hi" }, { role: "assistant", content: "yo" }]);
+    sink.record({ agent: "main", depth: 0, turn: 5, model: "pro", usage: usage(1000, 900), sys: "S", tools: "T", tail: "", msgs: prefix });
+    sink.record({ agent: "distill", depth: 0, turn: 0, model: "pro", usage: usage(1000, 500), sys: "S", tools: "T", tail: "", msgs: prefix });
+    const ev = readEvents(dir);
+    expect(ev[0]!.fp.msgs).toBe(ev[1]!.fp.msgs); // 前缀逐字节一致 → msgs 指纹相同
+    expect(ev[1]!.delta?.vsMain?.firstDiffAt).toBe(prefix.length); // 无分歧
+  });
+
+  it("distill vs 末轮 main:消息前缀不一致 → vsMain 标出首处分歧字节", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ca-"));
+    const sink = createCacheAuditSink(dir, {});
+    const mainMsgs = JSON.stringify([{ role: "user", content: "hi" }, { role: "assistant", content: "yo" }]);
+    const distillMsgs = JSON.stringify([{ role: "user", content: "hi" }, { role: "assistant", content: "YO-DIFFERENT" }]);
+    sink.record({ agent: "main", depth: 0, turn: 5, model: "pro", usage: usage(1000, 900), sys: "S", tools: "T", tail: "", msgs: mainMsgs });
+    sink.record({ agent: "distill", depth: 0, turn: 0, model: "pro", usage: usage(1000, 200), sys: "S", tools: "T", tail: "", msgs: distillMsgs });
+    const ev = readEvents(dir);
+    expect(ev[0]!.fp.msgs).not.toBe(ev[1]!.fp.msgs);
+    expect(ev[1]!.delta?.vsMain?.firstDiffAt).toBeLessThan(distillMsgs.length); // 找到分歧点
+    expect(ev[1]!.delta?.vsMain?.sample.length).toBeGreaterThan(0);
+  });
+
   it("divergence reports first differing offset and a sample from the new string", () => {
     const d = divergence("hello world", "hello brave world");
     expect(d.firstDiffAt).toBe(6);

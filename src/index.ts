@@ -930,7 +930,8 @@ async function main() {
           session.addUsage(u as never, distillModel); // B-2 计入蒸馏用量
           // 审计记【真 raw 指纹】(cache_audit 内部自己 hash,与主循环同算法)→ 便于下次对比 distill vs main 前缀是否一致。
           const sysRaw = typeof session.messages[0]?.content === "string" ? (session.messages[0]!.content as string) : "";
-          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: sysRaw, tools: JSON.stringify(distillTools ?? []), tail: "" });
+          // msgs=实发消息体前缀(不含 distill 尾部追加的抽取指令)→ 与末轮 main 比对应逐字节一致。
+          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: sysRaw, tools: JSON.stringify(distillTools ?? []), tail: "", msgs: JSON.stringify(distillMsgs) });
         },
       });
       // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。

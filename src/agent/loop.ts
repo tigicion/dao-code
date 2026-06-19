@@ -118,6 +118,8 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
               ...(deps.auditId?.subId ? { subId: deps.auditId.subId } : {}),
               depth: deps.auditId?.depth ?? 0,
               turn, model, usage: u, sys: sysRaw, tools: toolsRaw, tail: tailRaw,
+              // msgs=本次实发消息体 → distill 据此比对前缀是否逐字节一致(诊断 0.52 命中之谜)。
+              ...(deps.auditId?.agent === "main" ? { msgs: JSON.stringify(sent) } : {}),
             });
           },
           signal,

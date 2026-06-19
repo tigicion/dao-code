@@ -15,6 +15,9 @@ export interface CacheAuditInput {
   sys: string;
   tools: string;
   tail: string;
+  // 可选:本次实际发出的【消息体前缀】序列化(不含 distill 在尾部追加的抽取指令)。
+  // 只有 main / distill 传;用于诊断 distill 的消息前缀是否与末轮 main 逐字节一致(命中本应 ~95%)。
+  msgs?: string;
 }
 
 export interface CacheAuditDelta { fromLen: number; toLen: number; firstDiffAt: number; sample: string }
@@ -22,7 +25,7 @@ export interface CacheAuditDelta { fromLen: number; toLen: number; firstDiffAt: 
 export interface CacheAuditEvent {
   agent: string; subId?: string; depth: number; turn: number; model: string;
   prompt: number; hit: number; miss: number; completion: number; ratio: number;
-  fp: { model: string; sys: string; tools: string; tail: string };
+  fp: { model: string; sys: string; tools: string; tail: string; msgs: string };
   changed: string[];
   delta?: Record<string, CacheAuditDelta>;
 }
@@ -54,6 +57,8 @@ export function createCacheAuditSink(sessionDir: string, env: NodeJS.ProcessEnv 
   // 按 agentKey 记上一条四维原始内容,算 changed/delta。子 agent 各自一桶,互不污染。
   const prev = new Map<string, { model: string; sys: string; tools: string; tail: string }>();
   const DIMS = ["model", "sys", "tools", "tail"] as const;
+  // 跨 agent 诊断:记最近一次 main 实发的消息体前缀;distill 记录时与之比对(应逐字节一致)。
+  let lastMainMsgs = "";
   return {
     record(inp) {
       const key = `${inp.agent}:${inp.subId ?? ""}:${inp.depth}`;
@@ -73,6 +78,13 @@ export function createCacheAuditSink(sessionDir: string, env: NodeJS.ProcessEnv 
         }
       }
       prev.set(key, cur);
+      // 跨 agent 诊断:main 实发消息体存为基准;distill 与上一条 main 比 → 找第一处分歧字节(在哪断前缀)。
+      const msgs = inp.msgs ?? "";
+      if (inp.agent === "main" && msgs) lastMainMsgs = msgs;
+      if (inp.agent === "distill" && msgs && lastMainMsgs) {
+        const dv = divergence(lastMainMsgs, msgs);
+        delta.vsMain = { fromLen: lastMainMsgs.length, toLen: msgs.length, firstDiffAt: dv.firstDiffAt, sample: dv.sample };
+      }
       const u = inp.usage;
       const prompt = u.prompt_tokens ?? 0;
       const hit = u.prompt_cache_hit_tokens ?? 0;
@@ -82,7 +94,7 @@ export function createCacheAuditSink(sessionDir: string, env: NodeJS.ProcessEnv 
         depth: inp.depth, turn: inp.turn, model: inp.model,
         prompt, hit, miss: u.prompt_cache_miss_tokens ?? 0, completion: u.completion_tokens ?? 0,
         ratio: prompt > 0 ? hit / prompt : 0,
-        fp: { model: cheapHash(inp.model), sys: cheapHash(inp.sys), tools: cheapHash(inp.tools), tail: cheapHash(inp.tail) },
+        fp: { model: cheapHash(inp.model), sys: cheapHash(inp.sys), tools: cheapHash(inp.tools), tail: cheapHash(inp.tail), msgs: cheapHash(msgs) },
         changed,
         ...(Object.keys(delta).length ? { delta } : {}),
       };
