@@ -226,6 +226,7 @@ export function App(deps: AppDeps) {
   const CHOICE_FILL = "其他(自己输入)";
   const CHOICE_DISCUSS = "先讨论一下";
   const controllerRef = useRef<AbortController | null>(null);
+  const lastSubmitRef = useRef(""); // 最近一次用户提交的文本;ESC 中断后回填输入框,避免重打
   const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
   const reasoningRef = useRef(""); // 本次模型响应累积的思考(同步提交,保证"思考在前、答案在后")
   // 大段粘贴折叠:输入框/历史里显示 [粘贴#N +M行] 占位,提交时再展开成全文喂模型——保持界面与上下文清爽。
@@ -271,7 +272,14 @@ export function App(deps: AppDeps) {
       });
     const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
     const askChoice = (question: string, options: string[], multi?: boolean) =>
-      new Promise<string>((resolve) => { setChoice({ question, options, multi: !!multi, resolve }); setChoiceIdx(0); setChoiceChecked(new Set()); setChoiceWarn(false); });
+      new Promise<string>((resolve) => {
+        // 去重:剔掉模型误写的"其他/先讨论/完成"——这几项 dao 会自动追加,否则会重复(如两个"先讨论一下")。
+        const norm = (s: string) => s.trim().replace(/^\d+[.、)]\s*/, "");
+        const reserved = new Set([CHOICE_FILL, CHOICE_DISCUSS, CHOICE_DONE].map(norm));
+        const cleaned = options.filter((o) => !reserved.has(norm(o)));
+        setChoice({ question, options: cleaned, multi: !!multi, resolve });
+        setChoiceIdx(0); setChoiceChecked(new Set()); setChoiceWarn(false);
+      });
     deps.register({ approvalPrompt, askUser, askChoice });
   }, [deps]);
 
@@ -343,6 +351,7 @@ export function App(deps: AppDeps) {
     const full = expandPastes(text); // 喂模型/命令用(占位展开成全文)
     setField({ text: "", cursor: 0 });
     if (!text) return;
+    lastSubmitRef.current = text; // 记下本次提交,供 ESC 中断后回填(只记用户提交,不含后台通知)
     history.current.push(text);
     histIdx.current = -1;
     if (text.startsWith("/")) {
@@ -568,7 +577,12 @@ export function App(deps: AppDeps) {
       else if (ch && !key.ctrl && !key.meta) setAskInput((s) => s + ch);
       return;
     }
-    if (key.escape && busy) { controllerRef.current?.abort(); return; }
+    if (key.escape && busy) {
+      controllerRef.current?.abort();
+      // 回填:输入框为空时,把刚中断的那条提交放回去,方便改了再发(不覆盖已打的新草稿)。
+      if (!input.trim() && lastSubmitRef.current) setField({ text: lastSubmitRef.current, cursor: lastSubmitRef.current.length });
+      return;
+    }
     if (key.ctrl && ch === "c") { exit(); return; }
     // Shift+Tab:循环权限模式(default→auto→plan),随时可用。acceptEdits/bypass 不在循环里。
     if (key.tab && key.shift && deps.cycleMode) {

@@ -39,6 +39,8 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
       return { handled: true, output: "已清空对话(保留系统设定)" };
     case "compact":
       return { handled: true, compact: true };
+    // TODO(跨会话 usage 聚合,先不做):现 /cost 只给【本会话】token+¥+命中率。跨会话趋势(按天/周花销、
+    //   token 趋势、哪个会话/模型最贵)未做;数据已在各会话 cache.jsonl 里,可加个 `dao usage` 脚本聚合,非核心。
     case "cost":
       return { handled: true, output: session.usageSummary() };
     case "help":

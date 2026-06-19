@@ -685,6 +685,9 @@ async function main() {
   let externalReadGranted = alwaysApproved.has("external-read");
   let externalWriteGranted = alwaysApproved.has("external-write");
   // CC additionalDirectories:settings 里预先授权的工作区外目录,直接放行不弹窗。
+  // TODO(skill 资源区外,先不做):skill/插件正文常引同目录伴随文件(如 superpowers 的 implementer-prompt.md),
+  //   它们在 ~/.dao/skills、~/.dao/plugins(区外)→ 每次读都弹"区外路径"审批。修法:把这两个 dao 自管目录
+  //   自动加进 extraDirs(只读放行)——它们是 dao 受信目录,读其内容是合法的 skill 行为,不该追问。
   const extraDirs = loadedPerms.additionalDirectories.map((d) => path.resolve(workspaceRoot, d));
   const underExtra = (abs: string) => extraDirs.some((d) => abs === d || abs.startsWith(d.endsWith("/") ? d : d + "/"));
   ctx.approveExternalRead = async (abs: string): Promise<boolean> => {
@@ -935,6 +938,7 @@ async function main() {
     }
   };
 
+  let exitSessionId: string | undefined; // 交互会话 id(供退出时打印 resume 提示;一次性路径无 store)
   try {
     if (argvPrompt) {
       // 一次性调用(含 eval 每次跑)不蒸馏:蒸馏只属于真实的交互式工作会话,
@@ -999,6 +1003,7 @@ async function main() {
         }
       }
       const store = createSessionStore(sessionsDir, resumeId);
+      exitSessionId = store.id; // 记下,退出时给 resume 提示
       // 缓存审计:主+子+fork+后台+三工具调用全写进 store.dir/cache.jsonl(常驻静默;DAO_CACHE_AUDIT=0 关)。
       cacheSink = createCacheAuditSink(store.dir);
       memoryAudit = createMemoryAuditSink(store.dir);
@@ -1467,6 +1472,7 @@ async function main() {
       await mcp.close();
     }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
+    if (exitSessionId) write(`会话 ${exitSessionId} · 续写:dao -c(最近一个)或启动后 /resume ${exitSessionId}\n`);
     // 退出【不再】蒸馏:记忆已在各热回合边界增量捕获;退出时缓存已凉,全量蒸只会撞冷缓存全价。
   } finally {
     closeRl();
