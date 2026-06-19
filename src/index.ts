@@ -465,9 +465,24 @@ async function main() {
   const readlinePrompt = makeApprovalPrompt(ask);
 
   // ---- 目录信任(P2-37):未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行 ----
-  const trustProject = await shouldTrustProject(workspaceRoot);
+  // 对标 CC 信任对话:交互终端进入未信任文件夹时【启动前直接问】,y→信任整个文件夹并当场加载(无需重启);
+  // 否则继续不信任(只用用户级)。headless(-p 一次性)与非 TTY 不弹问,默认不信任(自动化不能卡交互、安全默认)。
+  let trustProject = await shouldTrustProject(workspaceRoot);
   if (!trustProject) {
-    process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
+    if (process.stdin.isTTY && !argvPrompt) {
+      const a = (await ask(
+        `\n⚠ 此文件夹尚未信任:\n  ${workspaceRoot}\ndao 会加载并可能执行它的项目配置(.dao/settings.json 与 hooks.json)。\n是否信任此文件夹?[y/N] `,
+      )).trim().toLowerCase();
+      if (a === "y" || a === "yes") {
+        await addTrusted(workspaceRoot);
+        trustProject = true;
+        write(`✓ 已信任此文件夹,加载其项目配置。\n`);
+      } else {
+        write(`已继续(未信任):项目级 settings/hooks 不加载。之后可运行 \`dao trust\` 信任。\n`);
+      }
+    } else {
+      process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
+    }
   }
   void maybeCleanup(workspaceRoot); // P2-58/67 卫生清理:每日一次、非阻塞、best-effort
   void maybeCheckUpdate((msg) => process.stderr.write(`ℹ ${msg}\n`)); // P3-59 更新检查:每日一次、非阻塞、仅提示
