@@ -28,6 +28,11 @@ export const skillTool = defineTool({
     // 按源 hash 缓存,源文件不动);dao 原生技能原样返回。flash 不可用则退回原文+通用提示。
     const text = ctx.adaptSkill ? await ctx.adaptSkill(s.body) : s.body;
     const loc = s.dir ? `(目录:${s.dir},正文中引用的相对资源以此为根)\n` : ""; // 内置技能无目录
-    return `# Skill: ${s.name}\n${loc}\n${text}`;
+    // 遵从约束:loaded skill 是【必须照做的流程】,不是可选参考——治"加载了却不照步骤做"(如不给用户选项)。
+    const follow =
+      `\n\n---\n[执行约束] 以上 skill 正文是【必须照做的流程指令】,不是可选信息:优先级高于你的默认习惯,` +
+      `仅让位于用户当前明确指令与安全/证据。若它含步骤/清单,立即用 todo_write 逐条建 todo 并按序执行;` +
+      `含"给用户选项 / 确认 / 分阶段"的步骤【必须】执行(用 ask_user 给选项),不要跳过、不要只在脑子里走。`;
+    return `# Skill: ${s.name}\n${loc}\n${text}${follow}`;
   },
 });
