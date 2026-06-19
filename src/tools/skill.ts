@@ -15,10 +15,12 @@ export const skillTool = defineTool({
     const skills = ctx.skills ?? [];
     // 容错匹配:精确 name → 大小写不敏感 name → 目录 slug(模型常用直觉短名,不必照抄 Title Case)。
     const want = args.name.trim().toLowerCase();
+    const nsName = (x: { namespace?: string; slug?: string }) => `${x.namespace ? x.namespace + ":" : ""}${x.slug ?? ""}`.toLowerCase();
     const s =
+      skills.find((x) => nsName(x) === want) ?? // 带命名空间精确(plugin:slug)
       skills.find((x) => x.name === args.name) ??
       skills.find((x) => x.name.toLowerCase() === want) ??
-      skills.find((x) => x.slug?.toLowerCase() === want);
+      skills.find((x) => x.slug?.toLowerCase() === want); // 裸 slug:撞名时取列表里的(已按优先级)
     if (!s) {
       const avail = skills.map((x) => x.name).join(", ") || "(无)";
       return `未找到 skill「${args.name}」。可用:${avail}。`;

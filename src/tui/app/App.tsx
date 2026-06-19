@@ -143,7 +143,7 @@ function activityLabel(name: string, argsJson: string): string {
     case "todo_write": return `更新任务清单`;
     case "ask_user": return `提问`;
     case "agent": return Array.isArray(a.tasks) ? `并行 ${a.tasks.length} 个子代理` : `子代理:${s(a.task).slice(0, 50)}`;
-    case "skill": return `Skill(${s(a.name) || "?"})`; // dao 技能无 plugin 命名空间,直接用入参名(name/slug)
+    case "skill": return `Skill(${s(a.name) || "?"})`; // 入参名(name/slug,插件技能为 plugin:slug)
     default: return name;
   }
 }

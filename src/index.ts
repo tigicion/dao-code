@@ -94,6 +94,7 @@ import { resolveBackground } from "./tui/background.js";
 import { randomMaxim } from "./tui/maxim.js";
 import { runInkApp } from "./tui/app/run.js";
 import { walkFiles } from "./tools/walk.js";
+import { globToRegExp } from "./tools/glob.js";
 import type { ApprovalPrompt } from "./approval/types.js";
 import { VERSION } from "./version.js";
 import { compactMessages, estimateTokens } from "./agent/compact.js";
@@ -368,15 +369,16 @@ async function main() {
         agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
       : "";
   // 开箱即用 skill(.dao/skills/ + 已装插件的 skills/):启动只列 name+description,模型用 skill 工具按需取正文。
-  const pluginSkills = (await Promise.all(installedPlugins.map((p) => loadSkills(p.skillsDir)))).flat();
+  // 插件技能打【命名空间】(=插件名):用于 plugin:slug 调用与防撞;本地/项目/内置不加前缀。
+  const pluginSkills = (await Promise.all(installedPlugins.map(async (p) => (await loadSkills(p.skillsDir)).map((s) => ({ ...s, namespace: p.name }))))).flat();
   const diskSkills = [
     ...(await loadSkills(path.join(os.homedir(), ".dao", "skills"), path.join(workspaceRoot, ".dao", "skills"))),
     ...pluginSkills,
   ];
   const diskNames = new Set(diskSkills.map((s) => s.name));
-  // TODO(skill 重叠策略,暂不做):现仅按【精确 name】去重(disk 覆盖 core)。不同名的【语义重复】
-  //   (如 dao 原生 debugging vs superpowers Systematic Debugging / Root Cause Tracing)抓不到,会同列、稀释触发。
-  //   方案待定:① 列表标来源 [内置/用户/插件] ② 包级声明"取代哪些" ③ 让用户 /skills 关冗余。倾向保留 dao 原生(更贴)。
+  // skill 去重(对齐 CC):物理文件去 realpath(loadSkills 内)、同名按优先级覆盖、插件加命名空间防撞、条件技能按 paths 收窄。
+  //   仍无法自动消的是【不同名的语义重复】(dao debugging vs superpowers Systematic Debugging)——CC 也不自动去,靠策展:
+  //   保留 dao 原生(更贴),冗余的让用户 /skills 关。来源已在 /skills 列表标 [内置/用户/插件]。
   // 内置【核心】技能:描述固定加载进模型上下文(可自动触发),但不进用户的 /skills 列表、不可关。
   const coreBundled = BUNDLED_SKILLS.filter((b) => b.core && !diskNames.has(b.name)).map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name } as import("./skills/skills.js").Skill));
   // 禁用集(~/.dao/skills-disabled.json):被禁用的【磁盘】技能不注入上下文(省 token),/skills 可开关。
@@ -386,8 +388,22 @@ async function main() {
   const skillSource = (s: { dir: string }) => (s.dir.startsWith(pluginsDir) ? "插件" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
   const enabledDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
-  // 模型可见 = 核心内置(固定) + 启用的磁盘技能;全部进常驻列表(name+description),skill 工具按需加载正文。
-  const skills = [...coreBundled, ...enabledDisk];
+  // 条件技能(对齐 CC 的 paths):带 paths 的技能仅当项目里有匹配文件才"在场",否则不进列表(减少无关技能稀释触发)。
+  // 无 paths = 一直在场(现状)。启动一次性算定,进固定前缀、缓存安全。
+  const visible = [...coreBundled, ...enabledDisk];
+  const condSkills = visible.filter((s) => s.paths && s.paths.length);
+  const condMatched = new Set<string>();
+  if (condSkills.length > 0) {
+    const pats = condSkills.map((s) => ({ name: s.name, res: s.paths!.map(globToRegExp) }));
+    let scanned = 0;
+    for await (const { rel } of walkFiles(workspaceRoot)) {
+      if (++scanned > 4000) break; // 上限:只为判"有无匹配",不必走全量
+      for (const p of pats) if (!condMatched.has(p.name) && p.res.some((re) => re.test(rel))) condMatched.add(p.name);
+      if (condMatched.size === condSkills.length) break; // 全命中,提前停
+    }
+  }
+  // 模型可见 = 核心内置 + 启用磁盘,且(无 paths 或 项目匹配)。全部进常驻列表,skill 工具按需加载正文。
+  const skills = visible.filter((s) => !s.paths?.length || condMatched.has(s.name));
   // 使用频率加权(常用且最近用过的技能在发现/列表里靠前)。启动加载一次,记录时增量更新+落盘。
   let usageMap = await loadUsage(os.homedir());
   const skillsSection =
@@ -400,7 +416,8 @@ async function main() {
         skills.map((s) => {
           // 触发条件(when_to_use)对"何时该加载"至关重要,必须随描述一起呈现;调用名给 slug(模型不必照抄 Title Case)。
           const trig = s.whenToUse ? ` 何时用:${s.whenToUse}` : "";
-          const call = s.slug && s.slug.toLowerCase() !== s.name.toLowerCase() ? `(调用名 ${s.slug})` : "";
+          const callName = `${s.namespace ? s.namespace + ":" : ""}${s.slug ?? s.name}`; // 插件技能用 plugin:slug 防撞
+          const call = callName.toLowerCase() !== s.name.toLowerCase() ? `(调用名 ${callName})` : "";
           return `- ${s.name}${call}:${`${s.description}${trig}`.slice(0, 220)}`; // 预算上限 220 字(含触发条件),防多技能撑大常驻 prompt
         }).join("\n")
       : "";

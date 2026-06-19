@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadSkills } from "./skills.js";
@@ -33,6 +33,26 @@ describe("loadSkills", () => {
     expect(s.whenToUse).toBe("before writing code for any feature");
     expect(s.slug).toBe("brainstorming"); // 目录名作为可调用别名
   });
+  it("解析 paths(条件技能)——支持逗号/空格/[]/引号", async () => {
+    const proj = path.join(base, "p");
+    mkdirSync(path.join(proj, "swift"), { recursive: true });
+    writeFileSync(path.join(proj, "swift", "SKILL.md"), `---\nname: swift\ndescription: x\npaths: ["**/*.swift", "**/*.m"]\n---\n正文`);
+    mkdirSync(path.join(proj, "plain"), { recursive: true });
+    writeFileSync(path.join(proj, "plain", "SKILL.md"), `---\nname: plain\ndescription: x\n---\n正文`);
+    const skills = await loadSkills(proj);
+    expect(skills.find((s) => s.name === "swift")?.paths).toEqual(["**/*.swift", "**/*.m"]);
+    expect(skills.find((s) => s.name === "plain")?.paths).toBeUndefined(); // 无 paths = 一直在场
+  });
+  it("realpath 去重:同一文件经符号链接被加载两次只留一份", async () => {
+    const real = path.join(base, "real");
+    mkdirSync(path.join(real, "tdd"), { recursive: true });
+    writeFileSync(path.join(real, "tdd", "SKILL.md"), `---\nname: tdd\ndescription: x\n---\n正文`);
+    const linkRoot = path.join(base, "linkroot");
+    mkdirSync(linkRoot, { recursive: true });
+    symlinkSync(path.join(real, "tdd"), path.join(linkRoot, "tdd-alias"), "dir"); // 同文件、不同名/路径
+    const skills = await loadSkills(real, linkRoot);
+    expect(skills.filter((s) => s.body.includes("正文")).length).toBe(1); // 物理文件去重
+  });
 });
 
 describe("skill 工具", () => {
@@ -58,5 +78,15 @@ describe("skill 工具", () => {
     expect(bySlug).toContain("头脑风暴正文");
     const byCase = await skillTool.handler({ name: "brainstorming ideas into designs" }, { workspaceRoot: base, skills });
     expect(byCase).toContain("头脑风暴正文");
+  });
+  it("命名空间调用 plugin:slug 命中插件技能", async () => {
+    const skills = [
+      { name: "Test-Driven Development", slug: "test-driven-development", namespace: "superpowers", description: "", body: "TDD 正文", dir: base },
+      { name: "tdd", slug: "tdd", description: "", body: "本地 TDD", dir: base }, // 撞名:裸 slug 取本地
+    ];
+    const byNs = await skillTool.handler({ name: "superpowers:test-driven-development" }, { workspaceRoot: base, skills });
+    expect(byNs).toContain("TDD 正文"); // 命名空间精确命中插件版
+    const bare = await skillTool.handler({ name: "tdd" }, { workspaceRoot: base, skills });
+    expect(bare).toContain("本地 TDD"); // 裸 slug 取本地版
   });
 });
