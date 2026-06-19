@@ -240,6 +240,17 @@ export function App(deps: AppDeps) {
     for (const [ph, full] of pasteRef.current) out = out.split(ph).join(full);
     return out;
   };
+  // transcript 回显用:把粘贴占位符展开成【预览】(首行 + 行数),让用户看见自己粘了什么,又不刷屏。
+  const pastePreview = (s: string) => {
+    let out = s;
+    for (const [ph, full] of pasteRef.current) {
+      if (!out.includes(ph)) continue;
+      const lines = full.replace(/\n+$/, "").split("\n");
+      const head = lines[0]!.slice(0, 100);
+      out = out.split(ph).join(`「粘贴 ${lines.length} 行:${head}${head.length >= 100 || lines.length > 1 ? "…" : ""}」`);
+    }
+    return out;
+  };
   const busyRef = useRef(false);
   useEffect(() => { busyRef.current = busy; }, [busy]);
   const [taskTick, setTaskTick] = useState(0); // 后台任务状态变化计数(驱动通知处理/计数刷新)
@@ -400,14 +411,14 @@ export function App(deps: AppDeps) {
       if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
       // 自定义命令:展开成 prompt → 当作一个回合跑。
       if (res.prompt) {
-        pushItem({ id: nextId(), kind: "user", text });
+        pushItem({ id: nextId(), kind: "user", text: pastePreview(text) });
         await runAgentTurn(res.prompt);
         return;
       }
       setStatus(deps.getStatus());
       return;
     }
-    pushItem({ id: nextId(), kind: "user", text });
+    pushItem({ id: nextId(), kind: "user", text: pastePreview(text) });
     await runAgentTurn(full);
   }
 
@@ -442,7 +453,7 @@ export function App(deps: AppDeps) {
       procRef.current = true;
       try {
         setQueued((q) => q.slice(1));
-        pushItem({ id: nextId(), kind: "user", text: next });
+        pushItem({ id: nextId(), kind: "user", text: pastePreview(next) });
         await runAgentTurn(next);
       } finally {
         procRef.current = false;
@@ -698,9 +709,10 @@ export function App(deps: AppDeps) {
     if (ask) { setAskInput((s) => s + text); return; }
     // 大段粘贴(>280 字符或 >6 行)折叠成占位符,全文存 pasteRef,提交时展开;小段照常内联。
     let ins = text;
-    if (text.length > 280 || text.split("\n").length > 6) {
+    const lineCount = text.replace(/\n+$/, "").split("\n").length; // 去掉末尾换行,避免多算一行
+    if (text.length > 280 || lineCount > 6) {
       const id = ++pasteSeqRef.current;
-      ins = `[粘贴#${id} +${text.split("\n").length}行]`;
+      ins = `[粘贴#${id} +${lineCount}行]`;
       pasteRef.current.set(ins, text);
     }
     // 运行中也允许粘贴(可随后回车排队 steering)。
