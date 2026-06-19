@@ -94,9 +94,13 @@ export async function installPlugin(source: string, write: (s: string) => void):
   }
   let manifest: { name?: string };
   try {
-    manifest = JSON.parse(await fs.readFile(path.join(src, "plugin.json"), "utf8"));
+    // dao 布局 <根>/plugin.json,或 CC 布局 <根>/.claude-plugin/plugin.json(兼容 CC 插件生态)。
+    const mp = existsSync(path.join(src, "plugin.json"))
+      ? path.join(src, "plugin.json")
+      : path.join(src, ".claude-plugin", "plugin.json");
+    manifest = JSON.parse(await fs.readFile(mp, "utf8"));
   } catch {
-    write("缺 plugin.json(插件根目录需有 {\"name\":\"…\",\"description\":\"…\"})。\n");
+    write("缺 plugin.json(根目录或 .claude-plugin/ 下需有 {\"name\":\"…\",\"description\":\"…\"})。\n");
     if (tmp) await fs.rm(tmp, { recursive: true, force: true });
     return;
   }
