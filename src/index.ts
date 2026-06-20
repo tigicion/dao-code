@@ -4,9 +4,13 @@ import { readFileSync, mkdirSync, writeFileSync, readdirSync, rmSync } from "nod
 import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
-import { readConfig } from "./config/config.js";
 import { loadDotenv } from "./config/env_file.js";
-import { loadStoredKey, saveKey, clearKey } from "./config/key_store.js";
+import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
+import { DEFAULTS } from "./config/profiles.js";
+import { resolveCredential, persistKey } from "./config/credential.js";
+import { validateCredential } from "./config/validate_key.js";
+import { runKeyWizard } from "./config/auth_wizard.js";
+import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
 import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat } from "./client/client.js";
 import { runTurn } from "./agent/loop.js";
@@ -248,28 +252,38 @@ async function main() {
     return line ?? "";
   };
 
-  // ---- 解析 API key:环境变量 > 项目 .env > 已存配置 > 交互引导 ----
+  // ---- 解析当前生效凭证:env 覆盖 > 激活 profile(钥匙串/文件)> 首次运行引导 ----
+  // profile = { provider + 凭证 + baseUrl + 默认 model };多 key 切换 = 切 profile,多 provider 同构。
   const dotenv = await loadDotenv(path.join(workspaceRoot, ".env"));
   const effectiveEnv = { ...dotenv, ...process.env }; // 环境变量优先,.env 填空缺
-  const raw = readConfig(effectiveEnv);
-  let apiKey = raw.apiKey ?? (await loadStoredKey(keyFile));
+  const kc = keychainAvailable() ? runtimeKeychain : noopKeychain; // keychain 优先,文件兜底
+  let profilesCfg = await loadProfiles(keyFile); // 自动迁移旧版 { apiKey }
+  let resolved = await resolveCredential(profilesCfg, effectiveEnv, kc);
+  let firstRun = false; // 跑过 key 引导 → 信任步骤呈现为同一 onboarding 的下一步
 
-  if (!apiKey) {
+  if (!resolved) {
     if (process.stdin.isTTY) {
-      // 真终端:引导用户粘贴 key,并可一次性保存
-      write(`\n未检测到 DeepSeek API key。\n${KEY_HELP}\n`);
-      const entered = (await ask("请粘贴你的 key: ")).trim();
-      if (!entered) {
-        write("未输入 key,已退出。\n");
+      // 真终端:引导粘贴 → 落盘前校验 → 钥匙串/文件存储 → 标记 onboarding 完成
+      write(`\n欢迎使用 DAO CODE。先完成两步设置。\n\n[1/2] DeepSeek API key\n${KEY_HELP}\n`);
+      const wiz = await runKeyWizard({
+        cfg: profilesCfg,
+        name: "default",
+        meta: { provider: "deepseek", ...DEFAULTS.deepseek },
+        ask,
+        write,
+        validate: (c) => validateCredential(c),
+        kc,
+        preferKeychain: keychainAvailable(),
+      });
+      if (!wiz) {
+        write("未配置 key,已退出。\n");
         closeRl();
         process.exit(1);
       }
-      apiKey = entered;
-      const saveAns = (await ask(`是否保存到 ${keyFile} 方便下次免输?[Y/n] `)).trim().toLowerCase();
-      if (saveAns === "" || saveAns === "y" || saveAns === "yes") {
-        await saveKey(keyFile, apiKey);
-        write(`✓ 已保存(下次直接可用)。\n`);
-      }
+      profilesCfg = { ...wiz.cfg, onboardingComplete: true };
+      await saveProfiles(keyFile, profilesCfg);
+      resolved = wiz.resolved;
+      firstRun = true;
     } else {
       // 非交互(管道/CI):无法引导,给出清晰指引后退出
       console.error(
@@ -286,7 +300,34 @@ async function main() {
     }
   }
 
-  const cfg = { apiKey: apiKey!, baseUrl: raw.baseUrl, model: raw.model };
+  // cfg 形态保持 { apiKey, baseUrl, model } 不变(下游 20+ 处沿用);keySource 仅用于呈现来源。
+  let keySource = resolved.source;
+  const cfg = { apiKey: resolved.key, baseUrl: resolved.baseUrl, model: resolved.model };
+  // 明确呈现来源,杜绝"env 里有 key 静默覆盖、被偷偷计费"的惊吓(对标 gemini-cli $150 trap)。
+  if (keySource.startsWith("env:")) write(`※ 正在使用来自环境变量 ${keySource.slice(4)} 的 key(覆盖了已存 profile)。\n`);
+
+  // ---- 目录信任(P2-37):紧接 key 之后,作为首次 onboarding 的第二步(对标 CC 单一连贯流程)----
+  // 未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行。必须在加载任何项目级配置之前决定。
+  // 对标 CC 信任对话:交互终端进入未信任文件夹时直接问,y→信任整个文件夹并当场加载(无需重启);
+  // 否则继续不信任(只用用户级)。headless(-p 一次性)与非 TTY 不弹问,默认不信任(自动化不卡交互、安全默认)。
+  let trustProject = await shouldTrustProject(workspaceRoot);
+  if (!trustProject) {
+    if (process.stdin.isTTY && !argvPrompt) {
+      const a = (await ask(
+        `${firstRun ? "\n[2/2] 目录信任\n" : "\n"}⚠ 此文件夹尚未信任:\n  ${workspaceRoot}\ndao 会加载并可能执行它的项目配置(.dao/settings.json 与 hooks.json)。\n是否信任此文件夹?[y/N] `,
+      )).trim().toLowerCase();
+      if (a === "y" || a === "yes") {
+        await addTrusted(workspaceRoot);
+        trustProject = true;
+        write(`✓ 已信任此文件夹,加载其项目配置。\n`);
+      } else {
+        write(`已继续(未信任):项目级 settings/hooks 不加载。之后可运行 \`dao trust\` 信任。\n`);
+      }
+    } else {
+      process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
+    }
+  }
+  if (firstRun) write(`\n✓ 设置完成,开始吧。\n`);
 
   const registry = new ToolRegistry();
   for (const t of [
@@ -464,26 +505,6 @@ async function main() {
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
   const readlinePrompt = makeApprovalPrompt(ask);
 
-  // ---- 目录信任(P2-37):未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行 ----
-  // 对标 CC 信任对话:交互终端进入未信任文件夹时【启动前直接问】,y→信任整个文件夹并当场加载(无需重启);
-  // 否则继续不信任(只用用户级)。headless(-p 一次性)与非 TTY 不弹问,默认不信任(自动化不能卡交互、安全默认)。
-  let trustProject = await shouldTrustProject(workspaceRoot);
-  if (!trustProject) {
-    if (process.stdin.isTTY && !argvPrompt) {
-      const a = (await ask(
-        `\n⚠ 此文件夹尚未信任:\n  ${workspaceRoot}\ndao 会加载并可能执行它的项目配置(.dao/settings.json 与 hooks.json)。\n是否信任此文件夹?[y/N] `,
-      )).trim().toLowerCase();
-      if (a === "y" || a === "yes") {
-        await addTrusted(workspaceRoot);
-        trustProject = true;
-        write(`✓ 已信任此文件夹,加载其项目配置。\n`);
-      } else {
-        write(`已继续(未信任):项目级 settings/hooks 不加载。之后可运行 \`dao trust\` 信任。\n`);
-      }
-    } else {
-      process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
-    }
-  }
   void maybeCleanup(workspaceRoot); // P2-58/67 卫生清理:每日一次、非阻塞、best-effort
   void maybeCheckUpdate((msg) => process.stderr.write(`ℹ ${msg}\n`)); // P3-59 更新检查:每日一次、非阻塞、仅提示
   // ---- CC 风格权限:分层加载 settings.json(user < project < local)----
@@ -1164,7 +1185,7 @@ async function main() {
           }
           if (name === "doctor") {
             const checks: string[] = [];
-            checks.push(cfg.apiKey ? "✓ API key 已配置" : "✗ 缺 API key(设 DEEPSEEK_API_KEY 或写 ~/.dao/config.json)");
+            checks.push(cfg.apiKey ? `✓ API key 已配置(来源 ${keySource})` : "✗ 缺 API key(设 DEEPSEEK_API_KEY 或写 ~/.dao/config.json)");
             try { checks.push(`✓ dao 在 PATH:${execSync("command -v dao", { encoding: "utf8" }).trim()}`); }
             catch { checks.push("✗ dao 不在 PATH(把 ~/.local/bin 加进 PATH)"); }
             if (process.platform === "darwin") {
@@ -1305,7 +1326,7 @@ async function main() {
             return { handled: true, output: `已导出对话 → ${file}(${session.messages.length} 条消息)` };
           }
           if (name === "config") {
-            return { handled: true, output: `配置:\n  模型 ${cfg.model} · baseUrl ${cfg.baseUrl} · 权限模式 ${getMode()}\n  设置文件:~/.dao/settings.json(用户)· <项目>/.dao/settings.json · .dao/settings.local.json\n(编辑这些文件改配置;权限规则见 /permissions,MCP 见 ~/.dao/mcp.json)` };
+            return { handled: true, output: `配置:\n  模型 ${cfg.model} · baseUrl ${cfg.baseUrl} · 权限模式 ${getMode()}\n  账户 profile ${profilesCfg.activeProfile} · key 来源 ${keySource}(/account 管理多 key)\n  设置文件:~/.dao/settings.json(用户)· <项目>/.dao/settings.json · .dao/settings.local.json\n(编辑这些文件改配置;权限规则见 /permissions,MCP 见 ~/.dao/mcp.json)` };
           }
           if (name === "effort") {
             const valid = ["low", "medium", "high", "max"];
@@ -1358,16 +1379,66 @@ async function main() {
             session.messages.push({ role: "system", content: `[用户备注] ${note}` });
             return { handled: true, output: "已记入上下文(下次回复时模型会看到)。" };
           }
+          // 切换激活 profile:钥匙串读取是异步的,故后台解析并更新 cfg(下一回合 streamChat 读 cfg.apiKey,established 模式)。
+          const switchProfile = (target: string): { handled: true; output: string } => {
+            profilesCfg = setActive(profilesCfg, target);
+            saveProfiles(keyFile, profilesCfg).catch(() => {});
+            resolveCredential(profilesCfg, {}, kc).then((r) => {
+              if (r) { cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; keySource = r.source; }
+            }).catch(() => {});
+            return { handled: true, output: `✓ 已切到 profile「${target}」,下一回合生效。` };
+          };
+          const dropProfile = (target: string): void => {
+            const ref = profilesCfg.profiles[target]?.keyRef;
+            if (ref?.startsWith("keychain:")) keychainDelete(ref.slice("keychain:".length)).catch(() => {});
+            profilesCfg = removeProfile(profilesCfg, target);
+            saveProfiles(keyFile, profilesCfg).catch(() => {});
+          };
+          if (name === "account" || name === "accounts") {
+            const [sub, target] = line.trim().split(/\s+/).slice(1);
+            if (!sub) {
+              const names = Object.keys(profilesCfg.profiles);
+              const list = names.length
+                ? names.map((n) => {
+                    const p = profilesCfg.profiles[n]!;
+                    const mark = n === profilesCfg.activeProfile ? "● " : "  ";
+                    return `${mark}${n} · ${p.provider}/${p.model} · ${p.keyRef ? "钥匙串" : "文件"}`;
+                  }).join("\n")
+                : "  (无,运行 /login <key> 添加)";
+              return { handled: true, output: `账户(profile)· 当前来源 ${keySource}\n${list}\n用法:/account use <名> 切换 · /account rm <名> 删除 · /login <key> [as <名>] 添加` };
+            }
+            if (sub === "use" && target) {
+              if (!profilesCfg.profiles[target]) return { handled: true, output: `无此 profile:${target}` };
+              return switchProfile(target);
+            }
+            if (sub === "rm" && target) {
+              if (!profilesCfg.profiles[target]) return { handled: true, output: `无此 profile:${target}` };
+              dropProfile(target);
+              return { handled: true, output: `✓ 已删除 profile「${target}」。当前激活:${profilesCfg.activeProfile}` };
+            }
+            return { handled: true, output: "用法:/account · /account use <名> · /account rm <名>" };
+          }
           if (name === "login") {
-            const key = line.trim().split(/\s+/).slice(1).join(" ").trim();
-            if (!key) return { handled: true, output: "用法:/login <DeepSeek API key>(保存到 ~/.dao/config.json 并即时生效);/logout 清除。" };
-            cfg.apiKey = key; // 即时生效:下一回合 streamChat 读 cfg.apiKey
-            saveKey(keyFile, key).catch(() => {});
-            return { handled: true, output: "✓ 已更新并保存 API key,下一回合即生效。" };
+            const [first, kw, third] = line.trim().split(/\s+/).slice(1);
+            if (!first) return { handled: true, output: "用法:/login <key> [as <名>] 添加并激活一个 profile;/login <已有profile名> 切换;/logout 清除当前。" };
+            // 单参且匹配已有 profile 名 → 切换
+            if (!kw && profilesCfg.profiles[first]) return switchProfile(first);
+            // 否则 first 视为 key,可 `as <名>` 命名;默认沿用当前激活名或 default
+            const targetName = kw === "as" && third ? third : (profilesCfg.profiles[profilesCfg.activeProfile] ? profilesCfg.activeProfile : "default");
+            const cur = profilesCfg.profiles[targetName];
+            const meta = cur
+              ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model }
+              : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
+            cfg.apiKey = first; // 即时生效(established 模式);完整校验在启动 wizard,会话内为非阻塞
+            persistKey(profilesCfg, targetName, meta, first, kc, { preferKeychain: keychainAvailable() })
+              .then((res) => { profilesCfg = { ...res.cfg, onboardingComplete: true }; keySource = `profile:${targetName}`; return saveProfiles(keyFile, profilesCfg); })
+              .catch(() => {});
+            return { handled: true, output: `✓ 已添加并激活 profile「${targetName}」,下一回合生效。` };
           }
           if (name === "logout") {
-            clearKey(keyFile).catch(() => {});
-            return { handled: true, output: "✓ 已清除保存的 API key。本会话仍用当前 key;重启后需 /login 或重新输入。" };
+            const active = profilesCfg.activeProfile;
+            dropProfile(active);
+            return { handled: true, output: `✓ 已清除 profile「${active}」的 key。本会话仍用当前 key;重启后需 /login 或重新输入。` };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。
