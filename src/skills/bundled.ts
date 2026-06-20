@@ -87,6 +87,13 @@ export const CODE_REVIEW_BODY = `声称"做完了"之前【先自审正确性】
 ## 发现问题就回去修
 自审/验证发现的缺陷,走 debugging 定位根因后修,再重审。没干净通过之前别说"完成"。`;
 
+export const DEEP_RESEARCH_BODY = `深入研究——多来源联网、交叉验证、给【带出处】的结论:
+1. 拆解:把问题拆成 3-5 个可独立检索的子问题。
+2. 并行检索:用 agent 工具一次 tasks[] 并行派子代理,每个子代理用 web_search 查一个子问题、fetch_url 读关键页面,只回提炼结论 + 来源 URL(子代理独立上下文,不把整页倒进主线)。
+3. 交叉验证:来源对不上就标分歧,判可信度(一手>二手、近期>过时)。
+4. 综合:给结论,每个关键论断后附出处 URL;不确定的明说。
+5. 不臆造来源:只引真检索到的页面,没查到就说没查到,别编 URL。`;
+
 export interface BundledSkill {
   name: string;
   description: string;
@@ -108,7 +115,7 @@ export const BUNDLED_SKILLS: BundledSkill[] = [
   {
     name: "simplify",
     description:
-      "被要求整理/精简/收紧/收拾/重构/清理代码,或想对改动做纯质量复查(非找 bug)时用。",
+      "当用户要求整理/精简/收紧/收拾/重构/清理代码、或要求做质量复查时用(不主动)。",
     body: SIMPLIFY_BODY,
     core: true,
   },
@@ -136,8 +143,15 @@ export const BUNDLED_SKILLS: BundledSkill[] = [
   {
     name: "code-review",
     description:
-      "改完代码,准备说\"完成/做完了\"、提交、建 PR、或想复核把关时用。",
+      "当用户要求审查/复核改动、或要求提交/建 PR 前把关时用(不主动)。",
     body: CODE_REVIEW_BODY,
+    core: true,
+  },
+  {
+    name: "deep-research",
+    description:
+      "需要就某问题做深入的多来源联网研究、给带出处的结论时用。",
+    body: DEEP_RESEARCH_BODY,
     core: true,
   },
 ];

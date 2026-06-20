@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { BUNDLED_SKILLS } from "./bundled.js";
 
 describe("BUNDLED_SKILLS", () => {
-  it("内置编程必备技能齐全:simplify/debugging/tdd/planning/code-review", () => {
+  it("内置编程必备技能齐全:simplify/debugging/tdd/planning/code-review/deep-research", () => {
     const names = BUNDLED_SKILLS.map((b) => b.name).sort();
-    expect(names).toEqual(["code-review", "debugging", "planning", "simplify", "tdd"]);
+    expect(names).toEqual(["code-review", "debugging", "deep-research", "planning", "simplify", "tdd"]);
   });
 
   it("每个内置技能都有非空描述与正文", () => {
