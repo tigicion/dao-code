@@ -1196,16 +1196,19 @@ async function main() {
             const bundledCore = BUNDLED_SKILLS.filter((b) => b.core);
             const bundledNames = bundledCore.map((b) => b.name);
             const persist = () => { try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch {} };
-            // 批量开关内置:/skills bundled off|on
-            if (sub === "bundled" && (rest[1] === "off" || rest[1] === "on")) {
-              toggleBundled(disabledSet, bundledNames, rest[1] === "on");
+            const installedNames = diskSkills.map((s) => s.name);
+            // 批量开关:/skills <bundled|installed|all> off|on(bundled=内置,installed=第三方/项目·用户·插件,all=全部)
+            if ((sub === "bundled" || sub === "installed" || sub === "all") && (rest[1] === "off" || rest[1] === "on")) {
+              const names = sub === "bundled" ? bundledNames : sub === "installed" ? installedNames : [...bundledNames, ...installedNames];
+              const label = sub === "bundled" ? "内置" : sub === "installed" ? "第三方" : "全部";
+              toggleBundled(disabledSet, names, rest[1] === "on");
               persist();
-              return { handled: true, output: `已${rest[1] === "on" ? "开启" : "关闭"}全部内置技能(${bundledNames.length} 个,重启 dao 生效)` };
+              return { handled: true, output: `已${rest[1] === "on" ? "开启" : "关闭"}${label}技能(${names.length} 个,重启 dao 生效)` };
             }
             if (sub === "off" || sub === "on") {
               const target = rest[1];
               const known = target && (bundledNames.includes(target) || diskSkills.some((s) => s.name === target));
-              if (!known) return { handled: true, output: `未知技能:${target ?? "(空)"}。/skills 看列表;批量内置用 /skills bundled off|on` };
+              if (!known) return { handled: true, output: `未知技能:${target ?? "(空)"}。/skills 看列表;批量用 /skills <bundled|installed|all> off|on` };
               if (sub === "off") disabledSet.add(target!); else disabledSet.delete(target!);
               persist();
               return { handled: true, output: `已${sub === "off" ? "禁用" : "启用"}技能 ${target}(重启 dao 生效)` };
@@ -1220,7 +1223,7 @@ async function main() {
             const diskRows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
             const rows = [...bundledRows, ...diskRows];
             const head = `技能(${bundledCore.length} 内置 + ${diskSkills.length} 项目/用户;on 的描述常驻上下文、模型按需加载正文)`;
-            const foot = `/skills off|on <名> 开关单个(内置也可关);/skills bundled off|on 批量内置;重启生效`;
+            const foot = `/skills off|on <名> 开关单个(内置也可关);/skills <bundled|installed|all> off|on 批量(内置/第三方/全部);重启生效`;
             return { handled: true, output: `${head}\n${rows.join("\n")}\n${foot}` };
           }
           if (name === "context") {
