@@ -913,7 +913,8 @@ export function App(deps: AppDeps) {
               : rows.map((label, i) => (
                   <Text key={i} color={i === skillPick.idx ? c("jade") : c("ink")}>{i === skillPick.idx ? "❯ " : "  "}{label}</Text>
                 ))}
-            <Text color={c("dim")}>⏎ 开/关选中 · t 显/隐内置 · a/A 全部开/关 · b/B 内置开/关 · i/I 安装开/关 · Esc 退出(重启生效)</Text>
+            <Text color={c("dim")}>↑↓ 移动 · ⏎ 开/关选中 · t 显/隐内置 · Esc 退出(改动重启生效)</Text>
+            <Text color={c("dim")}>批量:按字母=开,按 Shift+字母=关 —— a 全部 · b 内置 · i 已安装</Text>
           </Box>
         );
       })()}
