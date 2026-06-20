@@ -222,7 +222,7 @@ describe("App", () => {
     stdin.write("\r"); // 开选择器
     await delay();
     const f = lastFrame()!;
-    expect(f).toContain("技能:");
+    expect(f).toContain("技能(内置");
     expect(f).toContain("tdd");
     expect(f).toContain("my-skill");
     expect(f).toContain("全部内置");

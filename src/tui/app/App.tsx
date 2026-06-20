@@ -904,9 +904,12 @@ export function App(deps: AppDeps) {
           ...items.map((s) => `${s.on ? "● on " : "○ off"}  ${s.name}  ·  ${s.source}  ·  ${s.detail.slice(0, 40)}`),
           ...SKILL_ACTIONS,
         ];
+        const nBundled = items.filter((s) => s.source.startsWith("内置")).length;
+        const nThird = items.length - nBundled;
+        const nOn = items.filter((s) => s.on).length;
         return (
           <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
-            <Text color={c("jade")}>技能:↑↓ 选 · ⏎ 开/关 · Esc 退出(改动重启 dao 生效)</Text>
+            <Text color={c("jade")}>技能(内置 {nBundled} · 第三方 {nThird} · 共 {nOn} 开):↑↓ 选 · ⏎ 开/关 · Esc 退出(改动重启 dao 生效)</Text>
             {rows.map((label, i) => {
               const focused = i === skillPick.idx;
               const isAction = i >= items.length;

@@ -1240,7 +1240,9 @@ async function main() {
             });
             const diskRows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
             const rows = [...bundledRows, ...diskRows];
-            const head = `技能(${bundledCore.length} 内置 + ${diskSkills.length} 项目/用户;on 的描述常驻上下文、模型按需加载正文)`;
+            const bundledOn = bundledCore.filter((b) => !disabledSet.has(b.name) && !diskNames.has(b.name)).length;
+            const diskOn = diskSkills.filter((s) => !disabledSet.has(s.name)).length;
+            const head = `技能(内置 ${bundledOn}/${bundledCore.length} 开 · 第三方 ${diskOn}/${diskSkills.length} 开;on 的描述常驻上下文、模型按需加载正文)`;
             const foot = `/skills off|on <名> 开关单个(内置也可关);/skills <bundled|installed|all> off|on 批量(内置/第三方/全部);重启生效`;
             return { handled: true, output: `${head}\n${rows.join("\n")}\n${foot}` };
           }
