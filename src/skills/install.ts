@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import os from "node:os";
+import { BUNDLED_SKILLS } from "./bundled.js";
 
 const exec = promisify(execFile);
 
@@ -48,16 +49,24 @@ export async function installSkills(
   await fs.mkdir(dest, { recursive: true });
   let installed = 0;
   const warnings: string[] = [];
+  const installedNames: string[] = [];
   for (const skillDir of found) {
     const name = path.basename(skillDir);
     const body = await fs.readFile(path.join(skillDir, "SKILL.md"), "utf8");
     if (!body.trimStart().startsWith("---")) { warnings.push(`${name}:缺 frontmatter,跳过`); continue; }
     await fs.cp(skillDir, path.join(dest, name), { recursive: true });
     installed++;
+    installedNames.push(name);
   }
   if (tmp) await fs.rm(tmp, { recursive: true, force: true });
 
   write(`✓ 安装 ${installed} 个技能 → ${dest}(${scope === "user" ? "用户级,跨项目可用" : "项目级,仅本项目"})\n`);
   if (warnings.length) write("注意:\n" + warnings.map((w) => "  - " + w).join("\n") + "\n");
+  // 同名覆盖内置:确定性提示(无模糊匹配,不误报)。提醒可在 /skills 取舍,避免触发被稀释。
+  const bundledNames = new Set(BUNDLED_SKILLS.filter((b) => b.core).map((b) => b.name));
+  const shadowed = installedNames.filter((n) => bundledNames.has(n));
+  if (shadowed.length) {
+    write(`提示:${shadowed.map((n) => `'${n}'`).join("、")} 覆盖了内置同名技能(你的版本生效)。若不想覆盖,可 /skills off ${shadowed[0]} 关掉你装的这个;内置技能本身也可 /skills off <名> 关。\n`);
+  }
   write("(重启 dao 生效;启动只列 name+description,模型按需用 skill 工具加载正文。若为其它 agent 所写,首次加载时自动按用途转换工具名并缓存)\n");
 }

@@ -33,6 +33,10 @@ describe("installSkills(本地路径,project 层)", () => {
     expect(out).toContain("缺 frontmatter");
     // 外来工具名不再在装载时枚举(无字典);首次加载时由模型按用途转换。
     expect(out).toContain("自动按用途转换工具名");
+    // 装的 tdd 与内置同名 → 提示它覆盖了内置、可 /skills 开关。
+    expect(out).toContain("tdd");
+    expect(out).toMatch(/覆盖了内置|与内置/);
+    expect(out).toContain("/skills");
   });
 
   it("源里没有 SKILL.md → 明确提示", async () => {
