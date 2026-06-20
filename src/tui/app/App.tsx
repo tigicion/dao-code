@@ -225,7 +225,7 @@ export function App(deps: AppDeps) {
   const [resumePick, setResumePick] = useState<{ items: { id: string; label: string }[]; idx: number } | null>(null); // /resume 会话选择器
   // /account 账户选择器:switch 模式列出账户 + ➕添加 + 🗑删除;delete 模式只列账户,选中即删。
   const [accountPick, setAccountPick] = useState<{ items: { name: string; active: boolean; detail: string }[]; idx: number; mode: "switch" | "delete" } | null>(null);
-  const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number } | null>(null);
+  const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number; showBundled: boolean } | null>(null);
   const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = "其他(自己输入)";
   const CHOICE_DISCUSS = "先讨论一下";
@@ -518,11 +518,12 @@ export function App(deps: AppDeps) {
     if (!list.length) { void runAddAccount(); return; } // 无账户 → 直接走添加
     setAccountPick({ items: list, idx: 0, mode: "switch" });
   };
-  const SKILL_ACTIONS = ["✅ 全部内置开启", "🚫 全部内置关闭", "✅ 全部第三方开启", "🚫 全部第三方关闭"] as const;
+  // skill 选择器:默认只列【已安装的第三方】技能;内置默认隐藏,批量开关全走快捷键。
+  const isBundledSkill = (s: { source: string }) => s.source.startsWith("内置");
   const openSkillPicker = () => {
     const list = deps.listSkills?.() ?? [];
     if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "暂无技能。" }); return; }
-    setSkillPick({ items: list, idx: 0 });
+    setSkillPick({ items: list, idx: 0, showBundled: false });
   };
 
   useInput((ch, key) => {
@@ -551,23 +552,22 @@ export function App(deps: AppDeps) {
       return;
     }
     if (skillPick) {
-      const items = skillPick.items, nS = items.length;
-      const rowCount = nS + SKILL_ACTIONS.length;
-      const move = (d: number) => setSkillPick((p) => p && { ...p, idx: Math.max(0, Math.min(rowCount - 1, p.idx + d)) });
-      if (key.upArrow) { move(-1); return; }
-      if (key.downArrow) { move(1); return; }
+      const all = skillPick.items;
+      const visible = skillPick.showBundled ? all : all.filter((s) => !isBundledSkill(s));
+      const nV = visible.length;
+      const refresh = (extra: Partial<typeof skillPick> = {}) =>
+        setSkillPick((p) => p && { ...p, items: deps.listSkills?.() ?? p.items, ...extra }); // 刷新状态、留在选择器
       if (key.escape) { setSkillPick(null); return; }
+      if (key.upArrow) { setSkillPick((p) => p && { ...p, idx: Math.max(0, p.idx - 1) }); return; }
+      if (key.downArrow) { setSkillPick((p) => p && { ...p, idx: Math.min(Math.max(0, nV - 1), p.idx + 1) }); return; }
+      if (ch === "t") { setSkillPick((p) => p && { ...p, showBundled: !p.showBundled, idx: 0 }); return; } // 显/隐内置
+      if (ch === "a" || ch === "A") { deps.batchSkills?.("all", ch === "a"); refresh(); return; }       // 全部 开/关
+      if (ch === "b" || ch === "B") { deps.batchSkills?.("bundled", ch === "b"); refresh({ showBundled: true }); return; } // 内置 开/关(顺便显示)
+      if (ch === "i" || ch === "I") { deps.batchSkills?.("installed", ch === "i"); refresh(); return; }  // 安装 开/关
       if (key.return || (ch && /[1-9]/.test(ch))) {
         const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : skillPick.idx;
-        if (i < 0 || i >= rowCount) return;
-        if (i < nS) {
-          const s = items[i]!; deps.setSkillEnabled?.(s.name, !s.on); // 翻转该技能
-        } else {
-          const act = i - nS; // 0/1=内置 开/关,2/3=第三方 开/关
-          deps.batchSkills?.(act < 2 ? "bundled" : "installed", act % 2 === 0);
-        }
-        const fresh = deps.listSkills?.() ?? items;
-        setSkillPick({ items: fresh, idx: i }); // 刷新状态、留在选择器(可连开关多个)
+        if (i < 0 || i >= nV) return;
+        const s = visible[i]!; deps.setSkillEnabled?.(s.name, !s.on); refresh(); // 翻转选中
         return;
       }
       return;
@@ -899,26 +899,21 @@ export function App(deps: AppDeps) {
       })()}
 
       {skillPick && (() => {
-        const items = skillPick.items;
-        const rows = [
-          ...items.map((s) => `${s.on ? "● on " : "○ off"}  ${s.name}  ·  ${s.source}  ·  ${s.detail.slice(0, 40)}`),
-          ...SKILL_ACTIONS,
-        ];
-        const nBundled = items.filter((s) => s.source.startsWith("内置")).length;
-        const nThird = items.length - nBundled;
-        const nOn = items.filter((s) => s.on).length;
+        const all = skillPick.items;
+        const nBundled = all.filter(isBundledSkill).length;
+        const nThird = all.length - nBundled;
+        const nOn = all.filter((s) => s.on).length;
+        const visible = skillPick.showBundled ? all : all.filter((s) => !isBundledSkill(s));
+        const rows = visible.map((s) => `${s.on ? "● on " : "○ off"}  ${s.name}  ·  ${s.source}  ·  ${s.detail.slice(0, 40)}`);
         return (
           <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
-            <Text color={c("jade")}>技能(内置 {nBundled} · 第三方 {nThird} · 共 {nOn} 开):↑↓ 选 · ⏎ 开/关 · Esc 退出(改动重启 dao 生效)</Text>
-            {rows.map((label, i) => {
-              const focused = i === skillPick.idx;
-              const isAction = i >= items.length;
-              return (
-                <Text key={i} color={focused ? c("jade") : isAction ? c("dim") : c("ink")}>
-                  {focused ? "❯ " : "  "}{label}
-                </Text>
-              );
-            })}
+            <Text color={c("jade")}>技能(内置 {nBundled} · 第三方 {nThird} · 共 {nOn} 开)· 当前显示:{skillPick.showBundled ? "全部" : "仅第三方"}</Text>
+            {rows.length === 0
+              ? <Text color={c("dim")}>  (无{skillPick.showBundled ? "" : "第三方"}技能 —— 按 t 显示内置)</Text>
+              : rows.map((label, i) => (
+                  <Text key={i} color={i === skillPick.idx ? c("jade") : c("ink")}>{i === skillPick.idx ? "❯ " : "  "}{label}</Text>
+                ))}
+            <Text color={c("dim")}>⏎ 开/关选中 · t 显/隐内置 · a/A 全部开/关 · b/B 内置开/关 · i/I 安装开/关 · Esc 退出(重启生效)</Text>
           </Box>
         );
       })()}
