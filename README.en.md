@@ -29,6 +29,7 @@ In one line: **others trade up to a pricier model for experience; DAO delivers t
 
 - **Available in China, low per-token price** — DAO is built on DeepSeek V4: directly reachable from mainland China, with token prices far below the top-tier closed models.
 - **Aggressive cache reuse** — DeepSeek's prefix-cache *hit* price is roughly 1/10 of a miss. DAO lays out the system prefix / tool table / memory to be **byte-stable**, keeps subagent model switches from breaking the main cache, and aligns memory distillation against the already-cached prefix — so the already-cheap cache stays hit and drives cost down further. Watch the hit rate live with `/cost`.
+  - **Measured** (reproducible via `npm run accept:cache`, multi-turn chat): cache hit rate climbs to a steady state of **21% → 80% → 89.5%** over turns; within one session input tokens grew from 14K to 116K (**8×**) while cost rose only **¥0.035 → ¥0.043 (+23%)** — the longer the context, the more of its growth lands on the cache and costs almost nothing.
 
 ### 🧠 Experience: give the model the context it needs + make the model adapt to you
 
