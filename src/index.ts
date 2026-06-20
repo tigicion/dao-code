@@ -52,7 +52,7 @@ import { maybeCheckUpdate } from "./config/update_check.js";
 import { notify } from "./tui/notifier.js";
 import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
-import { loadSkills } from "./skills/skills.js";
+import { loadSkills, findUserInvocableSkill } from "./skills/skills.js";
 import { BUNDLED_SKILLS, toggleBundled } from "./skills/bundled.js";
 import { loadUsage, saveUsage, recordUsage } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
@@ -469,7 +469,7 @@ async function main() {
   // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关(对标 CC disableBundledSkills)。
   const coreBundled = BUNDLED_SKILLS
     .filter((b) => b.core && !diskNames.has(b.name) && !disabledSet.has(b.name))
-    .map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name } as import("./skills/skills.js").Skill));
+    .map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name, ...(b.modelInvokable === false ? { modelInvokable: false } : {}), ...(b.userInvocable === false ? { userInvocable: false } : {}) } as import("./skills/skills.js").Skill));
   const pluginsDir = pluginsRoot();
   const skillSource = (s: { dir: string }) => (s.dir.startsWith(pluginsDir) ? "插件" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
@@ -477,14 +477,16 @@ async function main() {
   // /skills 选择器后端:列出(内置+磁盘)、单开关、批量(内置/第三方/全部)。写禁用集,重启生效。
   const persistDisabled = () => { try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch { /* 落盘失败不致命 */ } };
   const allBundledNames = BUNDLED_SKILLS.filter((b) => b.core).map((b) => b.name);
+  const invMark = (s: { modelInvokable?: boolean; userInvocable?: boolean }) =>
+    s.modelInvokable === false ? "·仅手动" : s.userInvocable === false ? "·仅自动" : "";
   const listSkills = () => [
     ...BUNDLED_SKILLS.filter((b) => b.core).map((b) => ({
       name: b.name,
       on: !disabledSet.has(b.name) && !diskNames.has(b.name),
-      source: diskNames.has(b.name) ? "内置·被覆盖" : "内置",
+      source: (diskNames.has(b.name) ? "内置·被覆盖" : "内置") + invMark(b),
       detail: b.description,
     })),
-    ...diskSkills.map((s) => ({ name: s.name, on: !disabledSet.has(s.name), source: skillSource(s), detail: s.description })),
+    ...diskSkills.map((s) => ({ name: s.name, on: !disabledSet.has(s.name), source: skillSource(s) + invMark(s), detail: s.description })),
   ];
   const setSkillEnabled = (name: string, on: boolean) => { if (on) disabledSet.delete(name); else disabledSet.add(name); persistDisabled(); };
   const batchSkills = (scope: "bundled" | "installed" | "all", on: boolean) => {
@@ -517,7 +519,8 @@ async function main() {
         `这类标了【触发时机】的,匹配上就该先加载),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
         `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
         `加载后,skill 正文是【必须照做的流程】(含其中"给用户选项/确认/分阶段"的步骤),不是参考——优先级高于你的默认习惯,仅让位于用户当前明确指令与安全/证据。\n` +
-        skills.map((s) => {
+        // 只列【可被模型自动触发】的(modelInvokable !== false);disable-model-invocation 的不进此表,仅用户 /手动调。
+        skills.filter((s) => s.modelInvokable !== false).map((s) => {
           // 触发条件(when_to_use)对"何时该加载"至关重要,必须随描述一起呈现;调用名给 slug(模型不必照抄 Title Case)。
           const trig = s.whenToUse ? ` 何时用:${s.whenToUse}` : "";
           const callName = `${s.namespace ? s.namespace + ":" : ""}${s.slug ?? s.name}`; // 插件技能用 plugin:slug 防撞
@@ -1579,6 +1582,12 @@ async function main() {
             ckpt.snapshot("回退前自动快照"); // 先存当前状态,使回退本身可逆(防丢未快照的手动改动)
             const ok = ckpt.restore(target.ref);
             return { handled: true, output: ok ? `已回退工作区到检查点:${target.label}(回退前状态已存为"回退前自动快照",可再 /restore 找回)` : "回退失败" };
+          }
+          // 通用技能手动调用(对齐 CC 的 /skill-name):/<slug> → 把 user-invocable 技能正文当 prompt 跑一回合。
+          // 放在最后(已知命令之后);排除保留命令名,避免遮蔽。
+          if (name && !["model", "clear", "compact", "cost", "help", "exit"].includes(name)) {
+            const sk = findUserInvocableSkill(skills, name);
+            if (sk) return { handled: true, prompt: sk.body };
           }
           return dispatchCommand(line, session);
         },

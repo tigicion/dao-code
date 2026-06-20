@@ -92,6 +92,8 @@ export interface BundledSkill {
   description: string;
   body: string;
   core?: boolean; // 核心:默认开、描述常驻上下文(可自动触发)。曾"不可关",现统一可在 /skills 关(对标 CC disableBundledSkills)
+  modelInvokable?: boolean; // false=不让模型自动触发,只 /手动调(对齐 CC disable-model-invocation)
+  userInvocable?: boolean;  // false=不暴露 /手动调,只模型自动(对齐 CC user-invocable:false)
 }
 
 // 批量开关内置技能:off=把所有内置名加进禁用集,on=移出。只动内置名,不碰磁盘技能的条目。就地改 set。
