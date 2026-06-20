@@ -329,6 +329,49 @@ async function main() {
   }
   if (firstRun) write(`\n✓ 设置完成,开始吧。\n`);
 
+  // ---- 账户(profile)操作:供 /account 选择器与 /login /logout 共用(单一实现,UI 只是壳)----
+  const listAccounts = () =>
+    Object.keys(profilesCfg.profiles).map((n) => {
+      const p = profilesCfg.profiles[n]!;
+      return { name: n, active: n === profilesCfg.activeProfile, detail: `${p.provider}/${p.model} · ${p.keyRef ? "钥匙串" : "文件"}` };
+    });
+  // 切换:钥匙串读取是异步的,后台解析并更新 cfg(下一回合 streamChat 读 cfg.apiKey)。
+  const switchAccount = (name: string): boolean => {
+    if (!profilesCfg.profiles[name]) return false;
+    profilesCfg = setActive(profilesCfg, name);
+    saveProfiles(keyFile, profilesCfg).catch(() => {});
+    resolveCredential(profilesCfg, {}, kc).then((r) => {
+      if (r) { cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; keySource = r.source; }
+    }).catch(() => {});
+    return true;
+  };
+  const removeAccount = (name: string): void => {
+    const ref = profilesCfg.profiles[name]?.keyRef;
+    if (ref?.startsWith("keychain:")) keychainDelete(ref.slice("keychain:".length)).catch(() => {});
+    profilesCfg = removeProfile(profilesCfg, name);
+    saveProfiles(keyFile, profilesCfg).catch(() => {});
+  };
+  // 起名:未指定时取 default / account-2 / account-3… 第一个空位。
+  const nextAccountName = (): string => {
+    if (!profilesCfg.profiles.default) return "default";
+    for (let i = 2; ; i++) if (!profilesCfg.profiles[`account-${i}`]) return `account-${i}`;
+  };
+  // 添加:校验 → 持久化(钥匙串优先)→ 激活并即时生效。失败返回原因,不落盘。
+  const addAccount = async (key: string, name?: string): Promise<{ ok: boolean; name?: string; reason?: string }> => {
+    const targetName = name?.trim() || nextAccountName();
+    const cur = profilesCfg.profiles[targetName];
+    const meta = cur
+      ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model }
+      : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
+    const v = await validateCredential({ baseUrl: meta.baseUrl, key });
+    if (!v.ok) return { ok: false, reason: v.reason };
+    const { cfg: nc } = await persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() });
+    profilesCfg = { ...nc, onboardingComplete: true };
+    await saveProfiles(keyFile, profilesCfg);
+    cfg.apiKey = key; keySource = `profile:${targetName}`;
+    return { ok: true, name: targetName };
+  };
+
   const registry = new ToolRegistry();
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
@@ -1379,66 +1422,41 @@ async function main() {
             session.messages.push({ role: "system", content: `[用户备注] ${note}` });
             return { handled: true, output: "已记入上下文(下次回复时模型会看到)。" };
           }
-          // 切换激活 profile:钥匙串读取是异步的,故后台解析并更新 cfg(下一回合 streamChat 读 cfg.apiKey,established 模式)。
-          const switchProfile = (target: string): { handled: true; output: string } => {
-            profilesCfg = setActive(profilesCfg, target);
-            saveProfiles(keyFile, profilesCfg).catch(() => {});
-            resolveCredential(profilesCfg, {}, kc).then((r) => {
-              if (r) { cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; keySource = r.source; }
-            }).catch(() => {});
-            return { handled: true, output: `✓ 已切到 profile「${target}」,下一回合生效。` };
-          };
-          const dropProfile = (target: string): void => {
-            const ref = profilesCfg.profiles[target]?.keyRef;
-            if (ref?.startsWith("keychain:")) keychainDelete(ref.slice("keychain:".length)).catch(() => {});
-            profilesCfg = removeProfile(profilesCfg, target);
-            saveProfiles(keyFile, profilesCfg).catch(() => {});
-          };
+          // /account /login 的无参交互(选择器 / 粘贴引导)由 App 拦截;这里只处理带参的"高手快捷"文本路径。
           if (name === "account" || name === "accounts") {
-            const [sub, target] = line.trim().split(/\s+/).slice(1);
-            if (!sub) {
-              const names = Object.keys(profilesCfg.profiles);
-              const list = names.length
-                ? names.map((n) => {
-                    const p = profilesCfg.profiles[n]!;
-                    const mark = n === profilesCfg.activeProfile ? "● " : "  ";
-                    return `${mark}${n} · ${p.provider}/${p.model} · ${p.keyRef ? "钥匙串" : "文件"}`;
-                  }).join("\n")
-                : "  (无,运行 /login <key> 添加)";
-              return { handled: true, output: `账户(profile)· 当前来源 ${keySource}\n${list}\n用法:/account use <名> 切换 · /account rm <名> 删除 · /login <key> [as <名>] 添加` };
+            const [target, ...restA] = line.trim().split(/\s+/).slice(1);
+            if (target === "rm" && restA[0]) {
+              if (!profilesCfg.profiles[restA[0]]) return { handled: true, output: `无此账户:${restA[0]}` };
+              removeAccount(restA[0]);
+              return { handled: true, output: `✓ 已删除账户「${restA[0]}」。当前:${profilesCfg.activeProfile}` };
             }
-            if (sub === "use" && target) {
-              if (!profilesCfg.profiles[target]) return { handled: true, output: `无此 profile:${target}` };
-              return switchProfile(target);
+            if (target) {
+              if (!profilesCfg.profiles[target]) return { handled: true, output: `无此账户:${target}(/account 看列表)` };
+              return switchAccount(target)
+                ? { handled: true, output: `✓ 已切到账户「${target}」,下一回合生效。` }
+                : { handled: true, output: `切换失败:${target}` };
             }
-            if (sub === "rm" && target) {
-              if (!profilesCfg.profiles[target]) return { handled: true, output: `无此 profile:${target}` };
-              dropProfile(target);
-              return { handled: true, output: `✓ 已删除 profile「${target}」。当前激活:${profilesCfg.activeProfile}` };
-            }
-            return { handled: true, output: "用法:/account · /account use <名> · /account rm <名>" };
+            // 无参且无选择器(非 Ink/退化):退回文本列表
+            const rows = listAccounts();
+            const list = rows.length ? rows.map((r) => `${r.active ? "● " : "  "}${r.name} · ${r.detail}`).join("\n") : "  (无,/login 添加)";
+            return { handled: true, output: `账户 · 当前来源 ${keySource}\n${list}\n(Ink 下直接 /account 弹选择器;/account <名> 切换 · /account rm <名> 删除)` };
           }
           if (name === "login") {
-            const [first, kw, third] = line.trim().split(/\s+/).slice(1);
-            if (!first) return { handled: true, output: "用法:/login <key> [as <名>] 添加并激活一个 profile;/login <已有profile名> 切换;/logout 清除当前。" };
-            // 单参且匹配已有 profile 名 → 切换
-            if (!kw && profilesCfg.profiles[first]) return switchProfile(first);
-            // 否则 first 视为 key,可 `as <名>` 命名;默认沿用当前激活名或 default
-            const targetName = kw === "as" && third ? third : (profilesCfg.profiles[profilesCfg.activeProfile] ? profilesCfg.activeProfile : "default");
+            const key = line.trim().split(/\s+/).slice(1).join(" ").trim();
+            if (!key) return { handled: true, output: "用法:直接 /login 走粘贴引导;/login <key> 给当前账户换 key;/logout 清除。" };
+            cfg.apiKey = key; // 即时生效(非阻塞);完整校验在 /login 引导或启动 wizard
+            const targetName = profilesCfg.profiles[profilesCfg.activeProfile] ? profilesCfg.activeProfile : "default";
             const cur = profilesCfg.profiles[targetName];
-            const meta = cur
-              ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model }
-              : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
-            cfg.apiKey = first; // 即时生效(established 模式);完整校验在启动 wizard,会话内为非阻塞
-            persistKey(profilesCfg, targetName, meta, first, kc, { preferKeychain: keychainAvailable() })
+            const meta = cur ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model } : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
+            persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() })
               .then((res) => { profilesCfg = { ...res.cfg, onboardingComplete: true }; keySource = `profile:${targetName}`; return saveProfiles(keyFile, profilesCfg); })
               .catch(() => {});
-            return { handled: true, output: `✓ 已添加并激活 profile「${targetName}」,下一回合生效。` };
+            return { handled: true, output: `✓ 已给账户「${targetName}」换 key,下一回合生效。` };
           }
           if (name === "logout") {
             const active = profilesCfg.activeProfile;
-            dropProfile(active);
-            return { handled: true, output: `✓ 已清除 profile「${active}」的 key。本会话仍用当前 key;重启后需 /login 或重新输入。` };
+            removeAccount(active);
+            return { handled: true, output: `✓ 已清除账户「${active}」的 key。本会话仍用当前 key;重启后需 /login。` };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。
@@ -1565,6 +1583,10 @@ async function main() {
         drainNotifications: () => taskManager.drainNotifications(),
         subscribeTasks: (cb) => taskManager.onChange(cb),
         runningTasks: () => taskManager.running().length,
+        listAccounts,
+        switchAccount: (n) => { switchAccount(n); },
+        removeAccount,
+        addAccount,
       });
       taskManager.cancelAll(); // 退出时中止所有后台任务
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子

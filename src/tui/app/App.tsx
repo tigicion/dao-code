@@ -222,6 +222,8 @@ export function App(deps: AppDeps) {
   const [choiceChecked, setChoiceChecked] = useState<Set<number>>(new Set()); // 多选已勾选的下标
   const [choiceWarn, setChoiceWarn] = useState(false); // 多选下空集回车 → 提示先勾选,而非静默提交
   const [resumePick, setResumePick] = useState<{ items: { id: string; label: string }[]; idx: number } | null>(null); // /resume 会话选择器
+  // /account 账户选择器:switch 模式列出账户 + ➕添加 + 🗑删除;delete 模式只列账户,选中即删。
+  const [accountPick, setAccountPick] = useState<{ items: { name: string; active: boolean; detail: string }[]; idx: number; mode: "switch" | "delete" } | null>(null);
   const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = "其他(自己输入)";
   const CHOICE_DISCUSS = "先讨论一下";
@@ -404,6 +406,9 @@ export function App(deps: AppDeps) {
         loadResume(rid);
         return;
       }
+      // /account 无参 → 弹账户选择器;/login 无参 → 走粘贴引导(带参数则落到 runCommand 文本路径)。
+      if (name === "account" && !text.trim().split(/\s+/)[1]) { openAccountPicker(); return; }
+      if (name === "login" && !text.trim().split(/\s+/)[1]) { await runAddAccount(); return; }
       const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
@@ -491,7 +496,50 @@ export function App(deps: AppDeps) {
     setStatus(deps.getStatus());
   };
 
+  // 单行输入(复用 ask 覆盖层):粘贴 key / 起名都走它;回车提交,空 = 取消。
+  const askLine = (q: string) => new Promise<string>((resolve) => setAsk({ question: q, resolve }));
+  const reasonText = (r?: string) => (r === "invalid" ? "key 无效(鉴权被拒)" : r === "unreachable" ? "网络不通" : r === "http" ? "API 返回异常" : "未知错误");
+  // 添加账户:粘贴 → 校验 → 持久化 → 激活。/login 无参与选择器"➕"共用。
+  const runAddAccount = async () => {
+    const key = (await askLine("粘贴新账户的 DeepSeek key(留空取消):")).trim();
+    if (!key) { pushItem({ id: nextId(), kind: "notice", text: "已取消。" }); return; }
+    const name = (await askLine("给这个账户起个名(回车用默认):")).trim();
+    pushItem({ id: nextId(), kind: "notice", text: "正在校验 key…" });
+    const r = await deps.addAccount?.(key, name || undefined);
+    pushItem({ id: nextId(), kind: "notice", text: r?.ok ? `✓ 已添加并切到「${r.name}」,下一回合生效。` : `✗ 添加失败:${reasonText(r?.reason)}。未保存。` });
+    setStatus(deps.getStatus());
+  };
+  const openAccountPicker = () => {
+    const list = deps.listAccounts?.() ?? [];
+    if (!list.length) { void runAddAccount(); return; } // 无账户 → 直接走添加
+    setAccountPick({ items: list, idx: 0, mode: "switch" });
+  };
+
   useInput((ch, key) => {
+    if (accountPick) {
+      const accts = accountPick.items, nA = accts.length;
+      // switch 模式额外两行动作:➕添加 / 🗑删除;delete 模式只列账户。
+      const rowCount = accountPick.mode === "switch" ? nA + 2 : nA;
+      const move = (d: number) => setAccountPick((p) => p && { ...p, idx: Math.max(0, Math.min(rowCount - 1, p.idx + d)) });
+      if (key.upArrow) { move(-1); return; }
+      if (key.downArrow) { move(1); return; }
+      if (key.escape) {
+        if (accountPick.mode === "delete") { setAccountPick((p) => p && { ...p, mode: "switch", idx: 0 }); return; } // 删除模式 Esc → 退回切换
+        setAccountPick(null); return;
+      }
+      if (key.return || (ch && /[1-9]/.test(ch))) {
+        const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : accountPick.idx;
+        if (i < 0 || i >= rowCount) return;
+        if (accountPick.mode === "switch") {
+          if (i < nA) { const n = accts[i]!.name; setAccountPick(null); deps.switchAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: `✓ 已切到账户「${n}」,下一回合生效。` }); setStatus(deps.getStatus()); return; }
+          if (i === nA) { setAccountPick(null); void runAddAccount(); return; } // ➕ 添加
+          setAccountPick((p) => p && { ...p, mode: "delete", idx: 0 }); return; // 🗑 删除 → 进删除模式
+        } else {
+          const n = accts[i]!.name; setAccountPick(null); deps.removeAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: `✓ 已删除账户「${n}」。` }); setStatus(deps.getStatus()); return;
+        }
+      }
+      return;
+    }
     if (resumePick) {
       const n = resumePick.items.length;
       if (key.upArrow) { setResumePick((p) => p && { ...p, idx: Math.max(0, p.idx - 1) }); return; }
@@ -797,6 +845,27 @@ export function App(deps: AppDeps) {
         );
       })()}
 
+      {accountPick && (() => {
+        const accts = accountPick.items;
+        const rows = accountPick.mode === "switch"
+          ? [...accts.map((a) => `${a.active ? "● " : "○ "}${a.name}   ${a.detail}`), "➕ 添加新账户", "🗑 删除账户…"]
+          : accts.map((a) => `${a.name}   ${a.detail}`);
+        const title = accountPick.mode === "switch" ? "账户:↑↓ 选 · ⏎ 切换 · Esc 取消" : "删除哪个账户?↑↓ 选 · ⏎ 删除 · Esc 返回";
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>{title}</Text>
+            {rows.map((label, i) => {
+              const focused = i === accountPick.idx;
+              return (
+                <Text key={i} color={focused ? c("jade") : c("ink")}>
+                  {focused ? "❯ " : "  "}{label}
+                </Text>
+              );
+            })}
+          </Box>
+        );
+      })()}
+
       {choice && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
           <Text color={c("jade")}>{choice.question}</Text>
@@ -841,7 +910,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && !choice && !resumePick && (
+      {!approval && !ask && !choice && !resumePick && !accountPick && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -892,7 +961,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {modeHint && !approval && !ask && !choice && !resumePick ? (
+      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick ? (
         <Text color={c("jade")}>{"  "}权限模式 → {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>∞ {bgRunning} 个后台任务运行中…</Text> : null}
