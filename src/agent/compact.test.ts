@@ -105,6 +105,24 @@ describe("microcompactMessages", () => {
     const msgs = [{ role: "user" as const, content: "x" }];
     expect(microcompactMessages(msgs, 2)).toEqual(msgs);
   });
+
+  // 单 user 轮(一次性/自主长任务):user 轮 ≤ keepRecentTurns 时,fallback 按【工具周期】切,
+  // 仍清掉旧的可重现工具结果。否则一次性长任务永远压不了缩(单轮缺口)。
+  it("单 user 轮也清旧可重现结果(按工具周期切),写结果与近期保留", () => {
+    const msgs = [
+      { role: "system" as const, content: "sys" },
+      user("实现整个工具库"), // 唯一 user 轮
+      asst("a1", "read_file"), tool("a1", "旧读取-应清"),
+      asst("a2", "write_file"), tool("a2", "旧写结果-应保留"),
+      asst("a3", "read_file"), tool("a3", "近期读取-应保留"),
+      asst("a4", "read_file"), tool("a4", "近期读取2-应保留"),
+    ];
+    const out = microcompactMessages(msgs, 2); // 保留最近 2 个工具周期(a3、a4)
+    expect(out.find((m) => m.role === "tool" && m.tool_call_id === "a1")!.content).toContain("已清理"); // 旧 read 清掉
+    expect(out.find((m) => m.role === "tool" && m.tool_call_id === "a2")!.content).toBe("旧写结果-应保留"); // 写结果永不清(即便旧)
+    expect(out.find((m) => m.role === "tool" && m.tool_call_id === "a3")!.content).toBe("近期读取-应保留"); // 近期保留
+    expect(out.find((m) => m.role === "tool" && m.tool_call_id === "a4")!.content).toBe("近期读取2-应保留"); // 近期保留
+  });
 });
 
 // L2.3 压缩降级:summarize 抛错时,压缩不崩——硬截断保留 system 锚 + 近期 + 任务清单。

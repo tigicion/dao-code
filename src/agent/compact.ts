@@ -29,8 +29,18 @@ const CLEARED_MARK = "[旧工具结果已清理,需要时可重新获取]";
 export function microcompactMessages(messages: ChatMessage[], keepRecentTurns = 2): ChatMessage[] {
   const userIdx: number[] = [];
   messages.forEach((m, i) => { if (m.role === "user") userIdx.push(i); });
-  if (userIdx.length <= keepRecentTurns) return messages; // 太短,不动
-  const cutoff = userIdx[userIdx.length - keepRecentTurns]!;
+  // 主切分按 user 轮;但一次性/自主长任务只有 1 个 user 轮(其后全是 assistant↔tool 循环),
+  // 按 user 轮切会永远进不来 → 单轮缺口。此时 fallback 按【assistant 工具周期】切,保留最近
+  // keepRecentTurns 个工具周期、清掉更早的可重现结果。两条路径都只动 i<cutoff,缓存不变式不破。
+  let cutoff: number;
+  if (userIdx.length > keepRecentTurns) {
+    cutoff = userIdx[userIdx.length - keepRecentTurns]!;
+  } else {
+    const toolTurnIdx: number[] = [];
+    messages.forEach((m, i) => { if (m.role === "assistant" && m.tool_calls && m.tool_calls.length) toolTurnIdx.push(i); });
+    if (toolTurnIdx.length <= keepRecentTurns) return messages; // 真的太短,不动
+    cutoff = toolTurnIdx[toolTurnIdx.length - keepRecentTurns]!;
+  }
   const nameById = new Map<string, string>();
   for (const m of messages) {
     if (m.role === "assistant" && m.tool_calls) for (const tc of m.tool_calls) nameById.set(tc.id, tc.function.name);

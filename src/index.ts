@@ -920,14 +920,16 @@ async function main() {
   };
 
   const runCompaction = async (): Promise<void> => {
-    const before = session.messages.length;
+    // 按 token 量判断(而非消息条数):单轮长任务的 microcompact 清旧工具结果会降 token、不改条数,
+    // 用条数会误报"无需压缩"。token 减少才是真压缩的信号。
+    const before = estimateTokens(session.messages);
     session.messages = await compactMessages(
       session.messages,
       { keepRecentTurns: KEEP_RECENT_TURNS, summarize: summarizeWithBreaker },
       todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
     );
-    const after = session.messages.length;
-    write(after < before ? `\n[已压缩对话:${before} → ${after} 条消息]\n` : `\n[对话较短,无需压缩]\n`);
+    const after = estimateTokens(session.messages);
+    write(after < before ? `\n[已压缩对话:~${before.toLocaleString()} → ~${after.toLocaleString()} tok]\n` : `\n[对话较短,无需压缩]\n`);
   };
 
   // P3-63 防休眠 + 长回合完成通知:回合期间持 wakelock;耗时超阈值则完成时弹桌面通知。
