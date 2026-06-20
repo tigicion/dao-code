@@ -474,6 +474,24 @@ async function main() {
   const skillSource = (s: { dir: string }) => (s.dir.startsWith(pluginsDir) ? "插件" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
   const enabledDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
+  // /skills 选择器后端:列出(内置+磁盘)、单开关、批量(内置/第三方/全部)。写禁用集,重启生效。
+  const persistDisabled = () => { try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch { /* 落盘失败不致命 */ } };
+  const allBundledNames = BUNDLED_SKILLS.filter((b) => b.core).map((b) => b.name);
+  const listSkills = () => [
+    ...BUNDLED_SKILLS.filter((b) => b.core).map((b) => ({
+      name: b.name,
+      on: !disabledSet.has(b.name) && !diskNames.has(b.name),
+      source: diskNames.has(b.name) ? "内置·被覆盖" : "内置",
+      detail: b.description,
+    })),
+    ...diskSkills.map((s) => ({ name: s.name, on: !disabledSet.has(s.name), source: skillSource(s), detail: s.description })),
+  ];
+  const setSkillEnabled = (name: string, on: boolean) => { if (on) disabledSet.delete(name); else disabledSet.add(name); persistDisabled(); };
+  const batchSkills = (scope: "bundled" | "installed" | "all", on: boolean) => {
+    const names = scope === "bundled" ? allBundledNames : scope === "installed" ? diskSkills.map((s) => s.name) : [...allBundledNames, ...diskSkills.map((s) => s.name)];
+    toggleBundled(disabledSet, names, on);
+    persistDisabled();
+  };
   // 条件技能(对齐 CC 的 paths):带 paths 的技能仅当项目里有匹配文件才"在场",否则不进列表(减少无关技能稀释触发)。
   // 无 paths = 一直在场(现状)。启动一次性算定,进固定前缀、缓存安全。
   const visible = [...coreBundled, ...enabledDisk];
@@ -1610,6 +1628,9 @@ async function main() {
         switchAccount: (n) => { switchAccount(n); },
         removeAccount,
         addAccount,
+        listSkills,
+        setSkillEnabled,
+        batchSkills,
       });
       taskManager.cancelAll(); // 退出时中止所有后台任务
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子

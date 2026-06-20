@@ -33,7 +33,7 @@ const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
   ["model", "切换模型(Pro/Flash)"],
   ["plan", "进入计划模式:只读规划,先出方案再动手"],
   ["mode", "切换权限模式(default/acceptEdits/auto/plan)"],
-  ["skills", "查看可用技能"],
+  ["skills", "技能:开关(弹选择器,逐个/批量内置·第三方)"],
   ["init", "扫描本仓库生成 DAO.md 项目指令"],
   ["context", "查看上下文占用明细"],
   ["tasks", "查看后台任务"],
@@ -225,6 +225,7 @@ export function App(deps: AppDeps) {
   const [resumePick, setResumePick] = useState<{ items: { id: string; label: string }[]; idx: number } | null>(null); // /resume 会话选择器
   // /account 账户选择器:switch 模式列出账户 + ➕添加 + 🗑删除;delete 模式只列账户,选中即删。
   const [accountPick, setAccountPick] = useState<{ items: { name: string; active: boolean; detail: string }[]; idx: number; mode: "switch" | "delete" } | null>(null);
+  const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number } | null>(null);
   const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = "其他(自己输入)";
   const CHOICE_DISCUSS = "先讨论一下";
@@ -410,6 +411,8 @@ export function App(deps: AppDeps) {
       // /account 无参 → 弹账户选择器;/login 无参 → 走粘贴引导(带参数则落到 runCommand 文本路径)。
       if (name === "account" && !text.trim().split(/\s+/)[1]) { openAccountPicker(); return; }
       if (name === "login" && !text.trim().split(/\s+/)[1]) { await runAddAccount(); return; }
+      // /skills 无参 → 弹技能选择器(逐个开关 + 批量);带参(off/on/bundled…)落到 runCommand 文本路径。
+      if (name === "skills" && !text.trim().split(/\s+/)[1] && deps.listSkills) { openSkillPicker(); return; }
       const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
@@ -515,6 +518,12 @@ export function App(deps: AppDeps) {
     if (!list.length) { void runAddAccount(); return; } // 无账户 → 直接走添加
     setAccountPick({ items: list, idx: 0, mode: "switch" });
   };
+  const SKILL_ACTIONS = ["✅ 全部内置开启", "🚫 全部内置关闭", "✅ 全部第三方开启", "🚫 全部第三方关闭"] as const;
+  const openSkillPicker = () => {
+    const list = deps.listSkills?.() ?? [];
+    if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "暂无技能。" }); return; }
+    setSkillPick({ items: list, idx: 0 });
+  };
 
   useInput((ch, key) => {
     if (accountPick) {
@@ -538,6 +547,28 @@ export function App(deps: AppDeps) {
         } else {
           const n = accts[i]!.name; setAccountPick(null); deps.removeAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: `✓ 已删除账户「${n}」。` }); setStatus(deps.getStatus()); return;
         }
+      }
+      return;
+    }
+    if (skillPick) {
+      const items = skillPick.items, nS = items.length;
+      const rowCount = nS + SKILL_ACTIONS.length;
+      const move = (d: number) => setSkillPick((p) => p && { ...p, idx: Math.max(0, Math.min(rowCount - 1, p.idx + d)) });
+      if (key.upArrow) { move(-1); return; }
+      if (key.downArrow) { move(1); return; }
+      if (key.escape) { setSkillPick(null); return; }
+      if (key.return || (ch && /[1-9]/.test(ch))) {
+        const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : skillPick.idx;
+        if (i < 0 || i >= rowCount) return;
+        if (i < nS) {
+          const s = items[i]!; deps.setSkillEnabled?.(s.name, !s.on); // 翻转该技能
+        } else {
+          const act = i - nS; // 0/1=内置 开/关,2/3=第三方 开/关
+          deps.batchSkills?.(act < 2 ? "bundled" : "installed", act % 2 === 0);
+        }
+        const fresh = deps.listSkills?.() ?? items;
+        setSkillPick({ items: fresh, idx: i }); // 刷新状态、留在选择器(可连开关多个)
+        return;
       }
       return;
     }
@@ -867,6 +898,28 @@ export function App(deps: AppDeps) {
         );
       })()}
 
+      {skillPick && (() => {
+        const items = skillPick.items;
+        const rows = [
+          ...items.map((s) => `${s.on ? "● on " : "○ off"}  ${s.name}  ·  ${s.source}  ·  ${s.detail.slice(0, 40)}`),
+          ...SKILL_ACTIONS,
+        ];
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>技能:↑↓ 选 · ⏎ 开/关 · Esc 退出(改动重启 dao 生效)</Text>
+            {rows.map((label, i) => {
+              const focused = i === skillPick.idx;
+              const isAction = i >= items.length;
+              return (
+                <Text key={i} color={focused ? c("jade") : isAction ? c("dim") : c("ink")}>
+                  {focused ? "❯ " : "  "}{label}
+                </Text>
+              );
+            })}
+          </Box>
+        );
+      })()}
+
       {choice && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
           <Text color={c("jade")}>{choice.question}</Text>
@@ -911,7 +964,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && !choice && !resumePick && !accountPick && (
+      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -962,7 +1015,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick ? (
+      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick ? (
         <Text color={c("jade")}>{"  "}权限模式 → {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>∞ {bgRunning} 个后台任务运行中…</Text> : null}

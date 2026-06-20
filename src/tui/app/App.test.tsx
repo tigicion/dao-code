@@ -206,6 +206,52 @@ describe("App", () => {
     expect(removed).toBe("aaa");
   });
 
+  it("/skills 无参:弹技能选择器,⏎ 切换选中技能开/关", async () => {
+    let toggled: [string, boolean] | null = null;
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listSkills: () => [
+          { name: "tdd", on: true, source: "内置", detail: "测试先行" },
+          { name: "my-skill", on: true, source: "用户", detail: "自定义" },
+        ],
+        setSkillEnabled: (n, on) => { toggled = [n, on]; },
+      })} />,
+    );
+    for (const ch of "/skills") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 开选择器
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("技能:");
+    expect(f).toContain("tdd");
+    expect(f).toContain("my-skill");
+    expect(f).toContain("全部内置");
+    expect(f).toContain("全部第三方");
+    stdin.write("\r"); // ⏎ 切换第一个 tdd → 关
+    await delay();
+    expect(toggled).toEqual(["tdd", false]);
+  });
+
+  it("/skills 选择器:选'关闭全部第三方'批量行 → batchSkills(installed,false)", async () => {
+    let batch: [string, boolean] | null = null;
+    const { stdin } = render(
+      <App {...makeDeps({
+        listSkills: () => [
+          { name: "tdd", on: true, source: "内置", detail: "x" },
+        ],
+        batchSkills: (scope, on) => { batch = [scope, on]; },
+      })} />,
+    );
+    for (const ch of "/skills") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 开选择器
+    await delay();
+    // 行:tdd(0)、✅全部内置开启(1)、🚫全部内置关闭(2)、✅全部第三方开启(3)、🚫全部第三方关闭(4)
+    stdin.write("5"); // 数字选第 5 行 = 🚫全部第三方关闭
+    await delay();
+    expect(batch).toEqual(["installed", false]);
+  });
+
   it("/resume 无参 + 无历史会话:提示而不开选择器", async () => {
     const { lastFrame, stdin } = render(<App {...makeDeps({ listResume: () => [] })} />);
     for (const ch of "/resume") stdin.write(ch);
