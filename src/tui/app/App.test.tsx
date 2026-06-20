@@ -142,6 +142,70 @@ describe("App", () => {
     expect(g).toContain("上次结论：是 token 过期"); // 重放末段对话 → 知道上次做到哪
   });
 
+  it("/account 无参:弹账户选择器,↓ + ⏎ 切换", async () => {
+    let switched = "";
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listAccounts: () => [
+          { name: "personal", active: true, detail: "deepseek/v4-pro · 钥匙串" },
+          { name: "work", active: false, detail: "deepseek/v4-pro · 文件" },
+        ],
+        switchAccount: (n) => { switched = n; },
+      })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("账户:");
+    expect(f).toContain("personal");
+    expect(f).toContain("work");
+    expect(f).toContain("➕ 添加新账户");
+    expect(f).toContain("🗑 删除账户");
+    stdin.write("\x1b[B"); // ↓ 到 work
+    await delay();
+    stdin.write("\r"); // ⏎ 切换
+    await delay();
+    expect(switched).toBe("work");
+    expect(lastFrame()!).toContain("已切到账户「work」");
+  });
+
+  it("/account 无账户:直接进入粘贴引导", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({ listAccounts: () => [], addAccount: async () => ({ ok: true, name: "default" }) })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(lastFrame()!).toContain("粘贴新账户");
+  });
+
+  it("/account → 🗑 删除 → 选中账户删除", async () => {
+    let removed = "";
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listAccounts: () => [
+          { name: "aaa", active: true, detail: "x" },
+          { name: "bbb", active: false, detail: "y" },
+        ],
+        removeAccount: (n) => { removed = n; },
+      })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 开选择器
+    await delay();
+    for (let i = 0; i < 3; i++) { stdin.write("\x1b[B"); await delay(8); } // 移到 🗑(行 aaa,bbb,➕,🗑)
+    stdin.write("\r"); // 进删除模式
+    await delay();
+    expect(lastFrame()!).toContain("删除哪个账户");
+    stdin.write("\r"); // 删第一个 aaa
+    await delay();
+    expect(removed).toBe("aaa");
+  });
+
   it("/resume 无参 + 无历史会话:提示而不开选择器", async () => {
     const { lastFrame, stdin } = render(<App {...makeDeps({ listResume: () => [] })} />);
     for (const ch of "/resume") stdin.write(ch);
