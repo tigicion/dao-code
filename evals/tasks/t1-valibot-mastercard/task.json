@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "valibot creditCard:Mastercard 号码长度校验缺失",
+  "humanMinutes": 25,
+  "_humanMinutes_note": "单文件单正则:定位 PROVIDER_REGEX_LIST、把 Mastercard 锁到正确长度/前缀、确保不误伤 Visa/Amex 等。",
   "repo": "https://github.com/fabian-hiller/valibot",
   "ref": "9de9cbf8664e283a43668b2c034ffb31dd8b8270",
   "fix_ref": "0cb97f72b3163829758eb33e5cbfa6e33568ee39",

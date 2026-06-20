@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "date-fns 中文 locale:十月/10月解析错误",
+  "humanMinutes": 35,
+  "_humanMinutes_note": "三处中文 locale(zh-CN/HK/TW)的月份匹配顺序问题,需理解 match 正则的优先级/长短匹配。",
   "repo": "https://github.com/date-fns/date-fns",
   "ref": "39d1e14200cead9e4be5df88695b5e82082875ed",
   "fix_ref": "b9c5865edb7610c59e6b3694ed1e1691f4807688",

@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "hono compress:设了 encoding 选项就忽略 Accept-Encoding",
+  "humanMinutes": 45,
+  "_humanMinutes_note": "重写编码选择以尊重 Accept-Encoding(q 值/q=0 拒绝/缺头不压缩/x-gzip 等多个边界),内容协商逻辑较细。",
   "repo": "https://github.com/honojs/hono",
   "ref": "a192df0844724aeaf5cbc6f1ea2f8425d3f8a86a",
   "fix_ref": "f0ed2465913f2a89ebdf65cc54d6254915fc3ff6",

@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "es-toolkit compat/uniqWith:比较器参数顺序与 lodash 相反",
+  "humanMinutes": 20,
+  "_humanMinutes_note": "极局部:比较器实参顺序与 lodash 相反,改一处调用即可;难点在定位与确认正确顺序。",
   "repo": "https://github.com/toss/es-toolkit",
   "ref": "8a978e3c8baab0f6badf0d2ef288bd18bb40cd69",
   "fix_ref": "03ca6ea1e4c8c0341247d7dbb54f59ab1e3848f0",

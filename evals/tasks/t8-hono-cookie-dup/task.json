@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "hono cookie:同名 cookie 行为不一致(应一致取第一个)",
+  "humanMinutes": 35,
+  "_humanMinutes_note": "两个关注点:统一同名 cookie first-wins 使两条解析路径一致 + 正确处理与 Object.prototype 同名的键(null 原型)。",
   "repo": "https://github.com/honojs/hono",
   "ref": "26f8c33f23e6151873d165107f2dbcadf1204d15",
   "fix_ref": "ff7522fdccef4a55f6aa326ece705c0cd7cd8031",
