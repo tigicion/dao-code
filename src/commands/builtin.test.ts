@@ -11,8 +11,8 @@ describe("runBuiltinCommand", () => {
     expect(r?.prompt).toContain("memory_write");
     expect(r?.prompt).toContain("用户偏好简洁");
   });
-  it("debug → 读 .dao/sessions,带问题描述", () => {
-    const r = runBuiltinCommand("debug", "卡死了");
+  it("debug-session → 读 .dao/sessions,带问题描述", () => {
+    const r = runBuiltinCommand("debug-session", "卡死了");
     expect(r?.prompt).toContain(".dao/sessions");
     expect(r?.prompt).toContain("卡死了");
   });
@@ -33,7 +33,7 @@ describe("runBuiltinCommand", () => {
     expect(runBuiltinCommand("nope", "")).toBeNull();
   });
   it("四个命令都有 description", () => {
-    for (const k of ["simplify", "remember", "debug", "skillify", "batch"]) {
+    for (const k of ["simplify", "remember", "debug-session", "skillify", "batch"]) {
       expect(BUILTIN_COMMANDS[k]?.description).toBeTruthy();
     }
   });

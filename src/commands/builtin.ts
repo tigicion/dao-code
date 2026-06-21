@@ -22,8 +22,8 @@ export const BUILTIN_COMMANDS: Record<string, BuiltinCommand> = {
 ${a.trim()}`
         : "",
   },
-  debug: {
-    description: "读最近会话日志诊断问题",
+  "debug-session": {
+    description: "读最近会话日志诊断 dao 自身问题",
     argHint: "[问题描述]",
     buildPrompt: (a) =>
       `诊断 dao 最近一次会话的问题。步骤:

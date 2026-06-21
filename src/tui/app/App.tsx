@@ -63,7 +63,7 @@ const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
   ["logout", "清除当前账户的 key"],
   ["simplify", "质量清理未提交改动(不抓 bug)"],
   ["remember", "记一条跨会话记忆"],
-  ["debug", "读最近会话日志诊断问题"],
+  ["debug-session", "读最近会话日志诊断 dao 自身问题"],
   ["skillify", "把本次会话经验提炼成技能"],
   ["batch", "把大改拆成并行子代理实现"],
   ["loop", "定时循环跑一个 prompt"],

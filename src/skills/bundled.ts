@@ -77,6 +77,22 @@ export const DEEP_RESEARCH_BODY = `深入研究——多来源联网、交叉验
 4. 综合:给结论,每个关键论断后附出处 URL;不确定的明说。
 5. 不臆造来源:只引真检索到的页面,没查到就说没查到,别编 URL。`;
 
+export const VERIFY_BODY = `声称"完成"之前,独立验证它【真的可用】——不是确认它能用,是试图证明它是坏的:
+## 先跑基线
+读 DAO.md/README 拿构建测试命令;跑构建(失败=未完成)、跑测试套件(失败=未完成)、有 lint/类型检查就跑。配了验收命令的先过 verify_done。
+## 按改动类型针对性验(挑适用的)
+- 前端:起 dev server → 抓页面/点按钮/看 console(别只看 200)。
+- 后端/API:起服务 → curl 端点 → 按预期值验响应体(不只状态码)→ 试错误处理。
+- CLI/脚本:代表性输入跑 → 看 stdout/stderr/退出码 → 试空/畸形/边界输入。
+- bug 修复:先复现原 bug → 验修复 → 跑回归。
+- 重构(行为不变):原测试须不变通过 → 同输入同输出。
+## 反自我合理化(出现就反着做)
+"代码看起来对"→读不是验证,跑它;"我的测试过了"→你的测试也是 LLM 写的,独立另验;"大概没问题"→大概≠已验证;发现自己在写"为什么应该没问题"而不是发命令时→停,去跑那条命令。
+## 大/高风险改动:派 verify 子代理
+改动大或风险高时,用 agent 工具派 verify 子代理对抗性独立实跑(独立上下文),别只自己看。
+## 验完才能说完成
+每个"完成"声称都要有【跑了什么命令 + 实际输出】支撑;没验到的明说"未验",别用"应该没问题"暗示成功。`;
+
 export const RUN_SKILL_GEN_BODY = `把"这个项目怎么跑"录成可复用的项目技能(省得每个会话重新摸索):
 1. 摸清配方:读 package.json scripts / Makefile / README / pyproject 等,确定【构建、启动、测试】各自的命令(连同所需环境/端口)。拿不准就跑一下验证,或问用户。
 2. 写成项目技能:在 .dao/skills/run-<项目名>/SKILL.md 写 frontmatter(name、description 写清"何时用",可加 paths 让它只在本项目在场)+ 正文列出构建/启动/测试命令与注意点。
@@ -116,10 +132,17 @@ export const BUNDLED_SKILLS: BundledSkill[] = [
     core: true,
   },
   {
-    name: "plan",
+    name: "make-plan",
     description:
       "动手做任何稍复杂的事(不只写代码)之前,先规划时用。",
     body: PLANNING_BODY,
+    core: true,
+  },
+  {
+    name: "verify",
+    description:
+      "产出了可检验的改动、要声称完成或提交前,独立验证它真的可用时用。",
+    body: VERIFY_BODY,
     core: true,
   },
   {

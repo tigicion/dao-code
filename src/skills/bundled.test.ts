@@ -4,7 +4,7 @@ import { BUNDLED_SKILLS } from "./bundled.js";
 describe("BUNDLED_SKILLS", () => {
   it("内置技能齐全:simplify/debug/plan/code-review/deep-research/fewer-permission-prompts(tdd 已移除)", () => {
     const names = BUNDLED_SKILLS.map((b) => b.name).sort();
-    expect(names).toEqual(["code-review", "debug", "deep-research", "fewer-permission-prompts", "plan", "run-skill-generator", "simplify"]);
+    expect(names).toEqual(["code-review", "debug", "deep-research", "fewer-permission-prompts", "make-plan", "run-skill-generator", "simplify", "verify"]);
   });
 
   it("每个内置技能都有非空描述与正文", () => {
@@ -34,10 +34,10 @@ describe("BUNDLED_SKILLS", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("技能引用已有子代理(plan→plan/explore、code-review→verify),做集成而非重复", () => {
-    const plan = BUNDLED_SKILLS.find((b) => b.name === "plan")!;
-    const review = BUNDLED_SKILLS.find((b) => b.name === "code-review")!;
+  it("技能引用已有子代理(make-plan→plan/explore、verify→verify 子代理),做集成而非重复", () => {
+    const plan = BUNDLED_SKILLS.find((b) => b.name === "make-plan")!;
+    const verify = BUNDLED_SKILLS.find((b) => b.name === "verify")!;
     expect(plan.body).toContain("plan");
-    expect(review.body).toContain("verify");
+    expect(verify.body).toContain("verify 子代理");
   });
 });
