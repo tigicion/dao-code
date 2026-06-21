@@ -44,7 +44,12 @@
    - 否则(新任务/新需求)→ 不触发,静默。
    - 阈值偏召回:宁可多放一点进挑战者(它会否掉碰巧措辞像的新问题),也不漏真申诉。
 
-2. **pro 挑战者判断**:相似度门命中才 fork 一次挑战者(复用主前缀缓存,边际便宜)。挑战者**自己**判这是不是"原问题没解决的申诉",以及 agent 是否在空转/前提是否错;若其实是新任务/误报,它回"在轨,继续",不打扰。
+2. **pro 挑战者判断(异步,不阻塞主流程)**:相似度门命中才 fork 一次挑战者(复用主前缀缓存,边际便宜)。挑战者**自己**判这是不是"原问题没解决的申诉",以及 agent 是否在空转/前提是否错;若其实是新任务/误报,它回"在轨,继续",不打扰。
+
+   **执行模型(关键)**:挑战者**异步起跑、不挡主流程**——用户消息一进来,agent 立刻开干,挑战者在旁边跑。结论就绪后走**回合边界注入通道**(`loop.ts` 现有 `drainPending`,每个工具回合边界 drain 一次):
+   - **本回合内尽量接住**:若挑战者在 agent 还在跑工具回合时返回,结论在**下一个工具回合边界**被注入,agent **当轮就看到**、可立即调整。
+   - **赶不上就晚一回合**:若 agent 本回合已结束(停止调工具)挑战者才返回,结论在**下一个用户回合**注入。延迟一回合可接受。
+   - `reflect()` 在入口处 fork 时 `[...session.messages]` 即时快照,异步运行不受主循环后续消息写入影响(读侧无竞态);写侧只经回合边界 drain(安全注入点)。
 
 **为何这样设计**:DAO 交互循环里 agent 每次都先跑完再交还控制权,所以"agent 刚结束"对几乎每条用户消息都成立——若以此为门会**每轮都 fork**(成本可控但**每轮加延迟**,体感差)。"重复"才是 phantom-bug / 反复申诉的真信号,而重复可用文本相似度**免费**检测,把昂贵的 pro 调用收敛到真正需要的时刻。
 
@@ -63,8 +68,11 @@
 - **路径①**:
   - 新增一个纯函数(放 `turn_health.ts` 或新建小模块),签名约 `isRepeatComplaint(newMsg: string, priorUserMsgs: string[], threshold: number): boolean`,内部用 `textSimilarity` 取与历史各条的最高分比阈值。**纯函数、可单测**。
   - **触发点在用户消息入口、agent 开跑之前**(`src/index.ts`:REPL 路径 `runOneTurn` 起点 / Ink 路径对应处;一次性 argv 路径不接,延续 `reflect: argvPrompt ? undefined` 的现状)。
-  - 命中 → 直接 `await reflect("challenger")`(`reflect()` 已在 `index.ts` 作用域内、pro/主模型 fork + 前缀缓存)→ 有结论则作为 `system` advisory `push` 进 `session.messages`,再跑 `runTurn`。这样 agent **从第一轮就看到**怀疑性结论,无需改 `runTurn` 签名、不与路径②的反思块耦合。
+  - 命中 → **不 await**:`void reflect("challenger")` 异步起跑(`reflect()` 已在 `index.ts` 作用域内、pro/主模型 fork + 前缀缓存),其 resolve 回调把结论推入一个**待注入队列**;不阻塞 `runTurn` 立即开跑。
+  - 主 `runTurn` 接一个 `drainPending`(现有 hook,`loop.ts:160`),每个工具回合边界 drain 该队列 → 有结论就作为 advisory 注入(建议 `system` 角色、`[审视者·参考]` 前缀,而非现有的 `[追加指令]` user 角色)。本回合接住即当轮生效;赶不上则 REPL 在下一个用户回合 drain。
+  - `reflect()` fork 时 `[...session.messages]` 即时快照 → 异步运行不受后续写入影响(读侧无竞态);写侧只经回合边界 drain(唯一安全注入点)。
   - 历史用户消息从 `session.messages`(role==="user")取;新消息即将入会话,比对的是**它之前**的那些。
+  - 需要的接线:给主 `runTurn`(`runOneTurn`)接上 `drainPending`(当前主循环未接);并让回合边界 drain 支持注入 `system` advisory(非仅 user)。
 
 ## 配置与可观测
 
@@ -82,6 +90,7 @@
 - **路径②**:`turn_health.test.ts` 加用例——"改了文件但本轮仍有工具失败 → 仍判 stuck、failureStreak 累积"(现行为下会被 progressed 赦免,新行为不赦免)。
 - **路径①相似度门**:纯函数单测——重提同一问题(中英、含改写)→ true;全新任务 → false;无历史 → false;阈值边界。
 - **挑战者 prompt**:快照/包含断言,确认新增自查项在位。
+- **异步注入**:待注入队列纯逻辑单测——结论入队后,回合边界 drain 取出为 `system` advisory(`[审视者·参考]`);未就绪时 drain 返回空、不阻塞。`loop.ts` drain 支持 system 角色的注入(现仅 user)。
 - 全量 `vitest run` 无回归。
 
 ## 不做(YAGNI)
