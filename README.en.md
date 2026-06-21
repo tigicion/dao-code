@@ -266,6 +266,10 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # smoke test
 | `DAO_REASONING_EFFORT` | Reasoning effort | `max` |
 | `DAO_MAX_TURNS` | Max tool turns per turn | `50` |
 | `DAO_AUTO_APPROVE` | Skip all approvals (**sandbox/eval only**) | off |
+| `DAO_REFOCUS_EVERY` | Refocuser: re-check direction every N turns on long tasks (`0`=off; only in `--goal` long-task mode) | `3` |
+| `DAO_FAIL_STREAK` | Challenger: review progress after this many consecutive failed turns (interactive only) | `3` |
+| `DAO_REPEAT_ERR` | Challenger: review progress after the same error recurs this many times (interactive only) | `2` |
+| `DAO_REFLECT` | Set `0` to globally disable the reflection layer (challenger + refocuser) | on |
 
 ---
 

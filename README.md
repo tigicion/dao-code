@@ -268,6 +268,10 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
 | `DAO_REASONING_EFFORT` | 思考强度 | `max` |
 | `DAO_MAX_TURNS` | 单回合最大工具轮数 | `50` |
 | `DAO_AUTO_APPROVE` | 跳过所有审批(**仅限沙箱/eval**) | 关 |
+| `DAO_REFOCUS_EVERY` | 纠偏者:长任务每 N 轮复核方向(`0`=关;仅 `--goal` 长任务生效) | `3` |
+| `DAO_FAIL_STREAK` | 挑战者:连续失败达此轮数 → 审视进展(交互式生效) | `3` |
+| `DAO_REPEAT_ERR` | 挑战者:同一错误复发达此次数 → 审视进展(交互式生效) | `2` |
+| `DAO_REFLECT` | 设 `0` 全局关闭反思层(挑战者+纠偏者) | 开 |
 
 ---
 
