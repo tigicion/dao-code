@@ -16,12 +16,21 @@ describe("assessTurn — 挑战者(卡住)", () => {
     expect(s.failureStreak).toBe(0); // 出场后复位
   });
 
-  it("有失败但有推进 → 不算卡住(治'碰文件=进展'误判),连击清零", () => {
+  it("有失败即算卡——改了文件也不赦免(治'乱改无进展'假进展)", () => {
     let s = initHealth();
     s = assessTurn(s, fail(), cfg, { longTask: false }).next;
+    // 本轮改了文件(progressed:true)但仍有工具失败 → 仍算卡,连击累积而非清零
     const d = assessTurn(s, { progressed: true, toolFailures: 1 }, cfg, { longTask: false });
-    expect(d.challenger).toBe(false);
-    expect(d.next.failureStreak).toBe(0);
+    expect(d.next.failureStreak).toBe(2);
+  });
+
+  it("改文件+每轮换新错误的空转 → failureStreak 累积到阈值触发挑战者", () => {
+    let s = initHealth();
+    let d = assessTurn(s, { progressed: true, toolFailures: 1, errSig: "E1" }, cfg, { longTask: false }); s = d.next;
+    d = assessTurn(s, { progressed: true, toolFailures: 1, errSig: "E2" }, cfg, { longTask: false }); s = d.next;
+    d = assessTurn(s, { progressed: true, toolFailures: 1, errSig: "E3" }, cfg, { longTask: false });
+    expect(d.challenger).toBe(true);
+    expect(d.reason).toBe("failure-streak"); // 不同错每轮换 → 走 failureStreak 而非 repeated-error
   });
 
   it("同一错误复发达阈值 → 触发挑战者", () => {
