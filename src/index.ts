@@ -1664,6 +1664,15 @@ async function main() {
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。
       write(buildWelcome(welcomeInfo, caps, undefined, bg) + "\n");
+      // 修盲区:非 TTY 也建会话存储 + 审计 sink(此前仅 TTY 分支建,导致 --goal/管道长跑无缓存审计,无从诊断)。
+      const sessionsDir = path.join(workspaceRoot, ".dao", "sessions");
+      const store = createSessionStore(sessionsDir, undefined);
+      exitSessionId = store.id;
+      cacheSink = createCacheAuditSink(store.dir);
+      memoryAudit = createMemoryAuditSink(store.dir);
+      toolAudit = createToolAuditSink(store.dir);
+      permAudit = createPermAuditSink(store.dir, getMode);
+      ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
       const readLine = async (): Promise<string | null> => {
         write("\n> ");
         return nextLine();
@@ -1672,6 +1681,7 @@ async function main() {
       await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), onUserMessage: (text) => { void replyChallenge.onUserMessage(text); } });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
+      store.markDone(); // 干净退出标记(与 TTY 分支对齐)
     }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
     if (exitSessionId) write(`会话 ${exitSessionId} · 续写:dao -c(最近一个)或启动后 /resume ${exitSessionId}\n`);
