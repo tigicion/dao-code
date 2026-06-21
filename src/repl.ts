@@ -16,6 +16,8 @@ export interface ReplDeps {
   // 取出待注入的后台任务通知/子代理 mid-run 消息(由 index 绑定 taskManager.drainNotifications)。
   // 省略 = 不处理后台通知(行为同旧版)。
   drainNotifications?: () => string[];
+  // 真实用户消息入回合前回调(由 index 绑定 replyChallenge.onUserMessage;省略=不处理)。
+  onUserMessage?: (text: string) => void;
 }
 
 async function drainAndContinue(deps: ReplDeps): Promise<void> {
@@ -52,6 +54,7 @@ export async function runRepl(deps: ReplDeps): Promise<void> {
     } else {
       deps.session.addUser(line);
     }
+    deps.onUserMessage?.(line); // 路径①:命中相似度门则异步唤起审视者(非阻塞)
     await deps.runTurn();
     // 回合边界:把后台任务完成/子代理 mid-run 消息作为新回合自动续跑,直到排空(零副作用:无通知则不动)。
     await drainAndContinue(deps);

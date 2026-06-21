@@ -71,6 +71,7 @@ import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection
 import { shouldCaptureMemory } from "./memory/capture_policy.js";
 import { apiToolsForMode } from "./tools/tools_for_mode.js";
 import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
+import { createReplyChallenge } from "./agent/reply_challenge.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
 import { makeFlashAdjudicator } from "./memory/adjudicate.js";
@@ -962,6 +963,7 @@ async function main() {
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: argvPrompt ? undefined : reflect, // 反思层:一次性/eval 不反思
       longTask, // 纠偏者仅长任务按周期触发
+      drainAdvisories: () => replyChallenge.drain(), // 路径①:异步挑战者结论回合边界注入
     }));
     // 写入层(缺陷#1):热回合边界增量蒸馏——门控、后台;压缩前同步先捕获(防 compact 改 messages 竞态)。
     // 一次性/eval 路径(argvPrompt)不捕获:保持快速查询零 flash 开销、eval 测量干净。
@@ -1067,6 +1069,12 @@ async function main() {
     }
   };
 
+  // 路径①:用户反复申诉 → 异步挑战者。仅交互式接(argv 一次性不接此入口)。阈值默认 0.15(短 CJK 重提约 0.2,偏召回);DAO_CHALLENGE_REPEAT_SIM=0 关。
+  const replyChallenge = createReplyChallenge({
+    reflect: () => reflect("challenger"),
+    threshold: process.env.DAO_CHALLENGE_REPEAT_SIM !== undefined ? Number(process.env.DAO_CHALLENGE_REPEAT_SIM) : 0.15,
+  });
+
   let exitSessionId: string | undefined; // 交互会话 id(供退出时打印 resume 提示;一次性路径无 store)
   try {
     if (argvPrompt) {
@@ -1171,6 +1179,7 @@ async function main() {
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text });
           session.addUser(text);
+          void replyChallenge.onUserMessage(text); // 路径①:命中相似度门才异步 fork 挑战者(非阻塞)
           skillRound++; // 新一轮:用于关联本轮 skill 加载(skillSink.loaded);模型从常驻技能列表按需加载,无 discovery 预筛。
           if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
           await withPresence(() => runTurn({
@@ -1189,6 +1198,7 @@ async function main() {
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect, // 反思层:卡住→挑战者、长任务漂移→纠偏者
             longTask, // 纠偏者仅长任务按周期触发
+            drainAdvisories: () => replyChallenge.drain(), // 路径①:异步挑战者结论回合边界注入
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
@@ -1657,7 +1667,7 @@ async function main() {
         return nextLine();
       };
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications() });
+      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), onUserMessage: (text) => { void replyChallenge.onUserMessage(text); } });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
     }
