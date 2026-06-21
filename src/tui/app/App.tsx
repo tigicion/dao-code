@@ -33,7 +33,7 @@ const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
   ["model", "切换模型(Pro/Flash)"],
   ["plan", "进入计划模式:只读规划,先出方案再动手"],
   ["mode", "切换权限模式(default/acceptEdits/auto/plan)"],
-  ["skills", "查看可用技能"],
+  ["skills", "技能:开关(弹选择器,逐个/批量内置·第三方)"],
   ["init", "扫描本仓库生成 DAO.md 项目指令"],
   ["context", "查看上下文占用明细"],
   ["tasks", "查看后台任务"],
@@ -63,7 +63,7 @@ const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
   ["logout", "清除当前账户的 key"],
   ["simplify", "质量清理未提交改动(不抓 bug)"],
   ["remember", "记一条跨会话记忆"],
-  ["debug", "读最近会话日志诊断问题"],
+  ["debug-session", "读最近会话日志诊断 dao 自身问题"],
   ["skillify", "把本次会话经验提炼成技能"],
   ["batch", "把大改拆成并行子代理实现"],
   ["loop", "定时循环跑一个 prompt"],
@@ -225,6 +225,7 @@ export function App(deps: AppDeps) {
   const [resumePick, setResumePick] = useState<{ items: { id: string; label: string }[]; idx: number } | null>(null); // /resume 会话选择器
   // /account 账户选择器:switch 模式列出账户 + ➕添加 + 🗑删除;delete 模式只列账户,选中即删。
   const [accountPick, setAccountPick] = useState<{ items: { name: string; active: boolean; detail: string }[]; idx: number; mode: "switch" | "delete" } | null>(null);
+  const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number; showBundled: boolean } | null>(null);
   const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = "其他(自己输入)";
   const CHOICE_DISCUSS = "先讨论一下";
@@ -410,6 +411,8 @@ export function App(deps: AppDeps) {
       // /account 无参 → 弹账户选择器;/login 无参 → 走粘贴引导(带参数则落到 runCommand 文本路径)。
       if (name === "account" && !text.trim().split(/\s+/)[1]) { openAccountPicker(); return; }
       if (name === "login" && !text.trim().split(/\s+/)[1]) { await runAddAccount(); return; }
+      // /skills 无参 → 弹技能选择器(逐个开关 + 批量);带参(off/on/bundled…)落到 runCommand 文本路径。
+      if (name === "skills" && !text.trim().split(/\s+/)[1] && deps.listSkills) { openSkillPicker(); return; }
       const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
@@ -515,6 +518,13 @@ export function App(deps: AppDeps) {
     if (!list.length) { void runAddAccount(); return; } // 无账户 → 直接走添加
     setAccountPick({ items: list, idx: 0, mode: "switch" });
   };
+  // skill 选择器:默认只列【已安装的第三方】技能;内置默认隐藏,批量开关全走快捷键。
+  const isBundledSkill = (s: { source: string }) => s.source.startsWith("内置");
+  const openSkillPicker = () => {
+    const list = deps.listSkills?.() ?? [];
+    if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "暂无技能。" }); return; }
+    setSkillPick({ items: list, idx: 0, showBundled: false });
+  };
 
   useInput((ch, key) => {
     if (accountPick) {
@@ -538,6 +548,27 @@ export function App(deps: AppDeps) {
         } else {
           const n = accts[i]!.name; setAccountPick(null); deps.removeAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: `✓ 已删除账户「${n}」。` }); setStatus(deps.getStatus()); return;
         }
+      }
+      return;
+    }
+    if (skillPick) {
+      const all = skillPick.items;
+      const visible = skillPick.showBundled ? all : all.filter((s) => !isBundledSkill(s));
+      const nV = visible.length;
+      const refresh = (extra: Partial<typeof skillPick> = {}) =>
+        setSkillPick((p) => p && { ...p, items: deps.listSkills?.() ?? p.items, ...extra }); // 刷新状态、留在选择器
+      if (key.escape) { setSkillPick(null); return; }
+      if (key.upArrow) { setSkillPick((p) => p && { ...p, idx: Math.max(0, p.idx - 1) }); return; }
+      if (key.downArrow) { setSkillPick((p) => p && { ...p, idx: Math.min(Math.max(0, nV - 1), p.idx + 1) }); return; }
+      if (ch === "t") { setSkillPick((p) => p && { ...p, showBundled: !p.showBundled, idx: 0 }); return; } // 显/隐内置
+      if (ch === "a" || ch === "A") { deps.batchSkills?.("all", ch === "a"); refresh(); return; }       // 全部 开/关
+      if (ch === "b" || ch === "B") { deps.batchSkills?.("bundled", ch === "b"); refresh({ showBundled: true }); return; } // 内置 开/关(顺便显示)
+      if (ch === "i" || ch === "I") { deps.batchSkills?.("installed", ch === "i"); refresh(); return; }  // 安装 开/关
+      if (key.return || (ch && /[1-9]/.test(ch))) {
+        const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : skillPick.idx;
+        if (i < 0 || i >= nV) return;
+        const s = visible[i]!; deps.setSkillEnabled?.(s.name, !s.on); refresh(); // 翻转选中
+        return;
       }
       return;
     }
@@ -867,6 +898,27 @@ export function App(deps: AppDeps) {
         );
       })()}
 
+      {skillPick && (() => {
+        const all = skillPick.items;
+        const nBundled = all.filter(isBundledSkill).length;
+        const nThird = all.length - nBundled;
+        const nOn = all.filter((s) => s.on).length;
+        const visible = skillPick.showBundled ? all : all.filter((s) => !isBundledSkill(s));
+        const rows = visible.map((s) => `${s.on ? "● on " : "○ off"}  ${s.name}  ·  ${s.source}  ·  ${s.detail.slice(0, 40)}`);
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>技能(内置 {nBundled} · 第三方 {nThird} · 共 {nOn} 开)· 当前显示:{skillPick.showBundled ? "全部" : "仅第三方"}</Text>
+            {rows.length === 0
+              ? <Text color={c("dim")}>  (无{skillPick.showBundled ? "" : "第三方"}技能 —— 按 t 显示内置)</Text>
+              : rows.map((label, i) => (
+                  <Text key={i} color={i === skillPick.idx ? c("jade") : c("ink")}>{i === skillPick.idx ? "❯ " : "  "}{label}</Text>
+                ))}
+            <Text color={c("dim")}>↑↓ 移动 · ⏎ 开/关选中 · t 显/隐内置 · Esc 退出(改动重启生效)</Text>
+            <Text color={c("dim")}>批量:按字母=开,按 Shift+字母=关 —— a 全部 · b 内置 · i 已安装</Text>
+          </Box>
+        );
+      })()}
+
       {choice && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
           <Text color={c("jade")}>{choice.question}</Text>
@@ -911,7 +963,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && !choice && !resumePick && !accountPick && (
+      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -962,7 +1014,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick ? (
+      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick ? (
         <Text color={c("jade")}>{"  "}权限模式 → {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>∞ {bgRunning} 个后台任务运行中…</Text> : null}

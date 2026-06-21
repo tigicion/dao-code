@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assessTurn, initHealth, errSignature, type HealthConfig } from "./turn_health.js";
+import { assessTurn, initHealth, errSignature, defaultHealthConfig, type HealthConfig } from "./turn_health.js";
 
 const cfg: HealthConfig = { failureStreakTrip: 3, repeatedErrTrip: 2, refocusEvery: 0 };
 const ok = { progressed: true, toolFailures: 0 };
@@ -65,6 +65,21 @@ describe("assessTurn — 纠偏者(长任务漂移)", () => {
   it("refocusEvery=0 → 关闭", () => {
     let s = initHealth();
     for (let i = 0; i < 10; i++) { const d = assessTurn(s, ok, cfg, { longTask: true }); s = d.next; expect(d.refocuser).toBe(false); }
+  });
+});
+
+describe("defaultHealthConfig — 纠偏默认值", () => {
+  it("默认 refocusEvery=3(长任务每 3 轮纠偏)", () => {
+    const prev = process.env.DAO_REFOCUS_EVERY;
+    delete process.env.DAO_REFOCUS_EVERY;
+    expect(defaultHealthConfig().refocusEvery).toBe(3);
+    if (prev !== undefined) process.env.DAO_REFOCUS_EVERY = prev;
+  });
+  it("DAO_REFOCUS_EVERY=0 显式关闭(0 不被默认值吞掉)", () => {
+    const prev = process.env.DAO_REFOCUS_EVERY;
+    process.env.DAO_REFOCUS_EVERY = "0";
+    expect(defaultHealthConfig().refocusEvery).toBe(0);
+    if (prev !== undefined) process.env.DAO_REFOCUS_EVERY = prev; else delete process.env.DAO_REFOCUS_EVERY;
   });
 });
 

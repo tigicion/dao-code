@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "sqlglot Postgres:COMMENT ON 丢失 schema 限定名",
+  "humanMinutes": 45,
+  "_humanMinutes_note": "改 Postgres 解析器,使 COMMENT ON TYPE/VIEW/SEQUENCE/INDEX 支持 schema.object 并在回写时保留;需懂 sqlglot parser。",
   "repo": "https://github.com/tobymao/sqlglot",
   "ref": "c3fa1ced5d7fce8f3546cc01f9f604ca4ad41859",
   "fix_ref": "07faa10723e822d2319f2f41c7099948336d7514",

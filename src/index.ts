@@ -52,8 +52,8 @@ import { maybeCheckUpdate } from "./config/update_check.js";
 import { notify } from "./tui/notifier.js";
 import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
-import { loadSkills } from "./skills/skills.js";
-import { BUNDLED_SKILLS } from "./skills/bundled.js";
+import { loadSkills, findUserInvocableSkill } from "./skills/skills.js";
+import { BUNDLED_SKILLS, toggleBundled } from "./skills/bundled.js";
 import { loadUsage, saveUsage, recordUsage } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
 import { skillTool } from "./tools/skill.js";
@@ -463,15 +463,37 @@ async function main() {
   // skill 去重(对齐 CC):物理文件去 realpath(loadSkills 内)、同名按优先级覆盖、插件加命名空间防撞、条件技能按 paths 收窄。
   //   仍无法自动消的是【不同名的语义重复】(dao debugging vs superpowers Systematic Debugging)——CC 也不自动去,靠策展:
   //   保留 dao 原生(更贴),冗余的让用户 /skills 关。来源已在 /skills 列表标 [内置/用户/插件]。
-  // 内置【核心】技能:描述固定加载进模型上下文(可自动触发),但不进用户的 /skills 列表、不可关。
-  const coreBundled = BUNDLED_SKILLS.filter((b) => b.core && !diskNames.has(b.name)).map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name } as import("./skills/skills.js").Skill));
-  // 禁用集(~/.dao/skills-disabled.json):被禁用的【磁盘】技能不注入上下文(省 token),/skills 可开关。
+  // 禁用集(~/.dao/skills-disabled.json):被禁用的技能(内置或磁盘)都不注入上下文(省 token),/skills 可开关。
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
+  // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关(对标 CC disableBundledSkills)。
+  const coreBundled = BUNDLED_SKILLS
+    .filter((b) => b.core && !diskNames.has(b.name) && !disabledSet.has(b.name))
+    .map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name, ...(b.modelInvokable === false ? { modelInvokable: false } : {}), ...(b.userInvocable === false ? { userInvocable: false } : {}) } as import("./skills/skills.js").Skill));
   const pluginsDir = pluginsRoot();
   const skillSource = (s: { dir: string }) => (s.dir.startsWith(pluginsDir) ? "插件" : s.dir.startsWith(workspaceRoot) ? "项目" : "用户");
   const skillTokens = (s: { name: string; description: string }) => Math.max(1, Math.round((s.name.length + s.description.length) / 2));
   const enabledDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
+  // /skills 选择器后端:列出(内置+磁盘)、单开关、批量(内置/第三方/全部)。写禁用集,重启生效。
+  const persistDisabled = () => { try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch { /* 落盘失败不致命 */ } };
+  const allBundledNames = BUNDLED_SKILLS.filter((b) => b.core).map((b) => b.name);
+  const invMark = (s: { modelInvokable?: boolean; userInvocable?: boolean }) =>
+    s.modelInvokable === false ? "·仅手动" : s.userInvocable === false ? "·仅自动" : "";
+  const listSkills = () => [
+    ...BUNDLED_SKILLS.filter((b) => b.core).map((b) => ({
+      name: b.name,
+      on: !disabledSet.has(b.name) && !diskNames.has(b.name),
+      source: (diskNames.has(b.name) ? "内置·被覆盖" : "内置") + invMark(b),
+      detail: b.description,
+    })),
+    ...diskSkills.map((s) => ({ name: s.name, on: !disabledSet.has(s.name), source: skillSource(s) + invMark(s), detail: s.description })),
+  ];
+  const setSkillEnabled = (name: string, on: boolean) => { if (on) disabledSet.delete(name); else disabledSet.add(name); persistDisabled(); };
+  const batchSkills = (scope: "bundled" | "installed" | "all", on: boolean) => {
+    const names = scope === "bundled" ? allBundledNames : scope === "installed" ? diskSkills.map((s) => s.name) : [...allBundledNames, ...diskSkills.map((s) => s.name)];
+    toggleBundled(disabledSet, names, on);
+    persistDisabled();
+  };
   // 条件技能(对齐 CC 的 paths):带 paths 的技能仅当项目里有匹配文件才"在场",否则不进列表(减少无关技能稀释触发)。
   // 无 paths = 一直在场(现状)。启动一次性算定,进固定前缀、缓存安全。
   const visible = [...coreBundled, ...enabledDisk];
@@ -497,7 +519,8 @@ async function main() {
         `这类标了【触发时机】的,匹配上就该先加载),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
         `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
         `加载后,skill 正文是【必须照做的流程】(含其中"给用户选项/确认/分阶段"的步骤),不是参考——优先级高于你的默认习惯,仅让位于用户当前明确指令与安全/证据。\n` +
-        skills.map((s) => {
+        // 只列【可被模型自动触发】的(modelInvokable !== false);disable-model-invocation 的不进此表,仅用户 /手动调。
+        skills.filter((s) => s.modelInvokable !== false).map((s) => {
           // 触发条件(when_to_use)对"何时该加载"至关重要,必须随描述一起呈现;调用名给 slug(模型不必照抄 Title Case)。
           const trig = s.whenToUse ? ` 何时用:${s.whenToUse}` : "";
           const callName = `${s.namespace ? s.namespace + ":" : ""}${s.slug ?? s.name}`; // 插件技能用 plugin:slug 防撞
@@ -897,14 +920,16 @@ async function main() {
   };
 
   const runCompaction = async (): Promise<void> => {
-    const before = session.messages.length;
+    // 按 token 量判断(而非消息条数):单轮长任务的 microcompact 清旧工具结果会降 token、不改条数,
+    // 用条数会误报"无需压缩"。token 减少才是真压缩的信号。
+    const before = estimateTokens(session.messages);
     session.messages = await compactMessages(
       session.messages,
       { keepRecentTurns: KEEP_RECENT_TURNS, summarize: summarizeWithBreaker },
       todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
     );
-    const after = session.messages.length;
-    write(after < before ? `\n[已压缩对话:${before} → ${after} 条消息]\n` : `\n[对话较短,无需压缩]\n`);
+    const after = estimateTokens(session.messages);
+    write(after < before ? `\n[已压缩对话:~${before.toLocaleString()} → ~${after.toLocaleString()} tok]\n` : `\n[对话较短,无需压缩]\n`);
   };
 
   // P3-63 防休眠 + 长回合完成通知:回合期间持 wakelock;耗时超阈值则完成时弹桌面通知。
@@ -1191,17 +1216,40 @@ async function main() {
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
+            const bundledCore = BUNDLED_SKILLS.filter((b) => b.core);
+            const bundledNames = bundledCore.map((b) => b.name);
+            const persist = () => { try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch {} };
+            const installedNames = diskSkills.map((s) => s.name);
+            // 批量开关:/skills <bundled|installed|all> off|on(bundled=内置,installed=第三方/项目·用户·插件,all=全部)
+            if ((sub === "bundled" || sub === "installed" || sub === "all") && (rest[1] === "off" || rest[1] === "on")) {
+              const names = sub === "bundled" ? bundledNames : sub === "installed" ? installedNames : [...bundledNames, ...installedNames];
+              const label = sub === "bundled" ? "内置" : sub === "installed" ? "第三方" : "全部";
+              toggleBundled(disabledSet, names, rest[1] === "on");
+              persist();
+              return { handled: true, output: `已${rest[1] === "on" ? "开启" : "关闭"}${label}技能(${names.length} 个,重启 dao 生效)` };
+            }
             if (sub === "off" || sub === "on") {
               const target = rest[1];
-              if (target && coreBundled.some((s) => s.name === target)) return { handled: true, output: `${target} 是内置核心技能,固定加载、不可开关。` };
-              if (!target || !diskSkills.some((s) => s.name === target)) return { handled: true, output: `未知技能:${target ?? "(空)"}(只能开关项目/用户技能)` };
-              if (sub === "off") disabledSet.add(target); else disabledSet.delete(target);
-              try { writeFileSync(disabledPath, JSON.stringify([...disabledSet])); } catch {}
+              const known = target && (bundledNames.includes(target) || diskSkills.some((s) => s.name === target));
+              if (!known) return { handled: true, output: `未知技能:${target ?? "(空)"}。/skills 看列表;批量用 /skills <bundled|installed|all> off|on` };
+              if (sub === "off") disabledSet.add(target!); else disabledSet.delete(target!);
+              persist();
               return { handled: true, output: `已${sub === "off" ? "禁用" : "启用"}技能 ${target}(重启 dao 生效)` };
             }
-            if (diskSkills.length === 0) return { handled: true, output: "暂无项目/用户技能。项目放 .dao/skills/,用户放 ~/.dao/skills/,或 dao skill add 安装。" };
-            const rows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
-            return { handled: true, output: `技能(${diskSkills.length};on 的描述常驻上下文、模型按需加载正文。/skills off|on <名> 开关,重启生效)\n` + rows.join("\n") };
+            // 列表:内置 + 项目/用户。内置被同名磁盘技能覆盖时标注,避免"静默消失"。
+            const bundledRows = bundledCore.map((b) => {
+              const shadow = diskNames.has(b.name);
+              const state = shadow ? "▷ 覆 " : disabledSet.has(b.name) ? "○ off" : "● on ";
+              const tag = shadow ? `内置·被${skillSource(diskSkills.find((s) => s.name === b.name)!)}覆盖` : "内置";
+              return `${state}  ${b.name}  ·  ${tag}  ·  ~${skillTokens(b)} tok  ·  ${b.description.slice(0, 48)}`;
+            });
+            const diskRows = diskSkills.map((s) => `${disabledSet.has(s.name) ? "○ off" : "● on "}  ${s.name}  ·  ${skillSource(s)}  ·  ~${skillTokens(s)} tok  ·  ${s.description.slice(0, 48)}`);
+            const rows = [...bundledRows, ...diskRows];
+            const bundledOn = bundledCore.filter((b) => !disabledSet.has(b.name) && !diskNames.has(b.name)).length;
+            const diskOn = diskSkills.filter((s) => !disabledSet.has(s.name)).length;
+            const head = `技能(内置 ${bundledOn}/${bundledCore.length} 开 · 第三方 ${diskOn}/${diskSkills.length} 开;on 的描述常驻上下文、模型按需加载正文)`;
+            const foot = `/skills off|on <名> 开关单个(内置也可关);/skills <bundled|installed|all> off|on 批量(内置/第三方/全部);重启生效`;
+            return { handled: true, output: `${head}\n${rows.join("\n")}\n${foot}` };
           }
           if (name === "context") {
             const used = contextTokens();
@@ -1537,6 +1585,12 @@ async function main() {
             const ok = ckpt.restore(target.ref);
             return { handled: true, output: ok ? `已回退工作区到检查点:${target.label}(回退前状态已存为"回退前自动快照",可再 /restore 找回)` : "回退失败" };
           }
+          // 通用技能手动调用(对齐 CC 的 /skill-name):/<slug> → 把 user-invocable 技能正文当 prompt 跑一回合。
+          // 放在最后(已知命令之后);排除保留命令名,避免遮蔽。
+          if (name && !["model", "clear", "compact", "cost", "help", "exit"].includes(name)) {
+            const sk = findUserInvocableSkill(skills, name);
+            if (sk) return { handled: true, prompt: sk.body };
+          }
           return dispatchCommand(line, session);
         },
         compact: inkCompact,
@@ -1587,6 +1641,9 @@ async function main() {
         switchAccount: (n) => { switchAccount(n); },
         removeAccount,
         addAccount,
+        listSkills,
+        setSkillEnabled,
+        batchSkills,
       });
       taskManager.cancelAll(); // 退出时中止所有后台任务
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子

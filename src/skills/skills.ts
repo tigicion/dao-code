@@ -12,6 +12,9 @@ export interface Skill {
   slug?: string; // 目录/文件名(供模型用直觉短名调用,不必照抄 Title Case 的 name)
   paths?: string[]; // frontmatter paths:条件技能——仅当项目有匹配文件才"在场"(对齐 CC 的 paths;空=一直在场)
   namespace?: string; // 来源命名空间(插件名);用于 plugin:slug 调用与防撞。本地/项目/内置无前缀
+  // 触发旋钮(对齐 CC,默认都开;省略=undefined=按默认开处理,第三方一般不写)。
+  modelInvokable?: boolean; // false ← frontmatter disable-model-invocation:true(模型不自动触发,只 /手动调)
+  userInvocable?: boolean;  // false ← frontmatter user-invocable:false(不暴露 /手动调,只模型自动)
   body: string;
   dir: string; // 该 skill 所在目录(供正文引用同目录资源)
   file?: string; // 该 skill 的 SKILL.md 物理路径(realpath 去重用)
@@ -25,6 +28,9 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
   let description = "";
   let whenToUse = "";
   let paths: string[] = [];
+  let modelInvokable: boolean | undefined;
+  let userInvocable: boolean | undefined;
+  const truthy = (v: string) => /^(true|yes|1|on)$/i.test(v.replace(/^["']|["']$/g, "").trim());
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (m) {
     const lines = m[1]!.split(/\r?\n/);
@@ -39,6 +45,9 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
       else if (k === "when_to_use" || k === "when to use" || k === "whentouse") whenToUse = v;
       // paths:条件技能 glob。支持 "a, b" / "[a, b]" / 单个;空格或逗号分隔。
       else if (k === "paths") paths = v.replace(/^\[|\]$/g, "").split(/[,\s]+/).map((x) => x.replace(/^["']|["']$/g, "").trim()).filter(Boolean);
+      // 触发旋钮(对齐 CC):只在显式写出时记录,否则留 undefined(按默认"都开"处理)。
+      else if (k === "disable-model-invocation" || k === "disable_model_invocation") { if (truthy(v)) modelInvokable = false; }
+      else if (k === "user-invocable" || k === "user_invocable") { if (!truthy(v)) userInvocable = false; }
     }
     body = (m[2] ?? "").trim();
   } else {
@@ -50,10 +59,21 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
     description,
     ...(whenToUse ? { whenToUse } : {}),
     ...(paths.length ? { paths } : {}),
+    ...(modelInvokable === false ? { modelInvokable } : {}),
+    ...(userInvocable === false ? { userInvocable } : {}),
     slug: fallbackName,
     body,
     dir,
   };
+}
+
+// 用户手动调用匹配:按裸 slug / name / namespace:slug 找一个【可被用户 /调用】的技能(对齐 CC 的 /skill-name)。
+export function findUserInvocableSkill(skills: Skill[], name: string): Skill | undefined {
+  const want = name.trim().toLowerCase();
+  return skills.find((s) => s.userInvocable !== false && (
+    (s.slug ?? "").toLowerCase() === want ||
+    s.name.toLowerCase() === want ||
+    `${s.namespace ? s.namespace + ":" : ""}${s.slug ?? ""}`.toLowerCase() === want));
 }
 
 async function loadFrom(baseDir: string): Promise<Skill[]> {

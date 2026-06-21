@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "node-semver subset:预发布版本边界判断错误",
+  "humanMinutes": 45,
+  "_humanMinutes_note": "subset.js 预发布下界比较逻辑;semver 子集推理本身烧脑,文件局部但逻辑棘手。",
   "repo": "https://github.com/npm/node-semver",
   "ref": "efa4be6096c1f9b77d9d27d6132f6220c43b4e31",
   "fix_ref": "5f3ca133e040210b6ea80c350a1d61d9da02e722",

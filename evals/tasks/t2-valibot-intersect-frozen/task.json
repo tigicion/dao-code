@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "valibot intersect:合并冻结对象/数组时崩溃",
+  "humanMinutes": 40,
+  "_humanMinutes_note": "根因隐蔽(_merge 原地改写传入值),需重构合并为不可变,并保非冻结输入下的现有行为不变。",
   "repo": "https://github.com/fabian-hiller/valibot",
   "ref": "17cd7ed5b8851ff5006dcf85bf9fa6c53da3cb72",
   "fix_ref": "b16fdf9ba6d84fffc3b71fdbac554126258f9a4a",

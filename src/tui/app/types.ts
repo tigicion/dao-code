@@ -69,4 +69,8 @@ export interface AppDeps {
   switchAccount?: (name: string) => void; // 切换激活账户(异步解析+生效,下一回合读 cfg)
   removeAccount?: (name: string) => void; // 删除账户(连带清钥匙串)
   addAccount?: (key: string, name?: string) => Promise<{ ok: boolean; name?: string; reason?: string }>; // 校验+持久化+激活
+  // 技能(skill)交互:/skills 无参弹选择器(逐个开关 + 批量内置/第三方)。省略则退回文本命令。
+  listSkills?: () => { name: string; on: boolean; source: string; detail: string }[];
+  setSkillEnabled?: (name: string, on: boolean) => void; // 开/关单个技能(写禁用集,重启生效)
+  batchSkills?: (scope: "bundled" | "installed" | "all", on: boolean) => void; // 批量开关(内置/第三方/全部)
 }

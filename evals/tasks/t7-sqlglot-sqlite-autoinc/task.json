@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "sqlglot 转写 SQLite:AUTOINCREMENT 约束顺序错误",
+  "humanMinutes": 40,
+  "_humanMinutes_note": "改 SQLite 生成器约束输出顺序,使 AUTOINCREMENT 紧随 PRIMARY KEY;需懂 generator 的约束发射逻辑。",
   "repo": "https://github.com/tobymao/sqlglot",
   "ref": "3685465fc2b02b2459f744b466670af62b5c859a",
   "fix_ref": "dbc316cd126bed5311552e5dce7703ec693f4771",

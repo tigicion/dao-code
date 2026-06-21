@@ -4,7 +4,19 @@
 
 ## [Unreleased]
 
+### 修复
+- **单轮长任务也能压缩**:压缩/microcompact 原按 user 轮切,一次性/`--goal` 自主任务只有 1 个 user 轮 → 压缩永不触发、逼近上限会撞墙;现 microcompact 在 user 轮稀少时 fallback 按工具周期切、清旧的可重现工具结果。压缩信号也改按 token 量判断(非消息条数)。
+
+### 变更
+- **纠偏者默认开启**:`DAO_REFOCUS_EVERY` 默认 0→**3**(仅长任务下生效),即 `--goal` 长任务每 3 轮自动复核方向、防 scope 蔓延/镀金;显式设 `DAO_REFOCUS_EVERY=0` 可关。
+
+## [0.1.14] - 2026-06-20
+
+首个公开发布;以下为自 MVP(0.1.2)起的累积变更。
+
 ### 新增
+- **profile 凭证体系**:多 key / 多 provider 就绪,交互式 `/account` 选择器,`/login`·`/logout` 统一 onboarding。
+- **技能体系**:内置核心技能扩到 5 个(simplify / debugging / tdd / planning / code-review),对齐 writing-skills 写作标准;可单个或批量 `/skills` 开关,外来技能首次加载按用途自动转换工具名/模型档并缓存。
 - **长任务稳健**:流式→非流式降级、反应式压缩(上下文超限自动压缩重试)、压缩降级阶梯 + 熔断、模型回退、advisor 空转/临近上限提醒、增量压缩、真实 token 触发压缩。
 - **错误恢复**:`max_output_tokens` 截断续写补全、`Retry-After` honoring、背景查询 529 不重试(防并行子代理级联)。
 - **安全纵深**:危险命令黑名单、敏感目标 bypass-immune、Unicode 消毒、秘密扫描、子进程 env 脱敏、SSRF 防护、目录信任(`dao trust`)、审计日志、可选 OS 沙箱(`DAO_SANDBOX`)与系统钥匙串(`DAO_USE_KEYCHAIN`)。

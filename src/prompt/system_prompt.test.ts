@@ -22,6 +22,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toMatch(/只读|提方案/);
   });
 
+  it("含模型/上下文选型政策,且声明技能不得覆盖它(优先级在用户请求之下、技能之上)", () => {
+    // 政策本身
+    expect(prompt).toMatch(/deepseek-v4-flash/);
+    expect(prompt).toMatch(/pro/);
+    // 关键:技能/记忆不得据此换模型或事事开新上下文
+    expect(prompt).toMatch(/技能.*不得|不得据此|技能能改的是/);
+    expect(prompt).toMatch(/模型.*上下文|上下文.*模型/);
+  });
+
   it("leaves no unfilled placeholders", () => {
     expect(prompt).not.toMatch(/\{[a-z_]+\}/);
   });

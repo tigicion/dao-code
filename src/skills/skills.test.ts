@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadSkills } from "./skills.js";
+import { loadSkills, findUserInvocableSkill } from "./skills.js";
 import { skillTool } from "../tools/skill.js";
 
 let base: string;
@@ -20,6 +20,37 @@ describe("loadSkills", () => {
     expect(skills.map((s) => s.name).sort()).toEqual(["commit", "pdf"]);
     expect(skills.find((s) => s.name === "pdf")?.body).toContain("PDF 步骤");
   });
+  it("findUserInvocableSkill:按 slug/name/namespace 匹配,排除 user-invocable:false", () => {
+    const skills = [
+      { name: "TDD", description: "d", slug: "tdd", body: "b1", dir: "" },
+      { name: "Auto Only", description: "d", slug: "autoonly", body: "b2", dir: "", userInvocable: false },
+      { name: "Plug", description: "d", slug: "plug", namespace: "sp", body: "b3", dir: "" },
+    ];
+    expect(findUserInvocableSkill(skills, "tdd")?.name).toBe("TDD"); // slug
+    expect(findUserInvocableSkill(skills, "TDD")?.name).toBe("TDD"); // name(大小写不敏感)
+    expect(findUserInvocableSkill(skills, "sp:plug")?.name).toBe("Plug"); // namespace:slug
+    expect(findUserInvocableSkill(skills, "autoonly")).toBeUndefined(); // user-invocable:false 不可手动调
+    expect(findUserInvocableSkill(skills, "nope")).toBeUndefined();
+  });
+
+  it("解析 disable-model-invocation / user-invocable(默认都开,省略=undefined)", async () => {
+    const proj = path.join(base, "p");
+    mkdirSync(path.join(proj, "manual"), { recursive: true });
+    writeFileSync(path.join(proj, "manual", "SKILL.md"), `---\nname: manual\ndescription: d\ndisable-model-invocation: true\n---\n正文`);
+    mkdirSync(path.join(proj, "autoonly"), { recursive: true });
+    writeFileSync(path.join(proj, "autoonly", "SKILL.md"), `---\nname: autoonly\ndescription: d\nuser-invocable: false\n---\n正文`);
+    mkdirSync(path.join(proj, "plain"), { recursive: true });
+    writeFileSync(path.join(proj, "plain", "SKILL.md"), `---\nname: plain\ndescription: d\n---\n正文`);
+    const skills = await loadSkills(proj);
+    const manual = skills.find((s) => s.name === "manual")!;
+    const autoonly = skills.find((s) => s.name === "autoonly")!;
+    const plain = skills.find((s) => s.name === "plain")!;
+    expect(manual.modelInvokable).toBe(false); // 不让模型自动触发
+    expect(autoonly.userInvocable).toBe(false); // 不暴露给用户 /调用
+    expect(plain.modelInvokable).toBeUndefined(); // 第三方一般不写 → undefined(按默认开处理)
+    expect(plain.userInvocable).toBeUndefined();
+  });
+
   it("捕获 when_to_use(触发条件)与目录 slug 作别名", async () => {
     const proj = path.join(base, "p");
     mkdirSync(path.join(proj, "brainstorming"), { recursive: true });

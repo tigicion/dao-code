@@ -206,6 +206,55 @@ describe("App", () => {
     expect(removed).toBe("aaa");
   });
 
+  it("/skills 无参:默认只列第三方,⏎ 切换选中;按 t 显示内置", async () => {
+    let toggled: [string, boolean] | null = null;
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listSkills: () => [
+          { name: "tdd", on: true, source: "内置", detail: "测试先行" },
+          { name: "my-skill", on: true, source: "用户", detail: "自定义" },
+        ],
+        setSkillEnabled: (n, on) => { toggled = [n, on]; },
+      })} />,
+    );
+    for (const ch of "/skills") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 开选择器
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("技能(内置 1 · 第三方 1");
+    expect(f).toContain("仅第三方");
+    expect(f).toContain("my-skill"); // 第三方显示
+    expect(f).not.toContain("tdd");  // 内置默认隐藏
+    expect(f).toContain("t 显/隐内置"); // 快捷键提示
+    stdin.write("\r"); // ⏎ 切换可见的第一个(my-skill)→ 关
+    await delay();
+    expect(toggled).toEqual(["my-skill", false]);
+    stdin.write("t"); // 显示内置
+    await delay();
+    expect(lastFrame()!).toContain("tdd");
+  });
+
+  it("/skills 选择器:快捷键 I 关闭全部安装,b 开启全部内置", async () => {
+    const batches: [string, boolean][] = [];
+    const { stdin } = render(
+      <App {...makeDeps({
+        listSkills: () => [{ name: "my-skill", on: true, source: "用户", detail: "x" }],
+        batchSkills: (scope, on) => { batches.push([scope, on]); },
+      })} />,
+    );
+    for (const ch of "/skills") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 开选择器
+    await delay();
+    stdin.write("I"); // 关闭全部安装
+    await delay();
+    stdin.write("b"); // 开启全部内置
+    await delay();
+    expect(batches).toContainEqual(["installed", false]);
+    expect(batches).toContainEqual(["bundled", true]);
+  });
+
   it("/resume 无参 + 无历史会话:提示而不开选择器", async () => {
     const { lastFrame, stdin } = render(<App {...makeDeps({ listResume: () => [] })} />);
     for (const ch of "/resume") stdin.write(ch);

@@ -1,6 +1,8 @@
 {
   "kind": "oss",
   "desc": "es-toolkit compat/omitBy:误把带 length 的普通对象当数组",
+  "humanMinutes": 30,
+  "_humanMinutes_note": "定位 array-like 误判,收紧判定使带数字 length 的普通对象按对象自有键处理,对齐 lodash。",
   "repo": "https://github.com/toss/es-toolkit",
   "ref": "0e8656da6afbe08952e78dcf2cd53d326d12c2f6",
   "fix_ref": "6e449e4ead85e12ce4b5bb68559e3daf5d60f7ca",
