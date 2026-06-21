@@ -43,8 +43,9 @@ export function assessTurn(
   cfg: HealthConfig,
   opts: { longTask: boolean },
 ): HealthDecision {
-  // 卡住 = 有失败且本轮没有实质推进(治"碰了文件=有进展"的误判:失败主导的回合不算推进)。
-  const stuck = outcome.toolFailures > 0 && !outcome.progressed;
+  // 有工具失败即算"未推进"——改了文件不赦免(治"乱改一通但错误还在/换新错"的假进展)。
+  // 「失败 + 改文件」此前被 !progressed 放过,正是实测发现的盲点。progressed 仍保留给 loop 的 noProgress advisor。
+  const stuck = outcome.toolFailures > 0;
   const failureStreak = stuck ? state.failureStreak + 1 : 0;
 
   let repeatedErr: number;
