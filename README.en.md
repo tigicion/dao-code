@@ -73,19 +73,29 @@ Rich Ink rendering + a Taiji splash + light/dark adaptation; `@` file references
 
 ## 📦 Install
 
-**A. Standalone binary (no Node)** — easiest: download the `dao-*` for your platform from [Releases](../../releases), `chmod +x`, and run.
+**A. Standalone binary (no Node, all platforms)** — download for your platform from [Releases](../../releases):
 
-**B. npm (Node ≥ 20)** — once published to npm:
+| Platform | File | Run |
+|---|---|---|
+| macOS (Apple silicon) | `dao-darwin-arm64` | `chmod +x dao-darwin-arm64 && ./dao-darwin-arm64` |
+| macOS (Intel) | `dao-darwin-x64` | same as above |
+| Linux | `dao-linux-arm64` / `dao-linux-x64` | `chmod +x dao-linux-* && ./dao-linux-*` |
+| Windows | `dao-windows-x64.exe` | double-click, or run `dao-windows-x64.exe` in a terminal |
+
+> On macOS, if a **browser** download says "cannot verify developer", clear the quarantine: `xattr -d com.apple.quarantine dao-darwin-*` (or right-click → Open once). Command-line downloads (`curl`/`gh`) don't hit this.
+> You can rename the file to `dao` and put it on your `PATH` to just run `dao`.
+
+**B. npm (Node ≥ 20, all platforms)** — published:
 
 ```bash
-npx dao-code        # zero-install trial
+npx dao-code        # zero-install trial (verified working)
 npm i -g dao-code   # global install, command name dao
 ```
 
 **C. From source** (contributors):
 
 ```bash
-git clone <repo-url> dao-code && cd dao-code
+git clone https://github.com/tigicion/dao-code.git && cd dao-code
 npm install && npm run build && npm link   # then dao is global
 # or run directly in dev: npm run dev
 ```
@@ -94,42 +104,39 @@ npm install && npm run build && npm link   # then dao is global
 
 ## 🚀 Quick start
 
-1. Set your DeepSeek API key (any one of these):
+1. Get a DeepSeek API key: <https://platform.deepseek.com/api_keys>
+
+2. **Launch → follow the prompt to enter your key (easiest, all platforms, recommended):**
 
    ```bash
-   export DEEPSEEK_API_KEY=sk-...        # environment variable
-   # or write .env in the project root: DEEPSEEK_API_KEY=sk-...
+   dao                # installed (binary / global); or npx dao-code
    ```
 
-   On first run in a real terminal with no key detected, it walks you through pasting one and can save it to `~/.dao/config.json`.
-   Get a key: <https://platform.deepseek.com/api_keys>
+   On first run with no key detected, it walks you through pasting one and saves it to `~/.dao/config.json` (auto-read next time — no env setup needed).
 
-2. Launch:
+3. Or set the key manually (pick one for your OS):
 
-   ```bash
-   dao                # installed
-   npm run dev        # from source (tsx src/index.ts)
-   ```
+   | How | Command |
+   |---|---|
+   | `.env` (project root, all platforms) | a line `DEEPSEEK_API_KEY=sk-...` |
+   | macOS / Linux | `export DEEPSEEK_API_KEY=sk-...` |
+   | Windows PowerShell | `$env:DEEPSEEK_API_KEY="sk-..."` |
+   | Windows CMD | `set DEEPSEEK_API_KEY=sk-...` |
 
-3. For light terminals:
+4. Light terminals: type `/theme` at runtime, or set `DAO_THEME=light` before launch.
 
-   ```bash
-   export DAO_THEME=light
-   ```
-
-Slash commands:
+Common slash commands (full list via `/help`):
 
 | Command | Effect |
 |---|---|
-| `/model [id]` | Switch model (no arg toggles between `deepseek-v4-pro` / `deepseek-v4-flash`) |
-| `/plan` | Toggle plan (read-only + propose) / normal mode |
-| `/mode [x]` | Switch permission mode `default`/`acceptEdits`/`plan`/`bypassPermissions` (also **Shift+Tab** to cycle) |
-| `/yolo` | Toggle YOLO (= bypassPermissions): auto-approve all write/exec ops (deny rules still block) |
-| `/clear` | Clear the conversation (keep system setup) |
-| `/compact` | Manually compact the conversation |
-| `/cost` (also `/cache`) | View token usage and cache hit rate |
-| `/help` | List available commands |
-| `/exit` (also `/quit`) | Quit |
+| `/init` | Scan the repo and generate `DAO.md` (project overview/conventions, auto-loaded in future sessions) |
+| `/model [id]` | Switch model (no arg toggles `deepseek-v4-pro` / `deepseek-v4-flash`) |
+| `/mode [x]` | Permission mode `default` / `acceptEdits` / `auto` (smart approval) / `plan` (also **Shift+Tab** to cycle) |
+| `/plan` | Quick toggle plan (read-only + propose) / normal |
+| `/goal <objective>` | Autonomous long-task mode (auto-approve + keep going; large tasks auto-staged) |
+| `/cost` | Token usage & cache hit rate |
+| `/skills` | List / toggle skills |
+| `/compact` | Compact the conversation · `/clear` clear · `/help` command list · `/exit` (also `/quit`) quit |
 
 > Add `--yolo` at launch (e.g. `dao --yolo` / `dao --yolo "task"`) to start in auto-approve; toggle anytime with `/yolo`.
 > `dao --verbose` (or `--debug`) enters verbose mode **at startup**: full tool results, full thinking, and raw tool arguments.
