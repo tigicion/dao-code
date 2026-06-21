@@ -8,6 +8,19 @@ function lineFeeder(lines: string[]) {
 }
 
 describe("runRepl", () => {
+  it("真实用户消息触发 onUserMessage(斜杠命令不触发)", async () => {
+    const got: string[] = [];
+    await runRepl({
+      session: new Session("SYS", "m"),
+      readLine: lineFeeder(["/help", "画面没显示", "/exit"]),
+      runTurn: async () => {},
+      compact: async () => {},
+      write: () => {},
+      onUserMessage: (t) => got.push(t),
+    });
+    expect(got).toEqual(["画面没显示"]);
+  });
+
   it("runs a turn for plain input and handles a command, then exits on /exit", async () => {
     const s = new Session("SYS", "deepseek-v4-pro");
     const turns: string[] = [];

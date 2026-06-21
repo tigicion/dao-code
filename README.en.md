@@ -269,6 +269,7 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # smoke test
 | `DAO_REFOCUS_EVERY` | Refocuser: re-check direction every N turns on long tasks (`0`=off; only in `--goal` long-task mode) | `3` |
 | `DAO_FAIL_STREAK` | Challenger: review progress after this many consecutive failed turns (interactive only) | `3` |
 | `DAO_REPEAT_ERR` | Challenger: review progress after the same error recurs this many times (interactive only) | `2` |
+| `DAO_CHALLENGE_REPEAT_SIM` | Challenger: similarity threshold for "user re-raising the same problem" → async challenger (`0`=off; interactive only) | `0.15` |
 | `DAO_REFLECT` | Set `0` to globally disable the reflection layer (challenger + refocuser) | on |
 
 ---
