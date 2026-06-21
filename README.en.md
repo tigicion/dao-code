@@ -45,7 +45,7 @@ On a SWE-bench-style benchmark drawn from recent real-world open-source bug fixe
 
 ## ✨ Features
 
-The basics (tools / permissions / Skills / MCP / Hooks / subagents / rich TUI) mirror Claude Code and are all there. Here are the parts that **actually set DAO apart**:
+The basics (tools / permissions / Skills / MCP / Hooks / subagents / rich TUI) are all there. Here are the parts that **actually set DAO apart**:
 
 ### 🗜️ Context & cache engineering
 
@@ -283,6 +283,16 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # smoke test
 ## 🗺️ Status
 
 Released **v0.1.20** (npm `dao-code` + multi-platform binaries on Releases). Core is complete: Ink TUI and Taiji splash, streaming agent loop, 24 tools, layered permissions, persistent memory, cache engineering, the reflection layer, long-task robustness, Skills/MCP/Hooks/subagent extensions, and a real OSS evaluation harness. Actively iterating — issues/PRs welcome.
+
+---
+
+## 🎨 Built with DAO
+
+Open-source projects built entirely with DAO:
+
+- **[redis-rs](https://github.com/tigicion/redis-rs)** — a Redis-compatible server in Rust (RESP2, ~80 commands), completed from scratch autonomously in `dao --goal` long-task mode.
+- **[magic-canvas](https://github.com/tigicion/magic-canvas)** — an iPad finger-painting app for toddlers (rainbow lines + stickers, SwiftUI + SpriteKit).
+- **[bubble-machine](https://github.com/tigicion/bubble-machine)** — an iPad bubble-blowing app for toddlers (long-press to grow / rapid-fire, procedural audio).
 
 ---
 
