@@ -193,11 +193,9 @@ Built for long tasks that "run autonomously for a long time without drifting, ar
 - **Definition-of-Done verification**: `/dod <command>` (or `DAO_VERIFY_CMD`) sets an executable acceptance command; `verify_done` runs it — only success (exit 0) counts as done; if unset, the model self-judges from evidence.
 - **Stuck detection + circuit breaker**: repeating the same tool call / hitting the same error past a threshold → first a nudge to change approach, then a stop, so it doesn't spin and burn budget (`src/agent/stuck.ts`).
 - **Large output spilled to disk**: when tool output exceeds a threshold it's spilled in full to `.dao/spill/`; the context keeps only a truncation + pointer, fetched back on demand via `read_file`.
-- **Parallel subagents**: pass `tasks[]` to the `agent` tool to dispatch several independent subagents in parallel and aggregate.
-- **Async background subagents + notification queue**: pass `background:true` to run in the background, return immediately, and not block the main loop; on completion the result is auto-injected as a `<task-notification>` to continue (`src/agent/tasks.ts`). The status bar shows the count of running background tasks.
-- **On-demand memory retrieval**: `memory_search` lets the model actively retrieve cross-session memory (startup injects only top-K; truncated or just-written entries are still findable).
-- **Long-task autonomous mode**: `dao --task` or `/task` — auto-approve + autonomous continuous progress + higher turn cap + a final summary; asks you only when truly stuck.
-- **Coordinator orchestration**: `dao --coordinator` or `/coordinator` — turns a larger task into a multi-agent workflow (parallel research → synthesize → implement → verify) on top of async background subagents + the notification queue: dispatch research workers → end the turn → results feed back → synthesize & implement → `verify_done`.
+- **Parallel / background subagents + notification queue**: pass `tasks[]` to run in parallel, or `background:true` to run in the background (returns immediately, doesn't block the main loop); on completion the result is auto-injected as a `<task-notification>` to continue (`src/agent/tasks.ts`).
+- **On-demand memory retrieval**: `memory_read` lets the model actively retrieve cross-session memory (startup injects only top-K; truncated or just-written entries are still findable).
+- **Long-task autonomous mode**: `dao --goal` (legacy `--task` / `--coordinator` still accepted) or `/goal <objective>` at runtime — auto-approve + autonomous continuous progress + higher turn cap; large tasks auto-stage (parallel research → synthesize → implement → `verify_done`), asking you only when truly stuck.
 
 ---
 
@@ -206,7 +204,7 @@ Built for long tasks that "run autonomously for a long time without drifting, ar
 - **Permissions (1:1 with CC)**: three-state rules `allow / ask / deny`, syntax `Tool(specifier)` — `Bash(npm run test:*)` (command prefix), `Edit(src/**)`/`Read(//etc/**)` (gitignore-style path glob), `WebFetch(domain:example.com)`, bare tool names, `mcp__server__tool`. Priority **deny > ask > allow > mode/capability default** (deny is a hard blacklist, blocking even under YOLO). Tool names auto-map (exec_shell↔Bash, read_file↔Read, edit_file↔Edit, fetch_url↔WebFetch…), so CC's settings.json rules work as-is.
   - **Layering** (low→high priority): `~/.dao/settings.json` (user) < `.dao/settings.json` (project, committed) < `.dao/settings.local.json` (local, not committed) < **CLI** (`--allow`/`--deny`/`--add-dir`/`--permission-mode`) < **enterprise managed policy** (`/etc/dao/managed-settings.json` etc., not overridable by lower layers).
   - **Compound commands checked per-segment**: `cd /tmp && rm -rf x` is split on `&&`/`||`/`;`/`|`; any sub-command hitting deny blocks the whole line (no bypass).
-  - **Permission modes** (`/mode <x>` or **Shift+Tab** to cycle; shown in the status bar): `default` (approve on demand) / `acceptEdits` (auto-approve file edits) / `plan` (read-only planning) / `bypassPermissions` (= YOLO, skip approval but deny still blocks).
+  - **Permission modes** (`/mode <x>` or **Shift+Tab** to cycle; shown in the status bar): `default` (approve on demand) / `acceptEdits` (auto-approve file edits) / `auto` (AI-classifier smart approval: read-only and in-workspace edits auto-pass, uncertain ones go to a human) / `plan` (read-only planning); `bypassPermissions` (= YOLO) is launch-only via `dao --yolo`.
   - **Four approval choices**: `[y]` once / `[s]` this session / `[a]` remember (write an allow rule to `.dao/settings.local.json`) / `[n]` deny.
   - `additionalDirectories`: pre-authorized directories outside the workspace, read without prompting.
   - Engine: `src/permissions/` (rules / identity / settings / engine / gate), with end-to-end tests.
@@ -227,18 +225,18 @@ Registry in `src/index.ts`, implementations in `src/tools/`.
 | `read_file` | Read a text file, returns numbered content (supports offset/limit) |
 | `list_dir` | List directory entries |
 | `write_file` | Create or wholesale-rewrite a file (must have read it before overwriting) |
-| `edit_file` | Exact string replacement (`old_string` must be unique, or use `replace_all`) |
-| `exec_shell` | Run shell in the workspace; supports foreground/background (`background=true`) |
-| `exec_shell_poll` | Read new output and status of a background process |
-| `exec_shell_kill` | Terminate a background process (SIGTERM) |
-| `grep_files` | Search by content regex (content/files modes) |
-| `file_search` | Search files by filename glob |
+| `edit_file` / `multi_edit` | Exact string replacement (single / many at once) |
+| `notebook_edit` | Edit Jupyter notebook cells |
+| `exec_shell` (+`_poll`/`_kill`) | Run shell; foreground/background (`background=true`), read output, terminate |
+| `grep_files` / `file_search` | Search by content regex / by filename glob |
 | `ask_user` | Ask the user one clarifying question and wait |
-| `fetch_url` | Fetch a web page and return de-tagged plain text |
-| `web_search` | Search the web via DuckDuckGo |
+| `fetch_url` / `web_search` | Fetch web page as text / DuckDuckGo web search |
 | `todo_write` | Maintain a single-level task list (whole-table replace) |
-| `memory_write` | Record a stable cross-session memory |
-| `agent` | Dispatch an independent subtask to a subagent |
+| `verify_done` | Run the DoD acceptance command to decide if the task is complete |
+| `memory_write` / `memory_read` | Record a cross-session memory / retrieve on demand |
+| `skill` / `skill_install` | Load a skill body / install an external skill |
+| `agent` / `task_send` / `message_parent` | Dispatch a subagent / append to a running one / child→parent reply |
+| `schedule` | Create an OS crontab scheduled task |
 
 ---
 
@@ -286,7 +284,7 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # smoke test
 
 ## 🗺️ Status
 
-MVP complete: interactive Ink TUI and Taiji splash, streaming agent loop, full tool set, approval gate, ESC interrupt, persistent memory, prompt-cache awareness, plan/normal modes, automatic compaction, subagents, and a real OSS evaluation harness. Actively iterating.
+Released **v0.1.20** (npm `dao-code` + multi-platform binaries on Releases). Core is complete: Ink TUI and Taiji splash, streaming agent loop, 24 tools, layered permissions, persistent memory, cache engineering, the reflection layer, long-task robustness, Skills/MCP/Hooks/subagent extensions, and a real OSS evaluation harness. Actively iterating — issues/PRs welcome.
 
 ---
 

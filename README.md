@@ -195,11 +195,9 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 - **验证驱动完成(DoD)**:`/dod <命令>`(或 `DAO_VERIFY_CMD`)设可执行验收命令,`verify_done` 跑它——通过(exit 0)才算完成;没设则模型据证据自判。
 - **卡死检测 + 止损**:重复同一工具调用/反复同一错误达阈值 → 先提醒换思路、再卡则停止,防空转烧预算(`src/agent/stuck.ts`)。
 - **超大输出落盘**:工具输出超阈值时全量落 `.dao/spill/`、上下文只留截断+指针,按需 `read_file` 取回。
-- **并行子代理**:`agent` 工具传 `tasks[]` 并行派多个独立子代理并汇总。
-- **异步后台子代理 + 通知队列**:`agent` 传 `background:true` 后台跑、立即返回、主循环不阻塞;完成后结果作为 `<task-notification>` 自动注入续跑(`src/agent/tasks.ts`)。状态栏显示运行中的后台任务数。
-- **按需记忆检索**:`memory_search` 让模型主动检索跨会话记忆(启动只注入 top-K,被截断/刚写的也查得到)。
-- **长任务自主模式**:`dao --task` 或 `/task` —— 自动批准 + 自主连续推进 + 更高轮数 + 末尾给总结;仅真卡住才问你。
-- **Coordinator 协作编排**:`dao --coordinator` 或 `/coordinator` —— 把较大任务做成多 agent 工作流(研究并行 → 综合 → 实现 → 验证),坐在异步后台子代理 + 通知队列之上:派出研究 worker → 结束本轮 → 结果回灌 → 综合实现 → `verify_done` 验收。
+- **并行 / 后台子代理 + 通知队列**:`agent` 传 `tasks[]` 并行,或 `background:true` 后台跑(立即返回、不阻塞主循环);完成后结果作为 `<task-notification>` 自动注入续跑(`src/agent/tasks.ts`)。
+- **按需记忆检索**:`memory_read` 让模型主动检索跨会话记忆(启动只注入 top-K,被截断/刚写的也查得到)。
+- **长任务自主模式**:`dao --goal`(旧名 `--task` / `--coordinator` 仍兼容)或运行时 `/goal <目标>` —— 自动批准 + 自主连续推进 + 更高轮数;大任务自动分阶段编排(研究并行 → 综合 → 实现 → `verify_done` 验收),仅真卡住才问你。
 
 ---
 
@@ -208,7 +206,7 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 - **权限控制(1:1 复刻 CC)**:规则三态 `allow / ask / deny`,语法 `Tool(specifier)`——`Bash(npm run test:*)`(命令前缀)、`Edit(src/**)`/`Read(//etc/**)`(gitignore 式路径 glob)、`WebFetch(domain:example.com)`、裸工具名、`mcp__server__tool`。优先级 **deny > ask > allow > 模式/能力默认**(deny 是硬黑名单,YOLO 下也拦)。工具名自动映射(exec_shell↔Bash、read_file↔Read、edit_file↔Edit、fetch_url↔WebFetch…),CC 的 settings.json 规则可原样生效。
   - **分层**(低→高优先级):`~/.dao/settings.json`(用户)< `.dao/settings.json`(项目,入库)< `.dao/settings.local.json`(本地,不入库)< **CLI**(`--allow`/`--deny`/`--add-dir`/`--permission-mode`)< **企业托管策略**(`/etc/dao/managed-settings.json` 等,不可被下层覆盖)。
   - **复合命令逐段检查**:`cd /tmp && rm -rf x` 会按 `&&`/`||`/`;`/`|` 拆开,任一子命令命中 deny 即整条拦截(杜绝绕过)。
-  - **权限模式**(`/mode <x>` 或 **Shift+Tab** 循环;状态栏显示):`default`(按需审批)/ `acceptEdits`(自动批准文件编辑)/ `plan`(只读规划)/ `bypassPermissions`(=YOLO,跳过审批但 deny 仍拦)。
+  - **权限模式**(`/mode <x>` 或 **Shift+Tab** 循环;状态栏显示):`default`(按需审批)/ `acceptEdits`(自动批准文件编辑)/ `auto`(AI 分类器智能审批:只读与工作区内编辑自动放行、拿不准转人工)/ `plan`(只读规划);`bypassPermissions`(=YOLO)仅 `dao --yolo` 启动时开。
   - **审批四档**:`[y]` 本次 / `[s]` 本会话 / `[a]` 记住(写 allow 规则到 `.dao/settings.local.json`)/ `[n]` 拒绝。
   - `additionalDirectories`:预授权的工作区外目录,读取不弹窗。
   - 引擎:`src/permissions/`(rules / identity / settings / engine / gate),含端到端测试。
@@ -229,18 +227,18 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 | `read_file` | 读文本文件,返回带行号内容(支持 offset/limit) |
 | `list_dir` | 列目录条目 |
 | `write_file` | 新建或整体重写文件(覆盖前需先读过) |
-| `edit_file` | 精确字符串替换(`old_string` 须唯一,或用 `replace_all`) |
-| `exec_shell` | 在工作区执行 shell;支持前台/后台(`background=true`) |
-| `exec_shell_poll` | 读后台进程的新输出与状态 |
-| `exec_shell_kill` | 终止后台进程(SIGTERM) |
-| `grep_files` | 按内容正则搜索(content/files 两种模式) |
-| `file_search` | 按文件名 glob 搜索文件 |
+| `edit_file` / `multi_edit` | 精确字符串替换(单处 / 一次多处) |
+| `notebook_edit` | 编辑 Jupyter notebook 单元 |
+| `exec_shell`(+`_poll`/`_kill`) | 在工作区执行 shell;支持前台/后台(`background=true`)、读后台输出、终止 |
+| `grep_files` / `file_search` | 按内容正则 / 按文件名 glob 搜索 |
 | `ask_user` | 向用户提一个澄清问题并等回答 |
-| `fetch_url` | 抓网页并返回去标签纯文本 |
-| `web_search` | 用 DuckDuckGo 联网搜索 |
+| `fetch_url` / `web_search` | 抓网页纯文本 / DuckDuckGo 联网搜索 |
 | `todo_write` | 维护单层任务清单(整表替换) |
-| `memory_write` | 记录一条跨 session 的稳定记忆 |
-| `agent` | 把独立子任务派给子代理 |
+| `verify_done` | 跑 DoD 验收命令判定任务是否完成 |
+| `memory_write` / `memory_read` | 记一条跨会话记忆 / 按需检索记忆 |
+| `skill` / `skill_install` | 加载技能正文 / 安装外部技能 |
+| `agent` / `task_send` / `message_parent` | 派子代理 / 给运行中子代理追加指令 / 子→父回传 |
+| `schedule` | 创建 OS crontab 定时任务 |
 
 ---
 
@@ -288,7 +286,7 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
 
 ## 🗺️ 状态
 
-MVP 已完成:交互式 Ink TUI 与太极欢迎屏、流式 agent 循环、完整工具集、审批门、ESC 打断、持久记忆、prompt-cache 感知、plan/normal 模式、自动压缩、子代理、以及真实 OSS 评测 harness。仍在持续迭代中。
+已发布 **v0.1.20**(npm `dao-code` + Releases 多平台二进制)。核心完整:Ink TUI 与太极欢迎屏、流式 agent 循环、24 工具、分层权限、持久记忆、缓存工程、反思层、长任务稳健、Skills/MCP/Hooks/子代理扩展、真实 OSS 评测 harness。持续迭代中,欢迎 issue/PR。
 
 ---
 
