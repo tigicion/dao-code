@@ -45,25 +45,29 @@ On a SWE-bench-style benchmark drawn from recent real-world open-source bug fixe
 
 ## ✨ Features
 
-**💰 Cost**
+The basics (tools / permissions / Skills / MCP / Hooks / subagents / rich TUI) mirror Claude Code and are all there. Here are the parts that **actually set DAO apart**:
 
-- **Prompt-cache aware** — exploits DeepSeek's prefix cache by pinning a stable system prefix to raise the hit rate; `/cost` shows token usage and cache hit rate in real time.
+### 🗜️ Context & cache engineering
 
-**🧠 Experience · giving the model context**
+A **byte-stable** system prefix rides DeepSeek's prefix cache to the max; reflection and memory run on **forks that reuse the main cache** (without breaking the prefix); near the limit it auto-compacts (reactive retry + in-place clearing of stale tool results + incremental summary + hard-truncate fallback if the summarizer fails); oversized output spills to disk, leaving only a pointer in context. `/cost` shows hit rate & spend; `/audit cache` pinpoints "what broke the cache" via a four-dimension fingerprint.
 
-- **Persistent memory** — at session end it distills atomic facts and a user model that persist across sessions; at startup it deterministically verifies them against the live code (stale entries dropped / changes flagged), and a decay GC clears dead memories.
-- **Subagents** — the `agent` tool hands an independent subtask to a subagent that runs it to completion and returns only the final result (supports parallel `tasks[]` and `background`).
-- **Automatic compaction** — when nearing the context limit, early conversation is automatically summarized, preserving key facts / changes / decisions / open items.
-- **Skills / MCP / Hooks** — on-demand built-in skills, external MCP tools, and lifecycle hooks (see [Extension system](#-extension-system-mirrors-claude-code)).
+### 🧠 Cross-session memory (self-verifying)
 
-**🎐 Experience · adapting to you & interaction**
+At session end it distills your preferences, project conventions, and key facts; **at startup it deterministically verifies them against the current code** — stale ones dropped, changed ones flagged, rather than blindly piling up history. A decay GC clears dead memories; the model can `memory_read` on demand.
 
-- **Rich Ink terminal TUI** — inline rendering on Ink (React for CLI), preserving native terminal scrollback and text selection; a Taiji splash screen (procedural yin-yang fish, jade→ink gradient wordmark, a random *Tao Te Ching* maxim). Conversation display mirrors Claude Code: tool-result `⎿` sub-blocks (Bash/grep show truncated output), thinking kept in history (dim ✻ blocks), diffs with line numbers + context + syntax highlighting, todo checklists; the spinner cycles verbs from the *Tao Te Ching* / *Zhuangzi* (comprehend / observe / contemplate / wander / transform…). Truncated by default, **Ctrl+O** to expand; `dao --verbose` is full from startup.
-- **Streaming + tools + approval** — real-time streaming of reasoning and answers, autonomous tool calls, every write/exec operation passing through an approval gate (can remember "always allow this session").
-- **ESC to interrupt** — built on `AbortController`, one key cancels the in-flight turn (the model stream and any running shell command stop gracefully).
-- **plan / normal dual modes** — plan mode is read-only + proposes a plan, structurally blocking all write/exec tools; normal mode lands changes as usual.
-- **Cross-platform light/dark adaptation** — picks colors from `DAO_THEME` / `COLORFGBG`, so light terminals aren't washed out and dark ones aren't muddy.
-- **Non-TTY fallback** — under pipes / CI / eval it falls back to a plain-text readline REPL with identical behavior.
+### 🔍 Reflection layer (self-correct when stuck / drifting)
+
+**Challenger**: on a failure streak or recurring error, a skeptical independent review that questions the premise. **Refocuser**: every N turns on a long task, restate the original goal and catch scope creep. **Reply-challenger**: kicks in when you re-raise the same problem. All three run as cache-reusing forks — at almost no extra spend.
+
+### 🪢 Long-task robustness
+
+Session log + crash recovery (`dao -c`); **shadow-git checkpoints** (`/restore` `/rewind`, a separate snapshot that never touches your `.git`); todo list survives compaction to prevent goal drift; Definition-of-Done verification (`/dod` + `verify_done`); stuck detection with a circuit breaker; parallel / background / worktree-isolated subagents with two-way child↔parent messaging; `--goal` autonomous long-task mode.
+
+### 🎐 A Taoist-aesthetic terminal experience
+
+Rich Ink rendering + a Taiji splash + light/dark adaptation; `@` file references, slash-command Tab completion, **steering (type while a turn is running, queued)**, diffs with line numbers + syntax highlighting, thinking blocks, todo checklists, a Taoist-verb spinner; **ESC interrupts** (model stream and shell stop together); non-TTY auto-fallback to a plain-text REPL.
+
+> **Basics (mirror CC, all shipped):** 24 tools · layered `allow/ask/deny` permissions + `auto` smart approval + defense-in-depth (secret scanning / SSRF / sandbox / keychain) · Skills (incl. **auto-adapting foreign skills'** tool names & model tiers) · MCP (stdio + HTTP/SSE, tools/resources/prompts) · Hooks (5 lifecycle events) · custom subagents / slash commands / plugins · multi-account profiles (`/account`) · OS cron scheduling (`/schedule`). See [Extension system](#-extension-system-mirrors-claude-code) and the tool overview below.
 
 ---
 
