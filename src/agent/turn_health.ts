@@ -26,7 +26,8 @@ export interface HealthConfig {
 export const defaultHealthConfig = (): HealthConfig => ({
   failureStreakTrip: Number(process.env.DAO_FAIL_STREAK) || 3,
   repeatedErrTrip: Number(process.env.DAO_REPEAT_ERR) || 2,
-  refocusEvery: Number(process.env.DAO_REFOCUS_EVERY) || 0,
+  // 默认每 3 轮纠偏(仅长任务下生效,见 assessTurn 的 longTask 门控);显式 DAO_REFOCUS_EVERY=0 可关。
+  refocusEvery: process.env.DAO_REFOCUS_EVERY !== undefined ? Math.max(0, Number(process.env.DAO_REFOCUS_EVERY) || 0) : 3,
 });
 
 export interface HealthDecision {
