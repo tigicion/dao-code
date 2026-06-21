@@ -163,8 +163,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       for (const m of deps.drainPending()) session.messages.push({ role: "user", content: `[追加指令] ${m}` });
     }
     // 异步挑战者结论:回合边界 drain 注入为 system advisory(本回合内接住即当轮生效)。
+    // 注入时给用户可见提示(与失败式挑战者的 events.notice 一致),否则路径①静默、无从感知。
     if (deps.drainAdvisories) {
-      for (const a of deps.drainAdvisories()) session.messages.push({ role: "system", content: a });
+      for (const a of deps.drainAdvisories()) {
+        events.notice("\n[反思:审视者介入…]\n");
+        session.messages.push({ role: "system", content: a });
+      }
     }
     const tools = apiToolsForMode(deps.registry, session.mode);
     const assistant = await requestAssistant(tools, t);
