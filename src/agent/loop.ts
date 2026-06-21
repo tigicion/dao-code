@@ -45,6 +45,8 @@ export interface TurnDeps {
   signal?: AbortSignal;
   // 回合边界消费的追加消息(SendMessage 给运行中子代理用):每个工具回合前注入为 user 消息。
   drainPending?: () => string[];
+  // 回合边界注入的 advisory(system 角色);用于异步挑战者结论"本回合内尽量接住"。省略=不注入。
+  drainAdvisories?: () => string[];
   // L2.2 反应式压缩:streamChat 报"上下文超限"时调用它压缩后重试本轮(估算阈值之外的安全网)。
   compact?: () => Promise<void>;
   // L1.3 模型回退:主模型持续过载/异常时,本回合临时改用此模型跑完(如 flash)。省略=不回退。
@@ -159,6 +161,10 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // SendMessage:回合边界消费父代理追加的指令(注入为 user 消息)。
     if (deps.drainPending) {
       for (const m of deps.drainPending()) session.messages.push({ role: "user", content: `[追加指令] ${m}` });
+    }
+    // 异步挑战者结论:回合边界 drain 注入为 system advisory(本回合内接住即当轮生效)。
+    if (deps.drainAdvisories) {
+      for (const a of deps.drainAdvisories()) session.messages.push({ role: "system", content: a });
     }
     const tools = apiToolsForMode(deps.registry, session.mode);
     const assistant = await requestAssistant(tools, t);
