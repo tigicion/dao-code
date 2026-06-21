@@ -271,7 +271,7 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
 | `DAO_REFOCUS_EVERY` | 纠偏者:长任务每 N 轮复核方向(`0`=关;仅 `--goal` 长任务生效) | `3` |
 | `DAO_FAIL_STREAK` | 挑战者:连续失败达此轮数 → 审视进展(交互式生效) | `3` |
 | `DAO_REPEAT_ERR` | 挑战者:同一错误复发达此次数 → 审视进展(交互式生效) | `2` |
-| `DAO_CHALLENGE_REPEAT_SIM` | 挑战者:用户重提同一问题的相似度阈值,达到则异步唤起审视者(`0`=关;仅交互式) | `0.15` |
+| `DAO_CHALLENGE_REPEAT_SIM` | 挑战者:用户重提同一问题的相似度阈值,达到则异步唤起审视者(`0`=关;仅交互式) | `0.1` |
 | `DAO_REFLECT` | 设 `0` 全局关闭反思层(挑战者+纠偏者) | 开 |
 
 ---
