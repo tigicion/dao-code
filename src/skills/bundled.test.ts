@@ -4,7 +4,7 @@ import { BUNDLED_SKILLS } from "./bundled.js";
 describe("BUNDLED_SKILLS", () => {
   it("内置技能齐全:simplify/debug/plan/code-review/deep-research/fewer-permission-prompts(tdd 已移除)", () => {
     const names = BUNDLED_SKILLS.map((b) => b.name).sort();
-    expect(names).toEqual(["code-review", "debug", "deep-research", "fewer-permission-prompts", "plan", "simplify"]);
+    expect(names).toEqual(["code-review", "debug", "deep-research", "fewer-permission-prompts", "plan", "run-skill-generator", "simplify"]);
   });
 
   it("每个内置技能都有非空描述与正文", () => {

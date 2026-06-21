@@ -77,6 +77,12 @@ export const DEEP_RESEARCH_BODY = `深入研究——多来源联网、交叉验
 4. 综合:给结论,每个关键论断后附出处 URL;不确定的明说。
 5. 不臆造来源:只引真检索到的页面,没查到就说没查到,别编 URL。`;
 
+export const RUN_SKILL_GEN_BODY = `把"这个项目怎么跑"录成可复用的项目技能(省得每个会话重新摸索):
+1. 摸清配方:读 package.json scripts / Makefile / README / pyproject 等,确定【构建、启动、测试】各自的命令(连同所需环境/端口)。拿不准就跑一下验证,或问用户。
+2. 写成项目技能:在 .dao/skills/run-<项目名>/SKILL.md 写 frontmatter(name、description 写清"何时用",可加 paths 让它只在本项目在场)+ 正文列出构建/启动/测试命令与注意点。
+3. 用 dao 工具名(exec_shell 跑、read_file 读、edit_file 写),不要外来工具名。
+4. 写完告诉用户存到哪、收录了哪些命令;之后构建/启动/验证可直接照它做。`;
+
 export interface BundledSkill {
   name: string;
   description: string;
@@ -135,6 +141,13 @@ export const BUNDLED_SKILLS: BundledSkill[] = [
     description:
       "当用户要求减少重复审批、把常批的安全操作写成 allow 规则时用。",
     body: FEWER_PERMS_BODY,
+    core: true,
+  },
+  {
+    name: "run-skill-generator",
+    description:
+      "当用户要求把本项目的构建/启动/测试方法记成可复用技能时用。",
+    body: RUN_SKILL_GEN_BODY,
     core: true,
   },
 ];
