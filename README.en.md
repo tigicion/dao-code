@@ -45,8 +45,6 @@ On a SWE-bench-style benchmark drawn from recent real-world open-source bug fixe
 
 ## ✨ Features
 
-The basics (tools / permissions / Skills / MCP / Hooks / subagents / rich TUI) are all there. Here are the parts that **actually set DAO apart**:
-
 ### 🗜️ Context & cache engineering
 
 A **byte-stable** system prefix rides DeepSeek's prefix cache to the max; reflection and memory run on **forks that reuse the main cache** (without breaking the prefix); near the limit it auto-compacts (reactive retry + in-place clearing of stale tool results + incremental summary + hard-truncate fallback if the summarizer fails); oversized output spills to disk, leaving only a pointer in context. `/cost` shows hit rate & spend; `/audit cache` pinpoints "what broke the cache" via a four-dimension fingerprint.
@@ -73,7 +71,7 @@ Rich Ink rendering + a Taiji splash + light/dark adaptation; `@` file references
 
 ## 📦 Install
 
-**A. One-line install (no Node)** — auto-detects platform, downloads, sets perms, clears macOS quarantine, drops it on your PATH — **no manual chmod**:
+**A. One-line install (no Node):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tigicion/dao-code/master/install.sh | sh
@@ -102,7 +100,7 @@ npm install && npm run build && npm link   # then dao is global
 
 1. Get a DeepSeek API key: <https://platform.deepseek.com/api_keys>
 
-2. **Launch → follow the prompt to enter your key (easiest, all platforms, recommended):**
+2. **Launch → follow the prompt to enter your key:**
 
    ```bash
    dao                # installed (binary / global); or npx dao-code
