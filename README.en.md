@@ -7,35 +7,35 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](./.nvmrc)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-> **A terminal coding agent that refuses to trade cost for experience** — built on DeepSeek V4, the cheapest capable model, and made affordable by aggressive prefix-cache reuse and context engineering. Ink-mat black · jade green · cinnabar, a Taiji splash screen, the *Tao Te Ching* as company.
+> **A terminal coding agent built around cost, experience, and availability** — squeezing the most capability and the lowest cost out of the high-value DeepSeek V4.
 
 ![DAO CODE demo](docs/demo-en.gif)
 
-DAO CODE (command `dao`) is a terminal-native AI coding assistant: it reads code, writes code, runs commands, and fixes bugs right in your terminal — streaming its reasoning and tool calls while executing safely behind an approval gate, until the task is done. It targets **DeepSeek V4** (1M context), is Chinese-first, and is inspired by Claude Code — but takes a different road: **instead of buying experience with an expensive model, it engineers a cheap model up to the same experience.**
-
-```
-        ☯   DAO CODE
-   "The Tao that can be told is not the eternal Tao." — Laozi
-```
+DAO CODE (command `dao`) is a terminal-native AI coding assistant: it reads code, writes code, runs commands, and fixes bugs right in your terminal — streaming its reasoning and tool calls while executing safely behind an approval gate, until the task is done. It targets **DeepSeek V4** (1M context), is Chinese-first, and is inspired by Claude Code — but takes a different road: **instead of buying experience with an expensive model, it engineers a high-value model up to the same experience.**
 
 ---
 
-## Why DAO? (Cost × Experience)
+## Why DAO?
 
-In one line: **others trade up to a pricier model for experience; DAO delivers the same experience on the cheapest model by feeding the model the right context and squeezing the cache dry.**
+### 🌐 Availability: open source, and actually usable
 
-### 💰 Cost: structurally cheap, not stingy
+A coding agent is only useful if you can actually run it.
 
-- **Available in China, low per-token price** — DAO is built on DeepSeek V4: directly reachable from mainland China, with token prices far below the top-tier closed models.
-- **Aggressive cache reuse** — DeepSeek's prefix-cache *hit* price is roughly 1/10 of a miss. DAO lays out the system prefix / tool table / memory to be **byte-stable**, keeps subagent model switches from breaking the main cache, and aligns memory distillation against the already-cached prefix — so the already-cheap cache stays hit and drives cost down further. Watch the hit rate live with `/cost`.
-  - **Measured** (reproducible via `npm run accept:cache`, multi-turn chat): cache hit rate climbs to a steady state of **31% → 89% → 94% → 96.3%** over turns; within one session cumulative input tokens grew from 14K to **324K (23×)** while cost rose only **¥0.030 → ¥0.054**. The miss volume stays flat at ~12K tokens the whole time (almost entirely the one-time cold start), so the longer the context the more of its growth lands on the cache at ~1/10 the price — costing almost nothing. Real coding sessions, with large file/diff payloads per turn, reach the high plateau even faster.
+- **Claude Code** needs an Anthropic account and network access — a high bar to use out of the box in mainland China;
+- **GLM's Coding Plan** has scarce quota that's often hard to grab;
+- **DAO is fully open source (MIT)**, and its base **DeepSeek is register-and-go, pay-as-you-go, directly reachable in mainland China** — no network gymnastics, no quota grabbing, no waitlist.
 
-### 🧠 Experience: give the model the context it needs + make the model adapt to you
+### 💰 Cost: the cheapest of the capable models, and cheaper the more you use it
 
-Experience boils down to two things; every feature below is a facet of one or the other:
+- **Low unit price** — DeepSeek sits at the lowest price tier among mainstream capable models; both input and output prices are far below the top-tier closed models.
+- **Cache cuts it further** — DeepSeek's prefix-cache *hit* price is ≈ **1/10** of a miss. DAO keeps the system prefix / tool table / memory **byte-stable**, and runs reflection & memory on cache-reusing forks, so the hit rate keeps climbing.
+- **Measured** (reproducible via `npm run accept:cache`): multi-turn hit rate climbs **31% → 89% → 94% → 96.3%**; within one session cumulative input grew from 14K → **324K tokens (23×)** while cost rose only **¥0.030 → ¥0.054** (miss volume stays flat at ~12K, almost entirely the cold start). A full feature (read + edit + test + self-review) measures ≈ **¥0.1**; an 83-tool-call long task ≈ **¥0.33**. Watch hit rate & cost live with `/cost`.
 
-- **Give the model context** — cross-session persistent memory, on-demand Skills, MCP external tools, automatic compaction, and (parallel / background) subagents.
-- **Make the model adapt to you** — a user model & preferences captured in memory, Hooks for custom lifecycle behavior, and an approval gate that can "remember for this session / write an allow rule."
+### 🧠 Experience: feed the model the right context + make it adapt to you
+
+- **Cross-session memory + a reflection layer (challenger / refocuser)** — remembers your preferences and project conventions; self-reviews when stuck and pulls back when drifting. All three run as **forks that reuse the main prefix cache** — better quality at almost no extra spend (riding DeepSeek's cache mechanism).
+- **Long tasks don't drift or hit the wall** — auto-compaction carries context past the limit, and periodic refocusing curbs scope creep, so it stays on track even running autonomously for a long time.
+- **Constitution-style priority** — safety & truth > your current instruction > DAO's core policy (model / cache discipline) > skills / memory. A third-party skill you install can change *how work is done*, but never the safety and cache bottom line.
 
 ### ✅ Verified
 
