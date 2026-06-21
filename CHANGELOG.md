@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-06-21
+
 ### 修复
 - **单轮长任务也能压缩**:压缩/microcompact 原按 user 轮切,一次性/`--goal` 自主任务只有 1 个 user 轮 → 压缩永不触发、逼近上限会撞墙;现 microcompact 在 user 轮稀少时 fallback 按工具周期切、清旧的可重现工具结果。压缩信号也改按 token 量判断(非消息条数)。
 
