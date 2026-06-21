@@ -1069,10 +1069,12 @@ async function main() {
     }
   };
 
-  // 路径①:用户反复申诉 → 异步挑战者。仅交互式接(argv 一次性不接此入口)。阈值默认 0.15(短 CJK 重提约 0.2,偏召回);DAO_CHALLENGE_REPEAT_SIM=0 关。
+  // 路径①:用户反复申诉 → 异步挑战者。仅交互式接(argv 一次性不接此入口)。
+  // 阈值默认 0.1:实测短 CJK 重提的字符二元组 Jaccard 仅 0.12–0.25、全新任务 0.0,0.15 会漏真重提(实测 0.119 被挡)。
+  // 偏召回——误报交 pro 挑战者去否(它会回"在轨,继续")。DAO_CHALLENGE_REPEAT_SIM=0 关。
   const replyChallenge = createReplyChallenge({
     reflect: () => reflect("challenger"),
-    threshold: process.env.DAO_CHALLENGE_REPEAT_SIM !== undefined ? Number(process.env.DAO_CHALLENGE_REPEAT_SIM) : 0.15,
+    threshold: process.env.DAO_CHALLENGE_REPEAT_SIM !== undefined ? Number(process.env.DAO_CHALLENGE_REPEAT_SIM) : 0.1,
   });
 
   let exitSessionId: string | undefined; // 交互会话 id(供退出时打印 resume 提示;一次性路径无 store)
