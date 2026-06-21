@@ -73,26 +73,22 @@ Rich Ink rendering + a Taiji splash + light/dark adaptation; `@` file references
 
 ## 📦 Install
 
-**A. Standalone binary (no Node, all platforms)** — download for your platform from [Releases](../../releases):
-
-| Platform | File | Run |
-|---|---|---|
-| macOS (Apple silicon) | `dao-darwin-arm64` | `chmod +x dao-darwin-arm64 && ./dao-darwin-arm64` |
-| macOS (Intel) | `dao-darwin-x64` | same as above |
-| Linux | `dao-linux-arm64` / `dao-linux-x64` | `chmod +x dao-linux-* && ./dao-linux-*` |
-| Windows | `dao-windows-x64.exe` | double-click, or run `dao-windows-x64.exe` in a terminal |
-
-> On macOS, if a **browser** download says "cannot verify developer", clear the quarantine: `xattr -d com.apple.quarantine dao-darwin-*` (or right-click → Open once). Command-line downloads (`curl`/`gh`) don't hit this.
-> You can rename the file to `dao` and put it on your `PATH` to just run `dao`.
-
-**B. npm (Node ≥ 20, all platforms)** — published:
+**A. One-line install (no Node)** — auto-detects platform, downloads, sets perms, clears macOS quarantine, drops it on your PATH — **no manual chmod**:
 
 ```bash
-npx dao-code        # zero-install trial (verified working)
+curl -fsSL https://raw.githubusercontent.com/tigicion/dao-code/master/install.sh | sh
+```
+
+Or download manually from [Releases](../../releases): macOS `dao-darwin-arm64` (Apple silicon) / `dao-darwin-x64` (Intel), Linux `dao-linux-arm64`/`dao-linux-x64`, Windows `dao-windows-x64.exe`. On Unix `chmod +x` then run; on Windows just double-click the `.exe`.
+
+**B. npm (Node ≥ 20, all platforms):**
+
+```bash
+npx dao-code        # zero-install trial
 npm i -g dao-code   # global install, command name dao
 ```
 
-**C. From source** (contributors):
+**C. From source:**
 
 ```bash
 git clone https://github.com/tigicion/dao-code.git && cd dao-code
