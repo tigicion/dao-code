@@ -67,7 +67,7 @@ Session log + crash recovery (`dao -c`); **shadow-git checkpoints** (`/restore` 
 
 Rich Ink rendering + a Taiji splash + light/dark adaptation; `@` file references, slash-command Tab completion, **steering (type while a turn is running, queued)**, diffs with line numbers + syntax highlighting, thinking blocks, todo checklists, a Taoist-verb spinner; **ESC interrupts** (model stream and shell stop together); non-TTY auto-fallback to a plain-text REPL.
 
-> **Basics (mirror CC, all shipped):** 24 tools · layered `allow/ask/deny` permissions + `auto` smart approval + defense-in-depth (secret scanning / SSRF / sandbox / keychain) · Skills (incl. **auto-adapting foreign skills'** tool names & model tiers) · MCP (stdio + HTTP/SSE, tools/resources/prompts) · Hooks (5 lifecycle events) · custom subagents / slash commands / plugins · multi-account profiles (`/account`) · OS cron scheduling (`/schedule`). See [Extension system](#-extension-system-mirrors-claude-code) and the tool overview below.
+> **Basics (mirror CC, all shipped):** 24 tools · layered `allow/ask/deny` permissions + `auto` smart approval + defense-in-depth (secret scanning / SSRF / sandbox / keychain) · Skills (incl. **auto-adapting foreign skills'** tool names & model tiers) · MCP (stdio + HTTP/SSE, tools/resources/prompts) · Hooks (5 lifecycle events) · custom subagents / slash commands / plugins · multi-account profiles (`/account`) · OS cron scheduling (`/schedule`). See [Extension system](#-extension-system) and the tool overview below.
 
 ---
 
@@ -195,9 +195,9 @@ Built for long tasks that "run autonomously for a long time without drifting, ar
 
 ---
 
-## 🧩 Extension system (mirrors Claude Code)
+## 🧩 Extension system
 
-- **Permissions (1:1 with CC)**: three-state rules `allow / ask / deny`, syntax `Tool(specifier)` — `Bash(npm run test:*)` (command prefix), `Edit(src/**)`/`Read(//etc/**)` (gitignore-style path glob), `WebFetch(domain:example.com)`, bare tool names, `mcp__server__tool`. Priority **deny > ask > allow > mode/capability default** (deny is a hard blacklist, blocking even under YOLO). Tool names auto-map (exec_shell↔Bash, read_file↔Read, edit_file↔Edit, fetch_url↔WebFetch…), so CC's settings.json rules work as-is.
+- **Permissions**: three-state rules `allow / ask / deny`, syntax `Tool(specifier)` — `Bash(npm run test:*)` (command prefix), `Edit(src/**)`/`Read(//etc/**)` (gitignore-style path glob), `WebFetch(domain:example.com)`, bare tool names, `mcp__server__tool`. Priority **deny > ask > allow > mode/capability default** (deny is a hard blacklist, blocking even under YOLO).
   - **Layering** (low→high priority): `~/.dao/settings.json` (user) < `.dao/settings.json` (project, committed) < `.dao/settings.local.json` (local, not committed) < **CLI** (`--allow`/`--deny`/`--add-dir`/`--permission-mode`) < **enterprise managed policy** (`/etc/dao/managed-settings.json` etc., not overridable by lower layers).
   - **Compound commands checked per-segment**: `cd /tmp && rm -rf x` is split on `&&`/`||`/`;`/`|`; any sub-command hitting deny blocks the whole line (no bypass).
   - **Permission modes** (`/mode <x>` or **Shift+Tab** to cycle; shown in the status bar): `default` (approve on demand) / `acceptEdits` (auto-approve file edits) / `auto` (AI-classifier smart approval: read-only and in-workspace edits auto-pass, uncertain ones go to a human) / `plan` (read-only planning); `bypassPermissions` (= YOLO) is launch-only via `dao --yolo`.
@@ -208,9 +208,11 @@ Built for long tasks that "run autonomously for a long time without drifting, ar
 - **Custom slash commands**: `.dao/commands/<name>.md` (body is a prompt template, `$ARGUMENTS`/`$1`). `/<name> args` expands into a single turn.
 - **Skills (ready-to-use skills)**: `.dao/skills/<name>/SKILL.md`. Progressive disclosure: startup lists only name+description; the model loads the body on demand via the `skill` tool.
 - **Hooks (lifecycle hooks)**: `.dao/hooks.json`. PreToolUse (can block) / PostToolUse (e.g. auto-format) / UserPromptSubmit (inject context / block) / SessionStart / End.
-- **MCP**: `.dao/mcp.json` (same format as Claude Desktop). Connects to stdio MCP servers; tools auto-register as `mcp__<server>__<tool>`.
+- **MCP**: `.dao/mcp.json`. Connects to stdio MCP servers; tools auto-register as `mcp__<server>__<tool>`.
 - **Subagent orchestration**: parallel `tasks[]`, async `background:true`, `isolate:true` git-worktree isolation, `task_send` to append instructions to a running task, foreground timeout auto-converts to background, transcripts spilled to `.dao/subagents/`.
 - **Steering**: type during a running turn; Enter queues it, processed automatically once the current turn ends.
+
+> Compatible with Claude Code: `settings.json`, `SKILL.md`, `hooks.json`, and `mcp.json` use the same formats as CC (tool names auto-map, e.g. `Bash↔exec_shell`), so existing CC configs/skills work as-is.
 
 ## 🛠️ Tool overview
 
