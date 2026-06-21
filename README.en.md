@@ -9,8 +9,7 @@
 
 > **A terminal coding agent that refuses to trade cost for experience** — built on DeepSeek V4, the cheapest capable model, and made affordable by aggressive prefix-cache reuse and context engineering. Ink-mat black · jade green · cinnabar, a Taiji splash screen, the *Tao Te Ching* as company.
 
-<!-- Demo: record a Taiji splash + a chat/tool-call stream as an asciinema/gif (e.g. docs/demo.gif), then uncomment the line below. -->
-<!-- ![DAO CODE demo](docs/demo.gif) -->
+![DAO CODE demo](docs/demo.gif)
 
 DAO CODE (command `dao`) is a terminal-native AI coding assistant: it reads code, writes code, runs commands, and fixes bugs right in your terminal — streaming its reasoning and tool calls while executing safely behind an approval gate, until the task is done. It targets **DeepSeek V4** (1M context), is Chinese-first, and is inspired by Claude Code — but takes a different road: **instead of buying experience with an expensive model, it engineers a cheap model up to the same experience.**
 
