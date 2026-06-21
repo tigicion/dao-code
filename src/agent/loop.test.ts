@@ -118,6 +118,20 @@ describe("runTurn", () => {
     expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("进度提醒"))).toBe(true);
   });
 
+  it("drainAdvisories:回合边界把结论注入为 system 消息", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    let drained = false;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }) as any,
+      executeToolCalls: async () => [],
+      write: () => {},
+      drainAdvisories: () => (drained ? [] : (drained = true, ["[审视者·参考]\n根因可能是 X"])),
+    });
+    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("审视者·参考"))).toBe(true);
+  });
+
   it("omits write/exec tools in plan mode", async () => {
     const r = new ToolRegistry();
     r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
