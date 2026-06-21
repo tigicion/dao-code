@@ -118,18 +118,20 @@ describe("runTurn", () => {
     expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("进度提醒"))).toBe(true);
   });
 
-  it("drainAdvisories:回合边界把结论注入为 system 消息", async () => {
+  it("drainAdvisories:回合边界把结论注入为 system 消息 + 发审视者介入提示", async () => {
     const s = new Session("SYS", "m");
     s.addUser("go");
     let drained = false;
+    const out: string[] = [];
     await runTurn({
       session: s, config, registry: emptyReg(), ctx, gate: stubGate,
       streamChat: turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }) as any,
       executeToolCalls: async () => [],
-      write: () => {},
+      write: (sx) => out.push(sx),
       drainAdvisories: () => (drained ? [] : (drained = true, ["[审视者·参考]\n根因可能是 X"])),
     });
     expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("审视者·参考"))).toBe(true);
+    expect(out.join("")).toContain("审视者介入"); // 注入时给用户可见提示(与失败式挑战者一致)
   });
 
   it("omits write/exec tools in plan mode", async () => {
