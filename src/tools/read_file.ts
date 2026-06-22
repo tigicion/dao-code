@@ -35,14 +35,22 @@ export const readFileTool = defineTool({
     if (start >= lines.length && lines.length > 0) {
       return `(offset ${args.offset} 超过文件总行数 ${lines.length})`;
     }
-    const end = args.limit !== undefined ? start + args.limit : lines.length;
+    // 默认行上限(CC 式):不指定 limit 时只读前 DEFAULT_MAX_LINES 行,防一次整读大文件爆上下文
+    // (进而逐字进压缩保留的近期轮 → tail 膨胀)。要更多让模型用 offset 续读或 grep_files 精确定位。
+    const DEFAULT_MAX_LINES = 2000;
+    const end = args.limit !== undefined ? start + args.limit : Math.min(lines.length, start + DEFAULT_MAX_LINES);
     const LINE_CAP = 2000; // 单行上限:压缩代码/内联 base64 sourcemap 等超长行截断,防污染上下文
-    return lines
+    const body = lines
       .slice(start, end)
       .map((line, i) => {
         const l = line.length > LINE_CAP ? `${line.slice(0, LINE_CAP)}…(本行共 ${line.length} 字符,已截断)` : line;
         return `${start + i + 1}\t${l}`;
       })
       .join("\n");
+    // 因默认上限而截断(用户没显式给 limit)→ 提示如何续读,别让模型误以为已读全。
+    const more = args.limit === undefined && end < lines.length
+      ? `\n…(文件共 ${lines.length} 行,默认只显示前 ${DEFAULT_MAX_LINES} 行;用 offset=${end + 1} 续读,或用 grep_files 精确定位)`
+      : "";
+    return body + more;
   },
 });

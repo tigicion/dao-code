@@ -841,7 +841,6 @@ async function main() {
     return true;
   };
 
-  const KEEP_RECENT_TURNS = 2;
   // L2.1:上下文窗口可被 env 覆盖(目标模型真实窗口若 <1M 必须设对,否则压缩永不触发→真实上限处崩)。
   // 真正的安全网是反应式压缩(见 loop.ts compact 钩子):即便此值偏大,撞上下文超限也会自动压缩重试。
   const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || 1_000_000;
@@ -849,16 +848,22 @@ async function main() {
   const contextTokens = () => session.lastPromptTokens ?? estimateTokens(session.messages);
   // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。
   const FALLBACK_MODEL = process.env.DAO_FALLBACK_MODEL === "off" ? undefined : (process.env.DAO_FALLBACK_MODEL || "deepseek-v4-flash");
-  const FLASH_MODEL = "deepseek-v4-flash";
   // P2-11 编辑后诊断命令(如 "tsc --noEmit"):设了才在写/改文件后跑、把报错回灌模型。
   // 显式 DAO_DIAGNOSTICS_CMD 优先;否则 DAO_DIAGNOSTICS=1 时按项目自动探测(tsc/eslint)。默认不跑。
   const DIAG_CMD = process.env.DAO_DIAGNOSTICS_CMD?.trim()
     || (process.env.DAO_DIAGNOSTICS === "1" ? detectDiagnosticsCmd(workspaceRoot) : undefined);
   const makeDiagnose = (signal?: AbortSignal) => (DIAG_CMD ? () => runDiagnosticsCmd(DIAG_CMD, workspaceRoot, signal) : undefined);
 
-  // 压缩用:对一批旧消息生成结构化中文摘要(独立一次 streamChat,不带工具,不流式渲染)。
+  // 压缩用:对【待摘要的结构化消息段】生成中文摘要。compact.ts 传来 [system, ...待摘要],本函数在尾部
+  // 追加一条压缩指令、用【主模型】跑(同 reflect 模式)——待摘要段逐字节 = 主循环上次已发的前缀,故命中
+  // 主对话热缓存(实测稳态命中 64–74%,首次冷启较低)。
+  // 【成本实测/勿误信】命中虽真,但 pro 的 miss 价(3￥/1M)与输出价(6￥/1M)均是 flash 的 3 倍,
+  // 64–74% 命中折扣压不过那部分 miss+输出 → pro 摘要其实比"冷发 flash"贵约 63%(整会话 ~+12%)。
+  // 默认仍用主模型【是为摘要质量/长任务续接更稳】,不是为省钱;想省钱用 DAO_SUMMARY_MODEL=…flash 切回。
   // 对标 CC:先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
-  const COMPACT_PROMPT = `你是对话压缩器。把目前为止的对话压缩成一份详尽的中文摘要,重点保留用户的明确请求和你已做的动作,确保技术细节、代码模式、架构决策不丢,以便不丢上下文地继续工作。
+  const COMPACT_INSTRUCTION = `现在把【以上整段对话】压缩成一份详尽的中文摘要,重点保留用户的明确请求和你已做的动作,确保技术细节、代码模式、架构决策不丢,以便不丢上下文地继续工作。
+
+注意:对话开头可能有【早期对话摘要】或【当前任务清单】这类系统消息——它们会被原样保留,请【不要重复摘要它们】,只摘要其后的真实对话内容。
 
 先在 <分析> 标签里按时间顺序逐段过一遍对话——每段识别:用户的明确请求与意图、你的处理方式、关键决策与技术概念、具体文件名/代码片段/函数签名/文件改动、遇到的错误及修复、尤其用户给的纠正性反馈;核对技术准确与完整。然后在 <摘要> 标签里输出下面 9 个固定小节:
 
@@ -873,30 +878,20 @@ async function main() {
 9. 下一步(可选):仅当与用户最近的明确请求直接一致时才列,并附最近对话的【原话引用】以防任务理解漂移
 
 只输出 <分析> 和 <摘要> 两个块的纯文本,不要寒暄。`;
+  // 默认主模型(命中热缓存);DAO_SUMMARY_MODEL 可覆盖为 flash 等(会冷发、不命中缓存,省单价但失缓存)。
+  const SUMMARY_MODEL = process.env.DAO_SUMMARY_MODEL || session.model;
   const summarize = async (msgs: ChatMessage[]): Promise<string> => {
-    const rendered = msgs
-      .map((m) => {
-        if (m.role === "assistant" && m.tool_calls) {
-          const calls = m.tool_calls.map((t) => `${t.function.name}(${t.function.arguments})`).join(", ");
-          return `[assistant 调用工具] ${calls}${m.content ? `\n${m.content}` : ""}`;
-        }
-        return `[${m.role}] ${typeof m.content === "string" ? m.content : ""}`;
-      })
-      .join("\n");
     const gen = streamChat({
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
-      // L2.5:摘要任务用便宜的 flash 即可,省钱更快(DAO_SUMMARY_MODEL 可覆盖)。
-      model: process.env.DAO_SUMMARY_MODEL || FLASH_MODEL,
-      messages: [
-        { role: "system", content: COMPACT_PROMPT },
-        { role: "user", content: rendered },
-      ],
+      model: SUMMARY_MODEL,
+      // 直接发结构化的待摘要段 + 尾部指令:[system, ...待摘要, 指令]。前缀 = 主对话热缓存前缀 → 命中。
+      messages: [...msgs, { role: "user", content: COMPACT_INSTRUCTION }],
       // 摘要不需要深推理:关思考更快更省,温度 0 让压缩结果可复现。
       extra: { thinking: { type: "disabled" }, temperature: 0 },
       onUsage: (u) => {
-        session.addUsage(u, process.env.DAO_SUMMARY_MODEL || FLASH_MODEL); // B-2 记摘要用量
-        cacheSink.record({ agent: "summary", depth: 0, turn: 0, model: process.env.DAO_SUMMARY_MODEL || FLASH_MODEL, usage: u, sys: "", tools: "", tail: "" });
+        session.addUsage(u, SUMMARY_MODEL); // B-2 记摘要用量
+        cacheSink.record({ agent: "summary", depth: 0, turn: 0, model: SUMMARY_MODEL, usage: u, sys: "", tools: "", tail: "" });
       },
     });
     let out = "";
@@ -911,22 +906,27 @@ async function main() {
     return (m ? m[1]! : out).trim() || "(摘要为空)";
   };
 
-  // L2.4 压缩熔断:连续 3 次摘要失败 → 直接抛(让 compactMessages 走硬截断兜底),不再浪费模型调用。
-  // 成功一次即复位。配合 compact.ts 的硬截断,长任务永不因压缩失败而中断。
+  // L2.4 压缩熔断(半开断路器):连续 3 次摘要失败 → 打开,之后冷却窗内的压缩直接抛(走 compactMessages
+  // 硬截断兜底),不再浪费模型调用;过了冷却窗自动【放一发试探】,成功即彻底关闭复位、失败则重新计时再等一轮。
+  // 这样瞬时抖动(模型短时过载)不再永久废掉整段会话的摘要能力——这是「只熔不复」的旧版最大的洞。
+  const COOLDOWN_MS = Number(process.env.DAO_COMPACT_COOLDOWN_MS) || 5 * 60_000;
   let compactFails = 0;
+  let breakerOpenedAt = 0; // 断路器打开的时刻;仅在 compactFails>=3 时有意义
   const summarizeWithBreaker = async (msgs: ChatMessage[]): Promise<string> => {
-    if (compactFails >= 3) throw new Error("压缩熔断:连续摘要失败,改用硬截断");
-    try { const s = await summarize(msgs); compactFails = 0; return s; }
-    catch (e) { compactFails++; throw e; }
+    // 打开中且冷却未到 → 拒(硬截断);冷却已过 → 落到下面放一发半开试探。
+    if (compactFails >= 3 && Date.now() - breakerOpenedAt < COOLDOWN_MS) {
+      throw new Error("压缩熔断冷却中:连续摘要失败,改用硬截断(待冷却后自动重试)");
+    }
+    try { const s = await summarize(msgs); compactFails = 0; breakerOpenedAt = 0; return s; }
+    catch (e) { compactFails++; if (compactFails >= 3) breakerOpenedAt = Date.now(); throw e; }
   };
 
   const runCompaction = async (): Promise<void> => {
-    // 按 token 量判断(而非消息条数):单轮长任务的 microcompact 清旧工具结果会降 token、不改条数,
-    // 用条数会误报"无需压缩"。token 减少才是真压缩的信号。
+    // 按 token 量判断(而非消息条数):整段摘要把全部对话塌成一条摘要消息,条数骤减但要看 token 真减了多少。
     const before = estimateTokens(session.messages);
     session.messages = await compactMessages(
       session.messages,
-      { keepRecentTurns: KEEP_RECENT_TURNS, summarize: summarizeWithBreaker },
+      { summarize: summarizeWithBreaker },
       todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
     );
     const after = estimateTokens(session.messages);
@@ -985,7 +985,7 @@ async function main() {
   const inkCompact = async (): Promise<void> => {
     session.messages = await compactMessages(
       session.messages,
-      { keepRecentTurns: KEEP_RECENT_TURNS, summarize: summarizeWithBreaker },
+      { summarize: summarizeWithBreaker },
       todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
     );
   };

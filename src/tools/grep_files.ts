@@ -4,6 +4,7 @@ import { defineTool } from "./types.js";
 import { classifyPath } from "./paths.js";
 import { walkFiles } from "./walk.js";
 import { globToRegExp } from "./glob.js";
+import { clampOutput } from "./output.js";
 
 const MAX = 200;
 
@@ -81,6 +82,8 @@ export const grepFilesTool = defineTool({
       const scope = `在 ${args.path ?? "工作区根"} 内搜 /${args.pattern}/${args.glob ? `,glob ${args.glob}` : ""}`;
       return `(无匹配:${scope}。若确信存在,放宽 path 或检查 pattern/glob)`;
     }
-    return out.join("\n") + (truncated ? `\n…(已截断,超过 ${MAX} 条)` : "");
+    // 行数已由 MAX=200、单行 300 字符封顶;再过 clampOutput 兜一道硬字符上限(最坏 200×长路径仍可能超 16k),
+    // 保证 grep 结果绝不撑爆上下文。超限时中间截断、提示缩小范围。
+    return clampOutput(out.join("\n") + (truncated ? `\n…(已截断,超过 ${MAX} 条)` : ""));
   },
 });

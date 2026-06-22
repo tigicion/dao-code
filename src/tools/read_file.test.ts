@@ -69,4 +69,20 @@ describe("read_file tool", () => {
     const out = await readFileTool.handler({ path: "a.txt", offset: 999 }, { workspaceRoot: root });
     expect(out).toContain("超过文件总行数");
   });
+
+  it("不指定 limit 时默认只读前 2000 行 + 续读提示(防整读大文件爆上下文)", async () => {
+    const big = Array.from({ length: 2500 }, (_, i) => `L${i + 1}`).join("\n");
+    await fs.writeFile(path.join(root, "big.txt"), big, "utf8");
+    const out = await readFileTool.handler({ path: "big.txt" }, { workspaceRoot: root });
+    expect(out).toContain("2000\tL2000"); // 第 2000 行在
+    expect(out).not.toContain("2001\tL2001"); // 第 2001 行被截断
+    expect(out).toContain("文件共 2500 行"); // 续读提示给出总行数
+    expect(out).toContain("offset=2001"); // 指明从哪续读
+  });
+
+  it("显式 limit 不受默认上限影响(可超 2000)", async () => {
+    const out = await readFileTool.handler({ path: "big.txt", limit: 2300 }, { workspaceRoot: root });
+    expect(out).toContain("2300\tL2300");
+    expect(out).not.toContain("文件共 2500 行"); // 显式 limit 时不加默认截断提示
+  });
 });

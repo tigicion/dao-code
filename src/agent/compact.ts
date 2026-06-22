@@ -18,102 +18,52 @@ export function shouldCompact(messages: ChatMessage[], maxTokens: number, ratio 
   return estimateTokens(messages) >= maxTokens * ratio;
 }
 
-// 可重现的只读工具:其结果旧了可清掉(需要时重新获取);写/执行结果是关键状态,保留。
-const REPRODUCIBLE_TOOLS = new Set(["read_file", "list_dir", "grep_files", "file_search", "fetch_url", "web_search", "memory_read", "skill"]);
-const CLEARED_MARK = "[旧工具结果已清理,需要时可重新获取]";
-
-// 【缓存约束】microcompact 会改动旧消息 → 破坏 DeepSeek 前缀缓存。只可在 compactMessages 内调用
-// (那时压缩已重置缓存,无额外代价);切勿当作"每回合独立裁剪",否则会在本可命中缓存的回合废掉缓存、净亏。
-// microcompact:把【最近 keepRecentTurns 个 user 轮之前】的可重现工具结果就地替换为标记,
-// 大幅削 token 而不丢关键状态(写/执行结果保留)。纯函数,返回新数组。
-export function microcompactMessages(messages: ChatMessage[], keepRecentTurns = 2): ChatMessage[] {
-  const userIdx: number[] = [];
-  messages.forEach((m, i) => { if (m.role === "user") userIdx.push(i); });
-  // 主切分按 user 轮;但一次性/自主长任务只有 1 个 user 轮(其后全是 assistant↔tool 循环),
-  // 按 user 轮切会永远进不来 → 单轮缺口。此时 fallback 按【assistant 工具周期】切,保留最近
-  // keepRecentTurns 个工具周期、清掉更早的可重现结果。两条路径都只动 i<cutoff,缓存不变式不破。
-  let cutoff: number;
-  if (userIdx.length > keepRecentTurns) {
-    cutoff = userIdx[userIdx.length - keepRecentTurns]!;
-  } else {
-    const toolTurnIdx: number[] = [];
-    messages.forEach((m, i) => { if (m.role === "assistant" && m.tool_calls && m.tool_calls.length) toolTurnIdx.push(i); });
-    if (toolTurnIdx.length <= keepRecentTurns) return messages; // 真的太短,不动
-    cutoff = toolTurnIdx[toolTurnIdx.length - keepRecentTurns]!;
-  }
-  const nameById = new Map<string, string>();
-  for (const m of messages) {
-    if (m.role === "assistant" && m.tool_calls) for (const tc of m.tool_calls) nameById.set(tc.id, tc.function.name);
-  }
-  return messages.map((m, i) => {
-    if (i >= cutoff) return m; // 近期原样保留
-    if (m.role === "tool" && m.tool_call_id && typeof m.content === "string" && m.content !== CLEARED_MARK) {
-      const name = nameById.get(m.tool_call_id);
-      if (name && REPRODUCIBLE_TOOLS.has(name)) return { ...m, content: CLEARED_MARK };
-    }
-    return m;
-  });
-}
-
 export interface CompactOptions {
-  keepRecentTurns: number; // 保留最近多少个 user 轮的原文
   summarize: (messages: ChatMessage[]) => Promise<string>;
 }
 
-// 压缩:保留 messages[0](系统前缀+记忆)+ 旧对话摘要 + 最近 N 轮原文。
-// 按 user 消息切轮,保证保留的轮里 assistant↔tool 序列完整。
+// 压缩(整段摘要,无 verbatim tail):保留 messages[0](系统前缀+记忆)+ 一份覆盖其后【全部】对话的摘要
+// + 可选的活任务清单 pin。
+// 为何不再保留"最近 N 轮原文":压缩后前缀本就从【新摘要】处断开缓存,tail 落在冷区、留原文对缓存无益;
+// 续接改由摘要的"当前工作/下一步(附原话引用)"小节承载(对标 CC 的整段摘要)。这也根除了"最近轮含大
+// 工具输出 → tail 膨胀、压不动"的结构性问题,并让单 user 轮长任务也走同一条摘要路径(无需 microcompact)。
 export async function compactMessages(
   messages: ChatMessage[],
   opts: CompactOptions,
   pinned?: string, // 压缩后重注入的"活的任务清单",使计划穿越压缩、防长任务目标漂移
 ): Promise<ChatMessage[]> {
-  if (messages.length === 0) return messages;
-  // 先 microcompact:清掉旧的可重现工具结果,缩小待摘要部分(对标 CC 压缩前置步骤)。
-  // 【缓存不变式】microcompact 只改 i<cutoff 的消息,而下面保留的 tail = messages.slice(cutoff),
-  // 二者不相交 → 保留段逐字节不变、system[0] 也不变,压缩产物前缀可立即重新命中缓存。
-  // 由 compact.test.ts「compactMessages 缓存不变式」钉死,改这段务必保持该断言通过。
-  messages = microcompactMessages(messages, opts.keepRecentTurns);
+  if (messages.length <= 1) return messages; // 只有 system(或空)→ 无可压
   const system = messages[0]!;
   const rest = messages.slice(1);
-
-  const userIdx: number[] = [];
-  rest.forEach((m, i) => {
-    if (m.role === "user") userIdx.push(i);
-  });
-  if (userIdx.length <= opts.keepRecentTurns) return messages;
-
-  const tailStart = userIdx[userIdx.length - opts.keepRecentTurns]!;
-  let toSummarize = rest.slice(0, tailStart);
-  const tail = rest.slice(tailStart);
-  if (toSummarize.length === 0) return messages;
 
   const pinnedMsg = (): ChatMessage[] =>
     pinned && pinned.trim() ? [{ role: "system", content: `[当前任务清单(请据此继续,勿偏离)]\n${pinned}` }] : [];
 
-  // ④ 增量压缩:若待摘要段开头就是【上次压缩留下的摘要】,把它原样保留(不再二次摘要,免精度流失+更省),
-  // 只摘要其后的新消息,再把"旧摘要 + 新增"拼起来。重复压缩因此越来越便宜、且不丢早期要点。
+  // ④ 增量压缩:若 rest 开头是【上次压缩留下的摘要】,把它的【文本】原样保留(不二次摘要 → 免转述磨损),
+  // 只把其后新增的摘要拼上。重复压缩越来越便宜、且早期要点逐字不衰减。
+  // 【缓存】不把旧摘要剔除再发——它在主对话热缓存前缀里,连它一起发([system, ...rest] 正是热缓存的前缀)
+  // 才命中缓存;摘要器由 instruction 被告知勿重复它(见 index.ts)。
   const SUMMARY_MARK = "[早期对话摘要";
   let priorSummary = "";
-  if (toSummarize[0]?.role === "system" && typeof toSummarize[0].content === "string" && toSummarize[0].content.startsWith(SUMMARY_MARK)) {
-    priorSummary = toSummarize[0].content;
-    toSummarize = toSummarize.slice(1);
+  if (rest[0]?.role === "system" && typeof rest[0].content === "string" && rest[0].content.startsWith(SUMMARY_MARK)) {
+    priorSummary = rest[0].content;
   }
-  if (toSummarize.length === 0) return messages; // 只剩旧摘要、无新内容 → 不动
+  if (priorSummary && rest.length === 1) return messages; // 只剩旧摘要、无新内容 → 不动
 
-  // L2.3 降级阶梯:摘要失败(flash 挂/熔断打开)→ 硬截断兜底,绝不让"压缩本身"把长任务搞崩。
+  // L2.3 降级阶梯:摘要失败(模型挂/熔断打开)→ 硬截断兜底,绝不让"压缩本身"把长任务搞崩。
   let summary: string;
   try {
-    summary = await opts.summarize(toSummarize);
+    summary = await opts.summarize([system, ...rest]); // 发 [system, ...全部对话]:整段摘要 + 命中主对话热缓存
   } catch {
     const marker: ChatMessage = {
       role: "system",
-      content: `${priorSummary ? priorSummary + "\n\n" : ""}[早期对话已截断(摘要暂不可用):为继续任务保留了系统提示、最近若干轮与任务清单,早段细节已舍弃。如缺关键背景,请向用户确认。]`,
+      content: `${priorSummary ? priorSummary + "\n\n" : ""}[早期对话已截断(摘要暂不可用):为继续任务保留了系统提示与任务清单,对话细节已舍弃。如缺关键背景,请向用户确认。]`,
     };
-    return [system, marker, ...pinnedMsg(), ...tail];
+    return [system, marker, ...pinnedMsg()];
   }
   const merged = priorSummary
     ? `${priorSummary}\n\n[续·本次新增]\n${summary}` // 旧摘要保留 + 追加新增
     : `[早期对话摘要——上下文超限已压缩,以下是早段对话的摘要]\n${summary}\n\n从中断处直接继续,不要复述摘要、不要寒暄,像没中断过一样接着上一个任务。`;
   const summaryMsg: ChatMessage = { role: "system", content: merged };
-  return [system, summaryMsg, ...pinnedMsg(), ...tail];
+  return [system, summaryMsg, ...pinnedMsg()];
 }

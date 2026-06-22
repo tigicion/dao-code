@@ -63,7 +63,7 @@ describe("长任务韧性 eval", () => {
       { role: "user", content: "继续" }, { role: "assistant", content: "ok" },
       { role: "user", content: "再继续" }, { role: "assistant", content: "ok2" },
     ];
-    const out = await compactMessages(msgs, { keepRecentTurns: 1, summarize: async () => "早期做了 X 的一部分" }, "[ ] 完成 X 的剩余部分");
+    const out = await compactMessages(msgs, { summarize: async () => "早期做了 X 的一部分" }, "[ ] 完成 X 的剩余部分");
     expect(out[0]).toEqual({ role: "system", content: "SYS" }); // 系统锚穿过压缩
     expect(out.some((m) => typeof m.content === "string" && m.content.includes("完成 X 的剩余部分"))).toBe(true); // 任务清单穿过
   });
@@ -75,7 +75,7 @@ describe("长任务韧性 eval", () => {
       { role: "user", content: "b" }, { role: "assistant", content: "2" },
       { role: "user", content: "c" }, { role: "assistant", content: "3" },
     ];
-    const out = await compactMessages(msgs, { keepRecentTurns: 1, summarize: async () => { throw new Error("flash down"); } }, "[ ] 任务X");
+    const out = await compactMessages(msgs, { summarize: async () => { throw new Error("flash down"); } }, "[ ] 任务X");
     expect(out[0]).toEqual({ role: "system", content: "SYS" });
     expect(out.some((m) => typeof m.content === "string" && m.content.includes("任务X"))).toBe(true);
     expect(out.length).toBeGreaterThan(1); // 没崩,产出了可继续的消息序列
