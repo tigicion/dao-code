@@ -11,7 +11,7 @@
 >
 > *A terminal coding agent built around cost, experience, and availability — squeezing the most capability and the lowest cost out of the high-value DeepSeek V4.*
 
-![DAO CODE demo](docs/demo.gif)
+![DAO CODE demo](docs/assets/demo.gif)
 
 DAO CODE(命令 `dao`)是终端原生的 AI 编码助手:在你的终端里读代码、写代码、跑命令、修 bug,边流式展示推理与工具调用,边在审批门下安全执行,直到任务做完。它面向 **DeepSeek V4**(1M 上下文),中文优先,灵感来自 Claude Code,但走的是另一条路——**不靠贵模型堆体验,靠工程把高性价比模型的体验提升上来。**
 

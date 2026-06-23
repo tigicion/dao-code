@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript ESM(`.js` 后缀)、Zod、Vitest。`npx vitest run <file>`;`npm run typecheck`;`npm run lint`(0 error);`npm test`。
 
-参见 spec:`docs/superpowers/specs/2026-06-17-subagent-cc-parity-design.md`(Part B 节)。本计划接续 Part A(已合并 master)。
+参见 spec:`docs/design/specs/2026-06-17-subagent-cc-parity-design.md`(Part B 节)。本计划接续 Part A(已合并 master)。
 
 ---
 

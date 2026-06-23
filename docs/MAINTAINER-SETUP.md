@@ -4,7 +4,7 @@
 
 ## 必做(发布前)
 - [ ] **开启私密漏洞上报**:仓库 → Settings → Code security and analysis → 勾选 *Private vulnerability reporting*。(SECURITY.md 与 issue 模板已指向 `…/security/advisories/new`)
-- [ ] **录演示 gif/asciinema**:太极开屏 + 一段对话流,存 `docs/demo.gif`,然后取消 README 顶部那行图片注释。TUI 项目第一印象最吃这个。
+- [ ] **录演示 gif/asciinema**:太极开屏 + 一段对话流,存 `docs/assets/demo.gif`,然后取消 README 顶部那行图片注释。TUI 项目第一印象最吃这个。
 
 ## 建议
 - [ ] **开 Discussions**:Settings → Features → 勾选 Discussions(issue 模板的"提问/讨论"链接指向它)。

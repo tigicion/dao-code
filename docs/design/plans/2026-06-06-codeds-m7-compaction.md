@@ -377,7 +377,7 @@ Expected:三轮对话后 `/compact` 打印 `[已压缩对话:N → M 条消息]`
 
 - [ ] **Step 2: 记录结论** —— 把 M7 验收结果一句话追加到设计文档 §9 末尾(/compact 可压缩、摘要保留事实、自动兜底已接)。提交:
 ```bash
-git add docs/2026-06-04-deepseek-coding-agent-design.md
+git add docs/architecture/overview.md
 git commit -m "docs: record M7 compaction acceptance"
 ```
 

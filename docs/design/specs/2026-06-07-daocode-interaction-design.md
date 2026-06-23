@@ -1,7 +1,7 @@
 # DAO CODE 交互层设计 spec
 
 > 日期:2026-06-07 · 状态:已与用户确认,待写实现 plan
-> 关联:`docs/2026-06-04-deepseek-coding-agent-design.md`(总设计)、`docs/superpowers/plans/2026-06-06-codeds-m9-tui.md`(M9 现状)
+> 关联:`docs/architecture/overview.md`(总设计)、`docs/design/plans/2026-06-06-codeds-m9-tui.md`(M9 现状)
 
 ## 0. 背景与目标
 

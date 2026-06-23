@@ -731,7 +731,7 @@ index.ts 接线(伪代码,按现有结构落点):
 ## Task 9: 文档回写 + 真网络验收
 
 **Files:**
-- Modify: `docs/2026-06-04-deepseek-coding-agent-design.md`(§7 加"P2 已落地"实测备注)
+- Modify: `docs/architecture/overview.md`(§7 加"P2 已落地"实测备注)
 
 - [ ] **Step 1: 真网络手测(需 key,会产生费用)**
   1. run1:对话里透露"我在 macOS 上用 pnpm、在学 agent 原理",正常 `/exit`。

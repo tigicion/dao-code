@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node 20+,TypeScript(ESM),vitest(测试),tsx(运行),原生 `fetch` + `ReadableStream`(SSE)。无运行时第三方依赖。
 
-参考设计文档:`docs/2026-06-04-deepseek-coding-agent-design.md`(§4 工具、§10 cache、§11 架构、§13 已验证的 API 事实)。
+参考设计文档:`docs/architecture/overview.md`(§4 工具、§10 cache、§11 架构、§13 已验证的 API 事实)。
 
 ---
 

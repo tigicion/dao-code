@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript(ESM,`.js` import 后缀)、Node `fs`、Vitest。单文件:`npx vitest run <file>`;全量:`npm test`;类型:`npm run typecheck`;lint:`npm run lint`(须 0 error)。
 
-参见 spec:`docs/superpowers/specs/2026-06-16-subsystem-audit-design.md`
+参见 spec:`docs/design/specs/2026-06-16-subsystem-audit-design.md`
 
 ---
 

@@ -1056,7 +1056,7 @@ Expected:`→ web_search` + 审批 + `y` + 返回若干结果。**若 DDG 限流
 
 - [ ] **Step 4: 记录结论** —— 把 M4 验收结果(6 工具是否端到端可用、web_search 实测是否成功)一句话追加到设计文档 §4 末尾或一个"M4 已落地"备注。提交:
 ```bash
-git add docs/2026-06-04-deepseek-coding-agent-design.md
+git add docs/architecture/overview.md
 git commit -m "docs: record M4 tool-completion acceptance"
 ```
 

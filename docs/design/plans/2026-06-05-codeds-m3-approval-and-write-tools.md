@@ -8,7 +8,7 @@
 
 **Tech Stack:** 沿用 M2(Node20+/TS-ESM/vitest/tsx/zod)。新增用到 `node:child_process`、`node:readline/promises`。无新第三方依赖。
 
-参考:设计文档 `docs/2026-06-04-deepseek-coding-agent-design.md`(§4 工具、§5 权限/审批、§12 执行时序)。M2 计划与代码。M2 整体复审记下的 carry-over:PathEscape、接 capability/approval、list_dir 排序。
+参考:设计文档 `docs/architecture/overview.md`(§4 工具、§5 权限/审批、§12 执行时序)。M2 计划与代码。M2 整体复审记下的 carry-over:PathEscape、接 capability/approval、list_dir 排序。
 
 **范围与延后(M3 不做)**:细粒度 shell allowlist/denylist(exec-policy)、网络域名 policy、sandbox-policy —— 留到后续;M3 的 exec 仅"整体需审批"。plan 模式禁写/执行(M5)。审批提示的 UI 仅命令行 readline(富 TUI 在 M9)。tool 的 `preview(args)` 自定义摘要(现用原始 JSON 参数作摘要)留作 carry-over。
 
@@ -1478,7 +1478,7 @@ Expected:审批提示后喂 `n`,工具返回"用户拒绝执行该工具。",模
 
 - [ ] **Step 4: 记录结论** —— 把 M3 验收结果(审批 once/session/always 是否生效、PathEscape 是否拦截、后台 poll/kill 是否可用)用一句话追加到设计文档 §5 末尾(如"M3 已落地并实测:...")。提交:
 ```bash
-git add docs/2026-06-04-deepseek-coding-agent-design.md
+git add docs/architecture/overview.md
 git commit -m "docs: record M3 approval + write/exec acceptance"
 ```
 

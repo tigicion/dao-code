@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript ESM(`.js` import 后缀)、Node `child_process`/`fs`、Vitest。单测 `npx vitest run <file>`;全量 `npm test`;`npm run typecheck`;`npm run lint`(0 error)。
 
-参见 spec:`docs/superpowers/specs/2026-06-17-hook-cc-parity-design.md`
+参见 spec:`docs/design/specs/2026-06-17-hook-cc-parity-design.md`
 
 ---
 
