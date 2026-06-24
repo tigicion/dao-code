@@ -9,7 +9,7 @@
 
 ## 目录结构(`src/`)
 - `index.ts` — 启动/装配总入口(加载配置/记忆/技能/插件/MCP,建工具注册表、权限门、会话,跑 Ink 或 repl)。
-- `agent/` — 回合循环(`loop.ts`)、压缩(`compact.ts`,含 microcompact)、卡死检测(`stuck.ts`)、子代理(`tasks.ts`)。
+- `agent/` — 回合循环(`loop.ts`)、压缩(`compact.ts`,含 microcompact)、回合健康监控(`turn_health.ts`,决定何时叫挑战者/纠偏者)、子代理(`subagent.ts`)+ 异步后台任务队列(`tasks.ts`)。
 - `tools/` — 所有工具(`defineTool({name,description,capability,approval,schema,handler})`);执行器 `execute.ts`(按 capability 并发/串行 + 审批)。
 - `permissions/` — CC 1:1 权限引擎(`engine.ts` 决策、`rules.ts` `Tool(specifier)` 匹配、`identity.ts` 工具名映射、`settings.ts` 规则来源合并)。
 - `prompt/system_prompt.ts` — 系统 prompt(含项目指令插槽 `{project_instruction_files}`)。

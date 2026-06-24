@@ -1,6 +1,6 @@
 # DAO CODE 道
 
-[中文](./README.md) · **English** → [README.en.md](./README.en.md)
+**中文** · [English](./README.en.md)
 
 [![CI](https://github.com/tigicion/dao-code/actions/workflows/ci.yml/badge.svg)](https://github.com/tigicion/dao-code/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
