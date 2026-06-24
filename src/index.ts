@@ -68,7 +68,7 @@ import { gatherAudit, formatAudit } from "./memory/audit.js";
 import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
-import { shouldCaptureMemory } from "./memory/capture_policy.js";
+import { shouldCaptureMemory, turnHadVerifyPass, looksLikeCorrection, turnWroteMemory } from "./memory/capture_policy.js";
 import { apiToolsForMode } from "./tools/tools_for_mode.js";
 import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
 import { createReplyChallenge } from "./agent/reply_challenge.js";
@@ -947,6 +947,7 @@ async function main() {
   };
 
   const runOneTurn = async () => {
+    const turnStart = session.messages.length; // 回合前消息边界:供下方算 verify 信号
     await withPresence(() => runTurn({
       session,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
@@ -970,7 +971,13 @@ async function main() {
     if (!argvPrompt) {
       const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
       const newTokens = estimateTokens(session.messages) - lastDistillTokens;
-      if (shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent }).capture) {
+      const turnTail = session.messages.slice(turnStart);
+      const verifyPassed = turnHadVerifyPass(turnTail); // 本轮 verify_done 客观通过 → 即时捕获
+      const userCorrection = looksLikeCorrection(lastUserText); // 用户纠正/强调 → 即时捕获(distill 再定夺)
+      const activeWriteThisTurn = turnWroteMemory(turnTail); // 本轮模型已主动记忆 → 抑制时刻型触发,避免同轮重复蒸
+      const decision = shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent, verifyPassed, userCorrection, activeWriteThisTurn });
+      if (process.env.DAO_DEBUG_MEMORY) console.error(`[capture] ${decision.reason} newTokens=${newTokens} verify=${verifyPassed} correction=${userCorrection} activeWrite=${activeWriteThisTurn}`);
+      if (decision.capture) {
         if (compactionImminent) await captureMemories({ incremental: true });
         else void captureMemories({ incremental: true });
       }
@@ -995,6 +1002,7 @@ async function main() {
   // 退出时【不再】触发——everything 已在热边界增量捕获过,退出蒸馏只会撞冷缓存全价。
   let captureBusy = false; // 防并发:上一次后台蒸馏未完成则跳过本次
   let lastDistillTokens = 0; // 增量标记:上次成功蒸馏时的对话 token 估算(决定"新增多少")
+  let lastUserText = ""; // 本回合用户原话(两路径在 onUserMessage 处更新),供 userCorrection 粗门判定
   const captureMemories = async (opts?: { incremental?: boolean }): Promise<void> => {
     if (captureBusy) return;
     if (!session.messages.some((m) => m.role === "user")) return;
@@ -1181,9 +1189,11 @@ async function main() {
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text });
           session.addUser(text);
+          lastUserText = text; // userCorrection 粗门用本回合用户原话
           void replyChallenge.onUserMessage(text); // 路径①:命中相似度门才异步 fork 挑战者(非阻塞)
           skillRound++; // 新一轮:用于关联本轮 skill 加载(skillSink.loaded);模型从常驻技能列表按需加载,无 discovery 预筛。
           if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
+          const turnStart = session.messages.length; // 回合前消息边界:供下方算 verify 信号
           await withPresence(() => runTurn({
             session,
             config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
@@ -1210,7 +1220,13 @@ async function main() {
           {
             const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
             const newTokens = estimateTokens(session.messages) - lastDistillTokens;
-            if (shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent }).capture) {
+            const turnTail = session.messages.slice(turnStart);
+            const verifyPassed = turnHadVerifyPass(turnTail); // 本轮 verify_done 客观通过 → 即时捕获
+            const userCorrection = looksLikeCorrection(lastUserText); // 用户纠正/强调 → 即时捕获(distill 再定夺)
+            const activeWriteThisTurn = turnWroteMemory(turnTail); // 本轮模型已主动记忆 → 抑制时刻型触发,避免同轮重复蒸
+            const decision = shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent, verifyPassed, userCorrection, activeWriteThisTurn });
+            if (process.env.DAO_DEBUG_MEMORY) console.error(`[capture] ${decision.reason} newTokens=${newTokens} verify=${verifyPassed} correction=${userCorrection} activeWrite=${activeWriteThisTurn}`);
+            if (decision.capture) {
               if (compactionImminent) await captureMemories({ incremental: true }); // 压缩前同步捕获
               else void captureMemories({ incremental: true }); // 否则后台,不阻塞下一轮 prompt
             }
@@ -1678,7 +1694,7 @@ async function main() {
         return nextLine();
       };
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), onUserMessage: (text) => { void replyChallenge.onUserMessage(text); } });
+      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), onUserMessage: (text) => { lastUserText = text; void replyChallenge.onUserMessage(text); } });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
       store.markDone(); // 干净退出标记(与 TTY 分支对齐)
