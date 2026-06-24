@@ -29,7 +29,22 @@ A coding agent is only useful if you can actually run it.
 
 - **Low unit price** — DeepSeek sits at the lowest price tier among mainstream capable models; both input and output prices are far below the top-tier closed models.
 - **Cache cuts it further** — DeepSeek's prefix-cache *hit* price is ≈ **1/10** of a miss. DAO keeps the system prefix / tool table / memory **byte-stable**, and runs reflection & memory on cache-reusing forks, so the hit rate keeps climbing.
-- **Measured** (reproducible via `npm run accept:cache`): multi-turn hit rate climbs **31% → 89% → 94% → 96.3%**; within one session cumulative input grew from 14K → **324K tokens (23×)** while cost rose only **¥0.030 → ¥0.054** (miss volume stays flat at ~12K, almost entirely the cold start). A full feature (read + edit + test + self-review) measures ≈ **¥0.1**; an 83-tool-call long task ≈ **¥0.33**. Watch hit rate & cost live with `/cost`.
+- **Measured on real OSS bug-fixes (not toy demos)** — 7 SWE-bench-style tasks (valibot / date-fns / es-toolkit / sqlglot / hono), **3.89M input tokens** total, **95.8% aggregate cache hit** (85.4%–97.7% per task). At DeepSeek V4 Pro current pricing, a full feature (read + edit + test + self-review) runs **¥0.07–0.21, avg ¥0.15**; all 7 total **¥1.07**. Every figure traces back to `evals/runs/<task>/run-1/agent.log`; replay any time with `/cost`.
+- **Cost vs Claude Code** — pricing the **same token trace** of these 7 tasks under each vendor's official rates (and crediting DAO's high hit rate to Claude too, in its favor), total cost is still **~30× cheaper than Claude Opus 4.8, ~18× cheaper than Sonnet 4.6**.
+
+  | Task (real OSS repo) | Input tok | Hit % | DeepSeek Pro | vs Opus | vs Sonnet |
+  |---|---:|---:|---:|---:|---:|
+  | t7-sqlglot-sqlite-autoinc | 1,218,385 | 97.7% | ¥0.213 | 37× | 22× |
+  | t6-sqlglot-comment-on | 625,772 | 96.3% | ¥0.144 | 32× | 19× |
+  | t9-hono-compress | 699,479 | 96.0% | ¥0.209 | 31× | 18× |
+  | t8-hono-cookie-dup | 502,866 | 94.9% | ¥0.136 | 28× | 17× |
+  | t4-estoolkit-omitby | 445,475 | 94.4% | ¥0.159 | 28× | 17× |
+  | L1-nodeps-toolkit | 289,989 | 93.2% | ¥0.140 | 27× | 16× |
+  | t5-estoolkit-uniqwith | 104,071 | 85.4% | ¥0.068 | 21× | 12× |
+  | **Total** | **3,886,037** | **95.8%** | **¥1.07** | **30×** | **18×** |
+
+  <sub>Prices as of 2026-06 official rates: DeepSeek V4 Pro hit/miss/output = $0.003625 / $0.435 / $0.87 per 1M; Claude Opus 4.8 = $5 / $25 (hits at 0.1× cache-read), Sonnet 4.6 = $3 / $15. Multiples are USD-on-USD, exchange-rate-independent; ¥ converted at ¥7.1/$. Cross-check: re-pricing L1 at current rates gives ¥0.140 ≈ the ¥0.136 the in-log `/cost` reported.</sub>
+- **Verify the cache mechanism live** — `npm run accept:cache` runs a multi-turn conversation against the live API so you can watch the hit rate climb from cold start to steady state (mechanism demo; cost figures above come from the real eval suite).
 
 ### 🧠 Experience
 
