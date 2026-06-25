@@ -1,0 +1,88 @@
+// 统一反思器:回合末一个 fork,既【反思进展】(advisory,有问题才给)又【抽记忆】(memories,含 mergeInto 合并意图)。
+// 复用主前缀热缓存(fork:同 tools+思考强度);两段独立容错解析(见 reflect_result)。
+import { parseReflectResult, type ReflectResult, type ReflectMem } from "./reflect_result.js";
+import { isCatalogNoise } from "../memory/distill.js";
+import { findSecrets } from "../permissions/secrets.js";
+
+// 追加在主对话之后的尾部指令(fork:命中热缓存)。{existing} 处插入已有记忆候选供 mergeInto 判断。
+export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】,产出两件事。只输出一个 JSON 对象,无其它文字。
+
+## 一、进展反思(独立怀疑视角;看完整上下文;只评估,不干活)
+1) 复述「现在在做什么、最初目标是什么」(别曲解成更蠢的版本)。
+2) 仅当【确有问题】挑 1–3 点,每条扎根具体证据(引文件/报错/命令):
+   · 在原地打转/反复试同一类改动?改文件≠进展——验收/错误状态真变了吗?
+   · 攻错了层?把未验证假设当事实?给根因「可能是 X,因为 Y」。
+   · 跑偏最初目标 / 镀金 / scope 蔓延?
+   · 用户在重复表达同一问题没解决?若是,质疑诊断与前提,别叠加修复。
+3) 一切在轨或只是新任务 → onTrack=true、advisory=null,绝不硬找茬。
+   否则 onTrack=false,advisory ≤8 行,结尾给最小下一步。是参考不是命令。
+
+## 二、记忆(从最近进展抽尚未记录的耐久事实;并判断是否【并入已有】)
+按 5 type 归类(user/feedback/procedural/semantic/episodic,选错污染全局)。每条给:
+- title(≤1 行概要)、text(完整事实;feedback 带"为什么:…"和"怎么用:…")、type、importance(1–10)、confidence?(0–1)、source?
+- 若新事实延伸/涵盖下面某条已有记忆 → 设 mergeInto=该条 title,text 写【合并增强后的完整版】。
+【绝不记】一次性/情绪、项目专属写成 user/feedback、dao 自身实现细节当用户偏好、显而易见/代码已写明、工具/技能清单(目录倾倒)。无可记 → memories: []。
+
+已有相关记忆(判断是否 mergeInto):
+{existing}
+
+## 输出(严格 JSON)
+{"onTrack":true,"advisory":null,"memories":[{"title":"…","text":"…","type":"feedback","importance":9,"confidence":0.9,"source":null,"mergeInto":null}]}`;
+
+export interface ReflectInput {
+  streamChat: (opts: any) => AsyncGenerator<any, any>;
+  config: { baseUrl: string; apiKey: string };
+  model: string;
+  messages: { role: string; content: string | null }[];
+  today: string;
+  existing?: { title: string; text: string }[]; // 已有记忆候选(title+text),供 mergeInto 判断
+  fork?: boolean;
+  tools?: unknown[];
+  reasoningEffort?: string;
+  onUsage?: (u: unknown) => void;
+}
+
+function buildTail(existing?: { title: string; text: string }[]): string {
+  const ex = existing && existing.length
+    ? existing.map((e) => `- ${e.title}:${e.text}`).join("\n")
+    : "(无)";
+  return REFLECT_TAIL.replace("{existing}", ex);
+}
+
+const SALIENCE_MIN = 4; // importance < 此值的琐碎丢弃(与 distill 一致)
+
+export async function reflect(p: ReflectInput): Promise<ReflectResult> {
+  const tail = buildTail(p.existing);
+  const messages = p.fork
+    ? [...p.messages, { role: "user", content: tail }]
+    : [
+        { role: "system", content: tail },
+        { role: "user", content: p.messages.filter((m) => m.role !== "system").map((m) => `${m.role}: ${m.content ?? ""}`).join("\n").slice(-24000) },
+      ];
+  const reqExtra = p.fork ? { reasoning_effort: p.reasoningEffort ?? "max" } : { thinking: { type: "disabled" }, temperature: 0 };
+
+  const gen = p.streamChat({
+    baseUrl: p.config.baseUrl, apiKey: p.config.apiKey, model: p.model,
+    messages,
+    ...(p.fork && p.tools && p.tools.length ? { tools: p.tools, parallelToolCalls: true } : {}),
+    extra: reqExtra,
+    ...(p.onUsage ? { onUsage: p.onUsage } : {}),
+  });
+  let out = ""; let r = await gen.next();
+  while (!r.done) { if (r.value?.kind === "content") out += r.value.text; r = await gen.next(); }
+  if (!out && typeof r.value?.content === "string") out = r.value.content;
+
+  const dbg = !!process.env.DAO_DEBUG_REFLECT;
+  if (dbg) console.error(`[reflect] 模型原始输出(${out.length} 字符):\n${out || "(空)"}`);
+
+  const parsed = parseReflectResult(out);
+  // 记忆段后备过滤(与 distill 同):salience 门 + 目录倾倒 + 密钥。
+  const memories = parsed.memories.filter((m: ReflectMem) => {
+    if ((m.importance ?? 5) < SALIENCE_MIN) return false;
+    if (isCatalogNoise(m.text) || isCatalogNoise(m.title)) return false;
+    if (findSecrets(m.text).length || findSecrets(m.title).length) return false;
+    return true;
+  });
+  if (dbg) console.error(`[reflect] onTrack=${parsed.onTrack} advisory=${parsed.advisory ? "有" : "无"} memories=${memories.length}`);
+  return { ...parsed, memories };
+}
