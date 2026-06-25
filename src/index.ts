@@ -974,6 +974,7 @@ async function main() {
       reflect: argvPrompt ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
+      drainNotifications: () => taskManager.drainNotifications(), // 后台子代理完成结果:回合边界回灌(一次性/--goal 与交互同等,修复 headless 丢失)
     }));
     // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
     if (!argvPrompt) {
@@ -1015,8 +1016,9 @@ async function main() {
       // 只发上次主请求已缓存的前缀(slice 到 lastSentLength)→ 前缀字节一致、命中热缓存。
       const msgs = fork && session.lastSentLength > 0 ? session.messages.slice(0, session.lastSentLength) : session.messages;
       const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
-      // 已有候选(供 mergeInto 判断):有 title 的按 importance 取前 50,控 prompt 体积。
-      const candidates = existing.filter((m) => m.title).sort((a, b) => b.importance - a.importance).slice(0, 50).map((m) => ({ title: m.title!, text: m.text }));
+      // 已有候选(供 mergeInto):有 title 的按 importance 降序【全量】给(标题便宜、可全当合并目标 → 不漏低重要度相关条);
+      // 200 条安全上限防极端;正文只取前 N(见 unified_reflect.buildTail)。
+      const candidates = existing.filter((m) => m.title).sort((a, b) => b.importance - a.importance).slice(0, 200).map((m) => ({ title: m.title!, text: m.text }));
       const result = await unifiedReflect({
         streamChat, config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }, model, messages: msgs, today,
         existing: candidates, fork, tools, reasoningEffort: process.env.DAO_REASONING_EFFORT || "max",

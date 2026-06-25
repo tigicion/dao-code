@@ -55,6 +55,22 @@ describe("unified_reflect.reflect", () => {
     expect(sent.tools).toBeTruthy();               // 带 tools 对齐缓存
   });
 
+  it("【全部标题】都进 prompt(闭合 >N/低重要度漏召回);正文只给前 N", async () => {
+    let sent: any;
+    // 35 条:前 30 有正文,后 5 只该出标题(第 33 条是低位但可被 mergeInto 的目标)
+    const existing = Array.from({ length: 35 }, (_, i) => ({ title: `偏好${i}`, text: `正文内容-${i}` }));
+    await reflect({
+      ...base, fork: true,
+      existing,
+      streamChat: (o: any) => { sent = o; return fakeStream('{"onTrack":true,"advisory":null,"memories":[]}'); },
+    } as never);
+    const tail = sent.messages[sent.messages.length - 1].content as string;
+    expect(tail).toContain("偏好0");    // 头部标题在
+    expect(tail).toContain("偏好34");   // 尾部标题也在(全部标题都列)→ 不漏
+    expect(tail).toContain("正文内容-0");    // 前 N 有正文
+    expect(tail).not.toContain("正文内容-34"); // 尾部不给正文(便宜)
+  });
+
   it("REFLECT_TAIL 含两区(反思 + 记忆)与 JSON 输出约定", () => {
     expect(REFLECT_TAIL).toContain("进展反思");
     expect(REFLECT_TAIL).toContain("记忆");
