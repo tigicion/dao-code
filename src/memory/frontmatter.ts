@@ -1,6 +1,6 @@
 import type { Memory, MemoryType } from "./types.js";
 
-const STR = new Set(["name", "text", "type", "created", "lastUsed", "source", "sourceHash", "status", "supersededBy", "validUntil"]);
+const STR = new Set(["name", "title", "text", "type", "created", "lastUsed", "source", "sourceHash", "status", "supersededBy", "validUntil"]);
 const NUM = new Set(["importance", "confidence", "uses"]);
 const BOOL = new Set(["locked"]);
 
@@ -23,6 +23,7 @@ export function parseMemoryFile(name: string, raw: string): Memory | null {
   if (!obj.type || !obj.status) return null;
   return {
     name: (obj.name as string) || name,
+    ...(obj.title ? { title: obj.title as string } : {}),
     text: body.trim(),
     type: obj.type as MemoryType,
     importance: typeof obj.importance === "number" && !Number.isNaN(obj.importance) ? obj.importance : 5,
@@ -40,7 +41,9 @@ export function parseMemoryFile(name: string, raw: string): Memory | null {
 }
 
 export function serializeMemory(m: Memory): string {
-  const lines = [`name: ${m.name}`, `type: ${m.type}`, `importance: ${m.importance}`, `uses: ${m.uses ?? 0}`];
+  const lines = [`name: ${m.name}`];
+  if (m.title) lines.push(`title: ${m.title}`);
+  lines.push(`type: ${m.type}`, `importance: ${m.importance}`, `uses: ${m.uses ?? 0}`);
   if (m.confidence !== undefined) lines.push(`confidence: ${m.confidence}`);
   lines.push(`created: ${m.created}`, `lastUsed: ${m.lastUsed}`);
   if (m.source) lines.push(`source: ${m.source}`);

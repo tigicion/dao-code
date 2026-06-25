@@ -19,4 +19,15 @@ describe("frontmatter round-trip", () => {
   it("returns null on garbage", () => {
     expect(parseMemoryFile("z", "no frontmatter here")).toBeNull();
   });
+  it("title 往返", () => {
+    const m = newMemory({ name: "no-ai-sig", title: "提交不加 AI 署名", text: "提交一律不加署名。为什么:用户要求。怎么用:不写 Co-Authored-By。", type: "feedback", today: "2026-06-25", importance: 9 });
+    expect(m.title).toBe("提交不加 AI 署名");
+    const round = parseMemoryFile("no-ai-sig", serializeMemory(m));
+    expect(round?.title).toBe("提交不加 AI 署名");
+    expect(round).toEqual(m);
+  });
+  it("旧文件无 title → title 为 undefined(向后兼容)", () => {
+    const raw = "---\nname: y\ntype: user\nimportance: 3\ncreated: 2026-06-01\nlastUsed: 2026-06-02\nstatus: active\n---\n用户偏好 TypeScript\n";
+    expect(parseMemoryFile("y", raw)?.title).toBeUndefined();
+  });
 });
