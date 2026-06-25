@@ -47,6 +47,9 @@ export interface TurnDeps {
   drainPending?: () => string[];
   // 回合边界注入的 advisory(system 角色);用于异步挑战者结论"本回合内尽量接住"。省略=不注入。
   drainAdvisories?: () => string[];
+  // 回合边界注入的后台子代理完成结果(user 角色):自主长任务(单个大 runTurn)中也能及时拿到,
+  // 不必等整轮跑完才回灌——修复 headless/--goal 下后台结果丢失。省略=不处理(行为同旧版)。
+  drainNotifications?: () => string[];
   // L2.2 反应式压缩:streamChat 报"上下文超限"时调用它压缩后重试本轮(估算阈值之外的安全网)。
   compact?: () => Promise<void>;
   // §4 轮内主动压缩:每个工具轮前若返回 true 则先 compact()——防长回合中途撞上限(粒度到工具轮)。
@@ -176,6 +179,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       for (const a of deps.drainAdvisories()) {
         events.notice("\n[反思:审视者介入…]\n");
         session.messages.push({ role: "system", content: a });
+      }
+    }
+    // 后台子代理完成结果:回合边界 drain 注入为 user 消息。放在工具轮边界(而非仅整轮末)
+    // 才能让自主长任务(单个大 runTurn)中途也拿到后台结果,修复 headless/--goal 下结果丢失。
+    if (deps.drainNotifications) {
+      const notes = deps.drainNotifications();
+      if (notes.length) {
+        events.notice(`\n[↩ 收到 ${notes.length} 个后台任务结果]\n`);
+        for (const n of notes) session.messages.push({ role: "user", content: `[后台任务结果]\n${n}` });
       }
     }
     const tools = apiToolsForMode(deps.registry, session.mode);

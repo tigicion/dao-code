@@ -176,6 +176,23 @@ describe("runTurn", () => {
     expect(out.join("")).toContain("审视者介入"); // 注入时给用户可见提示(与失败式挑战者一致)
   });
 
+  it("drainNotifications:回合边界把后台子代理结果注入为 user 消息 + 发提示(修复 headless 后台丢失)", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    let drained = false;
+    const out: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }) as any,
+      executeToolCalls: async () => [],
+      write: (sx) => out.push(sx),
+      drainNotifications: () => (drained ? [] : (drained = true, ["子代理结论:根因在 executor.rs:721"])),
+    });
+    // 后台结果作为 user 消息持久化进历史(append-only),供模型当轮接住
+    expect(s.messages.some((m) => m.role === "user" && String(m.content).includes("executor.rs:721"))).toBe(true);
+    expect(out.join("")).toContain("后台任务结果"); // 注入时给用户可见提示
+  });
+
   it("omits write/exec tools in plan mode", async () => {
     const r = new ToolRegistry();
     r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
