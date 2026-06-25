@@ -978,7 +978,7 @@ async function main() {
     // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
     if (!argvPrompt) {
       const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
-      if (compactionImminent) await maybeReflect({ compactionImminent });
+      if (compactionImminent || REFLECT_SYNC) await maybeReflect({ compactionImminent });
       else void maybeReflect({ compactionImminent });
     }
     if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
@@ -1003,6 +1003,7 @@ async function main() {
   const pendingReflectAdvisories: string[] = []; // 反思器 advisory(有问题才入队),回合边界 append-only 注入
   const REFLECT_MAX_INTERVAL = process.env.DAO_REFLECT_EVERY === "1" ? 1 : (Number(process.env.DAO_REFLECT_MAX_INTERVAL) || 3);
   const NO_MEMORY = process.env.DAO_NO_MEMORY === "1"; // demo 对照:禁反思器记忆(注入侧另行禁)
+  const REFLECT_SYNC = process.env.DAO_REFLECT_SYNC === "1"; // 测试/demo:反思同步完成再继续(否则后台 void)
 
   const runReflector = async (): Promise<{ onTrack: boolean; mem: number }> => {
     if (reflectBusy || NO_MEMORY || !session.messages.some((m) => m.role === "user")) return { onTrack: true, mem: 0 };
@@ -1216,7 +1217,7 @@ async function main() {
           // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。
           {
             const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
-            if (compactionImminent) await maybeReflect({ compactionImminent });
+            if (compactionImminent || REFLECT_SYNC) await maybeReflect({ compactionImminent });
             else void maybeReflect({ compactionImminent });
           }
           if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
