@@ -7,15 +7,18 @@ import { auditEnabled } from "../session/audit_switch.js";
 export type MemoryTraceEvent =
   | { kind: "recalled"; ts: number; injected: number; stale: number; changed: number; types: Record<string, number> }
   | { kind: "wrote"; ts: number; type: string; merged: boolean }
-  | { kind: "distilled"; ts: number; extracted: number; added: number; updated: number };
+  | { kind: "distilled"; ts: number; extracted: number; added: number; updated: number }
+  // 统一反思器:每次跑一行(跳过的回合 ran=false)。
+  | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number };
 
 export interface MemoryAuditSink {
   recalled(injected: number, stale: number, changed: number, types: Record<string, number>): void;
   wrote(type: string, merged: boolean): void;
   distilled(extracted: number, added: number, updated: number): void;
+  reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number }): void;
 }
 
-const NOOP: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {} };
+const NOOP: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {} };
 
 export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv = process.env): MemoryAuditSink {
   if (!auditEnabled(env, "MEMORY")) return NOOP;
@@ -28,6 +31,7 @@ export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv
     recalled: (injected, stale, changed, types) => write({ kind: "recalled", ts: Date.now(), injected, stale, changed, types }),
     wrote: (type, merged) => write({ kind: "wrote", ts: Date.now(), type, merged }),
     distilled: (extracted, added, updated) => write({ kind: "distilled", ts: Date.now(), extracted, added, updated }),
+    reflected: (e) => write({ kind: "reflected", ts: Date.now(), ...e }),
   };
 }
 

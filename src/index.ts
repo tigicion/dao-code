@@ -68,7 +68,9 @@ import { gatherAudit, formatAudit } from "./memory/audit.js";
 import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
-import { shouldCaptureMemory, turnHadVerifyPass, looksLikeCorrection, turnWroteMemory } from "./memory/capture_policy.js";
+import { reflect as unifiedReflect } from "./agent/unified_reflect.js";
+import { initCadence, tickCadence, applyOutcome } from "./agent/reflect_cadence.js";
+import { reflectMemToCand } from "./agent/reflect_persist.js";
 import { apiToolsForMode } from "./tools/tools_for_mode.js";
 import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
 import { createReplyChallenge } from "./agent/reply_challenge.js";
@@ -419,10 +421,20 @@ async function main() {
     const { verdict } = await validateMemory(mem, workspaceRoot, today);
     validated.push({ mem, verdict });
   }
-  // 两层读取:高价值整句全文常驻 + 长尾只给 slug 名索引(memory_read 按需取整句)。
-  // 都在会话开始算定、整会话固定(进会话固定区),不刷新、不破前缀缓存。
-  const injectedMems = selectFullText(validated, today);
-  const indexNames = selectIndexNames(validated, today, injectedMems);
+  // 注入:DAO_NO_MEMORY 禁注入(demo 对照);小 N(<50)全注入整句、跳索引层(召回最简);
+  // 否则两层——高价值整句常驻 + 长尾只给 title 索引(memory_read 按需取整句)。
+  // 都在会话开始算定、整会话固定,不刷新、不破前缀缓存。
+  const SMALL_N = 50;
+  const liveCount = validated.filter((v) => v.verdict !== "stale").length;
+  let injectedMems: typeof validated; let indexNames: string[];
+  if (process.env.DAO_NO_MEMORY === "1") {
+    injectedMems = []; indexNames = [];
+  } else if (liveCount < SMALL_N) {
+    injectedMems = selectFullText(validated, today, SMALL_N); indexNames = [];
+  } else {
+    injectedMems = selectFullText(validated, today);
+    indexNames = selectIndexNames(validated, today, injectedMems);
+  }
   const memoryText = buildMemorySection(injectedMems) + buildIndexSection(indexNames);
   const recallStale = validated.filter((v) => v.verdict === "stale").length;
   const recallChanged = validated.filter((v) => v.verdict === "changed").length;
@@ -631,7 +643,7 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
-  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {} };
+  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {} };
   let toolAudit: ToolAuditSink = { call() {} };
   let permAudit: PermAuditSink = { decided() {} };
   // 技能加载审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 loaded)。
@@ -946,7 +958,6 @@ async function main() {
   };
 
   const runOneTurn = async () => {
-    const turnStart = session.messages.length; // 回合前消息边界:供下方算 verify 信号
     await withPresence(() => runTurn({
       session,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
@@ -961,25 +972,15 @@ async function main() {
       compact: runCompaction, // L2.2 反应式压缩
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
-      reflect: argvPrompt ? undefined : reflect, // 反思层:一次性/eval 不反思
-      longTask, // 纠偏者仅长任务按周期触发
-      drainAdvisories: () => replyChallenge.drain(), // 路径①:异步挑战者结论回合边界注入
+      reflect: argvPrompt ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思
+      longTask,
+      drainAdvisories: () => [...replyChallenge.drain(), ...pendingReflectAdvisories.splice(0)], // 反思器+(暂留)reply 的 advisory
     }));
-    // 写入层(缺陷#1):热回合边界增量蒸馏——门控、后台;压缩前同步先捕获(防 compact 改 messages 竞态)。
-    // 一次性/eval 路径(argvPrompt)不捕获:保持快速查询零 flash 开销、eval 测量干净。
+    // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
     if (!argvPrompt) {
       const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
-      const newTokens = estimateTokens(session.messages) - lastDistillTokens;
-      const turnTail = session.messages.slice(turnStart);
-      const verifyPassed = turnHadVerifyPass(turnTail); // 本轮 verify_done 客观通过 → 即时捕获
-      const userCorrection = looksLikeCorrection(lastUserText); // 用户纠正/强调 → 即时捕获(distill 再定夺)
-      const activeWriteThisTurn = turnWroteMemory(turnTail); // 本轮模型已主动记忆 → 抑制时刻型触发,避免同轮重复蒸
-      const decision = shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent, verifyPassed, userCorrection, activeWriteThisTurn });
-      if (process.env.DAO_DEBUG_MEMORY) console.error(`[capture] ${decision.reason} newTokens=${newTokens} verify=${verifyPassed} correction=${userCorrection} activeWrite=${activeWriteThisTurn}`);
-      if (decision.capture) {
-        if (compactionImminent) await captureMemories({ incremental: true });
-        else void captureMemories({ incremental: true });
-      }
+      if (compactionImminent) await maybeReflect({ compactionImminent });
+      else void maybeReflect({ compactionImminent });
     }
     if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
       write("\n[接近上限,自动压缩…]\n");
@@ -996,65 +997,70 @@ async function main() {
     );
   };
 
-  // 写入层(缺陷#1):记忆捕获 = fork 增量蒸 → 去重 upsert。在【热回合边界】调用(增量、可后台)。
-  // fork 默认开:复用主对话前缀缓存(同主模型,热则近免费);DAO_DISTILL_FORK=0 退 flash。
-  // 退出时【不再】触发——everything 已在热边界增量捕获过,退出蒸馏只会撞冷缓存全价。
-  let captureBusy = false; // 防并发:上一次后台蒸馏未完成则跳过本次
-  let lastDistillTokens = 0; // 增量标记:上次成功蒸馏时的对话 token 估算(决定"新增多少")
-  let lastUserText = ""; // 本回合用户原话(两路径在 onUserMessage 处更新),供 userCorrection 粗门判定
-  const captureMemories = async (opts?: { incremental?: boolean }): Promise<void> => {
-    if (captureBusy) return;
-    if (!session.messages.some((m) => m.role === "user")) return;
-    captureBusy = true;
+  // 统一反思器(回合末):一个 fork,既反思进展(advisory,有问题才注入)又抽记忆(含 mergeInto 合并)。
+  // 复用主前缀热缓存(fork:同 tools+思考强度);自适应节奏默认每回合、连续安静回退至多 N。
+  let reflectBusy = false; // 防并发:上次后台反思未完成则跳过本次
+  let cadenceState = initCadence();
+  const pendingReflectAdvisories: string[] = []; // 反思器 advisory(有问题才入队),回合边界 append-only 注入
+  const REFLECT_MAX_INTERVAL = process.env.DAO_REFLECT_EVERY === "1" ? 1 : (Number(process.env.DAO_REFLECT_MAX_INTERVAL) || 3);
+  const NO_MEMORY = process.env.DAO_NO_MEMORY === "1"; // demo 对照:禁反思器记忆(注入侧另行禁)
+
+  const runReflector = async (): Promise<{ onTrack: boolean; mem: number }> => {
+    if (reflectBusy || NO_MEMORY || !session.messages.some((m) => m.role === "user")) return { onTrack: true, mem: 0 };
+    reflectBusy = true;
     try {
       const fork = process.env.DAO_DISTILL_FORK !== "0";
-      const distillModel = fork ? session.model : "deepseek-v4-flash";
-      // 只发【上一次主请求已缓存的前缀】(slice 到 lastSentLength),不含回合后追加的最终回应/中途注入——
-      // 否则那截未缓存内容会拉低命中(实测子代理大回合命中崩到 0.19)。fork 才需要对齐缓存;非 fork 走截断。
-      const distillTools = fork ? apiToolsForMode(registry, session.mode) : undefined;
-      const distillMsgs = fork && session.lastSentLength > 0 ? session.messages.slice(0, session.lastSentLength) : session.messages;
-      const cands = await distill({
-        streamChat,
-        config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
-        model: distillModel,
-        messages: distillMsgs,
-        today,
-        fork,
-        incremental: opts?.incremental,
-        // fork 缓存复用:带上与主循环【同一份 tools + 同思考强度】,前缀才字节一致、命中热缓存。
-        tools: distillTools,
-        reasoningEffort: process.env.DAO_REASONING_EFFORT || "max",
+      const model = fork ? session.model : "deepseek-v4-flash";
+      const tools = fork ? apiToolsForMode(registry, session.mode) : undefined;
+      // 只发上次主请求已缓存的前缀(slice 到 lastSentLength)→ 前缀字节一致、命中热缓存。
+      const msgs = fork && session.lastSentLength > 0 ? session.messages.slice(0, session.lastSentLength) : session.messages;
+      const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
+      // 已有候选(供 mergeInto 判断):有 title 的按 importance 取前 50,控 prompt 体积。
+      const candidates = existing.filter((m) => m.title).sort((a, b) => b.importance - a.importance).slice(0, 50).map((m) => ({ title: m.title!, text: m.text }));
+      const result = await unifiedReflect({
+        streamChat, config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }, model, messages: msgs, today,
+        existing: candidates, fork, tools, reasoningEffort: process.env.DAO_REASONING_EFFORT || "max",
         onUsage: (u) => {
-          session.addUsage(u as never, distillModel); // B-2 计入蒸馏用量
-          // 审计记【真 raw 指纹】(cache_audit 内部自己 hash,与主循环同算法)→ 便于下次对比 distill vs main 前缀是否一致。
+          session.addUsage(u as never, model);
           const sysRaw = typeof session.messages[0]?.content === "string" ? (session.messages[0]!.content as string) : "";
-          // msgs=实发消息体前缀(不含 distill 尾部追加的抽取指令)→ 与末轮 main 比对应逐字节一致。
-          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: sysRaw, tools: JSON.stringify(distillTools ?? []), tail: "", msgs: JSON.stringify(distillMsgs) });
+          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model, usage: u as never, sys: sysRaw, tools: JSON.stringify(tools ?? []), tail: "", msgs: JSON.stringify(msgs) });
         },
       });
-      // 精确键去重(slug(title));语义合并由反思器 mergeInto 承担,此处不再喊裁判。
-      // existing 循环外读一次(原每候选重读全盘,§3b 顺手修)。
-      let added = 0, updated = 0;
-      const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
-      for (const cand of cands) {
+      // 记忆落盘:mergeInto 感知 → 精确键 upsert(同 name 覆盖即合并增强)。
+      let added = 0, merged = 0;
+      for (const m of result.memories) {
+        const cand = reflectMemToCand(m, existing, today);
         const scope = routeScope(cand.type);
         const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
         const res = await upsertMemory(dir, cand, existing);
-        if (res.action === "updated") updated++; else added++;
+        if (res.action === "updated") merged++; else added++;
       }
-      memoryAudit.distilled(cands.length, added, updated);
-      lastDistillTokens = estimateTokens(session.messages); // 成功后更新增量标记(失败则不更新,下回合重试该切片)
+      const advisoryInjected = !!result.advisory;
+      if (result.advisory) pendingReflectAdvisories.push(`[反思·参考]\n${result.advisory}`); // 有问题才注入(append-only)
+      memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval });
+      return { onTrack: result.onTrack, mem: added + merged };
     } catch (e) {
-      if (process.env.DAO_DEBUG_MEMORY) console.error("[distill] 蒸馏失败:", e);
-      // 失败静默,不阻塞会话。
+      if (process.env.DAO_DEBUG_REFLECT) console.error("[reflect] 失败:", e);
+      return { onTrack: true, mem: 0 };
     } finally {
-      captureBusy = false;
+      reflectBusy = false;
     }
   };
-  // 触发阈值:自上次蒸以来新增对话 token ≥ 此值即捕获(锚"一块真实新工作量",非压缩阈值;可调)。
-  // 默认 8000:fork 蒸馏复用主前缀缓存(实测命中 ~95%、近乎免费),故偏向更勤地落记忆、少丢material;
-  // 太低会每轮都蒸(噪音+成本),DAO_DISTILL_TOKENS 可按需调。
-  const DISTILL_TOKENS = Number(process.env.DAO_DISTILL_TOKENS) || 8000;
+
+  // 回合末入口:按自适应节奏决定跑/跳;compactionImminent 强制跑(同步,先抢救再压)。
+  const maybeReflect = async (opts: { compactionImminent: boolean }): Promise<void> => {
+    if (argvPrompt || NO_MEMORY) return;
+    const tick = tickCadence(cadenceState, REFLECT_MAX_INTERVAL);
+    const run = tick.run || opts.compactionImminent;
+    cadenceState = run ? { ...tick.next, counter: 0 } : tick.next;
+    if (!run) {
+      memoryAudit.reflected({ ran: false, onTrack: true, advisoryInjected: false, memAdded: 0, memMerged: 0, interval: cadenceState.interval });
+      return;
+    }
+    const out = await runReflector();
+    cadenceState = applyOutcome(cadenceState, out.onTrack && out.mem === 0, REFLECT_MAX_INTERVAL);
+    if (process.env.DAO_DEBUG_REFLECT) console.error(`[reflect] ran onTrack=${out.onTrack} mem=${out.mem} interval=${cadenceState.interval}`);
+  };
 
   // 反思层 fork:同模型(命中主对话热缓存)对进展做精简复核,返回结论(由 loop 作 advisory 注入参考)。
   // DAO_REFLECT=0 关闭。失败静默返回 null,绝不影响主流程。
@@ -1189,11 +1195,9 @@ async function main() {
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text });
           session.addUser(text);
-          lastUserText = text; // userCorrection 粗门用本回合用户原话
-          void replyChallenge.onUserMessage(text); // 路径①:命中相似度门才异步 fork 挑战者(非阻塞)
+          void replyChallenge.onUserMessage(text); // 路径①:命中相似度门才异步 fork 挑战者(非阻塞;step 6 废弃)
           skillRound++; // 新一轮:用于关联本轮 skill 加载(skillSink.loaded);模型从常驻技能列表按需加载,无 discovery 预筛。
           if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
-          const turnStart = session.messages.length; // 回合前消息边界:供下方算 verify 信号
           await withPresence(() => runTurn({
             session,
             config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
@@ -1208,28 +1212,19 @@ async function main() {
             compact: inkCompact, // L2.2 反应式压缩
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
-            reflect, // 反思层:卡住→挑战者、长任务漂移→纠偏者
-            longTask, // 纠偏者仅长任务按周期触发
-            drainAdvisories: () => replyChallenge.drain(), // 路径①:异步挑战者结论回合边界注入
+            reflect, // 轮内卡住检测(assessTurn→挑战者)
+            longTask,
+            drainAdvisories: () => [...replyChallenge.drain(), ...pendingReflectAdvisories.splice(0)], // 反思器+(暂留)reply 的 advisory
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
           }));
           store.append({ t: "turn_end" });
-          // 写入层(缺陷#1):热回合边界增量蒸馏——门控、后台;压缩前必须先捕获(同步,防 compact 改 messages 竞态)。
+          // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。
           {
             const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
-            const newTokens = estimateTokens(session.messages) - lastDistillTokens;
-            const turnTail = session.messages.slice(turnStart);
-            const verifyPassed = turnHadVerifyPass(turnTail); // 本轮 verify_done 客观通过 → 即时捕获
-            const userCorrection = looksLikeCorrection(lastUserText); // 用户纠正/强调 → 即时捕获(distill 再定夺)
-            const activeWriteThisTurn = turnWroteMemory(turnTail); // 本轮模型已主动记忆 → 抑制时刻型触发,避免同轮重复蒸
-            const decision = shouldCaptureMemory({ newTokens, threshold: DISTILL_TOKENS, compactionImminent, verifyPassed, userCorrection, activeWriteThisTurn });
-            if (process.env.DAO_DEBUG_MEMORY) console.error(`[capture] ${decision.reason} newTokens=${newTokens} verify=${verifyPassed} correction=${userCorrection} activeWrite=${activeWriteThisTurn}`);
-            if (decision.capture) {
-              if (compactionImminent) await captureMemories({ incremental: true }); // 压缩前同步捕获
-              else void captureMemories({ incremental: true }); // 否则后台,不阻塞下一轮 prompt
-            }
+            if (compactionImminent) await maybeReflect({ compactionImminent });
+            else void maybeReflect({ compactionImminent });
           }
           if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
             const before = session.messages.length;
@@ -1694,7 +1689,7 @@ async function main() {
         return nextLine();
       };
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), onUserMessage: (text) => { lastUserText = text; void replyChallenge.onUserMessage(text); } });
+      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), onUserMessage: (text) => { void replyChallenge.onUserMessage(text); } });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
       store.markDone(); // 干净退出标记(与 TTY 分支对齐)
