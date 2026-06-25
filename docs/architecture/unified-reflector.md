@@ -1,7 +1,7 @@
 # 统一反思器与记忆系统
 
 > 回合末**一个 fork** 同时做"反思进展 + 抽取记忆";记忆靠 **title + LLM** 召回/合并,不再用相似度。
-> 设计定稿见 [`docs/design/specs/2026-06-25-unified-reflector-design.md`](../design/specs/2026-06-25-unified-reflector-design.md)。
+> 设计定稿见 [设计文档](../design/specs/2026-06-25-unified-reflector-design.md);真模型实测数据见 [实证记录](../design/specs/2026-06-25-unified-reflector-verification.md)。
 
 ## 有记忆 vs 无记忆
 
