@@ -56,6 +56,40 @@ export function summarizeMemoryTrace(events: MemoryTraceEvent[]): MemorySummary 
   return s;
 }
 
+// 统一反思器汇总(reflected 事件,与记忆同在 memory-trace.jsonl)。
+export interface ReflectSummary {
+  rounds: number; // 回合数(含跳过)
+  ran: number; // 实际跑了几次
+  advisories: number; // 注入了几条 advisory(有问题才有)
+  memAdded: number;
+  memMerged: number;
+  lastInterval: number; // 当前自适应间隔
+}
+
+export function summarizeReflectTrace(events: MemoryTraceEvent[]): ReflectSummary {
+  const s: ReflectSummary = { rounds: 0, ran: 0, advisories: 0, memAdded: 0, memMerged: 0, lastInterval: 1 };
+  for (const e of events) {
+    if (e.kind !== "reflected") continue;
+    s.rounds++;
+    if (e.ran) s.ran++;
+    if (e.advisoryInjected) s.advisories++;
+    s.memAdded += e.memAdded;
+    s.memMerged += e.memMerged;
+    s.lastInterval = e.interval;
+  }
+  return s;
+}
+
+export function formatReflectReport(s: ReflectSummary): string {
+  return [
+    "统一反思器:",
+    `  回合:${s.rounds}(实跑 ${s.ran} · 节奏跳过 ${s.rounds - s.ran})`,
+    `  advisory:${s.advisories} 次(有问题才注入)`,
+    `  记忆:新增 ${s.memAdded} · 合并 ${s.memMerged}`,
+    `  当前节奏:每 ${s.lastInterval} 回合反思一次`,
+  ].join("\n");
+}
+
 export function readAllMemoryTraces(sessionsRoot: string): MemoryTraceEvent[] {
   const events: MemoryTraceEvent[] = [];
   let dirs: string[];

@@ -84,7 +84,7 @@ import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
 import { createCacheAuditSink, type CacheAuditSink, formatCacheReport } from "./session/cache_audit.js";
 import { auditEnabled } from "./session/audit_switch.js";
-import { createMemoryAuditSink, type MemoryAuditSink, summarizeMemoryTrace, formatMemoryReport } from "./memory/memory_audit.js";
+import { createMemoryAuditSink, type MemoryAuditSink, summarizeMemoryTrace, formatMemoryReport, summarizeReflectTrace, formatReflectReport } from "./memory/memory_audit.js";
 import { createToolAuditSink, type ToolAuditSink, summarizeToolTrace, formatToolReport } from "./tools/tool_audit.js";
 import { createPermAuditSink, type PermAuditSink, summarizePermTrace, formatPermReport } from "./permissions/perm_audit.js";
 import { createSkillAuditSink, type SkillAuditSink, readAllSkillTraces, summarizeSkillTrace, formatSkillReport } from "./skills/skill_audit.js";
@@ -1344,8 +1344,8 @@ async function main() {
             const sub = parts[1];
             const id = parts[2];
             const dir = id ? path.join(sessionsDir, id) : store.dir;
-            const valid = ["memory", "tools", "perms", "cache", "skills", "all"];
-            if (!sub || !valid.includes(sub)) return { handled: true, output: `用法:/audit <memory|tools|perms|cache|skills|all> [会话id]\n默认审当前会话(${store.id})。` };
+            const valid = ["memory", "reflect", "tools", "perms", "cache", "skills", "all"];
+            if (!sub || !valid.includes(sub)) return { handled: true, output: `用法:/audit <memory|reflect|tools|perms|cache|skills|all> [会话id]\n默认审当前会话(${store.id})。` };
             const readJsonl = (file: string): Record<string, unknown>[] => {
               try {
                 return readFileSync(path.join(dir, file), "utf8").trim().split("\n").filter(Boolean)
@@ -1355,6 +1355,7 @@ async function main() {
             const sections: string[] = [];
             const want = (k: string) => sub === "all" || sub === k;
             if (want("memory")) sections.push(formatMemoryReport(summarizeMemoryTrace(readJsonl("memory-trace.jsonl") as never)));
+            if (want("reflect")) sections.push(formatReflectReport(summarizeReflectTrace(readJsonl("memory-trace.jsonl") as never)));
             if (want("tools")) sections.push(formatToolReport(summarizeToolTrace(readJsonl("tool-trace.jsonl") as never)));
             if (want("perms")) sections.push(formatPermReport(summarizePermTrace(readJsonl("perm-trace.jsonl") as never)));
             if (want("cache")) sections.push(formatCacheReport(readJsonl("cache.jsonl") as never));

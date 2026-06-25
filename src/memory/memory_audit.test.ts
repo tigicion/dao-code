@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createMemoryAuditSink, summarizeMemoryTrace, formatMemoryReport, type MemoryTraceEvent } from "./memory_audit.js";
+import { createMemoryAuditSink, summarizeMemoryTrace, formatMemoryReport, summarizeReflectTrace, formatReflectReport, type MemoryTraceEvent } from "./memory_audit.js";
 
 const read = (dir: string) =>
   readFileSync(path.join(dir, "memory-trace.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as MemoryTraceEvent);
@@ -42,5 +42,17 @@ describe("memory_audit sink", () => {
     expect(sum.byType.user).toMatchObject({ total: 2, merged: 1 });
     expect(sum.distill).toMatchObject({ extracted: 5, added: 3, updated: 2 });
     expect(formatMemoryReport(sum)).toContain("合并");
+  });
+
+  it("reflected 落行 + summarize 汇总(跑/跳/advisory/记忆/节奏)", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mem-a-"));
+    const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);
+    s.reflected({ ran: true, onTrack: true, advisoryInjected: false, memAdded: 1, memMerged: 0, interval: 1 });
+    s.reflected({ ran: false, onTrack: true, advisoryInjected: false, memAdded: 0, memMerged: 0, interval: 2 });
+    s.reflected({ ran: true, onTrack: false, advisoryInjected: true, memAdded: 0, memMerged: 1, interval: 1 });
+    const sum = summarizeReflectTrace(read(dir));
+    expect(sum).toMatchObject({ rounds: 3, ran: 2, advisories: 1, memAdded: 1, memMerged: 1, lastInterval: 1 });
+    expect(formatReflectReport(sum)).toContain("反思器");
+    expect(formatReflectReport(sum)).toContain("跳过 1");
   });
 });
