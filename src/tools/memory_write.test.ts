@@ -48,12 +48,19 @@ describe("memory_write tool", () => {
     expect(raw).toMatch(/sourceHash: [0-9a-f]{16}/);
   });
 
-  it("updates a near-duplicate instead of adding", async () => {
-    await memoryWriteTool.handler({ text: "项目用 pnpm 安装依赖" }, ctx());
-    const out = await memoryWriteTool.handler({ text: "项目用 pnpm 安装依赖包" }, ctx());
+  it("同 title → 精确键覆盖更新(不新增)", async () => {
+    await memoryWriteTool.handler({ title: "包管理器", text: "项目用 pnpm 安装依赖" }, ctx());
+    const out = await memoryWriteTool.handler({ title: "包管理器", text: "项目用 pnpm 安装依赖包" }, ctx());
     expect(out).toContain("已更新");
     const files = (await fs.readdir(memDir())).filter((f) => f.endsWith(".md"));
     expect(files.length).toBe(1);
+  });
+
+  it("不同 title(正文相近)→ 新增(语义合并交反思器,store 不模糊)", async () => {
+    await memoryWriteTool.handler({ title: "包管理器 A", text: "项目用 pnpm 安装依赖" }, ctx());
+    const out = await memoryWriteTool.handler({ title: "包管理器 B", text: "项目用 pnpm 安装依赖包" }, ctx());
+    expect(out).toContain("已记住");
+    expect((await fs.readdir(memDir())).filter((f) => f.endsWith(".md")).length).toBe(2);
   });
 
   it("declares plan capability and auto approval", () => {

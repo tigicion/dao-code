@@ -14,14 +14,10 @@ export function routeScope(type: MemoryType): Scope {
 }
 import { parseMemoryFile, serializeMemory } from "./frontmatter.js";
 
-import { textSimilarity } from "../text/similarity.js";
-export { textSimilarity }; // 对外导出(memory_read 的关键词匹配从 store 引用)
-
-// ≥DUP_THRESHOLD:确定性自动合并(无 LLM)。
-// [GRAY_LOW, DUP_THRESHOLD):灰区——只对最相似的那一条喊 flash 裁判判是否同一事实(每候选至多 1 次)。
-// <GRAY_LOW:确定性判为新(不喊 LLM,省钱)。0.2 floor 让无关项(只共享"用户"之类)被跳过。
-export const DUP_THRESHOLD = 0.9;
-export const GRAY_LOW = 0.2;
+// 文件名/ id 派生:title(或退化用 text)→ slug。记忆去重与 memory_write 共用。
+export function slug(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";
+}
 
 async function readDir(dir: string): Promise<Memory[]> {
   let names: string[]; try { names = await fs.readdir(dir); } catch { return []; }
@@ -47,29 +43,25 @@ export async function writeMemory(dir: string, m: Memory): Promise<void> {
   await fs.writeFile(path.join(dir, `${m.name}.md`), serializeMemory(m), "utf8");
 }
 
-// 相似度分带去重:≥DUP_THRESHOLD 确定性合并;灰区交 adjudicate(flash 裁判,可选)判;否则写新文件。
-// adjudicate 仅对最相似的那一条、且相似度落在 [GRAY_LOW, DUP_THRESHOLD) 时被调用(每次 upsert 至多 1 次)。
+// 精确键去重:name(=slug(title))即唯一键,同名即同一条 → 覆盖更新(text/title 取新、importance 取大、uses+1)。
+// 不再做字符相似度模糊匹配;【语义合并】(相关但不同名)交反思器的 mergeInto 处理。
 export async function upsertMemory(
   dir: string,
   cand: Memory,
   existing: Memory[],
-  adjudicate?: (cand: Memory, existing: Memory) => Promise<boolean>,
 ): Promise<{ action: "added" | "updated"; name: string }> {
-  let best: Memory | undefined; let bestS = 0;
-  for (const m of existing) {
-    if (m.type !== cand.type) continue;
-    const s = textSimilarity(m.text, cand.text);
-    if (s > bestS) { bestS = s; best = m; }
-  }
-  if (best && !best.locked) {
-    const isDup =
-      bestS >= DUP_THRESHOLD ||
-      (bestS >= GRAY_LOW && !!adjudicate && (await adjudicate(cand, best)));
-    if (isDup) {
-      const updated: Memory = { ...best, text: cand.text, lastUsed: cand.lastUsed, importance: Math.max(best.importance, cand.importance), uses: (best.uses ?? 0) + 1 };
-      await writeMemory(dir, updated);
-      return { action: "updated", name: best.name };
-    }
+  const match = existing.find((m) => m.name === cand.name && !m.locked);
+  if (match) {
+    const updated: Memory = {
+      ...match,
+      ...(cand.title ? { title: cand.title } : {}),
+      text: cand.text,
+      lastUsed: cand.lastUsed,
+      importance: Math.max(match.importance, cand.importance),
+      uses: (match.uses ?? 0) + 1,
+    };
+    await writeMemory(dir, updated);
+    return { action: "updated", name: match.name };
   }
   await writeMemory(dir, cand);
   return { action: "added", name: cand.name };

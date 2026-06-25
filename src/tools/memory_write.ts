@@ -3,7 +3,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { loadAllMemories, upsertMemory, routeScope } from "../memory/store.js";
+import { loadAllMemories, upsertMemory, routeScope, slug } from "../memory/store.js";
 import { newMemory } from "../memory/types.js";
 import { contentHash } from "../memory/hash.js";
 import { findSecrets } from "../permissions/secrets.js";
@@ -13,10 +13,6 @@ const memDir = (scope: "project" | "user" | "knowledge", ws: string, home?: stri
   if (scope === "knowledge") return path.join(home ?? os.homedir(), ".dao", "knowledge");
   return path.join(scope === "user" ? home ?? os.homedir() : ws, ".dao", "memory");
 };
-
-function slug(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";
-}
 
 // 串行锁:并发 memory_write 的"读全部→合并→写回"必须串行,否则后写覆盖先写丢记忆。
 let memLock: Promise<unknown> = Promise.resolve();
@@ -33,7 +29,8 @@ export const memoryWriteTool = defineTool({
   capability: "plan",
   approval: "auto",
   schema: z.object({
-    text: z.string().min(1).describe("要记住的事实(一句话)"),
+    text: z.string().min(1).describe("要记住的事实(完整一句;feedback 带'为什么/怎么用')"),
+    title: z.string().optional().describe("≤1 行概要(索引展示 + 文件名);不填则用 text 派生"),
     type: z.enum(["user", "feedback", "semantic", "procedural", "episodic"]).optional().describe("user=用户模型,feedback=用户对工作方式的指导(默认 semantic)"),
     importance: z.number().int().min(1).max(10).optional().describe("1–10 重要度,默认 5"),
     confidence: z.number().min(0).max(1).optional().describe("用户模型/推断类填,0–1"),
@@ -57,7 +54,7 @@ export const memoryWriteTool = defineTool({
       } catch { /* 读不到就只记 source、不记 hash */ }
     }
     const cand = newMemory({
-      name: slug(args.text), text: args.text, type: args.type ?? "semantic", today,
+      name: slug(args.title || args.text), title: args.title, text: args.text, type: args.type ?? "semantic", today,
       importance: args.importance, confidence: args.confidence, source: args.source, sourceHash,
     });
     const r = await withMemLock(async () => {

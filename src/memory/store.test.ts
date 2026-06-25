@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy, textSimilarity, GRAY_LOW, DUP_THRESHOLD, routeScope } from "./store.js";
+import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy, routeScope, slug } from "./store.js";
 import { newMemory } from "./types.js";
 
 describe("routeScope — 作用域驱动(与 confidence 无关)", () => {
@@ -13,65 +13,67 @@ describe("routeScope — 作用域驱动(与 confidence 无关)", () => {
     expect(routeScope("semantic")).toBe("project");
     expect(routeScope("episodic")).toBe("project");
   });
-  // confidence 不再影响层级(低信心保护改由 GC 的 provisional 耐久门负责)。
+});
+
+describe("slug", () => {
+  it("小写、非字母数字转连字符、截断 40", () => {
+    expect(slug("Hello World!")).toBe("hello-world");
+    expect(slug("提交不加 AI 署名")).toBe("提交不加-ai-署名");
+    expect(slug("")).toBe("mem");
+  });
 });
 
 const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "memstore-"));
 
-describe("store md dir", () => {
-  it("upsert dedups near-duplicates, updates existing", async () => {
+describe("upsertMemory — 精确键(name)去重", () => {
+  it("同 name → 覆盖更新(不新增、uses+1、importance 取大)", async () => {
     const d = await tmp();
-    await upsertMemory(d, newMemory({ name: "pnpm", text: "项目用 pnpm 安装依赖", type: "procedural", today: "2026-06-07" }), []);
+    await upsertMemory(d, newMemory({ name: "pnpm", text: "项目用 pnpm", type: "procedural", today: "2026-06-07", importance: 5 }), []);
     const all1 = await loadAllMemories(d, d + "-none");
-    const r = await upsertMemory(d, newMemory({ name: "pnpm2", text: "项目用 pnpm 安装依赖包", type: "procedural", today: "2026-06-08" }), all1);
+    const r = await upsertMemory(d, newMemory({ name: "pnpm", text: "项目用 pnpm 安装依赖", type: "procedural", today: "2026-06-08", importance: 8 }), all1);
     expect(r.action).toBe("updated");
     const all2 = await loadAllMemories(d, d + "-none");
-    expect(all2.length).toBe(1); // 没新增第二条
+    expect(all2.length).toBe(1);
+    expect(all2[0]!.text).toBe("项目用 pnpm 安装依赖");
+    expect(all2[0]!.importance).toBe(8);
+    expect(all2[0]!.uses).toBe(1);
   });
+
+  it("不同 name(哪怕正文相近)→ 新增(语义合并交反思器,store 不模糊)", async () => {
+    const d = await tmp();
+    await upsertMemory(d, newMemory({ name: "a", text: "用户用 pnpm 管理依赖", type: "user", today: "2026-06-07" }), []);
+    const r = await upsertMemory(d, newMemory({ name: "b", text: "用户用 pnpm 作为包管理器", type: "user", today: "2026-06-08" }), await loadAllMemories(d, d + "-x"));
+    expect(r.action).toBe("added");
+    expect((await loadAllMemories(d, d + "-x")).length).toBe(2);
+  });
+
+  it("locked 的同名不被覆盖 → 新增", async () => {
+    const d = await tmp();
+    const locked = { ...newMemory({ name: "x", text: "旧", type: "user", today: "2026-06-07" }), locked: true };
+    await upsertMemory(d, locked, []);
+    const r = await upsertMemory(d, newMemory({ name: "x", text: "新", type: "user", today: "2026-06-08" }), await loadAllMemories(d, d + "-x"));
+    expect(r.action).toBe("added");
+  });
+
+  it("title 随更新带过去", async () => {
+    const d = await tmp();
+    await upsertMemory(d, newMemory({ name: "t", title: "旧标题", text: "x", type: "semantic", today: "2026-06-07" }), []);
+    await upsertMemory(d, newMemory({ name: "t", title: "新标题", text: "y", type: "semantic", today: "2026-06-08" }), await loadAllMemories(d, d + "-x"));
+    expect((await loadAllMemories(d, d + "-x"))[0]!.title).toBe("新标题");
+  });
+});
+
+describe("store md dir 其它", () => {
   it("supersede keeps old file but load skips it", async () => {
     const d = await tmp();
     await upsertMemory(d, newMemory({ name: "api", text: "API 用 v1", type: "semantic", today: "2026-06-07" }), []);
     await upsertMemory(d, newMemory({ name: "api-v2", text: "API 用 v2", type: "semantic", today: "2026-06-08" }), []);
     await supersedeMemory(d, "api", "api-v2", "2026-06-08");
     const all = await loadAllMemories(d, d + "-none");
-    expect(all.map((m) => m.name)).toEqual(["api-v2"]); // 旧的被跳过
-    expect(await fs.readFile(path.join(d, "api.md"), "utf8")).toMatch(/status: superseded/); // 但文件还在
+    expect(all.map((m) => m.name)).toEqual(["api-v2"]);
+    expect(await fs.readFile(path.join(d, "api.md"), "utf8")).toMatch(/status: superseded/);
   });
-  // 改写式近重复:字符相似度落在灰区,交裁判判合并。
-  const A = "用户在 macOS 上使用 pnpm 管理依赖";
-  const B = "用户用 pnpm 作为包管理器";
-  it("paraphrase pair lands in the gray band (not auto-merged, not auto-new)", () => {
-    const s = textSimilarity(A, B);
-    expect(s).toBeGreaterThanOrEqual(GRAY_LOW);
-    expect(s).toBeLessThan(DUP_THRESHOLD);
-  });
-  it("gray-band + adjudicate=yes → merges (no new file)", async () => {
-    const d = await tmp();
-    await upsertMemory(d, newMemory({ name: "a", text: A, type: "user", today: "2026-06-07" }), []);
-    let calls = 0;
-    const r = await upsertMemory(d, newMemory({ name: "b", text: B, type: "user", today: "2026-06-08" }),
-      await loadAllMemories(d, d + "-x"), async () => { calls++; return true; });
-    expect(calls).toBe(1);
-    expect(r.action).toBe("updated");
-    expect((await loadAllMemories(d, d + "-x")).length).toBe(1);
-  });
-  it("gray-band + adjudicate=no → new file", async () => {
-    const d = await tmp();
-    await upsertMemory(d, newMemory({ name: "a", text: A, type: "user", today: "2026-06-07" }), []);
-    const r = await upsertMemory(d, newMemory({ name: "b", text: B, type: "user", today: "2026-06-08" }),
-      await loadAllMemories(d, d + "-x"), async () => false);
-    expect(r.action).toBe("added");
-    expect((await loadAllMemories(d, d + "-x")).length).toBe(2);
-  });
-  it("below GRAY_LOW → new without ever calling adjudicate", async () => {
-    const d = await tmp();
-    await upsertMemory(d, newMemory({ name: "a", text: "用户喜欢养猫", type: "user", today: "2026-06-07" }), []);
-    let called = false;
-    const r = await upsertMemory(d, newMemory({ name: "b", text: "项目部署在 AWS 东京区", type: "user", today: "2026-06-08" }),
-      await loadAllMemories(d, d + "-x"), async () => { called = true; return true; });
-    expect(called).toBe(false);
-    expect(r.action).toBe("added");
-  });
+
   it("migrates legacy memories.json", async () => {
     const d = await tmp();
     await fs.writeFile(path.join(d, "memories.json"), JSON.stringify([{ text: "偏好 TypeScript" }]));

@@ -74,7 +74,6 @@ import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js"
 import { createReplyChallenge } from "./agent/reply_challenge.js";
 import { gcMemories } from "./memory/gc.js";
 import { distill } from "./memory/distill.js";
-import { makeFlashAdjudicator } from "./memory/adjudicate.js";
 import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
@@ -1033,15 +1032,14 @@ async function main() {
           cacheSink.record({ agent: "distill", depth: 0, turn: 0, model: distillModel, usage: u as never, sys: sysRaw, tools: JSON.stringify(distillTools ?? []), tail: "", msgs: JSON.stringify(distillMsgs) });
         },
       });
-      // 灰区(字符相似度抓不住的改写式近重复)交 flash 裁判判是否合并。
-      const adjudicate = makeFlashAdjudicator(streamChat, { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey });
+      // 精确键去重(slug(title));语义合并由反思器 mergeInto 承担,此处不再喊裁判。
+      // existing 循环外读一次(原每候选重读全盘,§3b 顺手修)。
       let added = 0, updated = 0;
+      const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
       for (const cand of cands) {
-        const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
-        // 本地优先路由:没把握的推断(confidence<0.6)落项目级不污染全局;否则按类型进对应层。
         const scope = routeScope(cand.type);
         const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
-        const res = await upsertMemory(dir, cand, existing, adjudicate);
+        const res = await upsertMemory(dir, cand, existing);
         if (res.action === "updated") updated++; else added++;
       }
       memoryAudit.distilled(cands.length, added, updated);

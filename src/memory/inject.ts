@@ -57,7 +57,8 @@ export function selectFullText(
   return [...high, ...topRest];
 }
 
-// 全文集之外的 live 记忆名(按留存排序,封顶);长尾的可发现性靠这层 + memory_read。
+// 全文集之外的 live 记忆【标题】(按留存排序,封顶);长尾可发现性靠这层 + memory_read。
+// 用 title 作概要(无 title 的旧记忆退化用 name)——比截断 slug 更达意。
 export function selectIndexNames(
   items: { mem: Memory; verdict: Verdict }[],
   today: string,
@@ -69,11 +70,11 @@ export function selectIndexNames(
   return [...live]
     .sort((a, b) => retentionScore(b.mem, today) - retentionScore(a.mem, today))
     .slice(0, indexCap)
-    .map((x) => x.mem.name);
+    .map((x) => x.mem.title || x.mem.name);
 }
 
-// 索引段:只列 slug 名 + 用法提示。空则不注入。
+// 索引段:只列 title + 用法提示。空则不注入。
 export function buildIndexSection(names: string[]): string {
   if (names.length === 0) return "";
-  return `\n\n[记忆索引 · 其余 ${names.length} 条(名字即概要;需要整句细节用 memory_read 读)]\n${names.map((n) => `- ${n}`).join("\n")}`;
+  return `\n\n[记忆索引 · 其余 ${names.length} 条(标题即概要;需要整句细节用 memory_read 读)]\n${names.map((n) => `- ${n}`).join("\n")}`;
 }
