@@ -49,6 +49,8 @@ export interface TurnDeps {
   drainAdvisories?: () => string[];
   // L2.2 反应式压缩:streamChat 报"上下文超限"时调用它压缩后重试本轮(估算阈值之外的安全网)。
   compact?: () => Promise<void>;
+  // §4 轮内主动压缩:每个工具轮前若返回 true 则先 compact()——防长回合中途撞上限(粒度到工具轮)。
+  shouldCompact?: () => boolean;
   // L1.3 模型回退:主模型持续过载/异常时,本回合临时改用此模型跑完(如 flash)。省略=不回退。
   fallbackModel?: string;
   // P2-11 编辑后诊断:本轮有写/改文件时调用,返回非空则作为 [诊断] 系统消息回灌给模型自查自改。
@@ -157,6 +159,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     if (session.overBudget()) {
       if (!budgetWarned) { budgetWarned = true; events.notice(`\n[成本提醒] 本会话累计约 ¥${session.costCNY().toFixed(2)},已超阈值 ¥${session.budgetCNY}。\n`); }
       if (process.env.DAO_MAX_BUDGET_HARD === "1") { events.notice(`[已达硬预算上限,停止]\n`); return; }
+    }
+    // §4 轮内主动压缩:长回合中途逼近上限 → 先压再进下一轮(粒度到工具轮,不等回合末)。
+    // t>0:首轮的入口大小已由回合间压缩兜过,只处理本回合内增长。
+    if (t > 0 && deps.compact && deps.shouldCompact?.()) {
+      events.notice("\n[轮内接近上限,自动压缩…]\n");
+      await deps.compact();
     }
     // SendMessage:回合边界消费父代理追加的指令(注入为 user 消息)。
     if (deps.drainPending) {

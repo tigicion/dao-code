@@ -100,6 +100,48 @@ describe("runTurn", () => {
   });
 
 
+  it("§4 轮内主动压缩:shouldCompact=true 时在工具轮之间调 compact(不等回合末)", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const assistantWithTool: AssistantMessage = {
+      role: "assistant", content: null,
+      tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+    };
+    const calls = scripted([
+      turn([], assistantWithTool), // 第0轮:调工具
+      turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }), // 第1轮:收尾
+    ]);
+    let compactCalls = 0;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => calls()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "R" }],
+      write: () => {},
+      compact: async () => { compactCalls++; },
+      shouldCompact: () => true, // 始终判"接近上限"
+    });
+    expect(compactCalls).toBe(1); // 第1轮前压一次(t>0),第0轮不压
+  });
+
+  it("§4 轮内压缩:shouldCompact=false 时不压", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const calls = scripted([
+      turn([], { role: "assistant", content: null, tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }] }),
+      turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
+    ]);
+    let compactCalls = 0;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => calls()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "R" }],
+      write: () => {},
+      compact: async () => { compactCalls++; },
+      shouldCompact: () => false,
+    });
+    expect(compactCalls).toBe(0);
+  });
+
   it("进度提醒【append】进 session(append-only,缓存安全),而非每轮拼到请求尾部", async () => {
     const s = new Session("SYS", "m");
     s.addUser("go");

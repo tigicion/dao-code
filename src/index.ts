@@ -970,6 +970,7 @@ async function main() {
       executeToolCalls,
       write,
       compact: runCompaction, // L2.2 反应式压缩
+      shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: argvPrompt ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思
@@ -1210,6 +1211,7 @@ async function main() {
             executeToolCalls,
             write: () => {},
             compact: inkCompact, // L2.2 反应式压缩
+            shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect, // 轮内卡住检测(assessTurn→挑战者)
