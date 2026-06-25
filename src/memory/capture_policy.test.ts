@@ -72,7 +72,8 @@ describe("turnHadVerifyPass", () => {
 
 describe("looksLikeCorrection", () => {
   it("中文纠正/强调 → true", () => {
-    for (const t of ["不对,应该用 X", "别再加 emoji", "我说过要中文", "以后一律先读再写", "记住:提交不加署名"]) {
+    for (const t of ["不对,应该用 X", "别再加 emoji", "我说过要中文", "以后一律先读再写", "记住:提交不加署名",
+      "后面思考都要用中文", "后面回答也总是用中文"]) {
       expect(looksLikeCorrection(t)).toBe(true);
     }
   });

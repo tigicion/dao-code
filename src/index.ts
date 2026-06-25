@@ -1054,7 +1054,9 @@ async function main() {
     }
   };
   // 触发阈值:自上次蒸以来新增对话 token ≥ 此值即捕获(锚"一块真实新工作量",非压缩阈值;可调)。
-  const DISTILL_TOKENS = Number(process.env.DAO_DISTILL_TOKENS) || 15000;
+  // 默认 8000:fork 蒸馏复用主前缀缓存(实测命中 ~95%、近乎免费),故偏向更勤地落记忆、少丢material;
+  // 太低会每轮都蒸(噪音+成本),DAO_DISTILL_TOKENS 可按需调。
+  const DISTILL_TOKENS = Number(process.env.DAO_DISTILL_TOKENS) || 8000;
 
   // 反思层 fork:同模型(命中主对话热缓存)对进展做精简复核,返回结论(由 loop 作 advisory 注入参考)。
   // DAO_REFLECT=0 关闭。失败静默返回 null,绝不影响主流程。

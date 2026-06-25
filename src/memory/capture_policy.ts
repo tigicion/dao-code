@@ -51,8 +51,8 @@ export function turnHadVerifyPass(turnMessages: { role: string; content: string 
 // 故词表可放宽;但避开过泛的单字(又/还/no…)以免几乎每轮都触发、白费 token。
 const CORRECTION_CUES_CN = [
   "不对", "不是", "别这", "别再", "不要", "不应", "不该", "错了", "搞错", "弄错",
-  "我说过", "说过了", "跟你说", "记住", "务必", "一律", "以后", "每次", "永远", "总是",
-  "强调", "重申", "重来", "不能这",
+  "我说过", "说过了", "跟你说", "记住", "务必", "一律", "以后", "后面", "每次", "永远", "总是",
+  "都要", "都用", "都得", "强调", "重申", "重来", "不能这",
 ];
 const CORRECTION_CUES_EN =
   /\b(don'?t|do not|should(n'?t)?|instead|stop|wrong|always|never|again|remember)\b/i;
