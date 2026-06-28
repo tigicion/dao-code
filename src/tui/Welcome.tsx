@@ -8,6 +8,7 @@ import { WORDMARK } from "./banner.js";
 import { renderTaiji } from "./taiji.js";
 import { gradientBlock, semHex } from "./theme.js";
 import { randomTip } from "./tips.js";
+import { t } from "../i18n/i18n.js";
 
 // 长路径缩短:超过 3 段时取末 3 段并加 …/ 前缀。
 function shortenPath(p: string): string {
@@ -101,13 +102,13 @@ export function Welcome({
       <Box marginTop={1} flexDirection={narrow ? "column" : "row"}>
         <Box flexDirection="column" flexGrow={1}>
           <Text>
-            <Text color={c("dim")}>模型 </Text>
+            <Text color={c("dim")}>{t("welcome.model")}</Text>
             <Text color={c("ink")}>
-              {info.model} · {info.thinking} · 1M 上下文
+              {info.model} · {info.thinking} · {t("welcome.ctx")}
             </Text>
           </Text>
           <Text>
-            <Text color={c("dim")}>目录 </Text>
+            <Text color={c("dim")}>{t("welcome.dir")}</Text>
             <Text color={c("ink")}>{shortenPath(info.cwd)}</Text>
             {info.branch ? <Text color={c("jade")}>{"  ⎇ "}{info.branch}</Text> : null}
           </Text>
@@ -125,9 +126,9 @@ export function Welcome({
         )}
 
         <Box flexDirection="column" flexGrow={1} marginTop={narrow ? 1 : 0}>
-          <Text color={c("dim")}>快速开始</Text>
-          <Text color={c("dim")}>输入消息开始 · /help 命令 · @ 引用文件 · Esc 打断</Text>
-          <Text color={c("jade")}>试试 · {tip}</Text>
+          <Text color={c("dim")}>{t("welcome.quickstart")}</Text>
+          <Text color={c("dim")}>{t("welcome.hint")}</Text>
+          <Text color={c("jade")}>{t("welcome.try")}{tip}</Text>
         </Box>
       </Box>
     </Box>
