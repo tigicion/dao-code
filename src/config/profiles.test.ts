@@ -77,3 +77,12 @@ describe("resolveActive", () => {
     expect(resolveActive(empty, {})).toBeNull();
   });
 });
+
+describe("DEFAULTS.volcengine", () => {
+  it("points at the coding-plan base url with deepseek-v4-pro as default model", () => {
+    expect(DEFAULTS.volcengine).toEqual({
+      baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
+      model: "deepseek-v4-pro",
+    });
+  });
+});

@@ -2,7 +2,7 @@
 // 多 key 切换 = 切 profile;多 provider = profile 带不同 provider;未来订阅 = 另一种凭证类型。
 // 不引入"用户(user)"概念——DAO 是本地 CLI,DeepSeek 无账号体系,user 等于给不存在的登录服务器建模。
 
-export type Provider = "deepseek" | "anthropic" | "openai";
+export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine";
 
 export interface Profile {
   provider: Provider;
@@ -21,6 +21,7 @@ export interface ProfilesConfig {
 
 export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   deepseek: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro" },
+  volcengine: { baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", model: "deepseek-v4-pro" },
   anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-4-8" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
 };
