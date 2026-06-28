@@ -2,6 +2,7 @@ export const en: Record<string, string> = {
   "onboard.welcome": "Welcome to DAO CODE. Two quick setup steps.",
   "onboard.step1": "[1/2] DeepSeek API key",
   "onboard.done": "✓ Setup complete. Let's go.",
+  "onboard.abortNoKey": "No key configured; exiting.",
   "key.help": "Get a key: https://platform.deepseek.com/api_keys",
   "key.missing.title": "No DeepSeek API key found. Set one up via any of:",
   "key.missing.env": "  • Env var: export DEEPSEEK_API_KEY=sk-...",

@@ -2,6 +2,7 @@ export const zh: Record<string, string> = {
   "onboard.welcome": "欢迎使用 DAO CODE。先完成两步设置。",
   "onboard.step1": "[1/2] DeepSeek API key",
   "onboard.done": "✓ 设置完成,开始吧。",
+  "onboard.abortNoKey": "未配置 key,已退出。",
   "key.help": "获取 key:https://platform.deepseek.com/api_keys",
   "key.missing.title": "未找到 DeepSeek API key。请用以下任一方式设置:",
   "key.missing.env": "  • 环境变量:export DEEPSEEK_API_KEY=sk-...",

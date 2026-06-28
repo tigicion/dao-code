@@ -1,7 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { runKeyWizard } from "./auth_wizard.js";
 import { DEFAULTS, type ProfilesConfig } from "./profiles.js";
 import { setLang } from "../i18n/i18n.js";
+
+// lang 是模块级全局;每个用例后复位到默认 en,防 setLang("zh") 泄漏到后续用例。
+afterEach(() => setLang("en"));
 
 function fakeKeychain() {
   const store = new Map<string, string>();

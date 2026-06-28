@@ -277,7 +277,7 @@ async function main() {
         preferKeychain: keychainAvailable(),
       });
       if (!wiz) {
-        write("未配置 key,已退出。\n");
+        write(`${t("onboard.abortNoKey")}\n`);
         closeRl();
         process.exit(1);
       }
