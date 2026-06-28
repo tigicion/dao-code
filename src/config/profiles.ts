@@ -78,6 +78,15 @@ export function resolveActive(
       source: "env:DEEPSEEK_API_KEY",
     };
   }
+  if (env.ARK_API_KEY) {
+    return {
+      key: env.ARK_API_KEY,
+      provider: "volcengine",
+      baseUrl: env.ARK_BASE_URL ?? DEFAULTS.volcengine.baseUrl,
+      model: env.ARK_MODEL ?? DEFAULTS.volcengine.model,
+      source: "env:ARK_API_KEY",
+    };
+  }
   const p = cfg.profiles[cfg.activeProfile];
   if (p && p.key) {
     return {

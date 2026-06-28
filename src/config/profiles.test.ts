@@ -76,6 +76,27 @@ describe("resolveActive", () => {
     const empty = { version: 2 as const, activeProfile: "default", profiles: {} };
     expect(resolveActive(empty, {})).toBeNull();
   });
+
+  it("resolves an ARK_API_KEY env override to the volcengine coding-plan provider", () => {
+    const r = resolveActive(cfg, { ARK_API_KEY: "ark-xyz" });
+    expect(r).toEqual({
+      key: "ark-xyz",
+      provider: "volcengine",
+      baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
+      model: "deepseek-v4-pro",
+      source: "env:ARK_API_KEY",
+    });
+  });
+
+  it("lets ARK_BASE_URL / ARK_MODEL override the volcengine defaults", () => {
+    const r = resolveActive(cfg, { ARK_API_KEY: "ark-xyz", ARK_MODEL: "deepseek-v4-flash" });
+    expect(r?.model).toBe("deepseek-v4-flash");
+  });
+
+  it("prefers DEEPSEEK_API_KEY over ARK_API_KEY when both are set", () => {
+    const r = resolveActive(cfg, { DEEPSEEK_API_KEY: "sk-d", ARK_API_KEY: "ark-x" });
+    expect(r?.source).toBe("env:DEEPSEEK_API_KEY");
+  });
 });
 
 describe("DEFAULTS.volcengine", () => {
