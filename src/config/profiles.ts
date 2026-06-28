@@ -60,7 +60,7 @@ export interface ResolvedCredential {
   provider: Provider;
   baseUrl: string;
   model: string;
-  source: string; // "env:DEEPSEEK_API_KEY" | "profile:<name>"
+  source: string; // "env:DEEPSEEK_API_KEY" | "env:ARK_API_KEY" | "profile:<name>"
 }
 
 // 解析当前生效凭证:env DEEPSEEK_API_KEY 临时覆盖(合成 env 源)> 激活 profile 的 key。
