@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runKeyWizard } from "./auth_wizard.js";
 import { DEFAULTS, type ProfilesConfig } from "./profiles.js";
+import { setLang } from "../i18n/i18n.js";
 
 function fakeKeychain() {
   const store = new Map<string, string>();
@@ -50,6 +51,7 @@ describe("runKeyWizard", () => {
   });
 
   it("re-prompts after an invalid key, then succeeds", async () => {
+    setLang("zh");
     const h = harness(["sk-bad", "sk-good"]);
     let calls = 0;
     const r = await runKeyWizard({
