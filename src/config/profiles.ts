@@ -2,7 +2,7 @@
 // 多 key 切换 = 切 profile;多 provider = profile 带不同 provider;未来订阅 = 另一种凭证类型。
 // 不引入"用户(user)"概念——DAO 是本地 CLI,DeepSeek 无账号体系,user 等于给不存在的登录服务器建模。
 
-export type Provider = "deepseek" | "anthropic" | "openai";
+export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine";
 
 export interface Profile {
   provider: Provider;
@@ -21,6 +21,7 @@ export interface ProfilesConfig {
 
 export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   deepseek: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro" },
+  volcengine: { baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", model: "deepseek-v4-pro" },
   anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-4-8" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
 };
@@ -59,7 +60,7 @@ export interface ResolvedCredential {
   provider: Provider;
   baseUrl: string;
   model: string;
-  source: string; // "env:DEEPSEEK_API_KEY" | "profile:<name>"
+  source: string; // "env:DEEPSEEK_API_KEY" | "env:ARK_API_KEY" | "profile:<name>"
 }
 
 // 解析当前生效凭证:env DEEPSEEK_API_KEY 临时覆盖(合成 env 源)> 激活 profile 的 key。
@@ -75,6 +76,15 @@ export function resolveActive(
       baseUrl: env.DEEPSEEK_BASE_URL ?? DEFAULTS.deepseek.baseUrl,
       model: env.DEEPSEEK_MODEL ?? DEFAULTS.deepseek.model,
       source: "env:DEEPSEEK_API_KEY",
+    };
+  }
+  if (env.ARK_API_KEY) {
+    return {
+      key: env.ARK_API_KEY,
+      provider: "volcengine",
+      baseUrl: env.ARK_BASE_URL ?? DEFAULTS.volcengine.baseUrl,
+      model: env.ARK_MODEL ?? DEFAULTS.volcengine.model,
+      source: "env:ARK_API_KEY",
     };
   }
   const p = cfg.profiles[cfg.activeProfile];

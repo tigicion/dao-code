@@ -38,3 +38,36 @@ describe("validateCredential", () => {
     expect(r).toEqual({ ok: false, reason: "http", status: 500 });
   });
 });
+
+describe("validateCredential · volcengine probe", () => {
+  const ark = { baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", key: "ark-x", provider: "volcengine" as const };
+
+  it("probes chat/completions with a tiny POST for volcengine", async () => {
+    let seenUrl = ""; let seenMethod = "";
+    const fakeFetch = async (url: string, init?: { method?: string }) => {
+      seenUrl = url; seenMethod = init?.method ?? "GET";
+      return { ok: true, status: 200 } as Response;
+    };
+    const r = await validateCredential(ark, fakeFetch as unknown as typeof fetch);
+    expect(r.ok).toBe(true);
+    expect(seenUrl).toBe("https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions");
+    expect(seenMethod).toBe("POST");
+  });
+
+  it("reports invalid on 401 for volcengine", async () => {
+    const fakeFetch = async () => ({ ok: false, status: 401 } as Response);
+    expect(await validateCredential(ark, fakeFetch as unknown as typeof fetch)).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("reports unreachable when the volcengine probe throws", async () => {
+    const fakeFetch = async () => { throw new Error("ENOTFOUND"); };
+    expect(await validateCredential(ark, fakeFetch as unknown as typeof fetch)).toEqual({ ok: false, reason: "unreachable" });
+  });
+
+  it("still uses /models for deepseek (no provider given)", async () => {
+    let seenUrl = "";
+    const fakeFetch = async (url: string) => { seenUrl = url; return { ok: true, status: 200 } as Response; };
+    await validateCredential({ baseUrl: "https://api.deepseek.com", key: "sk-x" }, fakeFetch as unknown as typeof fetch);
+    expect(seenUrl).toBe("https://api.deepseek.com/models");
+  });
+});
