@@ -4,7 +4,7 @@ import { highlight } from "cli-highlight";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
-import { TIPS } from "../tips.js";
+import { tips } from "../../i18n/i18n.js";
 import { daoVerb, DAO_VERBS } from "../spinner_words.js";
 import { clampLines, parseTodoResult } from "./format.js";
 import type { TurnEvents } from "../render.js";
@@ -1009,7 +1009,7 @@ export function App(deps: AppDeps) {
               ? "运行中——可继续输入,回车排队执行"
               : input
                 ? ""
-                : TIPS[Math.floor(tick / 110) % TIPS.length]}
+                : tips()[Math.floor(tick / 110) % tips().length]}
           </Text>
         </Box>
       )}

@@ -41,6 +41,7 @@ import { memoryWriteTool } from "./tools/memory_write.js";
 import { memoryReadTool } from "./tools/memory_read.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
+import { resolveLang, setLang, t, readUserLang } from "./i18n/i18n.js";
 import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
 import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
@@ -118,9 +119,6 @@ function transcriptFromMessages(messages: ChatMessage[]): TranscriptItem[] {
   }
   return out;
 }
-
-const KEY_HELP =
-  "获取 key:https://platform.deepseek.com/api_keys";
 
 async function main() {
   // 退出/中断时清理所有后台进程,避免孤儿(长任务里模型常起 dev server/watch)。
@@ -252,6 +250,8 @@ async function main() {
     return line ?? "";
   };
 
+  setLang(resolveLang(process.env, await readUserLang()));
+
   // ---- 解析当前生效凭证:env 覆盖 > 激活 profile(钥匙串/文件)> 首次运行引导 ----
   // profile = { provider + 凭证 + baseUrl + 默认 model };多 key 切换 = 切 profile,多 provider 同构。
   const dotenv = await loadDotenv(path.join(workspaceRoot, ".env"));
@@ -264,7 +264,7 @@ async function main() {
   if (!resolved) {
     if (process.stdin.isTTY) {
       // 真终端:引导粘贴 → 落盘前校验 → 钥匙串/文件存储 → 标记 onboarding 完成
-      write(`\n欢迎使用 DAO CODE。先完成两步设置。\n\n[1/2] DeepSeek API key\n${KEY_HELP}\n`);
+      write(`\n${t("onboard.welcome")}\n\n${t("onboard.step1")}\n${t("key.help")}\n`);
       const meta = { provider: "deepseek" as const, ...DEFAULTS.deepseek };
       const wiz = await runKeyWizard({
         cfg: profilesCfg,
@@ -277,7 +277,7 @@ async function main() {
         preferKeychain: keychainAvailable(),
       });
       if (!wiz) {
-        write("未配置 key,已退出。\n");
+        write(`${t("onboard.abortNoKey")}\n`);
         closeRl();
         process.exit(1);
       }
@@ -289,11 +289,11 @@ async function main() {
       // 非交互(管道/CI):无法引导,给出清晰指引后退出
       console.error(
         [
-          "未找到 DeepSeek API key。请用以下任一方式设置:",
-          "  • 环境变量:export DEEPSEEK_API_KEY=sk-...",
-          "  • 项目 .env:在 .env 写一行 DEEPSEEK_API_KEY=sk-...",
-          "  • 在终端直接运行 dao(不接管道),会引导你粘贴并保存 key",
-          KEY_HELP,
+          t("key.missing.title"),
+          t("key.missing.env"),
+          t("key.missing.dotenv"),
+          t("key.missing.tty"),
+          t("key.help"),
         ].join("\n"),
       );
       closeRl();
@@ -305,7 +305,7 @@ async function main() {
   let keySource = resolved.source;
   const cfg = { apiKey: resolved.key, baseUrl: resolved.baseUrl, model: resolved.model };
   // 明确呈现来源,杜绝"env 里有 key 静默覆盖、被偷偷计费"的惊吓(对标 gemini-cli $150 trap)。
-  if (keySource.startsWith("env:")) write(`※ 正在使用来自环境变量 ${keySource.slice(4)} 的 key(覆盖了已存 profile)。\n`);
+  if (keySource.startsWith("env:")) write(`${t("key.envSource", keySource.slice(4))}\n`);
 
   // ---- 目录信任(P2-37):紧接 key 之后,作为首次 onboarding 的第二步(对标 CC 单一连贯流程)----
   // 未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行。必须在加载任何项目级配置之前决定。
@@ -315,20 +315,20 @@ async function main() {
   if (!trustProject) {
     if (process.stdin.isTTY && !argvPrompt) {
       const a = (await ask(
-        `${firstRun ? "\n[2/2] 目录信任\n" : "\n"}⚠ 此文件夹尚未信任:\n  ${workspaceRoot}\ndao 会加载并可能执行它的项目配置(.dao/settings.json 与 hooks.json)。\n是否信任此文件夹?[y/N] `,
+        `${firstRun ? `\n${t("trust.step2")}\n` : "\n"}${t("trust.prompt", workspaceRoot)}`,
       )).trim().toLowerCase();
       if (a === "y" || a === "yes") {
         await addTrusted(workspaceRoot);
         trustProject = true;
-        write(`✓ 已信任此文件夹,加载其项目配置。\n`);
+        write(`${t("trust.trusted")}\n`);
       } else {
-        write(`已继续(未信任):项目级 settings/hooks 不加载。之后可运行 \`dao trust\` 信任。\n`);
+        write(`${t("trust.untrusted")}\n`);
       }
     } else {
-      process.stderr.write(`⚠ 未信任此目录的项目配置(.dao/settings.json 与 hooks.json 未加载)。确认安全后运行 \`dao trust\` 再启动以加载。\n`);
+      process.stderr.write(`${t("trust.nonTty")}\n`);
     }
   }
-  if (firstRun) write(`\n✓ 设置完成,开始吧。\n`);
+  if (firstRun) write(`\n${t("onboard.done")}\n`);
 
   // ---- 账户(profile)操作:供 /account 选择器与 /login /logout 共用(单一实现,UI 只是壳)----
   const listAccounts = () =>

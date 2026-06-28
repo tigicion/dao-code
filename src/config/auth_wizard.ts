@@ -1,12 +1,7 @@
 import { persistKey, type KeychainPort } from "./credential.js";
 import type { Profile, ProfilesConfig, ResolvedCredential } from "./profiles.js";
 import type { ValidateResult } from "./validate_key.js";
-
-const REASON_TEXT: Record<string, string> = {
-  invalid: "key 无效(鉴权被拒)",
-  unreachable: "网络不通,连不上 API",
-  http: "API 返回异常",
-};
+import { t } from "../i18n/i18n.js";
 
 export interface WizardDeps {
   cfg: ProfilesConfig;
@@ -26,19 +21,23 @@ export async function runKeyWizard(
 ): Promise<{ cfg: ProfilesConfig; resolved: ResolvedCredential } | null> {
   const { meta, ask, write, validate, kc, preferKeychain } = deps;
   for (;;) {
-    const key = (await ask("请粘贴你的 key: ")).trim();
+    const key = (await ask(t("wizard.paste"))).trim();
     if (!key) {
-      write("未输入 key,已放弃。\n");
+      write(`${t("wizard.abandoned")}\n`);
       return null;
     }
-    write("正在校验 key…\n");
+    write(`${t("wizard.validating")}\n`);
     const v = await validate({ baseUrl: meta.baseUrl, key });
     if (!v.ok) {
-      write(`✗ ${REASON_TEXT[v.reason] ?? "校验失败"},请重试(直接回车放弃)。\n`);
+      const reason = v.reason === "invalid" ? t("validate.reason.invalid")
+        : v.reason === "unreachable" ? t("validate.reason.unreachable")
+        : v.reason === "http" ? t("validate.reason.http")
+        : t("validate.reason.fail");
+      write(`${t("wizard.retry", reason)}\n`);
       continue;
     }
     const { cfg, stored } = await persistKey(deps.cfg, deps.name, meta, key, kc, { preferKeychain });
-    write(stored === "keychain" ? "✓ 已校验并存入系统钥匙串。\n" : "✓ 已校验并保存(文件,权限 600)。\n");
+    write(stored === "keychain" ? `${t("wizard.storedKeychain")}\n` : `${t("wizard.storedFile")}\n`);
     return {
       cfg,
       resolved: { key, provider: meta.provider, baseUrl: meta.baseUrl, model: meta.model, source: `profile:${deps.name}` },
