@@ -265,13 +265,14 @@ async function main() {
     if (process.stdin.isTTY) {
       // 真终端:引导粘贴 → 落盘前校验 → 钥匙串/文件存储 → 标记 onboarding 完成
       write(`\n欢迎使用 DAO CODE。先完成两步设置。\n\n[1/2] DeepSeek API key\n${KEY_HELP}\n`);
+      const meta = { provider: "deepseek" as const, ...DEFAULTS.deepseek };
       const wiz = await runKeyWizard({
         cfg: profilesCfg,
         name: "default",
-        meta: { provider: "deepseek", ...DEFAULTS.deepseek },
+        meta,
         ask,
         write,
-        validate: (c) => validateCredential(c),
+        validate: (c) => validateCredential({ ...c, provider: meta.provider }),
         kc,
         preferKeychain: keychainAvailable(),
       });
@@ -363,7 +364,7 @@ async function main() {
     const meta = cur
       ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model }
       : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
-    const v = await validateCredential({ baseUrl: meta.baseUrl, key });
+    const v = await validateCredential({ baseUrl: meta.baseUrl, key, provider: meta.provider });
     if (!v.ok) return { ok: false, reason: v.reason };
     const { cfg: nc } = await persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() });
     profilesCfg = { ...nc, onboardingComplete: true };
