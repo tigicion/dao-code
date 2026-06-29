@@ -62,8 +62,29 @@ describe("t / setLang", () => {
     setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
     setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
   });
-  it("writeUserLang is callable", async () => {
-    const { writeUserLang } = await import("./i18n.js");
-    expect(typeof writeUserLang).toBe("function");
+});
+
+describe("readUserLang / writeUserLang round-trip", () => {
+  it("writes lang and reads it back, preserving other fields", async () => {
+    const { writeUserLang, readUserLang } = await import("./i18n.js");
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const prevHome = process.env.HOME;
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "dao-i18n-"));
+    process.env.HOME = home;
+    try {
+      // 预置一个含其它字段的 settings.json,确认 writeUserLang 合并而非覆盖。
+      await fs.mkdir(path.join(home, ".dao"), { recursive: true });
+      await fs.writeFile(path.join(home, ".dao", "settings.json"), JSON.stringify({ permissions: { allow: ["x"] } }));
+      await writeUserLang("zh");
+      expect(await readUserLang()).toBe("zh");
+      const obj = JSON.parse(await fs.readFile(path.join(home, ".dao", "settings.json"), "utf8"));
+      expect(obj.lang).toBe("zh");
+      expect(obj.permissions).toEqual({ allow: ["x"] }); // 既有字段保留
+    } finally {
+      if (prevHome !== undefined) process.env.HOME = prevHome; else delete process.env.HOME;
+      await fs.rm(home, { recursive: true, force: true });
+    }
   });
 });

@@ -1,11 +1,12 @@
 import React from "react";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { render } from "ink-testing-library";
 import { Welcome } from "./Welcome.js";
 import { setLang } from "../i18n/i18n.js";
 
 // 页脚文案走 i18n(t()),默认随系统 locale → en；锁定 zh 以断言「快速开始」稳定。
 beforeAll(() => setLang("zh"));
+afterAll(() => setLang("en")); // 复位模块级 lang,避免泄漏(文件隔离下虽安全,仍保持自洽)。
 
 const props = {
   info: { model: "deepseek-v4-pro", thinking: "max", cwd: "/x/y/z", version: "0.2.0", branch: "main" },
