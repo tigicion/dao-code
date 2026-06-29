@@ -1074,7 +1074,7 @@ async function main() {
       }
       const advisoryInjected = !!result.advisory;
       if (result.advisory) pendingReflectAdvisories.push(`[反思·参考]\n${result.advisory}`); // 有问题才注入(append-only)
-      memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval });
+      memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval, note: result.note });
       return { onTrack: result.onTrack, mem: added + merged };
     } catch (e) {
       if (process.env.DAO_DEBUG_REFLECT) console.error("[reflect] 失败:", e);

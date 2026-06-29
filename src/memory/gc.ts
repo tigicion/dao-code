@@ -50,6 +50,9 @@ function isUnconfirmedProvisional(mem: Memory, today: string): boolean {
 
 // 是否应剪除。保护:确证的 user 模型 / feedback(用户给的工作方式指导,丢了会重蹈覆辙)/ importance≥6 / locked / 频繁重确认(高 uses 抬高留存)。
 export function shouldPrune(mem: Memory, today: string): boolean {
+  // (a0) 墓碑遗留:模型曾用 memory_write 把记忆改写成"已删除"占位(title=[DELETED]),status 仍 active 会赖着。
+  //      现已有真删除(deleteMemory),此处兜底清理历史遗留。
+  if (mem.title === "[DELETED]") return true;
   // (a) 已被取代且 validUntil + 7 天宽限期已过。
   if (mem.status === "superseded" && mem.validUntil && addDays(mem.validUntil, 7) < today) return true;
   const protectedType = (mem.type === "user" && !lowValueUserInference(mem)) || mem.type === "feedback";

@@ -20,6 +20,19 @@ describe("parseReflectResult — 两段独立容错解析", () => {
     expect(parseReflectResult(raw)).toEqual({ onTrack: true, advisory: null, memories: [] });
   });
 
+  it("note 被解析(onTrack=true 时仍保留,供可观测)", () => {
+    const raw = JSON.stringify({ onTrack: true, advisory: null, note: "在写测试,验收较上轮推进,故判在轨", memories: [] });
+    const r = parseReflectResult(raw);
+    expect(r.onTrack).toBe(true);
+    expect(r.advisory).toBeNull();
+    expect(r.note).toBe("在写测试,验收较上轮推进,故判在轨");
+  });
+
+  it("note 缺失/空 → undefined", () => {
+    expect(parseReflectResult(JSON.stringify({ onTrack: true, advisory: null, memories: [] })).note).toBeUndefined();
+    expect(parseReflectResult(JSON.stringify({ onTrack: true, advisory: null, note: "  ", memories: [] })).note).toBeUndefined();
+  });
+
   it("onTrack=true 时强制 advisory=null(就算模型给了文本)", () => {
     const raw = JSON.stringify({ onTrack: true, advisory: "在轨,继续", memories: [] });
     expect(parseReflectResult(raw).advisory).toBeNull();

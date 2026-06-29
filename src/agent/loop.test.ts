@@ -365,4 +365,50 @@ describe("runTurn", () => {
     expect(lines.length).toBeGreaterThanOrEqual(1);
     expect(JSON.parse(lines[0]!).agent).toBe("main");
   });
+
+  // #3 子代理自挑战:不传 reflect(=子代理),仅 selfChallenge。同错连发 → 确定性检测 → 注入静态自省 nudge。
+  it("selfChallenge:同错复发触发自省 nudge(不 fork)", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("go");
+    const toolCall = (id: string): AssistantMessage => ({
+      role: "assistant", content: null,
+      tool_calls: [{ id, type: "function", function: { name: "exec_shell", arguments: "{}" } }],
+    });
+    const calls = scripted([
+      turn([], toolCall("c0")),
+      turn([], toolCall("c1")),
+      turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
+    ]);
+    let round = 0;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => calls()) as any,
+      executeToolCalls: async () => {
+        round++;
+        return [{ role: "tool", tool_call_id: round === 1 ? "c0" : "c1", content: "Error: 同一个错反复出现" }];
+      },
+      write: () => {},
+      selfChallenge: true,
+    });
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    expect(sys).toContain("[自检·必读]");
+  });
+
+  it("selfChallenge:全程无失败 → 不注入 nudge", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("go");
+    const calls = scripted([
+      turn([], { role: "assistant", content: null, tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }] }),
+      turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
+    ]);
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => calls()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "OK 成功" }],
+      write: () => {},
+      selfChallenge: true,
+    });
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    expect(sys).not.toContain("[自检·必读]");
+  });
 });

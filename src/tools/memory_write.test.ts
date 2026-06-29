@@ -63,6 +63,24 @@ describe("memory_write tool", () => {
     expect((await fs.readdir(memDir())).filter((f) => f.endsWith(".md")).length).toBe(2);
   });
 
+  it("delete: true 真删文件(不留墓碑)", async () => {
+    await memoryWriteTool.handler({ title: "临时事实", text: "稍后要删" }, ctx());
+    expect((await fs.readdir(memDir())).filter((f) => f.endsWith(".md")).length).toBe(1);
+    const out = await memoryWriteTool.handler({ title: "临时事实", delete: true }, ctx());
+    expect(out).toContain("已删除记忆");
+    expect((await fs.readdir(memDir())).filter((f) => f.endsWith(".md")).length).toBe(0);
+  });
+
+  it("delete 无命中给提示", async () => {
+    const out = await memoryWriteTool.handler({ title: "不存在的", delete: true }, ctx());
+    expect(out).toContain("未找到匹配记忆");
+  });
+
+  it("delete 缺 title/text 报错", async () => {
+    const out = await memoryWriteTool.handler({ delete: true }, ctx());
+    expect(out).toContain("删除失败");
+  });
+
   it("declares plan capability and auto approval", () => {
     expect(memoryWriteTool.capability).toBe("plan");
     expect(memoryWriteTool.approval).toBe("auto");

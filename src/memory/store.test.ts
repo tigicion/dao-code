@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAllMemories, upsertMemory, supersedeMemory, migrateLegacy, routeScope, slug } from "./store.js";
+import { loadAllMemories, upsertMemory, writeMemory, deleteMemory, supersedeMemory, migrateLegacy, routeScope, slug } from "./store.js";
 import { newMemory } from "./types.js";
 
 describe("routeScope — 作用域驱动(与 confidence 无关)", () => {
@@ -60,6 +60,63 @@ describe("upsertMemory — 精确键(name)去重", () => {
     await upsertMemory(d, newMemory({ name: "t", title: "旧标题", text: "x", type: "semantic", today: "2026-06-07" }), []);
     await upsertMemory(d, newMemory({ name: "t", title: "新标题", text: "y", type: "semantic", today: "2026-06-08" }), await loadAllMemories(d, d + "-x"));
     expect((await loadAllMemories(d, d + "-x"))[0]!.title).toBe("新标题");
+  });
+
+  it("同 title 不同 name(title 漂移留下的并行残片)→ 收敛为一条并删残片", async () => {
+    const d = await tmp();
+    // 模拟 mergeInto 改 title 不改 name 后的脏状态:两文件同 title、不同 name。
+    await writeMemory(d, newMemory({ name: "impl-status", title: "完成状态", text: "v1", type: "episodic", today: "2026-06-07" }));
+    await writeMemory(d, newMemory({ name: "proj-status-14-commit", title: "完成状态", text: "v2", type: "episodic", today: "2026-06-07" }));
+    expect((await fs.readdir(d)).filter((f) => f.endsWith(".md")).length).toBe(2);
+
+    const existing = await loadAllMemories(d, d + "-x");
+    const r = await upsertMemory(d, newMemory({ name: slug("完成状态"), title: "完成状态", text: "v3", type: "episodic", today: "2026-06-08" }), existing);
+    expect(r.action).toBe("updated");
+
+    const files = (await fs.readdir(d)).filter((f) => f.endsWith(".md"));
+    expect(files.length).toBe(1); // 残片已删
+    const all = await loadAllMemories(d, d + "-x");
+    expect(all.length).toBe(1);
+    expect(all[0]!.text).toBe("v3");
+  });
+
+  it("locked 残片不被收敛删除", async () => {
+    const d = await tmp();
+    await writeMemory(d, { ...newMemory({ name: "keep", title: "完成状态", text: "锁定", type: "episodic", today: "2026-06-07" }), locked: true });
+    await writeMemory(d, newMemory({ name: "dup", title: "完成状态", text: "未锁", type: "episodic", today: "2026-06-07" }));
+    // cand 同 title,匹配到未锁的 dup(locked 被 find 跳过)→ 更新 dup;keep 是 locked,不删。
+    const r = await upsertMemory(d, newMemory({ name: slug("完成状态"), title: "完成状态", text: "v2", type: "episodic", today: "2026-06-08" }), await loadAllMemories(d, d + "-x"));
+    expect(r.action).toBe("updated");
+    const files = (await fs.readdir(d)).filter((f) => f.endsWith(".md"));
+    expect(files).toContain("keep.md");
+  });
+});
+
+describe("deleteMemory — 真删除文件", () => {
+  it("按 title 命中跨 dir 删除", async () => {
+    const d = await tmp();
+    await writeMemory(d, newMemory({ name: "x", title: "要删的", text: "t", type: "semantic", today: "2026-06-07" }));
+    const removed = await deleteMemory([d, d + "-none"], "要删的");
+    expect(removed).toEqual(["x"]);
+    expect((await loadAllMemories(d, d + "-x")).length).toBe(0);
+  });
+
+  it("按 name 命中删除", async () => {
+    const d = await tmp();
+    await writeMemory(d, newMemory({ name: "my-mem", text: "t", type: "semantic", today: "2026-06-07" }));
+    const removed = await deleteMemory([d], "my-mem");
+    expect(removed).toEqual(["my-mem"]);
+  });
+
+  it("locked 不被删", async () => {
+    const d = await tmp();
+    await writeMemory(d, { ...newMemory({ name: "p", title: "受保护", text: "t", type: "user", today: "2026-06-07" }), locked: true });
+    expect(await deleteMemory([d], "受保护")).toEqual([]);
+  });
+
+  it("无命中返回空", async () => {
+    const d = await tmp();
+    expect(await deleteMemory([d], "不存在")).toEqual([]);
   });
 });
 

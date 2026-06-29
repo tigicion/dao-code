@@ -8,14 +8,14 @@ export type MemoryTraceEvent =
   | { kind: "recalled"; ts: number; injected: number; stale: number; changed: number; types: Record<string, number> }
   | { kind: "wrote"; ts: number; type: string; merged: boolean }
   | { kind: "distilled"; ts: number; extracted: number; added: number; updated: number }
-  // 统一反思器:每次跑一行(跳过的回合 ran=false)。
-  | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number };
+  // 统一反思器:每次跑一行(跳过的回合 ran=false)。note=模型一句话复述(可观测,尤其 onTrack=true 时用来判断是否真审视过)。
+  | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string };
 
 export interface MemoryAuditSink {
   recalled(injected: number, stale: number, changed: number, types: Record<string, number>): void;
   wrote(type: string, merged: boolean): void;
   distilled(extracted: number, added: number, updated: number): void;
-  reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number }): void;
+  reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string }): void;
 }
 
 const NOOP: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {} };
@@ -64,10 +64,11 @@ export interface ReflectSummary {
   memAdded: number;
   memMerged: number;
   lastInterval: number; // 当前自适应间隔
+  notes: string[]; // 模型每轮的复述(可观测:advisory=0 时据此判断是否真审视过)
 }
 
 export function summarizeReflectTrace(events: MemoryTraceEvent[]): ReflectSummary {
-  const s: ReflectSummary = { rounds: 0, ran: 0, advisories: 0, memAdded: 0, memMerged: 0, lastInterval: 1 };
+  const s: ReflectSummary = { rounds: 0, ran: 0, advisories: 0, memAdded: 0, memMerged: 0, lastInterval: 1, notes: [] };
   for (const e of events) {
     if (e.kind !== "reflected") continue;
     s.rounds++;
@@ -76,18 +77,25 @@ export function summarizeReflectTrace(events: MemoryTraceEvent[]): ReflectSummar
     s.memAdded += e.memAdded;
     s.memMerged += e.memMerged;
     s.lastInterval = e.interval;
+    if (e.note) s.notes.push(e.note);
   }
   return s;
 }
 
 export function formatReflectReport(s: ReflectSummary): string {
-  return [
+  const lines = [
     "统一反思器:",
     `  回合:${s.rounds}(实跑 ${s.ran} · 节奏跳过 ${s.rounds - s.ran})`,
     `  advisory:${s.advisories} 次(有问题才注入)`,
     `  记忆:新增 ${s.memAdded} · 合并 ${s.memMerged}`,
     `  当前节奏:每 ${s.lastInterval} 回合反思一次`,
-  ].join("\n");
+  ];
+  // 复述抽样(尤其 advisory=0 时,用来判断"零挑战"是真在轨还是橡皮章)。只列最近几条防刷屏。
+  if (s.notes.length) {
+    lines.push(`  复述(最近 ${Math.min(3, s.notes.length)}/${s.notes.length} 条):`);
+    for (const n of s.notes.slice(-3)) lines.push(`    · ${n}`);
+  }
+  return lines.join("\n");
 }
 
 export function readAllMemoryTraces(sessionsRoot: string): MemoryTraceEvent[] {

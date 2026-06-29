@@ -18,9 +18,12 @@ export interface ReflectResult {
   onTrack: boolean;
   advisory: string | null;
   memories: ReflectMem[];
+  // 可观测性:无论在轨与否,模型都给一句话复述「在做什么 + 为何判这个 onTrack」。
+  // onTrack=true 时 advisory 被强制丢弃(消噪),note 仍保留 → 事后能区分"认真审视判在轨" vs "橡皮章"。
+  note?: string;
 }
 
-const SAFE: ReflectResult = { onTrack: true, advisory: null, memories: [] };
+const SAFE: ReflectResult = { onTrack: true, advisory: null, memories: [], note: undefined };
 
 // 从模型原始输出里抠出 JSON 对象(去围栏 + 取首个 {...})。
 function extractObject(s: string): Record<string, unknown> | null {
@@ -69,5 +72,8 @@ export function parseReflectResult(raw: string): ReflectResult {
   // onTrack 为真时强制不出 advisory(消灭"在轨继续"噪音)。
   const advisory = onTrack ? null : advisoryRaw;
 
-  return { onTrack, advisory, memories };
+  // note:一句话复述(可观测,不注入主对话)。缺失则降级 undefined。
+  const note = typeof obj.note === "string" && obj.note.trim() ? obj.note.trim() : undefined;
+
+  return { onTrack, advisory, memories, note };
 }

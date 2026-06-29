@@ -43,14 +43,36 @@ export async function writeMemory(dir: string, m: Memory): Promise<void> {
   await fs.writeFile(path.join(dir, `${m.name}.md`), serializeMemory(m), "utf8");
 }
 
-// 精确键去重:name(=slug(title))即唯一键,同名即同一条 → 覆盖更新(text/title 取新、importance 取大、uses+1)。
-// 不再做字符相似度模糊匹配;【语义合并】(相关但不同名)交反思器的 mergeInto 处理。
+// 去重键:有 title 用 slug(title)(标题就是身份),否则退化用 name。
+// 关键:mergeInto 的更新分支只改 title 不改 name(=文件名),会让一条记忆的 title 漂移成与另一条相同
+// 却各存一份 → 纯按 name 去重永远撞不上。改按 title 键去重,同 title 即同一条。
+export function dedupKey(m: { name: string; title?: string }): string {
+  return m.title && m.title.trim() ? slug(m.title) : m.name;
+}
+
+// 删除 dir 内与 keepName 同去重键的其它 *.md(历史 title 漂移留下的并行残片)。best-effort,失败不抛。
+async function pruneDuplicateFiles(dir: string, key: string, keepName: string): Promise<void> {
+  let names: string[]; try { names = await fs.readdir(dir); } catch { return; }
+  for (const f of names) {
+    if (!f.endsWith(".md")) continue;
+    const name = f.slice(0, -3);
+    if (name === keepName) continue;
+    const raw = await fs.readFile(path.join(dir, f), "utf8").catch(() => "");
+    const m = parseMemoryFile(name, raw);
+    if (!m || m.locked) continue;
+    if (dedupKey(m) === key) await fs.rm(path.join(dir, f), { force: true }).catch(() => {});
+  }
+}
+
+// 键去重:同 title(或同 name)即同一条 → 覆盖更新(text/title 取新、importance 取大、uses+1),并收敛同键残片。
+// 不做字符相似度模糊匹配;【语义合并】(相关但不同 title)交反思器的 mergeInto 处理。
 export async function upsertMemory(
   dir: string,
   cand: Memory,
   existing: Memory[],
 ): Promise<{ action: "added" | "updated"; name: string }> {
-  const match = existing.find((m) => m.name === cand.name && !m.locked);
+  const candKey = dedupKey(cand);
+  const match = existing.find((m) => !m.locked && (m.name === cand.name || dedupKey(m) === candKey));
   if (match) {
     const updated: Memory = {
       ...match,
@@ -61,10 +83,33 @@ export async function upsertMemory(
       uses: (match.uses ?? 0) + 1,
     };
     await writeMemory(dir, updated);
+    await pruneDuplicateFiles(dir, dedupKey(updated), updated.name);
     return { action: "updated", name: match.name };
   }
   await writeMemory(dir, cand);
   return { action: "added", name: cand.name };
+}
+
+// 真删除:跨给定 dirs 删掉【name 命中】或【slug(title) 命中】的 *.md(locked 跳过)。返回删掉的 name[]。
+// 给模型一个真正移除记忆的手段——否则它只能写"已删除"墓碑(status 仍 active,赖着不走)。
+export async function deleteMemory(dirs: string[], keyRaw: string): Promise<string[]> {
+  const k = slug(keyRaw);
+  const removed: string[] = [];
+  for (const dir of dirs) {
+    let names: string[]; try { names = await fs.readdir(dir); } catch { continue; }
+    for (const f of names) {
+      if (!f.endsWith(".md")) continue;
+      const name = f.slice(0, -3);
+      const raw = await fs.readFile(path.join(dir, f), "utf8").catch(() => "");
+      const m = parseMemoryFile(name, raw);
+      if (!m || m.locked) continue;
+      if (name === keyRaw || name === k || (m.title && slug(m.title) === k)) {
+        await fs.rm(path.join(dir, f), { force: true }).catch(() => {});
+        removed.push(name);
+      }
+    }
+  }
+  return removed;
 }
 
 export async function supersedeMemory(dir: string, oldName: string, newName: string, validUntil: string): Promise<void> {

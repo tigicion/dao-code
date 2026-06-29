@@ -26,6 +26,12 @@ describe("daysBetween", () => {
   });
 });
 
+describe("墓碑清理", () => {
+  it("title=[DELETED] 的遗留墓碑无条件剪除(哪怕刚建/高重要)", () => {
+    expect(shouldPrune(mem({ name: "deleted", title: "[DELETED]", text: "已删除。", importance: 10 }), TODAY)).toBe(true);
+  });
+});
+
 describe("retention", () => {
   it("时间越久留存越低(单调)", () => {
     const m = mem({ name: "a", uses: 0 });
