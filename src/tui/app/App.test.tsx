@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "ink-testing-library";
 import { App } from "./App.js";
 import type { AppDeps } from "./types.js";
@@ -29,6 +29,9 @@ function makeDeps(over: Partial<AppDeps> = {}): AppDeps {
 }
 
 describe("App", () => {
+  // 默认跑中文(断言中文文案的用例据此);需要英文的用例在自身内 setLang("en")。
+  beforeEach(() => setLang("zh"));
+
   it("欢迎屏 + 状态栏初始渲染", () => {
     setLang("zh");
     const { lastFrame } = render(<App {...makeDeps()} />);
@@ -680,6 +683,32 @@ describe("App", () => {
     ).lastFrame()!;
     expect(f).toContain("Long task");
     expect(f).not.toContain("长任务");
+  });
+
+  it("i18n:账户粘贴引导跟随 locale(en)", async () => {
+    setLang("en");
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({ listAccounts: () => [], addAccount: async () => ({ ok: true, name: "default" }) })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("Paste the new account");
+    expect(f).not.toContain("粘贴新账户");
+  });
+
+  it("i18n:主题切换通知跟随 locale(en)", async () => {
+    setLang("en");
+    const { lastFrame, stdin } = render(<App {...makeDeps()} />);
+    for (const ch of "/theme") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("Theme switched");
+    expect(f).not.toContain("已切换主题");
   });
 
   it("i18n:权限模式提示 + 模式标签跟随 locale(Shift+Tab)", async () => {

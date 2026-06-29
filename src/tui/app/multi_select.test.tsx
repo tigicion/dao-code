@@ -1,8 +1,9 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "ink-testing-library";
 import { App } from "./App.js";
 import type { AppDeps } from "./types.js";
+import { setLang } from "../../i18n/i18n.js";
 
 const delay = (ms = 40) => new Promise((r) => setTimeout(r, ms));
 const DOWN = "\x1B[B";
@@ -31,6 +32,9 @@ function mount() {
 }
 
 describe("multi-select (ask_user)", () => {
+  // 断言中文选择器文案,固定中文(默认 locale 为 en)。
+  beforeEach(() => setLang("zh"));
+
   it("multi: 回车在正常项=勾选(不结束),到「完成」回车才提交", async () => {
     const { stdin, lastFrame, getAskChoice } = mount();
     await delay();

@@ -62,6 +62,16 @@ describe("t / setLang", () => {
     setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
     setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
   });
+  it("运行时通知/工具标签 ui.* 抽样 zh/en", () => {
+    setLang("zh");
+    expect(t("ui.account.pastePrompt")).toBe("粘贴新账户的 DeepSeek key(留空取消):");
+    expect(t("ui.notice.error", "boom")).toBe("出错:boom");
+    expect(t("ui.detail.lines", 3)).toBe("3 行");
+    setLang("en");
+    expect(t("ui.account.pastePrompt")).toContain("Paste the new account");
+    expect(t("ui.notice.error", "boom")).toBe("Error: boom");
+    expect(t("ui.detail.lines", 3)).toBe("3 lines");
+  });
   it("斜杠命令描述 cmd.* 抽样 zh/en", () => {
     setLang("zh");
     expect(t("cmd.tasks")).toBe("查看后台任务");
