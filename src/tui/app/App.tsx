@@ -811,13 +811,13 @@ export function App(deps: AppDeps) {
   return (
     <Box flexDirection="column">
       {/* 会话开始前:欢迎屏在动态区,随终端 resize 实时重排(useTermWidth 订阅)。 */}
-      {items.length === 0 ? (
+      {items.length === 0 && !deps.skipBanner ? (
         <Welcome info={deps.welcome.info} caps={deps.welcome.caps} bg={bg} maxim={deps.welcome.maxim} />
       ) : null}
       <Static items={items}>
         {(item, index) =>
           item.kind === "welcome" ? (
-            <Welcome key={item.id} info={deps.welcome.info} caps={deps.welcome.caps} bg={bg} maxim={deps.welcome.maxim} />
+            deps.skipBanner ? null : <Welcome key={item.id} info={deps.welcome.info} caps={deps.welcome.caps} bg={bg} maxim={deps.welcome.maxim} />
           ) : (
             <Row key={item.id} item={item} c={c} expanded={expanded} />
           )

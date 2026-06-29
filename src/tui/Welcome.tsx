@@ -36,11 +36,13 @@ export function Welcome({
   caps,
   bg,
   maxim,
+  skipFooter,
 }: {
   info: WelcomeInfo;
   caps: Capabilities;
   bg: Background;
   maxim: Maxim;
+  skipFooter?: boolean;
 }) {
   // 订阅 resize:列宽变化触发重渲染,使整宽边框与两栏随终端重排。
   const columns = useTermWidth(caps.columns);
@@ -99,6 +101,7 @@ export function Welcome({
       )}
 
       {/* 页脚两栏:左信息 / 右快速开始(窄屏堆叠) */}
+      {!skipFooter && (
       <Box marginTop={1} flexDirection={narrow ? "column" : "row"}>
         <Box flexDirection="column" flexGrow={1}>
           <Text>
@@ -131,6 +134,7 @@ export function Welcome({
           <Text color={c("jade")}>{t("welcome.try")}{tip}</Text>
         </Box>
       </Box>
+      )}
     </Box>
   );
 }
