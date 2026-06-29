@@ -73,6 +73,7 @@ import { reflectMemToCand } from "./agent/reflect_persist.js";
 import { apiToolsForMode } from "./tools/tools_for_mode.js";
 import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
 import { gcMemories } from "./memory/gc.js";
+import { maybeConsolidate } from "./memory/consolidate.js";
 import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
@@ -447,6 +448,21 @@ async function main() {
   await gcMemories(projectMemoryDir, today);
   await gcMemories(userMemoryDir, today);
   await gcMemories(knowledgeMemoryDir, today);
+  // 启动期合并 pass:GC 后、注入算定前(让合并结果进本会话注入)。三作用域各自 gated(天数+条数)。
+  // memoryAudit/store.dir 此时尚未就绪(L1187+ 才建),故审计事件先缓冲,待 sink 建好后回放(与 recalled 的"早算晚记"同模式)。
+  const pendingConsolidationAudits: { scope: string; groups: number; superseded: number; reasons: string[] }[] = [];
+  if (process.env.DAO_NO_MEMORY !== "1" && !argvPrompt) {
+    const consolModel = process.env.DAO_CONSOLIDATE_MODEL || cfg.model;
+    const consolNow = Date.now();
+    const consolCommon = {
+      today, now: consolNow, streamChat,
+      config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }, model: consolModel,
+      onAudit: (e: { scope: string; groups: number; superseded: number; reasons: string[] }) => pendingConsolidationAudits.push(e),
+    };
+    await maybeConsolidate({ ...consolCommon, dir: userMemoryDir, scope: "user" });
+    await maybeConsolidate({ ...consolCommon, dir: knowledgeMemoryDir, scope: "knowledge" });
+    await maybeConsolidate({ ...consolCommon, dir: projectMemoryDir, scope: "project" });
+  }
   const memories = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
   // 逐条对照 live code 做确定性验证(stale 剔除 / changed 标注 / ok 注入)。
   const validated: { mem: (typeof memories)[number]; verdict: Verdict }[] = [];
@@ -1188,6 +1204,7 @@ async function main() {
       toolAudit = createToolAuditSink(store.dir);
       permAudit = createPermAuditSink(store.dir, getMode);
       ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
+      for (const e of pendingConsolidationAudits) memoryAudit.consolidated(e);
       memoryAudit.recalled(injectedMems.length, recallStale, recallChanged, recallTypes);
       try {
         if (auditEnabled(process.env, "SKILL")) {
@@ -1711,6 +1728,7 @@ async function main() {
       toolAudit = createToolAuditSink(store.dir);
       permAudit = createPermAuditSink(store.dir, getMode);
       ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
+      for (const e of pendingConsolidationAudits) memoryAudit.consolidated(e);
       const readLine = async (): Promise<string | null> => {
         write("\n> ");
         return nextLine();
