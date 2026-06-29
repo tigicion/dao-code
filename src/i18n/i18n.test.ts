@@ -62,6 +62,32 @@ describe("t / setLang", () => {
     setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
     setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
   });
+  it("运行时通知/工具标签 ui.* 抽样 zh/en", () => {
+    setLang("zh");
+    expect(t("ui.account.pastePrompt")).toBe("粘贴新账户的 DeepSeek key(留空取消):");
+    expect(t("ui.notice.error", "boom")).toBe("出错:boom");
+    expect(t("ui.detail.lines", 3)).toBe("3 行");
+    setLang("en");
+    expect(t("ui.account.pastePrompt")).toContain("Paste the new account");
+    expect(t("ui.notice.error", "boom")).toBe("Error: boom");
+    expect(t("ui.detail.lines", 3)).toBe("3 lines");
+  });
+  it("迁移提示 ui.migrated zh/en", () => {
+    setLang("en");
+    expect(t("ui.migrated", "/a", "/b")).toBe("✓ Migrated old data: /a → /b");
+    setLang("zh");
+    expect(t("ui.migrated", "/a", "/b")).toBe("✓ 已迁移旧数据:/a → /b");
+  });
+  it("斜杠命令描述 cmd.* 抽样 zh/en", () => {
+    setLang("zh");
+    expect(t("cmd.tasks")).toBe("查看后台任务");
+    expect(t("cmd.model")).toBe("切换模型(Pro/Flash)");
+    expect(t("cmd.help")).toBe("查看帮助");
+    setLang("en");
+    expect(t("cmd.tasks")).toBe("Show background tasks");
+    expect(t("cmd.model")).toBe("Switch model (Pro/Flash)");
+    expect(t("cmd.help")).toBe("Show help");
+  });
 });
 
 describe("readUserLang / writeUserLang round-trip", () => {

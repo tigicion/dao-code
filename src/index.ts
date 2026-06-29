@@ -198,11 +198,14 @@ async function main() {
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
   const workspaceRoot = process.cwd();
+  // 语言先于迁移提示解析:readUserLang 读 ~/.dao/settings.json(缺失→undefined,容错),
+  // resolveLang 再回退 env/locale/en;迁移读写 .codeds→.dao 与语言无关,故安全前置。
+  setLang(resolveLang(process.env, await readUserLang()));
   // codeds → DAO CODE 改名:一次性把旧 .codeds/ 数据(项目级+用户级)整体迁到 .dao/。
   // 必须在任何 .dao 路径被读写之前做;失败不阻塞启动(等价于全新环境)。
   for (const base of [workspaceRoot, os.homedir()]) {
     const r = await migrateLegacyDir(path.join(base, ".codeds"), path.join(base, ".dao")).catch(() => "absent" as const);
-    if (r === "migrated") process.stdout.write(`✓ 已迁移旧数据:${path.join(base, ".codeds")} → ${path.join(base, ".dao")}\n`);
+    if (r === "migrated") process.stdout.write(`${t("ui.migrated", path.join(base, ".codeds"), path.join(base, ".dao"))}\n`);
   }
   const approvalsFile = path.join(workspaceRoot, ".dao", "approvals.json");
   const keyFile = path.join(os.homedir(), ".dao", "config.json");
@@ -249,8 +252,6 @@ async function main() {
     const line = await nextLine();
     return line ?? "";
   };
-
-  setLang(resolveLang(process.env, await readUserLang()));
 
   // ---- 解析当前生效凭证:env 覆盖 > 激活 profile(钥匙串/文件)> 首次运行引导 ----
   // profile = { provider + 凭证 + baseUrl + 默认 model };多 key 切换 = 切 profile,多 provider 同构。

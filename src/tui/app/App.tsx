@@ -4,7 +4,7 @@ import { highlight } from "cli-highlight";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
-import { tips } from "../../i18n/i18n.js";
+import { t, tips } from "../../i18n/i18n.js";
 import { daoVerb, DAO_VERBS } from "../spinner_words.js";
 import { clampLines, parseTodoResult } from "./format.js";
 import type { TurnEvents } from "../render.js";
@@ -12,75 +12,26 @@ import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../ap
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-// 权限模式的中文友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。
-const MODE_LABEL: Record<string, string> = {
-  default: "默认(写/执行前询问)",
-  acceptEdits: "✎ 自动接受编辑",
-  auto: "⊙ 智能判定(AI 评估风险)",
-  plan: "◇ 规划(只读)",
-  bypassPermissions: "※ 全部权限(免审批)",
-};
-const modeLabel = (m: string): string => MODE_LABEL[m] ?? m;
+// 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
+const MODE_KEYS = new Set(["default", "acceptEdits", "auto", "plan", "bypassPermissions"]);
+const modeLabel = (m: string): string => (MODE_KEYS.has(m) ? t("mode." + m) : m);
 const MAX_LIVE_LINES = 12; // 流式动态区尾部行数的【上限】;实际取 liveCap(按屏高自适应)。完成后整段进 <Static>,故不丢内容。
 const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
 const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose 全显)
 // 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
 const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
 
-// 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源):命令名 + 一句简介。
-// 顺序即菜单展示顺序;简介保持精炼一行(对标 CC 的命令面板)。
-const COMMAND_META: ReadonlyArray<readonly [name: string, desc: string]> = [
-  ["model", "切换模型(Pro/Flash)"],
-  ["plan", "进入计划模式:只读规划,先出方案再动手"],
-  ["mode", "切换权限模式(default/acceptEdits/auto/plan)"],
-  ["skills", "技能:开关(弹选择器,逐个/批量内置·第三方)"],
-  ["init", "扫描本仓库生成 DAO.md 项目指令"],
-  ["context", "查看上下文占用明细"],
-  ["tasks", "查看后台任务"],
-  ["mcp", "查看已连接的 MCP 服务"],
-  ["diff", "查看当前未提交改动"],
-  ["doctor", "自检环境与配置"],
-  ["review", "审查改动或 PR(正确性/安全/质量)"],
-  ["security-review", "对改动做安全审查(注入/泄密/越权…)"],
-  ["hooks", "查看已配置的钩子"],
-  ["agents", "查看可用子代理类型"],
-  ["files", "查看本会话读过的文件"],
-  ["memory", "查看/管理跨会话记忆"],
-  ["permissions", "查看/管理权限规则"],
-  ["resume", "恢复历史会话"],
-  ["rewind", "回退到此前某个检查点"],
-  ["branch", "从当前对话切出一个分支会话"],
-  ["rename", "重命名当前会话"],
-  ["export", "导出当前对话为 Markdown"],
-  ["copy", "复制上一条回答到剪贴板"],
-  ["btw", "随手往上下文加条备注(不触发动作)"],
-  ["config", "查看当前配置与设置文件位置"],
-  ["effort", "设置思考强度(low/medium/high/max)"],
-  ["status", "查看会话状态(模型/模式/上下文/用量)"],
-  ["plugin", "查看已装插件"],
-  ["account", "账户:切换/添加/删除(弹选择器)"],
-  ["login", "添加或更换 API key(粘贴引导)"],
-  ["logout", "清除当前账户的 key"],
-  ["simplify", "质量清理未提交改动(不抓 bug)"],
-  ["remember", "记一条跨会话记忆"],
-  ["debug-session", "读最近会话日志诊断 dao 自身问题"],
-  ["skillify", "把本次会话经验提炼成技能"],
-  ["batch", "把大改拆成并行子代理实现"],
-  ["loop", "定时循环跑一个 prompt"],
-  ["theme", "切换深/浅色主题"],
-  ["bypass", "关闭免审批(yolo 仅启动时可开)"],
-  ["goal", "开启长任务自主模式并给出目标(大任务自动分阶段编排)"],
-  ["dod", "设定验收命令(Definition of Done)"],
-  ["restore", "回退工作区到上一个检查点"],
-  ["clear", "清空上下文开新会话"],
-  ["compact", "压缩对话释放上下文"],
-  ["cost", "查看本会话花费"],
-  ["session", "查看/管理会话"],
-  ["audit", "查看子系统审计(缓存/技能/权限)"],
-  ["help", "查看帮助"],
-  ["exit", "退出"],
+// 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源):命令名 + 顺序即菜单展示顺序。
+// 每条描述走 i18n 键 cmd.<name>(精炼一行,对标 CC 命令面板),渲染处用 t("cmd."+name) 取值。
+const COMMAND_META: ReadonlyArray<string> = [
+  "model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor",
+  "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume",
+  "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin",
+  "account", "login", "logout", "simplify", "remember", "debug-session", "skillify", "batch",
+  "loop", "theme", "bypass", "goal", "dod", "restore", "clear", "compact", "cost", "session",
+  "audit", "help", "exit",
 ];
-const SLASH_COMMANDS = COMMAND_META.map(([name]) => name);
+const SLASH_COMMANDS = COMMAND_META;
 const MAX_SLASH_MENU = 10; // 菜单最多列几条,超出提示继续输入筛选(避免刷屏)
 
 // 剥离选项开头模型自带的枚举记号(A) / A. / A、 / 1) / 1. 等),避免和界面自动编号(1. 2. 3.)叠成「1. A) …」。
@@ -112,12 +63,12 @@ const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
 
 // 工具动作词(toolStart 时参数尚在流式中,只有名字)——用于 live 进度行。
 const VERB: Record<string, string> = {
-  read_file: "读取", list_dir: "列目录", grep_files: "搜索", file_search: "查找",
-  exec_shell: "执行", exec_shell_poll: "查看输出", exec_shell_kill: "结束进程",
-  write_file: "写入", edit_file: "编辑", multi_edit: "多处编辑", notebook_edit: "编辑笔记本", verify_done: "验收", web_search: "网页搜索",
-  fetch_url: "抓取", memory_write: "记忆", todo_write: "更新清单", ask_user: "提问", agent: "子代理",
+  read_file: "ui.verb.readFile", list_dir: "ui.verb.listDir", grep_files: "ui.verb.grepFiles", file_search: "ui.verb.fileSearch",
+  exec_shell: "ui.verb.execShell", exec_shell_poll: "ui.verb.execPoll", exec_shell_kill: "ui.verb.execKill",
+  write_file: "ui.verb.writeFile", edit_file: "ui.verb.editFile", multi_edit: "ui.verb.multiEdit", notebook_edit: "ui.verb.notebookEdit", verify_done: "ui.verb.verifyDone", web_search: "ui.verb.webSearch",
+  fetch_url: "ui.verb.fetchUrl", memory_write: "ui.verb.memoryWrite", todo_write: "ui.verb.todoWrite", ask_user: "ui.verb.askUser", agent: "ui.verb.agent",
 };
-const toolVerb = (name: string): string => VERB[name] ?? name;
+const toolVerb = (name: string): string => (VERB[name] ? t(VERB[name]!) : name);
 
 // 工具调用的"意图/命令"标签:展示意图而非工具名(read_file → 读取 src/foo.ts)。
 function activityLabel(name: string, argsJson: string): string {
@@ -126,24 +77,24 @@ function activityLabel(name: string, argsJson: string): string {
   const s = (v: unknown) => (typeof v === "string" ? v : "");
   const q = (v: unknown) => JSON.stringify(s(v));
   switch (name) {
-    case "read_file": return `读取 ${s(a.path)}${a.offset ? ` :${a.offset}` : ""}`;
-    case "list_dir": return `列目录 ${s(a.path) || "."}`;
-    case "grep_files": return `搜索 ${q(a.pattern)}${a.glob ? ` (${s(a.glob)})` : ""}`;
-    case "file_search": return `查找 ${s(a.glob)}`;
+    case "read_file": return `${toolVerb(name)} ${s(a.path)}${a.offset ? ` :${a.offset}` : ""}`;
+    case "list_dir": return `${toolVerb(name)} ${s(a.path) || "."}`;
+    case "grep_files": return `${toolVerb(name)} ${q(a.pattern)}${a.glob ? ` (${s(a.glob)})` : ""}`;
+    case "file_search": return `${toolVerb(name)} ${s(a.glob)}`;
     case "exec_shell": return `$ ${s(a.command).split("\n")[0]!.slice(0, 80)}`;
-    case "exec_shell_poll": return `查看后台输出`;
-    case "exec_shell_kill": return `结束后台进程`;
-    case "write_file": return `写入 ${s(a.path)}`;
-    case "edit_file": return `编辑 ${s(a.path)}`;
-    case "multi_edit": return `多处编辑 ${s(a.path)}${Array.isArray(a.edits) ? `(${a.edits.length} 组)` : ""}`;
-    case "notebook_edit": return `编辑笔记本 ${s(a.path)} #${typeof a.cell_index === "number" ? a.cell_index : "?"}`;
-    case "verify_done": return `验收`;
-    case "web_search": return `网页搜索 ${q(a.query)}`;
-    case "fetch_url": return `抓取 ${s(a.url)}`;
-    case "memory_write": return `记忆 ${s(a.text).slice(0, 50)}`;
-    case "todo_write": return `更新任务清单`;
-    case "ask_user": return `提问`;
-    case "agent": return Array.isArray(a.tasks) ? `并行 ${a.tasks.length} 个子代理` : `子代理:${s(a.task).slice(0, 50)}`;
+    case "exec_shell_poll": return t("ui.tool.execPoll");
+    case "exec_shell_kill": return t("ui.tool.execKill");
+    case "write_file": return `${toolVerb(name)} ${s(a.path)}`;
+    case "edit_file": return `${toolVerb(name)} ${s(a.path)}`;
+    case "multi_edit": return `${toolVerb(name)} ${s(a.path)}${Array.isArray(a.edits) ? t("ui.tool.editGroups", a.edits.length) : ""}`;
+    case "notebook_edit": return `${toolVerb(name)} ${s(a.path)} #${typeof a.cell_index === "number" ? a.cell_index : "?"}`;
+    case "verify_done": return toolVerb(name);
+    case "web_search": return `${toolVerb(name)} ${q(a.query)}`;
+    case "fetch_url": return `${toolVerb(name)} ${s(a.url)}`;
+    case "memory_write": return `${toolVerb(name)} ${s(a.text).slice(0, 50)}`;
+    case "todo_write": return t("ui.tool.todoWrite");
+    case "ask_user": return toolVerb(name);
+    case "agent": return Array.isArray(a.tasks) ? t("ui.tool.agentParallel", a.tasks.length) : t("ui.tool.agentOne", s(a.task).slice(0, 50));
     case "skill": return `Skill(${s(a.name) || "?"})`; // 入参名(name/slug,插件技能为 plugin:slug)
     default: return name;
   }
@@ -155,19 +106,19 @@ function resultDetail(name: string, ok: boolean, content: string): string {
   if (!ok) return lines[0]!.slice(0, 120); // 报错首行
   const n = lines.length;
   switch (name) {
-    case "read_file": return `${n} 行`;
-    case "list_dir": return content.startsWith("(") ? content : `${n} 项`;
-    case "grep_files": return content.startsWith("(") ? content : `${n} 命中`;
-    case "file_search": return content.startsWith("(") ? content : `${n} 个`;
-    case "write_file": return content.replace(/^已写入[^()]*/, "").trim() || `${n} 行`;
+    case "read_file": return t("ui.detail.lines", n);
+    case "list_dir": return content.startsWith("(") ? content : t("ui.detail.items", n);
+    case "grep_files": return content.startsWith("(") ? content : t("ui.detail.matches", n);
+    case "file_search": return content.startsWith("(") ? content : t("ui.detail.found", n);
+    case "write_file": return t("ui.detail.lines", n); // 合成行数,不回显工具层中文(英文 locale 下不漏「N 行」)
     case "exec_shell": return lines.filter((l) => l.trim()).slice(-1)[0]?.slice(0, 100) ?? "";
     case "verify_done": return lines.filter((l) => l.includes("验收")).slice(-1)[0] ?? lines.slice(-1)[0]!.slice(0, 80);
-    case "web_search": return content.startsWith("(") ? content : `${content.split("\n\n").length} 条`;
-    case "fetch_url": return `${content.length} 字`;
+    case "web_search": return content.startsWith("(") ? content : t("ui.detail.results", content.split("\n\n").length);
+    case "fetch_url": return t("ui.detail.chars", content.length);
     case "skill": { // 工具返回 `# Skill: <真实名>…`;找不到时返回"未找到 skill…"(也走 ok 分支)
       if (content.startsWith("未找到")) return lines[0]!.slice(0, 80);
       const m = content.match(/^# Skill:\s*(.+)$/m);
-      return m ? `已加载技能 ${m[1]!.trim()}` : "已加载技能";
+      return m ? t("ui.tool.skillLoaded", " " + m[1]!.trim()) : t("ui.tool.skillLoaded", "");
     }
     default: return ""; // memory/todo/ask 等:标签已足够
   }
@@ -226,9 +177,9 @@ export function App(deps: AppDeps) {
   // /account 账户选择器:switch 模式列出账户 + ➕添加 + 🗑删除;delete 模式只列账户,选中即删。
   const [accountPick, setAccountPick] = useState<{ items: { name: string; active: boolean; detail: string }[]; idx: number; mode: "switch" | "delete" } | null>(null);
   const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number; showBundled: boolean } | null>(null);
-  const CHOICE_DONE = "✓ 完成(提交所选)"; // 多选专用:回车在此行提交;在正常项上回车=勾选
-  const CHOICE_FILL = "其他(自己输入)";
-  const CHOICE_DISCUSS = "先讨论一下";
+  const CHOICE_DONE = t("ui.choice.done"); // 多选专用:回车在此行提交;在正常项上回车=勾选
+  const CHOICE_FILL = t("ui.choice.fill");
+  const CHOICE_DISCUSS = t("ui.choice.discuss");
   const controllerRef = useRef<AbortController | null>(null);
   const lastSubmitRef = useRef(""); // 最近一次用户提交的文本;ESC 中断后回填输入框,避免重打
   const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
@@ -251,7 +202,7 @@ export function App(deps: AppDeps) {
       if (!out.includes(ph)) continue;
       const lines = full.replace(/\n+$/, "").split("\n");
       const head = lines[0]!.slice(0, 100);
-      out = out.split(ph).join(`「粘贴 ${lines.length} 行:${head}${head.length >= 100 || lines.length > 1 ? "…" : ""}」`);
+      out = out.split(ph).join(t("ui.paste.preview", lines.length, head, head.length >= 100 || lines.length > 1 ? "…" : ""));
     }
     return out;
   };
@@ -374,26 +325,26 @@ export function App(deps: AppDeps) {
       if (name === "theme") {
         const next = bg === "dark" ? "light" : "dark";
         setBg(next);
-        pushItem({ id: nextId(), kind: "notice", text: `已切换主题:${next === "light" ? "浅色" : "深色"}` });
+        pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.themeSwitched", next === "light" ? t("ui.theme.light") : t("ui.theme.dark")) });
         return;
       }
       if (name === "loop") {
         const parts = full.trim().split(/\s+/);
         const arg = parts[1];
         if (!arg || arg === "off") {
-          if (loopRef.current) { clearInterval(loopRef.current.timer); loopRef.current = null; pushItem({ id: nextId(), kind: "notice", text: "已停止循环。" }); }
-          else pushItem({ id: nextId(), kind: "notice", text: "用法:/loop <间隔如 30s/5m/1h> <要周期跑的 prompt>;/loop off 停止" });
+          if (loopRef.current) { clearInterval(loopRef.current.timer); loopRef.current = null; pushItem({ id: nextId(), kind: "notice", text: t("ui.loop.stopped") }); }
+          else pushItem({ id: nextId(), kind: "notice", text: t("ui.loop.usageFull") });
           return;
         }
         const m = /^(\d+)(s|m|h)$/.exec(arg);
         const loopPrompt = parts.slice(2).join(" ").trim();
-        if (!m || !loopPrompt) { pushItem({ id: nextId(), kind: "notice", text: "用法:/loop <间隔如 30s/5m/1h> <prompt>" }); return; }
+        if (!m || !loopPrompt) { pushItem({ id: nextId(), kind: "notice", text: t("ui.loop.usage") }); return; }
         const ms = Number(m[1]) * (m[2] === "h" ? 3600000 : m[2] === "m" ? 60000 : 1000);
         if (loopRef.current) clearInterval(loopRef.current.timer);
         // 到点把 prompt 排队(去重:同一 prompt 未消费完不重复排),空闲时自动跑。
         const timer = setInterval(() => setQueued((q) => (q.includes(loopPrompt) ? q : [...q, loopPrompt])), ms);
         loopRef.current = { prompt: loopPrompt, timer };
-        pushItem({ id: nextId(), kind: "notice", text: `已开启循环:每 ${arg} 跑一次「${loopPrompt.slice(0, 40)}」(/loop off 停止)` });
+        pushItem({ id: nextId(), kind: "notice", text: t("ui.loop.started", arg, loopPrompt.slice(0, 40)) });
         return;
       }
       // /resume 无参:弹出可上下选择的会话列表(选中即载入,无需再输命令);带 id 时直接载入。两路都经 loadResume(会重放末段对话)。
@@ -401,7 +352,7 @@ export function App(deps: AppDeps) {
         const rid = text.split(/\s+/)[1];
         if (!rid) {
           const list = deps.listResume?.() ?? [];
-          if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "本工作区无历史会话。" }); return; }
+          if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: t("ui.resume.none") }); return; }
           setResumePick({ items: list, idx: 0 });
           return;
         }
@@ -415,7 +366,7 @@ export function App(deps: AppDeps) {
       if (name === "skills" && !text.trim().split(/\s+/)[1] && deps.listSkills) { openSkillPicker(); return; }
       const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
-      if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: "已压缩对话" }); setStatus(deps.getStatus()); return; }
+      if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.compacted") }); setStatus(deps.getStatus()); return; }
       if (name === "clear" || res.clearTranscript) setItems(welcomeCommitted.current ? [{ id: 0, kind: "welcome" }] : []); // /clear /rewind /resume:重置可视 transcript
       if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
       // 自定义命令:展开成 prompt → 当作一个回合跑。
@@ -443,7 +394,7 @@ export function App(deps: AppDeps) {
     try {
       await deps.submit(text, { events: makeEvents(), signal: controller.signal });
     } catch (e) {
-      pushItem({ id: nextId(), kind: "notice", text: "出错:" + (e as Error).message });
+      pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.error", (e as Error).message) });
     } finally {
       setBusy(false);
       setLive(null);
@@ -473,7 +424,7 @@ export function App(deps: AppDeps) {
     if (notes.length === 0) return;
     procRef.current = true;
     try {
-      pushItem({ id: nextId(), kind: "notice", text: `↩ 收到 ${notes.length} 个后台任务结果,继续处理…` });
+      pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.bgResults", notes.length) });
       await runAgentTurn(notes.join("\n\n"));
     } finally {
       procRef.current = false;
@@ -502,15 +453,15 @@ export function App(deps: AppDeps) {
 
   // 单行输入(复用 ask 覆盖层):粘贴 key / 起名都走它;回车提交,空 = 取消。
   const askLine = (q: string) => new Promise<string>((resolve) => setAsk({ question: q, resolve }));
-  const reasonText = (r?: string) => (r === "invalid" ? "key 无效(鉴权被拒)" : r === "unreachable" ? "网络不通" : r === "http" ? "API 返回异常" : "未知错误");
+  const reasonText = (r?: string) => (r === "invalid" ? t("ui.reason.invalid") : r === "unreachable" ? t("ui.reason.unreachable") : r === "http" ? t("ui.reason.http") : t("ui.reason.unknown"));
   // 添加账户:粘贴 → 校验 → 持久化 → 激活。/login 无参与选择器"➕"共用。
   const runAddAccount = async () => {
-    const key = (await askLine("粘贴新账户的 DeepSeek key(留空取消):")).trim();
-    if (!key) { pushItem({ id: nextId(), kind: "notice", text: "已取消。" }); return; }
-    const name = (await askLine("给这个账户起个名(回车用默认):")).trim();
-    pushItem({ id: nextId(), kind: "notice", text: "正在校验 key…" });
+    const key = (await askLine(t("ui.account.pastePrompt"))).trim();
+    if (!key) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+    const name = (await askLine(t("ui.account.namePrompt"))).trim();
+    pushItem({ id: nextId(), kind: "notice", text: t("ui.account.validating") });
     const r = await deps.addAccount?.(key, name || undefined);
-    pushItem({ id: nextId(), kind: "notice", text: r?.ok ? `✓ 已添加并切到「${r.name}」,下一回合生效。` : `✗ 添加失败:${reasonText(r?.reason)}。未保存。` });
+    pushItem({ id: nextId(), kind: "notice", text: r?.ok ? t("ui.account.added", r.name ?? "") : t("ui.account.addFailed", reasonText(r?.reason)) });
     setStatus(deps.getStatus());
   };
   const openAccountPicker = () => {
@@ -522,7 +473,7 @@ export function App(deps: AppDeps) {
   const isBundledSkill = (s: { source: string }) => s.source.startsWith("内置");
   const openSkillPicker = () => {
     const list = deps.listSkills?.() ?? [];
-    if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: "暂无技能。" }); return; }
+    if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: t("ui.skill.none") }); return; }
     setSkillPick({ items: list, idx: 0, showBundled: false });
   };
 
@@ -542,11 +493,11 @@ export function App(deps: AppDeps) {
         const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : accountPick.idx;
         if (i < 0 || i >= rowCount) return;
         if (accountPick.mode === "switch") {
-          if (i < nA) { const n = accts[i]!.name; setAccountPick(null); deps.switchAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: `✓ 已切到账户「${n}」,下一回合生效。` }); setStatus(deps.getStatus()); return; }
+          if (i < nA) { const n = accts[i]!.name; setAccountPick(null); deps.switchAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: t("ui.account.switched", n) }); setStatus(deps.getStatus()); return; }
           if (i === nA) { setAccountPick(null); void runAddAccount(); return; } // ➕ 添加
           setAccountPick((p) => p && { ...p, mode: "delete", idx: 0 }); return; // 🗑 删除 → 进删除模式
         } else {
-          const n = accts[i]!.name; setAccountPick(null); deps.removeAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: `✓ 已删除账户「${n}」。` }); setStatus(deps.getStatus()); return;
+          const n = accts[i]!.name; setAccountPick(null); deps.removeAccount?.(n); pushItem({ id: nextId(), kind: "notice", text: t("ui.account.removed", n) }); setStatus(deps.getStatus()); return;
         }
       }
       return;
@@ -578,7 +529,7 @@ export function App(deps: AppDeps) {
       if (key.downArrow) { setResumePick((p) => p && { ...p, idx: Math.min(n - 1, p.idx + 1) }); return; }
       if (ch && /[1-9]/.test(ch)) { const i = Number(ch) - 1; if (i < n) { const id = resumePick.items[i]!.id; setResumePick(null); loadResume(id); } return; }
       if (key.return) { const id = resumePick.items[resumePick.idx]!.id; setResumePick(null); loadResume(id); return; }
-      if (key.escape) { setResumePick(null); pushItem({ id: nextId(), kind: "notice", text: "已取消载入。" }); return; }
+      if (key.escape) { setResumePick(null); pushItem({ id: nextId(), kind: "notice", text: t("ui.resume.cancelled") }); return; }
       return;
     }
     if (approval) {
@@ -618,8 +569,8 @@ export function App(deps: AppDeps) {
         if (choice.multi) {
           const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
           if (custom) picked.push(custom);
-          done(picked.length ? picked.join(", ") : "(用户未选)");
-        } else done(custom || "(空)");
+          done(picked.length ? picked.join(", ") : t("ui.choice.noneSelected"));
+        } else done(custom || t("ui.choice.empty"));
       };
       // 移动焦点(函数式更新,正确处理连续按键);落到"自己输入"行则置空,准备直接输入(灰色提示态)。
       const moveBy = (d: number) => setChoiceIdx((i) => { const ni = Math.max(0, Math.min(allOpts.length - 1, i + d)); if (ni === fillIdx) setAskInput(""); return ni; });
@@ -642,7 +593,7 @@ export function App(deps: AppDeps) {
           else if (!choice.multi) {
             if (i < nOpt) done(choice.options[i]!);
             else if (i === fillIdx) jumpTo(i);
-            else done("我想先讨论一下,先别急着定方向。");
+            else done(t("ui.choice.discussValue"));
           } else jumpTo(i);
         }
         return;
@@ -655,7 +606,7 @@ export function App(deps: AppDeps) {
         return;
       }
       if (key.return) {
-        if (choiceIdx === discussIdx) done("我想先讨论一下,先别急着定方向。");
+        if (choiceIdx === discussIdx) done(t("ui.choice.discussValue"));
         else if (choiceIdx === doneRowIdx) submitMulti();      // 多选:在"完成"行回车 → 提交
         else if (choice.multi) toggle(choiceIdx);               // 多选:在正常项回车 → 勾选(不结束,可继续选)
         else done(choice.options[choiceIdx]!);                  // 单选:回车即选中
@@ -694,14 +645,14 @@ export function App(deps: AppDeps) {
         if (full) pushItem({ id: nextId(), kind: "notice", text: full });
       }
       setExpanded(next);
-      pushItem({ id: nextId(), kind: "notice", text: next ? "▽ 已展开:后续输出显示全量(ctrl+o 收起)" : "△ 已折叠:后续输出截断" });
+      pushItem({ id: nextId(), kind: "notice", text: next ? t("ui.notice.expandAll") : t("ui.notice.collapseAll") });
       return;
     }
     if (busy) {
       // 运行中:支持排队输入(steering)。回车排队,当前回合结束后按序处理。
       if (key.return) {
         const v = field.text.trim();
-        if (v) { setQueued((q) => [...q, expandPastes(v)]); pushItem({ id: nextId(), kind: "notice", text: `⏎ 已排队:${v.slice(0, 50)}` }); }
+        if (v) { setQueued((q) => [...q, expandPastes(v)]); pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.queued", v.slice(0, 50)) }); }
         setField({ text: "", cursor: 0 });
         return;
       }
@@ -792,7 +743,7 @@ export function App(deps: AppDeps) {
     const lineCount = text.replace(/\n+$/, "").split("\n").length; // 去掉末尾换行,避免多算一行
     if (text.length > 280 || lineCount > 6) {
       const id = ++pasteSeqRef.current;
-      ins = `[粘贴#${id} +${lineCount}行]`;
+      ins = t("ui.paste.placeholder", id, lineCount);
       pasteRef.current.set(ins, text);
     }
     // 运行中也允许粘贴(可随后回车排队 steering)。
@@ -833,8 +784,8 @@ export function App(deps: AppDeps) {
           {live.content ? <Text>{tail(live.content, liveCap)}</Text> : null}
           {/* 唯一的状态行:spinner + 当前活动/动词 + 耗时 + 工具数 + 排队数(长任务也看得见在干嘛)。 */}
           <Text color={c("dim")}>
-            {spin} {live.lastActivity || (live.content ? "生成回答" : verb)}…{" "}
-            ({elapsed}s{live.toolCount > 0 ? ` · ${live.toolCount} 次工具` : ""}{queued.length ? ` · 已排 ${queued.length}` : ""} · esc 打断)
+            {spin} {live.lastActivity || (live.content ? t("ui.live.generating") : verb)}…{" "}
+            ({elapsed}s{live.toolCount > 0 ? ` · ${t("ui.live.toolCount", live.toolCount)}` : ""}{queued.length ? ` · ${t("ui.live.queued", queued.length)}` : ""} · {t("ui.live.interrupt")})
           </Text>
         </Box>
       )}
@@ -842,15 +793,15 @@ export function App(deps: AppDeps) {
       {approval && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("vermilion")} paddingX={1}>
           <Text color={c("vermilion")}>
-            需要批准{approval.requests.length > 1 ? ` (${apIdx + 1}/${approval.requests.length})` : ""}:
+            {t("ui.approval.title", approval.requests.length > 1 ? ` (${apIdx + 1}/${approval.requests.length})` : "")}
           </Text>
           <Text color={c("ink")}>{(approval.requests[apIdx]?.summary ?? "").slice(0, 600).replace(/^/gm, "  ")}</Text>
           {approval.requests[apIdx]?.sensitive ? (
-            <Text color={c("dim")}>敏感操作(.ssh/.git/凭据等) · [y]是(仅本次) [n]否</Text>
+            <Text color={c("dim")}>{t("ui.approval.sensitive")}</Text>
           ) : approval.requests[apIdx]?.noPersist ? (
-            <Text color={c("dim")}>此命令记不成通用规则 · [y]是(仅本次) [n]否</Text>
+            <Text color={c("dim")}>{t("ui.approval.noPersist")}</Text>
           ) : (
-            <Text color={c("dim")}>[y]是(允许一次) [a]始终允许(记住,同类不再问) [n]否</Text>
+            <Text color={c("dim")}>{t("ui.approval.normal")}</Text>
           )}
         </Box>
       )}
@@ -861,8 +812,8 @@ export function App(deps: AppDeps) {
         const shown = items.slice(start, start + WIN);
         return (
           <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
-            <Text color={c("jade")}>载入历史会话({n}):↑↓ 选择 · ⏎ 载入 · Esc 取消</Text>
-            {start > 0 ? <Text color={c("dim")}>{`  ↑ 还有 ${start} 个`}</Text> : null}
+            <Text color={c("jade")}>{t("ui.resume.title", n)}</Text>
+            {start > 0 ? <Text color={c("dim")}>{t("ui.resume.more", start)}</Text> : null}
             {shown.map((it, j) => {
               const i = start + j;
               const focused = i === resumePick.idx;
@@ -872,7 +823,7 @@ export function App(deps: AppDeps) {
                 </Text>
               );
             })}
-            {start + WIN < n ? <Text color={c("dim")}>{`  ↓ 还有 ${n - start - WIN} 个`}</Text> : null}
+            {start + WIN < n ? <Text color={c("dim")}>{t("ui.resume.moreBelow", n - start - WIN)}</Text> : null}
           </Box>
         );
       })()}
@@ -880,9 +831,9 @@ export function App(deps: AppDeps) {
       {accountPick && (() => {
         const accts = accountPick.items;
         const rows = accountPick.mode === "switch"
-          ? [...accts.map((a) => `${a.active ? "● " : "○ "}${a.name}   ${a.detail}`), "➕ 添加新账户", "🗑 删除账户…"]
+          ? [...accts.map((a) => `${a.active ? "● " : "○ "}${a.name}   ${a.detail}`), t("ui.account.addNew"), t("ui.account.deleteEntry")]
           : accts.map((a) => `${a.name}   ${a.detail}`);
-        const title = accountPick.mode === "switch" ? "账户:↑↓ 选 · ⏎ 切换 · Esc 取消" : "删除哪个账户?↑↓ 选 · ⏎ 删除 · Esc 返回";
+        const title = accountPick.mode === "switch" ? t("ui.account.switchTitle") : t("ui.account.deleteTitle");
         return (
           <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
             <Text color={c("jade")}>{title}</Text>
@@ -907,14 +858,14 @@ export function App(deps: AppDeps) {
         const rows = visible.map((s) => `${s.on ? "● on " : "○ off"}  ${s.name}  ·  ${s.source}  ·  ${s.detail.slice(0, 40)}`);
         return (
           <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
-            <Text color={c("jade")}>技能(内置 {nBundled} · 第三方 {nThird} · 共 {nOn} 开)· 当前显示:{skillPick.showBundled ? "全部" : "仅第三方"}</Text>
+            <Text color={c("jade")}>{t("ui.skill.header", nBundled, nThird, nOn, skillPick.showBundled ? t("ui.skill.showAll") : t("ui.skill.showThird"))}</Text>
             {rows.length === 0
-              ? <Text color={c("dim")}>  (无{skillPick.showBundled ? "" : "第三方"}技能 —— 按 t 显示内置)</Text>
+              ? <Text color={c("dim")}>{t("ui.skill.empty", skillPick.showBundled ? "" : t("ui.skill.thirdWord"))}</Text>
               : rows.map((label, i) => (
                   <Text key={i} color={i === skillPick.idx ? c("jade") : c("ink")}>{i === skillPick.idx ? "❯ " : "  "}{label}</Text>
                 ))}
-            <Text color={c("dim")}>↑↓ 移动 · ⏎ 开/关选中 · t 显/隐内置 · Esc 退出(改动重启生效)</Text>
-            <Text color={c("dim")}>批量:按字母=开,按 Shift+字母=关 —— a 全部 · b 内置 · i 已安装</Text>
+            <Text color={c("dim")}>{t("ui.skill.help1")}</Text>
+            <Text color={c("dim")}>{t("ui.skill.help2")}</Text>
           </Box>
         );
       })()}
@@ -934,8 +885,8 @@ export function App(deps: AppDeps) {
                 return (
                   <Text key={i} color={focused ? c("jade") : c("dim")}>
                     {focused ? "❯ " : "  "}{i + 1}. {focused
-                      ? (askInput ? <Text color={c("ink")}>{askInput}</Text> : <Text color={c("dim")}>自己输入…</Text>)
-                      : <Text color={c("dim")}>其他(自己输入)</Text>}
+                      ? (askInput ? <Text color={c("ink")}>{askInput}</Text> : <Text color={c("dim")}>{t("ui.choice.fillActive")}</Text>)
+                      : <Text color={c("dim")}>{t("ui.choice.fill")}</Text>}
                     {focused ? <Text color={c("jade")}>▎</Text> : null}
                   </Text>
                 );
@@ -949,10 +900,10 @@ export function App(deps: AppDeps) {
           })()}
           <Text color={c("dim")}>
             {choiceIdx === choice.options.length + (choice.multi ? 1 : 0)
-              ? "直接打字输入,⏎ 提交 · ↑↓ 移开"
-              : choice.multi ? "⏎/空格 勾选当前项 · ↑↓ 移动 · 到「完成」回车提交" : "数字快选 · ↑↓ 移动 · ⏎ 确认"}
+              ? t("ui.choice.hintFill")
+              : choice.multi ? t("ui.choice.hintMulti") : t("ui.choice.hintSingle")}
           </Text>
-          {choiceWarn ? <Text color={c("vermilion")}>还没勾选任何项:用 ⏎/空格 勾选,或选「先讨论一下」</Text> : null}
+          {choiceWarn ? <Text color={c("vermilion")}>{t("ui.choice.warn")}</Text> : null}
         </Box>
       )}
 
@@ -976,21 +927,21 @@ export function App(deps: AppDeps) {
           </Box>
           {input.startsWith("/") && !input.includes(" ") ? (() => {
             // 命令面板(对标 CC):竖排,左命令右简介,列对齐;过多则截断并提示继续输入筛选。
-            const matched = COMMAND_META.filter(([name]) => ("/" + name).startsWith(input));
-            if (matched.length === 0) return <Text color={c("dim")}>{"  (无匹配命令)"}</Text>;
+            const matched = COMMAND_META.filter((name) => ("/" + name).startsWith(input));
+            if (matched.length === 0) return <Text color={c("dim")}>{t("ui.cmd.noMatch")}</Text>;
             const shown = matched.slice(0, MAX_SLASH_MENU);
-            const w = Math.max(...shown.map(([name]) => name.length)) + 3; // "/name" 列宽(含 / 与右侧间距)
+            const w = Math.max(...shown.map((name) => name.length)) + 3; // "/name" 列宽(含 / 与右侧间距)
             return (
               <Box flexDirection="column">
-                {shown.map(([name, desc]) => (
+                {shown.map((name) => (
                   <Text key={name}>
                     {"  "}
                     <Text color={c("jade")}>{("/" + name).padEnd(w)}</Text>
-                    <Text color={c("dim")}>{desc}</Text>
+                    <Text color={c("dim")}>{t("cmd." + name)}</Text>
                   </Text>
                 ))}
                 {matched.length > shown.length ? (
-                  <Text color={c("dim")}>{`  …还有 ${matched.length - shown.length} 个,继续输入筛选`}</Text>
+                  <Text color={c("dim")}>{t("ui.cmd.more", matched.length - shown.length)}</Text>
                 ) : null}
               </Box>
             );
@@ -999,14 +950,14 @@ export function App(deps: AppDeps) {
             const m = input.slice(0, cursor).match(/@(\S*)$/);
             const matches = m && deps.completeFiles ? deps.completeFiles(m[1] ?? "") : [];
             return matches.length ? (
-              <Text color={c("dim")}>{"  "}{matches.slice(0, 6).join("  ")}  <Text color={c("jade")}>(Tab 补全)</Text></Text>
+              <Text color={c("dim")}>{"  "}{matches.slice(0, 6).join("  ")}  <Text color={c("jade")}>{t("ui.complete.tab")}</Text></Text>
             ) : null;
           })()}
           {/* 底部提示(CC 风格,克制的暗色一行,无 emoji):运行中=可排队;空闲=轮换一条 tip。 */}
           <Text color={c("dim")}>
             {"  "}
             {busy
-              ? "运行中——可继续输入,回车排队执行"
+              ? t("ui.hint.running")
               : input
                 ? ""
                 : tips()[Math.floor(tick / 110) % tips().length]}
@@ -1015,9 +966,9 @@ export function App(deps: AppDeps) {
       )}
 
       {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick ? (
-        <Text color={c("jade")}>{"  "}权限模式 → {modeHint}</Text>
+        <Text color={c("jade")}>{"  "}{t("ui.modeHint")} {modeHint}</Text>
       ) : null}
-      {bgRunning > 0 ? <Text color={c("gold")}>∞ {bgRunning} 个后台任务运行中…</Text> : null}
+      {bgRunning > 0 ? <Text color={c("gold")}>{t("ui.bgRunning", bgRunning)}</Text> : null}
       <StatusBar status={status} c={c} />
     </Box>
   );
@@ -1028,10 +979,10 @@ function lastExpandableFull(items: ({ id: number; kind: "welcome" } | Transcript
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i]!;
     if (it.kind === "tool" && it.output && it.output.length) return `⎿ ${it.label}\n${it.output.join("\n")}`;
-    if (it.kind === "reasoning") return `✻ 思考\n${it.text}`;
+    if (it.kind === "reasoning") return `${t("ui.reasoning.label")}\n${it.text}`;
     if (it.kind === "diff") {
       const body = it.rows?.length ? it.rows.join("\n") : [...it.removed.map((l) => "- " + l), ...it.added.map((l) => "+ " + l)].join("\n");
-      return `● 编辑 ${it.path}\n${body}`;
+      return `● ${t("ui.row.edit")} ${it.path}\n${body}`;
     }
   }
   return null;
@@ -1066,7 +1017,7 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
     const shown = expanded ? lines : lines.slice(-REASONING_CAP);
     return (
       <Box flexDirection="column" marginTop={1}>
-        <Text color={c("dim")}>✻ 思考{cut > 0 ? `(共 ${lines.length} 行,ctrl+o 展开)` : ""}</Text>
+        <Text color={c("dim")}>{t("ui.reasoning.label")}{cut > 0 ? t("ui.reasoning.more", lines.length) : ""}</Text>
         {shown.map((l, i) => <Text key={i} color={c("dim")}>  {l}</Text>)}
       </Box>
     );
@@ -1075,7 +1026,7 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
     // 复选框清单(复刻 CC):完成项划淡,进行中高亮。
     return (
       <Box flexDirection="column" marginTop={1}>
-        <Text color={c("jade")}>● 任务清单</Text>
+        <Text color={c("jade")}>{t("ui.row.todoTitle")}</Text>
         {item.items.map((t, i) => (
           <Text
             key={i}
@@ -1100,13 +1051,13 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
           <Text color={item.ok ? c("jade") : c("vermilion")}>● </Text>
           <Text color={c("ink")}>{item.label}</Text>
           {item.detail ? <Text color={item.ok ? c("dim") : c("vermilion")}>  {item.detail}</Text> : null}
-          {collapsedHint ? <Text color={c("dim")}>  (ctrl+o 展开)</Text> : null}
+          {collapsedHint ? <Text color={c("dim")}>  {t("ui.row.expandHint")}</Text> : null}
         </Box>
-        {expanded && item.rawArgs ? <Text color={c("dim")}>  ⎿ 参数 {item.rawArgs}</Text> : null}
+        {expanded && item.rawArgs ? <Text color={c("dim")}>  ⎿ {t("ui.row.args")} {item.rawArgs}</Text> : null}
         {showOut ? shown.map((l, i) => (
           <Text key={i} color={c("dim")}>  {i === 0 ? "⎿ " : "  "}{l}</Text>
         )) : null}
-        {showOut && hidden > 0 ? <Text color={c("dim")}>  … +{hidden} 行(ctrl+o 展开)</Text> : null}
+        {showOut && hidden > 0 ? <Text color={c("dim")}>  {t("ui.row.moreLines", hidden)}</Text> : null}
       </Box>
     );
   }
@@ -1118,7 +1069,7 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
       return (
         <Box flexDirection="column" marginTop={1}>
           <Text color={c("jade")}>
-            ● 编辑 {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
+            ● {t("ui.row.edit")} {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
           </Text>
           {shown.map((r, i) => {
             const sign = r[0] ?? " ";
@@ -1128,7 +1079,7 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
               </Text>
             );
           })}
-          {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(ctrl+o 展开)</Text> : null}
+          {hidden > 0 ? <Text color={c("dim")}>{"  "}{t("ui.row.moreLines", hidden)}</Text> : null}
         </Box>
       );
     }
@@ -1144,14 +1095,14 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
     return (
       <Box flexDirection="column" marginTop={1}>
         <Text color={c("jade")}>
-          ● 编辑 {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
+          ● {t("ui.row.edit")} {item.path} <Text color={c("dim")}>(-{item.removed.length} +{item.added.length})</Text>
         </Text>
         {shown.map(([sign, l, n], i) => (
           <Text key={i} color={sign === "+" ? c("jade") : c("vermilion")}>
             {"  "}{sign} <Text color={c("dim")}>{num(n)}</Text>{hl(l, item.lang)}
           </Text>
         ))}
-        {hidden > 0 ? <Text color={c("dim")}>{"  "}… +{hidden} 行(ctrl+o 展开)</Text> : null}
+        {hidden > 0 ? <Text color={c("dim")}>{"  "}{t("ui.row.moreLines", hidden)}</Text> : null}
       </Box>
     );
   }
@@ -1175,13 +1126,13 @@ function StatusBar({
     <Box marginTop={1}>
       <Text color={c("dim")}>
         {/* 耗时只在上方 live 行显示一次,这里不再重复 */}
-        {status.longTask ? <Text color={c("gold")}>∞ 长任务 · </Text> : ""}
+        {status.longTask ? <Text color={c("gold")}>{t("ui.status.longTask")}</Text> : ""}
         {status.yolo ? <Text color={c("vermilion")}>※ YOLO · </Text> : ""}
         {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}
-        {status.mode === "plan" ? <Text color={c("gold")}>◇ plan(只读规划) · </Text> : ""}
-        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>✎ 自动接受编辑 · </Text> : ""}
-        {status.permMode === "auto" ? <Text color={c("jade")}>⊙ 智能判定 · </Text> : ""}
-        {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}%{status.costCNY ? ` · ￥${status.costCNY.toFixed(status.costCNY < 1 ? 3 : 2)}` : ""} · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
+        {status.mode === "plan" ? <Text color={c("gold")}>{t("ui.status.planMode")}</Text> : ""}
+        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>{t("ui.status.acceptEdits")}</Text> : ""}
+        {status.permMode === "auto" ? <Text color={c("jade")}>{t("ui.status.auto")}</Text> : ""}
+        {status.model} · {t("ui.status.input")} {fmt(status.promptTokens)} · {t("ui.status.output")} {fmt(status.completionTokens)} · {t("ui.status.cacheHit")} {pct}%{status.costCNY ? ` · ￥${status.costCNY.toFixed(status.costCNY < 1 ? 3 : 2)}` : ""} · {t("ui.status.context")} {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
         {status.branch ? ` · ⎇ ${status.branch}` : ""}
       </Text>
     </Box>
