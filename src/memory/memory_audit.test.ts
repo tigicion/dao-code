@@ -44,6 +44,25 @@ describe("memory_audit sink", () => {
     expect(formatMemoryReport(sum)).toContain("合并");
   });
 
+  it("summarize + report 汇总 consolidated(合并 pass)", () => {
+    const ev: MemoryTraceEvent[] = [
+      { kind: "consolidated", ts: 0, scope: "user", groups: 2, superseded: 3, reasons: ["画像维度收敛", "技术偏好并入"] },
+      { kind: "consolidated", ts: 0, scope: "project", groups: 1, superseded: 1, reasons: ["两条完成状态去重"] },
+    ];
+    const sum = summarizeMemoryTrace(ev);
+    expect(sum.consolidation).toMatchObject({ runs: 2, groups: 3, superseded: 4 });
+    expect(sum.consolidation!.reasons).toHaveLength(3);
+    const rep = formatMemoryReport(sum);
+    expect(rep).toContain("合并 pass");
+    expect(rep).toContain("画像维度收敛");
+  });
+
+  it("无 consolidated 事件 → summary.consolidation 为 undefined,报告不含合并 pass 行", () => {
+    const sum = summarizeMemoryTrace([{ kind: "wrote", ts: 0, type: "user", merged: false }]);
+    expect(sum.consolidation).toBeUndefined();
+    expect(formatMemoryReport(sum)).not.toContain("合并 pass");
+  });
+
   it("reflected 落行 + summarize 汇总(跑/跳/advisory/记忆/节奏)", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "mem-a-"));
     const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);

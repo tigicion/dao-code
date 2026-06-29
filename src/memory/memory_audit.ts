@@ -45,6 +45,8 @@ export interface MemorySummary {
   writesMerged: number;
   byType: Record<string, { total: number; merged: number }>;
   distill?: { extracted: number; added: number; updated: number };
+  // 合并 pass(consolidated 事件):本会话启动期跑了几轮、合并组数、取代旧条目数、各组理由。
+  consolidation?: { runs: number; groups: number; superseded: number; reasons: string[] };
 }
 
 export function summarizeMemoryTrace(events: MemoryTraceEvent[]): MemorySummary {
@@ -56,6 +58,10 @@ export function summarizeMemoryTrace(events: MemoryTraceEvent[]): MemorySummary 
       const t = (s.byType[e.type] ??= { total: 0, merged: 0 });
       t.total++; if (e.merged) t.merged++;
     } else if (e.kind === "distilled") s.distill = { extracted: e.extracted, added: e.added, updated: e.updated };
+    else if (e.kind === "consolidated") {
+      const c = (s.consolidation ??= { runs: 0, groups: 0, superseded: 0, reasons: [] });
+      c.runs++; c.groups += e.groups; c.superseded += e.superseded; c.reasons.push(...e.reasons);
+    }
   }
   return s;
 }
@@ -124,5 +130,10 @@ export function formatMemoryReport(s: MemorySummary): string {
   lines.push(`  写入:${s.writes} 次(合并 ${s.writesMerged},合并率 ${mergeRate}%)`);
   for (const [t, v] of Object.entries(s.byType)) lines.push(`    ${t}: ${v.total} 写 / ${v.merged} 合并`);
   if (s.distill) lines.push(`  蒸馏:抽取 ${s.distill.extracted} · 新建 ${s.distill.added} · 合并 ${s.distill.updated}`);
+  if (s.consolidation) {
+    const c = s.consolidation;
+    lines.push(`  合并 pass:${c.runs} 轮 · 合并组 ${c.groups} · 取代旧条目 ${c.superseded}`);
+    for (const r of c.reasons.slice(0, 3)) lines.push(`    · ${r}`);
+  }
   return lines.join("\n");
 }
