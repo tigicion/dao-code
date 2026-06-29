@@ -36,6 +36,11 @@ describe("App", () => {
     expect(f).toContain("缓存命中 50%");
   });
 
+  it("skips the welcome banner when skipBanner is set", () => {
+    const { lastFrame } = render(<App {...makeDeps({ skipBanner: true })} />);
+    expect(lastFrame()).not.toContain("DAO CODE");
+  });
+
   it("输入消息回车 → 用户条目 + 助手回复进 transcript", async () => {
     const { lastFrame, stdin } = render(<App {...makeDeps()} />);
     stdin.write("hi");

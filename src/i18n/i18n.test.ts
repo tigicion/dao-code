@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { resolveLang, setLang, getLang, t, tips } from "./i18n.js";
+import { zh } from "./messages/zh.js";
+import { en } from "./messages/en.js";
+
+// 结构性护栏:zh/en 键集必须完全一致,否则缺失侧 t() 会静默退回 key 字符串。
+describe("i18n dict parity", () => {
+  it("zh / en 键集对称", () => {
+    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort());
+  });
+});
 
 describe("resolveLang", () => {
   it("DAO_LANG 压过 settings 压过系统 locale", () => {
@@ -47,5 +56,35 @@ describe("t / setLang", () => {
     expect(zh.length).toBeGreaterThan(0);
     expect(en.length).toBe(zh.length);
     expect(zh[0]).not.toBe(en[0]);
+  });
+  it("has the onboarding step keys in both langs", () => {
+    setLang("zh"); expect(t("onboard.provider.volcengine")).toBe("火山引擎(Coding Plan)");
+    setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
+    setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
+  });
+});
+
+describe("readUserLang / writeUserLang round-trip", () => {
+  it("writes lang and reads it back, preserving other fields", async () => {
+    const { writeUserLang, readUserLang } = await import("./i18n.js");
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const prevHome = process.env.HOME;
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "dao-i18n-"));
+    process.env.HOME = home;
+    try {
+      // 预置一个含其它字段的 settings.json,确认 writeUserLang 合并而非覆盖。
+      await fs.mkdir(path.join(home, ".dao"), { recursive: true });
+      await fs.writeFile(path.join(home, ".dao", "settings.json"), JSON.stringify({ permissions: { allow: ["x"] } }));
+      await writeUserLang("zh");
+      expect(await readUserLang()).toBe("zh");
+      const obj = JSON.parse(await fs.readFile(path.join(home, ".dao", "settings.json"), "utf8"));
+      expect(obj.lang).toBe("zh");
+      expect(obj.permissions).toEqual({ allow: ["x"] }); // 既有字段保留
+    } finally {
+      if (prevHome !== undefined) process.env.HOME = prevHome; else delete process.env.HOME;
+      await fs.rm(home, { recursive: true, force: true });
+    }
   });
 });

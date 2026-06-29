@@ -40,6 +40,8 @@ export interface StatusInfo {
 
 export interface AppDeps {
   welcome: { info: WelcomeInfo; caps: Capabilities; bg: Background; maxim: Maxim };
+  // 首启 onboarding 已自行展示过 banner;真→App 不再渲染 <Welcome>(避免重复)。
+  skipBanner?: boolean;
   // 跑一个用户回合:由 index 绑定真实 session/registry/gate;App 提供 events(喂 state)与 signal(ESC 取消)。
   submit: (text: string, hooks: { events: TurnEvents; signal: AbortSignal }) => Promise<void>;
   // 斜杠命令(/model /plan /clear /compact /help /exit;以及自定义命令展开成 prompt)。
