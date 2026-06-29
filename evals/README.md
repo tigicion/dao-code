@@ -16,17 +16,16 @@
 ## 怎么跑
 
 ```bash
+# 前提:已在交互模式跑过 dao /login 配好 key(存在 ~/.dao/config.json)
 # 看可靠性(默认每题 3 次,pass^3)
-DEEPSEEK_API_KEY=sk-... node evals/run.mjs
+node evals/run.mjs
 # 快速冒烟(每题 1 次)
-DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs
-# 只跑某几题 / 换模型
-DEEPSEEK_API_KEY=sk-... node evals/run.mjs 01-parse-query
-DEEPSEEK_API_KEY=sk-... DEEPSEEK_MODEL=deepseek-v4-flash node evals/run.mjs
+EVAL_RUNS=1 node evals/run.mjs
+# 只跑某几题
+node evals/run.mjs 01-parse-query
 ```
 
-> 真实调用模型、**产生费用**。每题在抛弃式临时目录跑,设 `DAO_AUTO_APPROVE=1` 无人值守放行。
-> ⚠️ **auto-approve 只在抛弃式/沙箱用**:PathEscape 只管文件工具,`exec_shell` 不受工作区约束、正常靠审批门兜底;自动放行后它能读写任意路径(`05-pathescape` 红队任务就证实会 `cat /etc/hosts`)。
+> 真实调用模型、**产生费用**。dao 从 profile 读 key，每题在抛弃式临时目录跑，设 `DAO_AUTO_APPROVE=1` 无人值守放行。
 
 跑完打印可读汇总,并写 **`evals/report.md`**:头条(pass^k 稳定解决几个)+ 表格(任务/类型/pass^k/通过率/工具数/耗时/失败原因)。
 

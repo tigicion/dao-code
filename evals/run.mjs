@@ -3,7 +3,8 @@
 // 对每个任务,在抛弃式临时工作区里跑 dao,做"双轨 + 终态"硬判定,多跑几次看 pass^k,
 // 末尾打印可读汇总并写 evals/report.md。
 //
-// 用法:DEEPSEEK_API_KEY=sk-... node evals/run.mjs [taskId...]
+// 用法:node evals/run.mjs [taskId...]
+// 前提:dao 已配置 key(交互模式 /login 或 ~/.dao/config.json)。
 // 环境:EVAL_RUNS(每题跑几次,默认 3,看 pass^k);EVAL_TIMEOUT_MS(默认 180000)
 //
 // 任务类型(task.json 的 "kind"):
@@ -39,11 +40,6 @@ const RUNS_DIR = path.join(__dirname, "runs"); // 每次跑的轨迹/diff/测试
 const RUNS = Number(process.env.EVAL_RUNS || 3);
 const TIMEOUT = Number(process.env.EVAL_TIMEOUT_MS || 180000);
 const MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
-
-if (!process.env.DEEPSEEK_API_KEY) {
-  console.error("请先设置 DEEPSEEK_API_KEY(eval 会真实调用模型、产生费用)。");
-  process.exit(1);
-}
 
 // docker 是否可用(用于 kind:"docker";不可用就跳过而非崩溃)
 let DOCKER_OK = null;
