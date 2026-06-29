@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { resolveLang, setLang, getLang, t, tips } from "./i18n.js";
+import { zh } from "./messages/zh.js";
+import { en } from "./messages/en.js";
+
+// 结构性护栏:zh/en 键集必须完全一致,否则缺失侧 t() 会静默退回 key 字符串。
+describe("i18n dict parity", () => {
+  it("zh / en 键集对称", () => {
+    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort());
+  });
+});
 
 describe("resolveLang", () => {
   it("DAO_LANG 压过 settings 压过系统 locale", () => {
