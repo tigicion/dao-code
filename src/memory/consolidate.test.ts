@@ -122,3 +122,51 @@ describe("applyConsolidationPlan 写回落地", () => {
     expect(r.superseded).toBe(0);
   });
 });
+
+import { maybeConsolidate } from "./consolidate.js";
+
+describe("maybeConsolidate 闸门 + marker", () => {
+  it("条数不足 → 不调模型、不写 marker", async () => {
+    const d = await tmp();
+    await writeMemory(d, newMemory({ name: "a", title: "A", text: "x", type: "user", today: "2026-06-07" }));
+    let called = false;
+    await maybeConsolidate({
+      dir: d, scope: "user", today: "2026-06-29", now: 30 * DAY,
+      streamChat: (() => { called = true; return stubStream("{}")(); }) as any,
+      config: { baseUrl: "u", apiKey: "k" }, model: "m",
+    });
+    expect(called).toBe(false);
+    await expect(fs.readFile(path.join(d, ".last-consolidation"), "utf8")).rejects.toThrow();
+  });
+
+  it("达标 → 跑合并、落地、写 marker、回调 audit", async () => {
+    const d = await tmp();
+    for (let i = 0; i < 13; i++) await writeMemory(d, newMemory({ name: "m" + i, title: "T" + i, text: "t" + i, type: "user", today: "2026-06-07" }));
+    const planJson = JSON.stringify({ groups: [{ canonical: { title: "T0", text: "merged", type: "user" }, supersede: ["m1"], reason: "r" }] });
+    let audited: any = null;
+    await maybeConsolidate({
+      dir: d, scope: "user", today: "2026-06-29", now: 30 * DAY,
+      streamChat: (() => stubStream(planJson)()) as any,
+      config: { baseUrl: "u", apiKey: "k" }, model: "m",
+      onAudit: (e) => { audited = e; },
+    });
+    expect(audited).toMatchObject({ scope: "user", groups: 1, superseded: 1 });
+    const marker = await fs.readFile(path.join(d, ".last-consolidation"), "utf8");
+    expect(Number(marker)).toBe(30 * DAY);
+    const raw = await fs.readFile(path.join(d, "m1.md"), "utf8");
+    expect(raw).toMatch(/status: superseded/);
+  });
+
+  it("marker 未过期 → 跳过", async () => {
+    const d = await tmp();
+    for (let i = 0; i < 13; i++) await writeMemory(d, newMemory({ name: "m" + i, title: "T" + i, text: "t" + i, type: "user", today: "2026-06-07" }));
+    await fs.writeFile(path.join(d, ".last-consolidation"), String(30 * DAY - 1 * DAY), "utf8"); // 1 天前
+    let called = false;
+    await maybeConsolidate({
+      dir: d, scope: "user", today: "2026-06-29", now: 30 * DAY,
+      streamChat: (() => { called = true; return stubStream("{}")(); }) as any,
+      config: { baseUrl: "u", apiKey: "k" }, model: "m",
+    });
+    expect(called).toBe(false);
+  });
+});

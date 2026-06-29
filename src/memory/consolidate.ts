@@ -1,7 +1,9 @@
 // 记忆合并 pass:对一个作用域的全部 live 记忆做一次推理重合并,清理跨会话累积的重叠/矛盾。
 // 纯函数(parse/gate/prompt)与 LLM runner(见 consolidate())分离,便于测试。
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import type { Memory } from "./types.js";
-import { upsertMemory, supersedeMemory, slug } from "./store.js";
+import { upsertMemory, supersedeMemory, slug, loadAllMemories } from "./store.js";
 import { newMemory } from "./types.js";
 
 export interface ConsolidationGroup {
@@ -152,4 +154,37 @@ export async function applyConsolidationPlan(
     }
   }
   return { merged, superseded };
+}
+
+export interface MaybeConsolidateDeps {
+  dir: string;
+  scope: ConsolScope;
+  today: string;
+  now: number;
+  streamChat: ConsolidateInput["streamChat"];
+  config: { baseUrl: string; apiKey: string };
+  model: string;
+  onAudit?: (e: { scope: string; groups: number; superseded: number; reasons: string[] }) => void;
+  onUsage?: (u: unknown) => void;
+}
+
+// 启动期 gated 合并:仅该作用域 dir;未达天数/条数则跳过。失败绝不影响启动。
+export async function maybeConsolidate(deps: MaybeConsolidateDeps): Promise<void> {
+  const cfg = consolidationCfg(deps.scope);
+  const marker = path.join(deps.dir, ".last-consolidation");
+  try {
+    const existing = await loadAllMemories(deps.dir, deps.dir + "-none-other"); // 只读本 dir 的 active
+    if (existing.length < cfg.min) return;
+    const lastMs = Number(await fs.readFile(marker, "utf8").catch(() => "0"));
+    if (!shouldConsolidate(lastMs, existing.length, deps.now, cfg)) return;
+
+    const mems = existing.map((m) => ({ name: m.name, title: m.title, text: m.text, type: m.type, source: m.source }));
+    const plan = await consolidate({ streamChat: deps.streamChat, config: deps.config, model: deps.model, scope: deps.scope, mems, ...(deps.onUsage ? { onUsage: deps.onUsage } : {}) });
+
+    const r = await applyConsolidationPlan(deps.dir, plan, existing, deps.today);
+    deps.onAudit?.({ scope: deps.scope, groups: r.merged, superseded: r.superseded, reasons: plan.groups.map((g) => g.reason) });
+
+    await fs.mkdir(deps.dir, { recursive: true });
+    await fs.writeFile(marker, String(deps.now), "utf8");
+  } catch { /* 合并失败不影响启动 */ }
 }
