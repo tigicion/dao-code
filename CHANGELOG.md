@@ -4,6 +4,21 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-29
+
+### 新增
+- **火山引擎 Coding Plan provider(`volcengine`)**:OpenAI 兼容直连 `https://ark.cn-beijing.volces.com/api/coding/v3`,模型沿用 `deepseek-v4-pro`/`deepseek-v4-flash`(与官方一致),协议层零改动。新增 `ARK_API_KEY`(+ `ARK_BASE_URL`/`ARK_MODEL`)env 源,优先级 `DEEPSEEK_API_KEY` > `ARK_API_KEY` > 激活 profile;来源始终显式呈现。校验探针按 provider 选(coding 路径无 `/models` → 用最小 `chat/completions` 探针)。
+- **中英双语界面(i18n)**:启动按系统 locale 检测语言(`DAO_LANG` > `~/.dao/settings.json` 的 `lang` > 系统 `LC_*`/`LANG`,检测不到默认英文)。覆盖**首启 onboarding / 目录信任 / 凭证报错**以及**主循环 UI**——权限模式、状态栏、运行时提示、`/help` 命令表(49 条)、工具标签与通知、`.codeds→.dao` 迁移提示。两套扁平字典 + `zh/en 键集对称`结构护栏。**模型输出语言不变**(仍跟随用户消息);道家名句/太极保留中文作为品牌。
+- **道家 onboarding 重做**:首启从 readline 文本两步改为「欢迎屏即配置」的连续 Ink 流——太极/朱印 banner 下原地走 ① 语言 ② Provider(DeepSeek/火山) ③ 粘贴并校验 key ④ 目录信任,配完输入框激活。交互路径**彻底不创建 readline**(规避 readline/Ink 的 stdin 冲突);非交互/headless 保留文本兜底。
+
+### 变更
+- `Provider` 抽象与 `DEFAULTS` 扩入 `volcengine`;凭证校验 `validateCredential` 增 `provider` 参数。
+- 主循环 UI 文案统一走 `t(key)`,语言选定即时切;`write_file` 结果详情合成行数,不再回显工具层中文。
+
+### 工程
+- 子项目 C/B/A + i18n 主循环全程 TDD + 子代理逐任务两段式 review + 终审;设计/计划文档落 `docs/design/`。
+- 已知 follow-up:工具层(`tools/`)结果文案 i18n;C 完整实测 gate(对话/flash/计费)。
+
 ## [0.2.0] - 2026-06-25
 
 ### 新增
