@@ -125,14 +125,11 @@ npm install && npm run build && npm link   # 之后可全局 dao
 
    首次在终端运行且没检测到 key 时,会引导你粘贴,并存到 `~/.dao/config.json`(下次自动读,无需再配)。
 
-3. 或手动设 key(任选一种,按你的系统):
+3. 或用 headless 一次性模式传 key:
 
-   | 方式 | 命令 |
-   |---|---|
-   | `.env`(项目根,全平台) | 写一行 `DEEPSEEK_API_KEY=sk-...` |
-   | macOS / Linux | `export DEEPSEEK_API_KEY=sk-...` |
-   | Windows PowerShell | `$env:DEEPSEEK_API_KEY="sk-..."` |
-   | Windows CMD | `set DEEPSEEK_API_KEY=sk-...` |
+   ```bash
+   dao --api-key sk-xxx --provider deepseek "讲个笑话"
+   ```
 
 4. 浅色终端:运行中输入 `/theme` 切换,或启动前设 `DAO_THEME=light`。
 
@@ -268,8 +265,9 @@ npm run typecheck
 agent 端到端评测在 `evals/`:SWE-bench 风格,取材真实开源近期 bug-fix,**fail2pass / pass2pass 双轨验证**(改完后目标测试由失败转通过,且既有功能测试不被改坏),测试文件对 agent 隐藏、跑完才注入,以防 reward-hacking。
 
 ```bash
-DEEPSEEK_API_KEY=sk-... node evals/run.mjs            # 默认每题 3 次,看 pass^k 可靠性
-DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
+# evals 使用 --api-key 和 --provider;在 evals/run.mjs 中设置或通过环境传入
+node evals/run.mjs            # 默认每题 3 次,看 pass^k 可靠性
+EVAL_RUNS=1 node evals/run.mjs # 冒烟
 ```
 
 > 评测真实调用模型、产生费用;每题在抛弃式临时目录跑,无人值守时设 `DAO_AUTO_APPROVE=1` 自动放行。详见 [`evals/README.md`](evals/README.md)。
@@ -280,9 +278,8 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # 冒烟
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | API key(env / `.env` / `~/.dao/config.json` / 首次引导) | — |
-| `DEEPSEEK_BASE_URL` | API 端点 | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | 默认模型 | `deepseek-v4-pro` |
+| — | API key:运行 `dao` 交互进入首次引导设置,或 `/login` 更换 | — |
+| `DEEPSEEK_MODEL` | 默认模型(已弃用) | `deepseek-v4-pro` |
 | `DAO_THEME` | `light` / `dark` 强制终端背景 | 据 `COLORFGBG` / OSC 11 探测,否则 `dark` |
 | `DAO_REASONING_EFFORT` | 思考强度 | `max` |
 | `DAO_MAX_TURNS` | 单回合最大工具轮数 | `50` |

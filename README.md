@@ -123,14 +123,11 @@ npm install && npm run build && npm link   # then dao is global
 
    On first run with no key detected, it walks you through pasting one and saves it to `~/.dao/config.json` (auto-read next time — no env setup needed).
 
-3. Or set the key manually (pick one for your OS):
+3. Or use headless one-shot with a key:
 
-   | How | Command |
-   |---|---|
-   | `.env` (project root, all platforms) | a line `DEEPSEEK_API_KEY=sk-...` |
-   | macOS / Linux | `export DEEPSEEK_API_KEY=sk-...` |
-   | Windows PowerShell | `$env:DEEPSEEK_API_KEY="sk-..."` |
-   | Windows CMD | `set DEEPSEEK_API_KEY=sk-...` |
+   ```bash
+   dao --api-key sk-xxx --provider deepseek "tell me a joke"
+   ```
 
 4. Light terminals: type `/theme` at runtime, or set `DAO_THEME=light` before launch.
 
@@ -266,8 +263,9 @@ npm run typecheck
 Agent end-to-end evaluation lives in `evals/`: SWE-bench-style, drawn from recent real open-source bug fixes, with **dual-track fail2pass / pass2pass verification** (after the fix the target test flips from fail to pass, and existing functional tests aren't broken); test files are hidden from the agent and injected only after the run, to prevent reward-hacking.
 
 ```bash
-DEEPSEEK_API_KEY=sk-... node evals/run.mjs            # default 3 runs per task, see pass^k reliability
-DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # smoke test
+# evals use --api-key and --provider; set them in evals/run.mjs or pass via env
+node evals/run.mjs            # default 3 runs per task, see pass^k reliability
+EVAL_RUNS=1 node evals/run.mjs # smoke test
 ```
 
 > Evaluation makes real model calls and incurs cost; each task runs in a throwaway temp dir — set `DAO_AUTO_APPROVE=1` for unattended runs. See [`evals/README.md`](evals/README.md).
@@ -278,9 +276,8 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # smoke test
 
 | Variable | Description | Default |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | API key (env / `.env` / `~/.dao/config.json` / first-run wizard) | — |
-| `DEEPSEEK_BASE_URL` | API endpoint | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | Default model | `deepseek-v4-pro` |
+| — | API key: run `dao` interactively to set via onboarding, or `/login` to change | — |
+| `DEEPSEEK_MODEL` | Default model (deprecated) | `deepseek-v4-pro` |
 | `DAO_THEME` | Force terminal background `light` / `dark` | detected from `COLORFGBG` / OSC 11, else `dark` |
 | `DAO_REASONING_EFFORT` | Reasoning effort | `max` |
 | `DAO_MAX_TURNS` | Max tool turns per turn | `50` |
