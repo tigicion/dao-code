@@ -15,6 +15,7 @@ import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
 import { isContextLengthError } from "../client/client.js";
 import { looksFailed } from "../tools/execute.js";
 import { assessTurn, initHealth, errSignature, defaultHealthConfig } from "./turn_health.js";
+import { SELF_CHALLENGE_NUDGE } from "./reflect_prompts.js";
 
 // 廉价稳定哈希(djb2):只用于"是否变化"的缓存归因指纹,不求抗碰撞。
 function cheapHash(s: string): string {
@@ -68,6 +69,9 @@ export interface TurnDeps {
   // 省略则不反思(子代理/eval 不传)。impl 在 index.ts(fork 调用,复用热缓存)。
   reflect?: (kind: "challenger" | "refocuser") => Promise<string | null>;
   longTask?: boolean; // 长任务模式(纠偏者仅在此模式按周期触发)
+  // 子代理自挑战:子代理不传 reflect(不另起 fork,避免嵌套加深/翻倍成本/废前缀缓存),
+  // 但仍跑廉价的确定性卡住检测——卡住时注入一段静态自省 nudge,让子代理在自己下一轮里反省。
+  selfChallenge?: boolean;
 }
 
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
@@ -266,8 +270,10 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
       advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`);
     }
-    // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者(同模型 fork,命中热缓存);结论作 advisory 参考。
-    if (deps.reflect && !signal?.aborted) {
+    // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者。检测(廉价纯函数)与应对(贵的 LLM)解耦:
+    //   · 主回合(有 reflect)→ 起一个 fork 独立复核,结论作 advisory(命中热缓存)。
+    //   · 子代理(无 reflect、selfChallenge=true)→ 不 fork,注入静态自省 nudge,让它就地反省。
+    if ((deps.reflect || deps.selfChallenge) && !signal?.aborted) {
       const fails = turnToolMessages.filter((m) => looksFailed(m.content));
       const outcome = {
         progressed,
@@ -276,10 +282,14 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       };
       const d = assessTurn(health, outcome, healthCfg, { longTask: !!deps.longTask });
       health = d.next;
-      if (d.challenger || d.refocuser) {
+      if (deps.reflect && (d.challenger || d.refocuser)) {
         events.notice(`\n[反思:${d.challenger ? "审视当前进展" : "纠偏长任务方向"}…]\n`);
         const verdict = await deps.reflect(d.challenger ? "challenger" : "refocuser");
         if (verdict) advisories.push(`[${d.challenger ? "审视者" : "纠偏者"}·参考]\n${verdict}`);
+      } else if (deps.selfChallenge && d.challenger) {
+        // 子代理只对"卡住"(失败/同错)自省;纠偏(长任务漂移)对单一受限子任务无意义,不触发。
+        events.notice(`\n[子代理自检:连续失败,促其反省前提…]\n`);
+        advisories.push(SELF_CHALLENGE_NUDGE);
       }
     }
     if (advisories.length) session.messages.push({ role: "system", content: advisories.join(" ") });

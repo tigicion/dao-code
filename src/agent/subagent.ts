@@ -55,6 +55,7 @@ export async function runSubagent(deps: SubagentDeps): Promise<string> {
     signal: deps.signal,
     drainPending: deps.drainPending,
     background: true, // 子代理:遇 529 不重试/不回退,防并行子代理级联放大
+    selfChallenge: true, // 子代理不另起反思 fork,但跑确定性卡住检测:连续失败/同错复发 → 注入静态自省 nudge
     maxTurns: 200, // 子代理硬上限 200 轮(对标 CC fork subagent);主会话不限轮数靠 compact
     ...(deps.auditSink ? { auditSink: deps.auditSink, auditId: { agent: deps.auditAgent ?? "sub", subId: deps.auditSubId, depth: subDepth } } : {}),
   });

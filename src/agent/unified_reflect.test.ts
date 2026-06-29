@@ -77,3 +77,19 @@ describe("unified_reflect.reflect", () => {
     expect(REFLECT_TAIL).toContain("onTrack");
   });
 });
+
+describe("REFLECT_TAIL 通用画像维度块", () => {
+  it("含五个画像维度关键词", () => {
+    for (const kw of ["沟通偏好", "工作风格", "专业背景", "反复出现", "硬规矩"]) {
+      expect(REFLECT_TAIL).toContain(kw);
+    }
+  });
+  it("含 user_stated / inferred 来源区分与隐私红线", () => {
+    expect(REFLECT_TAIL).toContain("user_stated");
+    expect(REFLECT_TAIL).toContain("inferred");
+    expect(REFLECT_TAIL).toContain("红线");
+  });
+  it("含『上抽』指令(项目事实抽象成人物画像)", () => {
+    expect(REFLECT_TAIL).toContain("上抽");
+  });
+});

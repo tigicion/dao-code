@@ -55,4 +55,24 @@ describe("memory_audit sink", () => {
     expect(formatReflectReport(sum)).toContain("反思器");
     expect(formatReflectReport(sum)).toContain("跳过 1");
   });
+
+  it("reflected note 落行 + 汇总进 notes + 报告展示复述", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mem-note-"));
+    const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);
+    s.reflected({ ran: true, onTrack: true, advisoryInjected: false, memAdded: 0, memMerged: 0, interval: 1, note: "在写测试,验收推进,故在轨" });
+    s.reflected({ ran: true, onTrack: true, advisoryInjected: false, memAdded: 0, memMerged: 0, interval: 1 }); // 无 note
+    const sum = summarizeReflectTrace(read(dir));
+    expect(sum.notes).toEqual(["在写测试,验收推进,故在轨"]);
+    expect(formatReflectReport(sum)).toContain("复述");
+    expect(formatReflectReport(sum)).toContain("在写测试,验收推进,故在轨");
+  });
+
+  it("consolidated 事件落行", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mem-c-"));
+    const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);
+    s.consolidated({ scope: "user", groups: 2, superseded: 3, reasons: ["a", "b"] });
+    const ev = read(dir).find((e: any) => e.kind === "consolidated") as any;
+    expect(ev).toMatchObject({ scope: "user", groups: 2, superseded: 3 });
+    expect(ev.reasons).toEqual(["a", "b"]);
+  });
 });

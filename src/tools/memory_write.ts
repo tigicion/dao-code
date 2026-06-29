@@ -3,7 +3,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { loadAllMemories, upsertMemory, routeScope, slug } from "../memory/store.js";
+import { loadAllMemories, upsertMemory, deleteMemory, routeScope, slug } from "../memory/store.js";
 import { newMemory } from "../memory/types.js";
 import { contentHash } from "../memory/hash.js";
 import { findSecrets } from "../permissions/secrets.js";
@@ -29,15 +29,33 @@ export const memoryWriteTool = defineTool({
   capability: "plan",
   approval: "auto",
   schema: z.object({
-    text: z.string().min(1).describe("要记住的事实(完整一句;feedback 带'为什么/怎么用')"),
-    title: z.string().optional().describe("≤1 行概要(索引展示 + 文件名);不填则用 text 派生"),
+    text: z.string().optional().describe("要记住的事实(完整一句;feedback 带'为什么/怎么用')。delete 时可省。"),
+    title: z.string().optional().describe("≤1 行概要(索引展示 + 文件名);不填则用 text 派生。delete 时用它定位要删的记忆。"),
     type: z.enum(["user", "feedback", "semantic", "procedural", "episodic"]).optional().describe("user=用户模型,feedback=用户对工作方式的指导(默认 semantic)"),
     importance: z.number().int().min(1).max(10).optional().describe("1–10 重要度,默认 5"),
     confidence: z.number().min(0).max(1).optional().describe("用户模型/推断类填,0–1"),
     source: z.string().optional().describe("该事实的代码出处 path 或 path#symbol"),
     scope: z.enum(["project", "user", "knowledge"]).optional().describe("不填按类型定:procedural→knowledge(跨项目知识库),user/feedback→user,其余→project"),
+    delete: z.boolean().optional().describe("true=删除一条已有记忆(按 title 或 name 定位,真删文件),而非写入。删除时只需给 title/text 之一。"),
   }),
   handler: async (args, ctx) => {
+    // 删除路径:真删文件(不写"已删除"墓碑)。按 title 或 text 定位,跨三个作用域查找。
+    if (args.delete) {
+      const key = (args.title || args.text || "").trim();
+      if (!key) return "删除失败:需提供 title 或 text 来定位要删除的记忆。";
+      const removed = await withMemLock(() =>
+        deleteMemory(
+          [
+            memDir("project", ctx.workspaceRoot, ctx.homeDir),
+            memDir("user", ctx.workspaceRoot, ctx.homeDir),
+            memDir("knowledge", ctx.workspaceRoot, ctx.homeDir),
+          ],
+          key,
+        ),
+      );
+      return removed.length ? `已删除记忆(共 ${removed.length} 条):${removed.join("、")}` : `未找到匹配记忆:${key}`;
+    }
+    if (!args.text || !args.text.trim()) return "写入失败:text 必填(删除请用 delete: true)。";
     // S5.1:密钥绝不写进持久记忆。命中即拒(不落盘),让模型改记不含密钥的描述。
     const secrets = findSecrets(args.text);
     if (secrets.length) return `拒绝写入记忆:疑似含密钥(${secrets.join("、")})。请勿把凭据写进记忆;如需记录,改写成不含密钥的描述。`;
