@@ -77,7 +77,7 @@
 **触发闸**(每作用域独立判定,纯函数 `shouldConsolidate(lastDate, liveCount, today, cfg)`):
 - `.last-consolidation` 标记(对标 `.last-cleanup`,各作用域目录各一份):距上次 < `days` 跳过。
 - 数量门:该作用域 live 记忆数 ≥ `min` 才跑。
-- 模型用 distill 档(便宜);`DAO_NO_MEMORY` / 一次性 `--prompt` / eval 路径不跑。
+- 模型用主模型(`cfg.model`,即 v4 pro;dao-code 无单独"便宜档",distill 本身就走主模型);`DAO_NO_MEMORY` / 一次性 `--prompt` / eval 路径不跑。
 - 项目级只合**当前项目目录**——打开哪个项目才合哪个,天然限定范围。
 
 **做什么**:把该作用域全部 live 记忆喂给合并推理 prompt(力度按作用域),输出合并计划:
@@ -129,7 +129,7 @@
 
 - **过度合并**:合并 pass 错并两条不同维度 → 污染。缓解:保守纪律 + 不跨 source + supersede 软删(可追溯,可人工恢复)+ reason 可观测复盘。
 - **画像误判固化**:把"一次表现"当长期人设。缓解:inferred 单次 → 低置信;GC 的 provisional 门会快剪未被重确认的低置信新条目。
-- **启动延迟**:合并 pass 至多 3 次 LLM(三作用域)。缓解:每作用域双闸独立(天 + 条数)+ distill 档;绝大多数启动三档全跳过,触发也通常只命中一档。
+- **启动延迟**:合并 pass 至多 3 次 LLM(三作用域,主模型 v4 pro)。缓解:每作用域双闸独立(天 + 条数);绝大多数启动三档全跳过,触发也通常只命中一档。成本敏感可用 `DAO_CONSOLIDATE_MODEL` 指更便宜模型。
 
 ## 取舍记录
 

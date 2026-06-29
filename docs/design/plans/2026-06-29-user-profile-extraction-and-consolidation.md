@@ -12,7 +12,7 @@
 
 - 语言 TypeScript,源码 import 必须带 `.js` 后缀(ESM);注释用中文,匹配现有风格。
 - 不增加 LLM 调用数到主回路:提取仍是 REFLECT_TAIL 一次;合并 pass 是启动期低频、三作用域各自 gated。
-- 合并模型用便宜档:`process.env.DAO_CONSOLIDATE_MODEL || cfg.model`(provider 安全,不硬编码 deepseek-v4-flash)。
+- 合并模型默认主模型:`process.env.DAO_CONSOLIDATE_MODEL || cfg.model`(dao-code 无单独便宜档,distill 本身就走主模型 v4 pro;provider 安全,不硬编码 deepseek-v4-flash)。
 - 被并源一律 **supersede 软删**(`status: superseded` + `supersededBy`,`validUntil = today`),不硬删。
 - git commit message 不加任何 AI 署名。
 - 每个 Task 结束:`npx tsc --noEmit -p tsconfig.json` 干净 + 相关 vitest 绿。
