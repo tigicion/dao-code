@@ -62,6 +62,16 @@ describe("t / setLang", () => {
     setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
     setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
   });
+  it("斜杠命令描述 cmd.* 抽样 zh/en", () => {
+    setLang("zh");
+    expect(t("cmd.tasks")).toBe("查看后台任务");
+    expect(t("cmd.model")).toBe("切换模型(Pro/Flash)");
+    expect(t("cmd.help")).toBe("查看帮助");
+    setLang("en");
+    expect(t("cmd.tasks")).toBe("Show background tasks");
+    expect(t("cmd.model")).toBe("Switch model (Pro/Flash)");
+    expect(t("cmd.help")).toBe("Show help");
+  });
 });
 
 describe("readUserLang / writeUserLang round-trip", () => {
