@@ -643,7 +643,8 @@ describe("App", () => {
     for (const ch of "go") stdin.write(ch);
     await delay();
     stdin.write("\r");
-    await delay();
+    // 出错 notice 是异步的(submit 抛错→catch→setState→render 比单个 delay 慢,CI 慢机尤甚)→ 轮询等待,消除 timing flake。
+    for (let i = 0; i < 50 && !lastFrame()!.includes("出错:boom"); i++) await delay(20);
     expect(lastFrame()!).toContain("出错:boom");
   });
 
