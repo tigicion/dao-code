@@ -22,6 +22,19 @@ describe("KeyStep", () => {
     expect(validate).toHaveBeenCalledWith({ baseUrl: meta.baseUrl, key: "sk-abc", provider: "deepseek" });
     expect(onDone).toHaveBeenCalledWith("sk-abc");
   });
+  it("gates input after success: second Enter does not re-validate/re-onDone", async () => {
+    const validate = vi.fn(async () => ({ ok: true } as const));
+    const onDone = vi.fn(); const onAbort = vi.fn();
+    const { stdin, lastFrame } = render(
+      <KeyStep bg="dark" provider="deepseek" meta={meta} validate={validate} onDone={onDone} onAbort={onAbort} />,
+    );
+    stdin.write("sk-abc"); await delay();
+    stdin.write(ENTER); await delay(50);                 // 成功 → busy 保持
+    stdin.write(ENTER); await delay(50);                 // 二次回车应被 busy 闸住
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(lastFrame()).toContain("Validating");          // 成功后仍停在校验态(busy 未清)
+  });
   it("shows the reason and stays on failure, not onDone", async () => {
     const validate = vi.fn(async () => ({ ok: false, reason: "invalid" } as const));
     const onDone = vi.fn(); const onAbort = vi.fn();

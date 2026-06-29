@@ -34,13 +34,30 @@ export function Onboarding({ welcome, detectedLang, validate, persist, writeLang
   const [lang, setLang_] = useState<Lang>(detectedLang);
   const [provider, setProvider] = useState<Provider>("deepseek");
   const [resolved, setResolved] = useState<ResolvedCredential | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
   const meta = { baseUrl: DEFAULTS[provider].baseUrl, model: DEFAULTS[provider].model };
 
+  // 任何持久化/收尾异常都不能让已挂载的 Ink UI 永久冻屏:渲染醒目错误行 + onFinish(null) 让 index.ts 干净退出。
+  const fail = (e: unknown) => {
+    setError(e instanceof Error && e.message ? e.message : t("onboard.saveFailed"));
+    onFinish(null);
+  };
+
+  const onKeyDone = async (k: string) => {
+    try {
+      const { resolved: r } = await persist(provider, meta, k);
+      setResolved(r);
+      setStep("trust");
+    } catch (e) { fail(e); }
+  };
+
   const finishTrust = async (trusted: boolean) => {
-    await writeLang(lang);
-    if (trusted) await trustCurrent();
-    onFinish({ resolved: resolved!, lang, trusted });
+    try {
+      await writeLang(lang);
+      if (trusted) await trustCurrent();
+      onFinish({ resolved: resolved!, lang, trusted });
+    } catch (e) { fail(e); }
   };
 
   return (
@@ -54,12 +71,13 @@ export function Onboarding({ welcome, detectedLang, validate, persist, writeLang
           <ProviderStep bg={bg} onPick={(p) => { setProvider(p); setStep("key"); }} />
         ) : step === "key" ? (
           <KeyStep bg={bg} provider={provider} meta={meta} validate={validate}
-            onDone={async (k) => { const { resolved: r } = await persist(provider, meta, k); setResolved(r); setStep("trust"); }}
+            onDone={(k) => { void onKeyDone(k); }}
             onAbort={() => onFinish(null)} />
         ) : (
           <TrustStep bg={bg} root={workspaceRoot} onDecide={(tr) => { void finishTrust(tr); }} />
         )}
       </Box>
+      {error ? <Box marginTop={1}><Text color={c("vermilion")}>{"✗ "}{error}</Text></Box> : null}
     </Box>
   );
 }

@@ -38,6 +38,27 @@ describe("Onboarding state machine", () => {
     expect(onFinish).toHaveBeenCalledWith(expect.objectContaining({ lang: "en", trusted: true }));
     expect(onFinish.mock.calls[0]?.[0].resolved.key).toBe("sk-x");
   });
+  it("persist rejecting → shows error + onFinish(null) (no hang)", async () => {
+    const onFinish = vi.fn();
+    const d = deps({ persist: vi.fn(async () => { throw new Error("disk full"); }) });
+    const { stdin, lastFrame } = render(<Onboarding {...d} onFinish={onFinish} />);
+    stdin.write(ENTER); await delay();                  // lang
+    stdin.write(ENTER); await delay();                  // provider
+    stdin.write("sk-x"); await delay(); stdin.write(ENTER); await delay(60); // key 校验通过 → persist 抛错
+    expect(onFinish).toHaveBeenCalledWith(null);        // 不冻屏:干净退出
+    expect(lastFrame()).toContain("disk full");         // 朱砂错误行可见
+  });
+  it("finishTrust rejecting (writeLang) → shows error + onFinish(null)", async () => {
+    const onFinish = vi.fn();
+    const d = deps({ writeLang: vi.fn(async () => { throw new Error("lang write failed"); }) });
+    const { stdin, lastFrame } = render(<Onboarding {...d} onFinish={onFinish} />);
+    stdin.write(ENTER); await delay();
+    stdin.write(ENTER); await delay();
+    stdin.write("sk-x"); await delay(); stdin.write(ENTER); await delay(60);
+    stdin.write("y"); await delay(40);                   // 信任 → finishTrust → writeLang 抛错
+    expect(onFinish).toHaveBeenCalledWith(null);
+    expect(lastFrame()).toContain("lang write failed");
+  });
   it("aborts (null) on empty key", async () => {
     const onFinish = vi.fn(); const d = deps();
     const { stdin } = render(<Onboarding {...d} onFinish={onFinish} />);

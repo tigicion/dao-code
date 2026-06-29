@@ -27,9 +27,11 @@ export function KeyStep({
     if (!k) { onAbort(); return; }
     setBusy(true); setErr(null);
     const v = await validate({ baseUrl: meta.baseUrl, key: k, provider });
+    // 成功时【不】清 busy:onDone→persist 是 fire-and-forget,清 busy 会让 await 窗口内的二次回车重复提交/重复落盘。
+    // 保持 busy=true 把输入闸到父组件卸载/推进 KeyStep。仅失败路径清 busy 让用户可重试。
+    if (v.ok) { onDone(k); return; }
     setBusy(false);
-    if (v.ok) onDone(k);
-    else setErr(t(REASON_KEY[v.reason] ?? "validate.reason.fail"));
+    setErr(t(REASON_KEY[v.reason] ?? "validate.reason.fail"));
   };
 
   usePaste((text) => { if (!busy) setKey((s) => s + text.replace(/\s+/g, "")); });

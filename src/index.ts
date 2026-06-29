@@ -301,6 +301,7 @@ async function main() {
       if (!ob) { write(`${t("onboard.abortNoKey")}\n`); process.exit(1); }
       resolved = ob.resolved;
       trustProject = ob.trusted;       // onboarding 内已处理信任,跳过后续 readline 信任问答
+      if (!ob.trusted) write(`${t("trust.untrusted")}\n`); // 首启在 onboarding 拒绝信任时也要提示项目配置不加载(对标非首启 readline 路径)
       firstRun = true;
     } else {
       // 非交互(管道/CI):无法引导,给出清晰指引后退出
