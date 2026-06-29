@@ -1,6 +1,8 @@
 // 记忆合并 pass:对一个作用域的全部 live 记忆做一次推理重合并,清理跨会话累积的重叠/矛盾。
 // 纯函数(parse/gate/prompt)与 LLM runner(见 consolidate())分离,便于测试。
 import type { Memory } from "./types.js";
+import { upsertMemory, supersedeMemory, slug } from "./store.js";
+import { newMemory } from "./types.js";
 
 export interface ConsolidationGroup {
   canonical: { title: string; text: string; type?: string; importance?: number; confidence?: number; source?: string };
@@ -89,4 +91,36 @@ ${list}
 
 输出(严格 JSON):
 {"groups":[{"canonical":{"title":"…","text":"合成后的完整规范正文","type":"user","importance":8,"confidence":0.85,"source":"inferred"},"supersede":["旧name1","旧name2"],"reason":"二者都讲 X,canonical 已涵盖"}]}`;
+}
+
+// 写回落地:canonical upsert 写盘;被并源 supersede 软删(validUntil=today,GC 7 天宽限后清)。
+// canonical 的 name 用 slug(title);若与某 supersede 项同名,跳过对它的 supersede(它就是 canonical 本体)。
+export async function applyConsolidationPlan(
+  dir: string,
+  plan: ConsolidationPlan,
+  existing: Memory[],
+  today: string,
+): Promise<{ merged: number; superseded: number }> {
+  let merged = 0, superseded = 0;
+  for (const g of plan.groups) {
+    const cand = newMemory({
+      name: slug(g.canonical.title || g.canonical.text),
+      title: g.canonical.title,
+      text: g.canonical.text,
+      type: (g.canonical.type as Memory["type"]) || "user",
+      today,
+      importance: g.canonical.importance,
+      confidence: g.canonical.confidence,
+      source: g.canonical.source,
+    });
+    await upsertMemory(dir, cand, existing);
+    merged++;
+    for (const oldName of g.supersede) {
+      if (oldName === cand.name) continue; // 别把 canonical 本体 supersede 掉
+      const before = existing.find((m) => m.name === oldName);
+      await supersedeMemory(dir, oldName, cand.name, today);
+      if (before) superseded++;
+    }
+  }
+  return { merged, superseded };
 }

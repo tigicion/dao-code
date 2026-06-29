@@ -57,3 +57,41 @@ describe("consolidationCfg / buildConsolidatePrompt", () => {
     expect(p).toContain("不跨 source");
   });
 });
+
+import { applyConsolidationPlan } from "./consolidate.js";
+import { writeMemory, loadAllMemories } from "./store.js";
+import { newMemory } from "./types.js";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "consol-"));
+
+describe("applyConsolidationPlan 写回落地", () => {
+  it("canonical 写盘 + 被并源 supersede,live 集只剩 canonical", async () => {
+    const d = await tmp();
+    await writeMemory(d, newMemory({ name: "家长", title: "为2岁孩子做游戏的家长", text: "持续做儿童游戏,懂认知边界", type: "user", today: "2026-06-07", importance: 8 }));
+    await writeMemory(d, newMemory({ name: "swiftui-spritekit", title: "偏好 SwiftUI+SpriteKit 做儿童游戏", text: "用 SwiftUI+SpriteKit", type: "user", today: "2026-06-07", importance: 5 }));
+    const existing = await loadAllMemories(d, d + "-x");
+    const plan = { groups: [{
+      canonical: { title: "为2岁孩子做游戏的家长", text: "持续做儿童游戏,懂认知边界;技术上用 SwiftUI+SpriteKit", type: "user", importance: 8, confidence: 0.85, source: "inferred" },
+      supersede: ["swiftui-spritekit"],
+      reason: "家长画像已涵盖技术偏好",
+    }] };
+    const r = await applyConsolidationPlan(d, plan, existing, "2026-06-29");
+    expect(r).toEqual({ merged: 1, superseded: 1 });
+    const live = await loadAllMemories(d, d + "-x");
+    expect(live.map((m) => m.name).sort()).toEqual(["家长"]); // 只剩 canonical(slug(title)=家长 命中既有 name)
+    expect(live[0]!.text).toContain("SwiftUI");
+    const raw = await fs.readFile(path.join(d, "swiftui-spritekit.md"), "utf8");
+    expect(raw).toMatch(/status: superseded/);
+  });
+
+  it("supersede 指向不存在的 name → 跳过不抛", async () => {
+    const d = await tmp();
+    const plan = { groups: [{ canonical: { title: "T", text: "X", type: "user" }, supersede: ["不存在"], reason: "r" }] };
+    const r = await applyConsolidationPlan(d, plan, [], "2026-06-29");
+    expect(r.merged).toBe(1);
+    expect(r.superseded).toBe(0);
+  });
+});
