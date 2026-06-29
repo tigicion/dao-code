@@ -1,4 +1,4 @@
-# DAO CODE 道
+# Dao Code 道
 
 **English** · [中文](./README.md)
 
@@ -9,13 +9,13 @@
 
 > **A terminal coding agent built around cost, experience, and availability** — squeezing the most capability and the lowest cost out of the high-value DeepSeek V4.
 
-![DAO CODE demo](docs/assets/demo-en.gif)
+![Dao Code demo](docs/assets/demo-en.gif)
 
-DAO CODE (command `dao`) is a terminal-native AI coding assistant: it reads code, writes code, runs commands, and fixes bugs right in your terminal — streaming its reasoning and tool calls while executing safely behind an approval gate, until the task is done. It targets **DeepSeek V4** (1M context), is Chinese-first, and is inspired by Claude Code — but takes a different road: **instead of buying experience with an expensive model, it engineers a high-value model up to the same experience.**
+Dao Code (command `dao`) is a terminal-native AI coding assistant: it reads code, writes code, runs commands, and fixes bugs right in your terminal — streaming its reasoning and tool calls while executing safely behind an approval gate, until the task is done. It targets **DeepSeek V4** (1M context), is Chinese-first, and is inspired by Claude Code — but takes a different road: **instead of buying experience with an expensive model, it engineers a high-value model up to the same experience.**
 
 ---
 
-## Why DAO?
+## Why Dao Code?
 
 ### 🌐 Availability
 
@@ -23,14 +23,14 @@ A coding agent is only useful if you can actually run it.
 
 - **Claude Code** needs an Anthropic account and network access — a high bar to use out of the box in mainland China;
 - **GLM's Coding Plan** has scarce quota that's often hard to grab;
-- **DAO is fully open source (MIT)**, and its base **DeepSeek is register-and-go, pay-as-you-go, directly reachable in mainland China** — no network gymnastics, no quota grabbing, no waitlist.
+- **Dao Code is fully open source (MIT)**, and its base **DeepSeek is register-and-go, pay-as-you-go, directly reachable in mainland China** — no network gymnastics, no quota grabbing, no waitlist.
 
 ### 💰 Cost
 
 - **Low unit price** — DeepSeek sits at the lowest price tier among mainstream capable models; both input and output prices are far below the top-tier closed models.
-- **Cache cuts it further** — DeepSeek's prefix-cache *hit* price is ≈ **1/10** of a miss. DAO keeps the system prefix / tool table / memory **byte-stable**, and runs reflection & memory on cache-reusing forks, so the hit rate keeps climbing.
+- **Cache cuts it further** — DeepSeek's prefix-cache *hit* price is ≈ **1/120** of a miss (~two orders of magnitude). Dao Code keeps the system prefix / tool table / memory **byte-stable**, and runs reflection & memory on cache-reusing forks, so the hit rate keeps climbing.
 - **Measured on real OSS bug-fixes (not toy demos)** — 7 SWE-bench-style tasks (valibot / date-fns / es-toolkit / sqlglot / hono), **3.89M input tokens** total, **95.8% aggregate cache hit** (85.4%–97.7% per task). At DeepSeek V4 Pro current pricing, a full feature (read + edit + test + self-review) runs **¥0.07–0.21, avg ¥0.15**; all 7 total **¥1.07**. Every figure traces back to `evals/runs/<task>/run-1/agent.log`; replay any time with `/cost`.
-- **Cost vs Claude Code** — pricing the **same token trace** of these 7 tasks under each vendor's official rates (and crediting DAO's high hit rate to Claude too, in its favor), total cost is still **~30× cheaper than Claude Opus 4.8, ~18× cheaper than Sonnet 4.6**.
+- **Cost vs Claude Code** — pricing the **same token trace** of these 7 tasks under each vendor's official rates (and crediting Dao Code's high hit rate to Claude too, in its favor), total cost is still **~30× cheaper than Claude Opus 4.8, ~18× cheaper than Sonnet 4.6**.
 
   | Task (real OSS repo) | Input tok | Hit % | DeepSeek Pro | vs Opus | vs Sonnet |
   |---|---:|---:|---:|---:|---:|
@@ -48,9 +48,9 @@ A coding agent is only useful if you can actually run it.
 
 ### 🧠 Experience
 
-- **Cross-session memory + a reflection layer** — remembers your preferences and project conventions; self-reviews when stuck and pulls back when drifting. All three run as **forks that reuse the main prefix cache** — better quality at almost no extra spend.
+- **Memory you can trust + a reflection layer** — remembers your preferences and project conventions across sessions, and **re-verifies them against your live code on every startup**: stale facts pruned, changed ones flagged, not blindly piled up (others remember, but misremember). Self-reviews when stuck and pulls back when drifting. All three run as **forks that reuse the main prefix cache** — better quality at almost no extra spend.
 - **Long tasks don't drift or hit the wall** — auto-compaction carries context past the limit, and periodic refocusing curbs scope creep, so it stays on track even running autonomously for a long time.
-- **Constitution-style priority** — safety & truth > your current instruction > DAO's core policy (model / cache discipline) > skills / memory. A third-party skill you install can change *how work is done*, but never the safety and cache bottom line.
+- **Constitution-style priority** — safety & truth > your current instruction > Dao Code's core policy (model / cache discipline) > skills / memory. A third-party skill you install can change *how work is done*, but never the safety and cache bottom line.
 
 ### ✅ Verified
 
@@ -295,13 +295,13 @@ DEEPSEEK_API_KEY=sk-... EVAL_RUNS=1 node evals/run.mjs # smoke test
 
 ## 🗺️ Status
 
-Released **v0.1.20** (npm `dao-code` + multi-platform binaries on Releases). Core is complete: Ink TUI and Taiji splash, streaming agent loop, 24 tools, layered permissions, persistent memory, cache engineering, the reflection layer, long-task robustness, Skills/MCP/Hooks/subagent extensions, and a real OSS evaluation harness. Actively iterating — issues/PRs welcome.
+Released **v0.2.0** (npm `dao-code` + multi-platform binaries on Releases). Core is complete: Ink TUI and Taiji splash, streaming agent loop, 24 tools, layered permissions, persistent memory, cache engineering, the reflection layer, long-task robustness, Skills/MCP/Hooks/subagent extensions, and a real OSS evaluation harness. Actively iterating — issues/PRs welcome.
 
 ---
 
-## 🎨 Built with DAO
+## 🎨 Built with Dao Code
 
-Open-source projects built entirely with DAO:
+Open-source projects built entirely with Dao Code:
 
 - **[redis-rs](https://github.com/tigicion/redis-rs)** — a Redis-compatible server in Rust (RESP2, ~80 commands), completed from scratch autonomously in `dao --goal` long-task mode.
 - **[magic-canvas](https://github.com/tigicion/magic-canvas)** — an iPad finger-painting app for toddlers (rainbow lines + stickers, SwiftUI + SpriteKit).

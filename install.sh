@@ -1,5 +1,5 @@
 #!/bin/sh
-# DAO CODE 一键安装:自动判平台、下载对应二进制、赋可执行权限、解除 macOS 隔离、放进 PATH。
+# Dao Code 一键安装:自动判平台、下载对应二进制、赋可执行权限、解除 macOS 隔离、放进 PATH。
 # 用法:  curl -fsSL https://raw.githubusercontent.com/tigicion/dao-code/master/install.sh | sh
 # 可选:  DAO_INSTALL_DIR=/usr/local/bin 指定安装目录(默认 ~/.local/bin)
 set -eu

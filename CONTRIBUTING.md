@@ -1,6 +1,6 @@
 # 贡献指南 / Contributing
 
-感谢参与 DAO CODE!本文是上手与提 PR 的最短路径。
+感谢参与 Dao Code!本文是上手与提 PR 的最短路径。
 
 ## 环境
 - Node.js **≥ 20**(见 `.nvmrc`)
