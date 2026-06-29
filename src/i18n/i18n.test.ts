@@ -72,6 +72,12 @@ describe("t / setLang", () => {
     expect(t("ui.notice.error", "boom")).toBe("Error: boom");
     expect(t("ui.detail.lines", 3)).toBe("3 lines");
   });
+  it("迁移提示 ui.migrated zh/en", () => {
+    setLang("en");
+    expect(t("ui.migrated", "/a", "/b")).toBe("✓ Migrated old data: /a → /b");
+    setLang("zh");
+    expect(t("ui.migrated", "/a", "/b")).toBe("✓ 已迁移旧数据:/a → /b");
+  });
   it("斜杠命令描述 cmd.* 抽样 zh/en", () => {
     setLang("zh");
     expect(t("cmd.tasks")).toBe("查看后台任务");

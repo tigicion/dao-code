@@ -189,6 +189,7 @@ export const en: Record<string, string> = {
   "ui.notice.collapseAll": "△ Collapsed: later output truncated",
   "ui.theme.light": "light",
   "ui.theme.dark": "dark",
+  "ui.migrated": "✓ Migrated old data: {0} → {1}",
   // In-session /loop
   "ui.loop.stopped": "Loop stopped.",
   "ui.loop.usageFull": "Usage: /loop <interval e.g. 30s/5m/1h> <prompt to run periodically>; /loop off to stop",

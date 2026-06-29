@@ -189,6 +189,7 @@ export const zh: Record<string, string> = {
   "ui.notice.collapseAll": "△ 已折叠:后续输出截断",
   "ui.theme.light": "浅色",
   "ui.theme.dark": "深色",
+  "ui.migrated": "✓ 已迁移旧数据:{0} → {1}",
   // 会话内 /loop
   "ui.loop.stopped": "已停止循环。",
   "ui.loop.usageFull": "用法:/loop <间隔如 30s/5m/1h> <要周期跑的 prompt>;/loop off 停止",
