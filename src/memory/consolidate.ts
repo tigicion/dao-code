@@ -1,0 +1,92 @@
+// 记忆合并 pass:对一个作用域的全部 live 记忆做一次推理重合并,清理跨会话累积的重叠/矛盾。
+// 纯函数(parse/gate/prompt)与 LLM runner(见 consolidate())分离,便于测试。
+import type { Memory } from "./types.js";
+
+export interface ConsolidationGroup {
+  canonical: { title: string; text: string; type?: string; importance?: number; confidence?: number; source?: string };
+  supersede: string[]; // 被并掉的旧记忆 name
+  reason: string;
+}
+export interface ConsolidationPlan { groups: ConsolidationGroup[] }
+
+const EMPTY: ConsolidationPlan = { groups: [] };
+
+function extractObject(s: string): Record<string, unknown> | null {
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fence ? (fence[1] ?? s) : s;
+  const m = body.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { const v = JSON.parse(m[0]); return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null; }
+  catch { return null; }
+}
+
+function parseGroup(x: unknown): ConsolidationGroup | null {
+  if (!x || typeof x !== "object") return null;
+  const o = x as Record<string, unknown>;
+  const c = o.canonical;
+  if (!c || typeof c !== "object") return null;
+  const cc = c as Record<string, unknown>;
+  const title = typeof cc.title === "string" ? cc.title.trim() : "";
+  const text = typeof cc.text === "string" ? cc.text.trim() : "";
+  if (!text) return null; // canonical 必须有正文
+  if (!Array.isArray(o.supersede)) return null;
+  const supersede = o.supersede.filter((s): s is string => typeof s === "string" && !!s.trim());
+  const g: ConsolidationGroup = {
+    canonical: { title, text },
+    supersede,
+    reason: typeof o.reason === "string" ? o.reason.trim() : "",
+  };
+  if (typeof cc.type === "string") g.canonical.type = cc.type;
+  if (typeof cc.importance === "number") g.canonical.importance = cc.importance;
+  if (typeof cc.confidence === "number") g.canonical.confidence = cc.confidence;
+  if (typeof cc.source === "string" && cc.source.trim()) g.canonical.source = cc.source.trim();
+  return g;
+}
+
+export function parseConsolidationPlan(raw: string): ConsolidationPlan {
+  const obj = extractObject(raw);
+  if (!obj || !Array.isArray(obj.groups)) return { ...EMPTY };
+  return { groups: obj.groups.map(parseGroup).filter(Boolean) as ConsolidationGroup[] };
+}
+
+export type ConsolScope = "user" | "knowledge" | "project";
+export interface ConsolCfg { days: number; min: number; force: "aggressive" | "medium" | "conservative" }
+
+export function consolidationCfg(scope: ConsolScope): ConsolCfg {
+  if (scope === "user") return { days: 3, min: 12, force: "aggressive" };
+  if (scope === "knowledge") return { days: 3, min: 15, force: "medium" };
+  return { days: 3, min: 20, force: "conservative" };
+}
+
+const DAY_MS = 86_400_000;
+export function shouldConsolidate(lastMs: number, liveCount: number, now: number, cfg: ConsolCfg): boolean {
+  if (liveCount < cfg.min) return false;
+  return now - lastMs >= cfg.days * DAY_MS;
+}
+
+const FORCE_LINE: Record<ConsolCfg["force"], string> = {
+  aggressive: "积极:同一画像维度的多条收敛成一条规范记忆。",
+  medium: "中等:同一技术事实/知识点的重复条目去重合并。",
+  conservative: "保守:只合并【明确冗余或直接矛盾】的条目(如两条讲同一件事的进度快照);异质事实一律保留,拿不准就不合并。",
+};
+
+export function buildConsolidatePrompt(
+  scope: ConsolScope,
+  mems: { name: string; title?: string; text: string; type: string; source?: string }[],
+): string {
+  const list = mems.map((m) => `- name=${m.name} | type=${m.type}${m.source ? " | source=" + m.source : ""} | ${m.title ?? ""}: ${m.text}`).join("\n");
+  return `你在做记忆库的【合并整理】。下面是 ${scope} 作用域的全部生效记忆。找出重叠/冗余/矛盾的簇并合并。只输出一个 JSON 对象,无其它文字。
+
+力度:${FORCE_LINE[consolidationCfg(scope).force]}
+纪律:
+- 不跨 source 合并(user_stated 与 inferred 永不混)。
+- 每簇产出一条 canonical(合成后的规范全文,取最高 confidence;矛盾时偏向 user_stated 与更新者),并列出被它取代的旧记忆 name 到 supersede。
+- 每簇必须给 reason。无可合并 → groups: []。
+- 保守优先:漏合并的代价远小于错合并污染全局。
+
+记忆清单:
+${list}
+
+输出(严格 JSON):
+{"groups":[{"canonical":{"title":"…","text":"合成后的完整规范正文","type":"user","importance":8,"confidence":0.85,"source":"inferred"},"supersede":["旧name1","旧name2"],"reason":"二者都讲 X,canonical 已涵盖"}]}`;
+}
