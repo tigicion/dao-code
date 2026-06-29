@@ -110,7 +110,7 @@ function resultDetail(name: string, ok: boolean, content: string): string {
     case "list_dir": return content.startsWith("(") ? content : t("ui.detail.items", n);
     case "grep_files": return content.startsWith("(") ? content : t("ui.detail.matches", n);
     case "file_search": return content.startsWith("(") ? content : t("ui.detail.found", n);
-    case "write_file": return content.replace(/^已写入[^()]*/, "").trim() || t("ui.detail.lines", n);
+    case "write_file": return t("ui.detail.lines", n); // 合成行数,不回显工具层中文(英文 locale 下不漏「N 行」)
     case "exec_shell": return lines.filter((l) => l.trim()).slice(-1)[0]?.slice(0, 100) ?? "";
     case "verify_done": return lines.filter((l) => l.includes("验收")).slice(-1)[0] ?? lines.slice(-1)[0]!.slice(0, 80);
     case "web_search": return content.startsWith("(") ? content : t("ui.detail.results", content.split("\n\n").length);
