@@ -46,6 +46,22 @@ export const en: Record<string, string> = {
   "welcome.quickstart": "Quick start",
   "welcome.hint": "Type a message to begin · /help for commands · @ to reference files · Esc to interrupt",
   "welcome.try": "Try · ",
+  "mode.default": "default (ask before write/exec)",
+  "mode.acceptEdits": "✎ Auto-accept edits",
+  "mode.auto": "⊙ Smart decision (AI risk assessment)",
+  "mode.plan": "◇ Plan (read-only)",
+  "mode.bypassPermissions": "※ All permissions (no approval)",
+  "ui.hint.running": "Running — keep typing, Enter to queue",
+  "ui.modeHint": "permission mode →",
+  "ui.bgRunning": "∞ {0} background task(s) running…",
+  "ui.status.longTask": "∞ Long task · ",
+  "ui.status.planMode": "◇ plan (read-only) · ",
+  "ui.status.acceptEdits": "✎ Auto-accept edits · ",
+  "ui.status.auto": "⊙ Smart decision · ",
+  "ui.status.input": "Input",
+  "ui.status.output": "Output",
+  "ui.status.cacheHit": "Cache hit",
+  "ui.status.context": "Context",
 };
 
 export const enTips: string[] = [

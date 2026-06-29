@@ -46,6 +46,22 @@ export const zh: Record<string, string> = {
   "welcome.quickstart": "快速开始",
   "welcome.hint": "输入消息开始 · /help 命令 · @ 引用文件 · Esc 打断",
   "welcome.try": "试试 · ",
+  "mode.default": "默认(写/执行前询问)",
+  "mode.acceptEdits": "✎ 自动接受编辑",
+  "mode.auto": "⊙ 智能判定(AI 评估风险)",
+  "mode.plan": "◇ 规划(只读)",
+  "mode.bypassPermissions": "※ 全部权限(免审批)",
+  "ui.hint.running": "运行中——可继续输入,回车排队执行",
+  "ui.modeHint": "权限模式 →",
+  "ui.bgRunning": "∞ {0} 个后台任务运行中…",
+  "ui.status.longTask": "∞ 长任务 · ",
+  "ui.status.planMode": "◇ plan(只读规划) · ",
+  "ui.status.acceptEdits": "✎ 自动接受编辑 · ",
+  "ui.status.auto": "⊙ 智能判定 · ",
+  "ui.status.input": "输入",
+  "ui.status.output": "输出",
+  "ui.status.cacheHit": "缓存命中",
+  "ui.status.context": "上下文",
 };
 
 export const zhTips: string[] = [

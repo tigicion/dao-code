@@ -4,7 +4,7 @@ import { highlight } from "cli-highlight";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
-import { tips } from "../../i18n/i18n.js";
+import { t, tips } from "../../i18n/i18n.js";
 import { daoVerb, DAO_VERBS } from "../spinner_words.js";
 import { clampLines, parseTodoResult } from "./format.js";
 import type { TurnEvents } from "../render.js";
@@ -12,15 +12,9 @@ import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../ap
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-// 权限模式的中文友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。
-const MODE_LABEL: Record<string, string> = {
-  default: "默认(写/执行前询问)",
-  acceptEdits: "✎ 自动接受编辑",
-  auto: "⊙ 智能判定(AI 评估风险)",
-  plan: "◇ 规划(只读)",
-  bypassPermissions: "※ 全部权限(免审批)",
-};
-const modeLabel = (m: string): string => MODE_LABEL[m] ?? m;
+// 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
+const MODE_KEYS = new Set(["default", "acceptEdits", "auto", "plan", "bypassPermissions"]);
+const modeLabel = (m: string): string => (MODE_KEYS.has(m) ? t("mode." + m) : m);
 const MAX_LIVE_LINES = 12; // 流式动态区尾部行数的【上限】;实际取 liveCap(按屏高自适应)。完成后整段进 <Static>,故不丢内容。
 const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
 const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose 全显)
@@ -1006,7 +1000,7 @@ export function App(deps: AppDeps) {
           <Text color={c("dim")}>
             {"  "}
             {busy
-              ? "运行中——可继续输入,回车排队执行"
+              ? t("ui.hint.running")
               : input
                 ? ""
                 : tips()[Math.floor(tick / 110) % tips().length]}
@@ -1015,9 +1009,9 @@ export function App(deps: AppDeps) {
       )}
 
       {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick ? (
-        <Text color={c("jade")}>{"  "}权限模式 → {modeHint}</Text>
+        <Text color={c("jade")}>{"  "}{t("ui.modeHint")} {modeHint}</Text>
       ) : null}
-      {bgRunning > 0 ? <Text color={c("gold")}>∞ {bgRunning} 个后台任务运行中…</Text> : null}
+      {bgRunning > 0 ? <Text color={c("gold")}>{t("ui.bgRunning", bgRunning)}</Text> : null}
       <StatusBar status={status} c={c} />
     </Box>
   );
@@ -1175,13 +1169,13 @@ function StatusBar({
     <Box marginTop={1}>
       <Text color={c("dim")}>
         {/* 耗时只在上方 live 行显示一次,这里不再重复 */}
-        {status.longTask ? <Text color={c("gold")}>∞ 长任务 · </Text> : ""}
+        {status.longTask ? <Text color={c("gold")}>{t("ui.status.longTask")}</Text> : ""}
         {status.yolo ? <Text color={c("vermilion")}>※ YOLO · </Text> : ""}
         {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}
-        {status.mode === "plan" ? <Text color={c("gold")}>◇ plan(只读规划) · </Text> : ""}
-        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>✎ 自动接受编辑 · </Text> : ""}
-        {status.permMode === "auto" ? <Text color={c("jade")}>⊙ 智能判定 · </Text> : ""}
-        {status.model} · 输入 {fmt(status.promptTokens)} · 输出 {fmt(status.completionTokens)} · 缓存命中 {pct}%{status.costCNY ? ` · ￥${status.costCNY.toFixed(status.costCNY < 1 ? 3 : 2)}` : ""} · 上下文 {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
+        {status.mode === "plan" ? <Text color={c("gold")}>{t("ui.status.planMode")}</Text> : ""}
+        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>{t("ui.status.acceptEdits")}</Text> : ""}
+        {status.permMode === "auto" ? <Text color={c("jade")}>{t("ui.status.auto")}</Text> : ""}
+        {status.model} · {t("ui.status.input")} {fmt(status.promptTokens)} · {t("ui.status.output")} {fmt(status.completionTokens)} · {t("ui.status.cacheHit")} {pct}%{status.costCNY ? ` · ￥${status.costCNY.toFixed(status.costCNY < 1 ? 3 : 2)}` : ""} · {t("ui.status.context")} {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
         {status.branch ? ` · ⎇ ${status.branch}` : ""}
       </Text>
     </Box>

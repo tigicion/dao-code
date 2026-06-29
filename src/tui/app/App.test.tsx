@@ -4,6 +4,7 @@ import { render } from "ink-testing-library";
 import { App } from "./App.js";
 import type { AppDeps } from "./types.js";
 import type { ApprovalDecision, ApprovalPrompt } from "../../approval/types.js";
+import { setLang } from "../../i18n/i18n.js";
 
 const delay = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
@@ -29,6 +30,7 @@ function makeDeps(over: Partial<AppDeps> = {}): AppDeps {
 
 describe("App", () => {
   it("欢迎屏 + 状态栏初始渲染", () => {
+    setLang("zh");
     const { lastFrame } = render(<App {...makeDeps()} />);
     const f = lastFrame()!;
     expect(f).toContain("DAO CODE");
@@ -601,6 +603,7 @@ describe("App", () => {
   });
 
   it("长任务模式 → 状态栏显示标识", () => {
+    setLang("zh");
     const { lastFrame } = render(
       <App
         {...makeDeps({
@@ -653,5 +656,43 @@ describe("App", () => {
     stdin.write("\r");
     await delay();
     expect(got.trim()).toBe("/audit");
+  });
+
+  it("i18n:状态栏标签跟随 locale(en 英文 / zh 中文)", () => {
+    setLang("en");
+    const en = render(<App {...makeDeps()} />).lastFrame()!;
+    expect(en).toContain("Cache hit 50%");
+    expect(en).toContain("Input");
+    expect(en).toContain("Context");
+    expect(en).not.toContain("缓存命中");
+    setLang("zh");
+    const zh = render(<App {...makeDeps()} />).lastFrame()!;
+    expect(zh).toContain("缓存命中 50%");
+    expect(zh).toContain("输入");
+  });
+
+  it("i18n:长任务标识跟随 locale(en)", () => {
+    setLang("en");
+    const f = render(
+      <App {...makeDeps({
+        getStatus: () => ({ model: "m", mode: "normal", promptTokens: 0, completionTokens: 0, cacheHitRatio: 0, yolo: false, longTask: true, contextPct: 0 }),
+      })} />,
+    ).lastFrame()!;
+    expect(f).toContain("Long task");
+    expect(f).not.toContain("长任务");
+  });
+
+  it("i18n:权限模式提示 + 模式标签跟随 locale(Shift+Tab)", async () => {
+    setLang("en");
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({ cycleMode: () => "acceptEdits" })} />,
+    );
+    await delay();
+    stdin.write("\x1b[Z"); // Shift+Tab(backtab)→ 循环权限模式
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("permission mode →");
+    expect(f).toContain("Auto-accept edits");
+    expect(f).not.toContain("权限模式");
   });
 });
