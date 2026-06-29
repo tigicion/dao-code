@@ -63,30 +63,10 @@ export interface ResolvedCredential {
   source: string; // "env:DEEPSEEK_API_KEY" | "env:ARK_API_KEY" | "profile:<name>"
 }
 
-// 解析当前生效凭证:env DEEPSEEK_API_KEY 临时覆盖(合成 env 源)> 激活 profile 的 key。
-// 都没有 → null(需要 onboarding)。来源始终可呈现,杜绝"被静默计费"的惊吓(gemini-cli $150 trap)。
-export function resolveActive(
-  cfg: ProfilesConfig,
-  env: Record<string, string | undefined>,
-): ResolvedCredential | null {
-  if (env.DEEPSEEK_API_KEY) {
-    return {
-      key: env.DEEPSEEK_API_KEY,
-      provider: "deepseek",
-      baseUrl: env.DEEPSEEK_BASE_URL ?? DEFAULTS.deepseek.baseUrl,
-      model: env.DEEPSEEK_MODEL ?? DEFAULTS.deepseek.model,
-      source: "env:DEEPSEEK_API_KEY",
-    };
-  }
-  if (env.ARK_API_KEY) {
-    return {
-      key: env.ARK_API_KEY,
-      provider: "volcengine",
-      baseUrl: env.ARK_BASE_URL ?? DEFAULTS.volcengine.baseUrl,
-      model: env.ARK_MODEL ?? DEFAULTS.volcengine.model,
-      source: "env:ARK_API_KEY",
-    };
-  }
+// 解析当前生效凭证:只看激活 profile 的 key(文件内联或钥匙串)。
+// 不读环境变量——交互模式只有 profile 一条路径;headless 通过 --api-key CLI 参数传入。
+// 没有 key → null(需要 onboarding 或 headless 传参)。
+export function resolveActive(cfg: ProfilesConfig): ResolvedCredential | null {
   const p = cfg.profiles[cfg.activeProfile];
   if (p && p.key) {
     return {

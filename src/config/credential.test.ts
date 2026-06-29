@@ -27,7 +27,7 @@ describe("resolveCredential", () => {
       activeProfile: "a",
       profiles: { a: { ...dsMeta, key: "sk-inline" } },
     };
-    const r = await resolveCredential(cfg, {}, fakeKeychain());
+    const r = await resolveCredential(cfg, fakeKeychain());
     expect(r).toMatchObject({ key: "sk-inline", source: "profile:a" });
   });
 
@@ -38,21 +38,9 @@ describe("resolveCredential", () => {
       profiles: { work: { ...dsMeta, keyRef: "keychain:dao/work" } },
     };
     const kc = fakeKeychain({ "dao/work": "sk-from-keychain" });
-    const r = await resolveCredential(cfg, {}, kc);
+    const r = await resolveCredential(cfg, kc);
     expect(r?.key).toBe("sk-from-keychain");
     expect(r?.source).toBe("profile:work");
-  });
-
-  it("lets env DEEPSEEK_API_KEY override without touching the keychain", async () => {
-    const cfg: ProfilesConfig = {
-      version: 2,
-      activeProfile: "work",
-      profiles: { work: { ...dsMeta, keyRef: "keychain:dao/work" } },
-    };
-    const kc = fakeKeychain();
-    const r = await resolveCredential(cfg, { DEEPSEEK_API_KEY: "sk-env" }, kc);
-    expect(r?.key).toBe("sk-env");
-    expect(r?.source).toBe("env:DEEPSEEK_API_KEY");
   });
 
   it("returns null when a keychain-backed profile has no stored secret", async () => {
@@ -61,7 +49,7 @@ describe("resolveCredential", () => {
       activeProfile: "work",
       profiles: { work: { ...dsMeta, keyRef: "keychain:dao/work" } },
     };
-    expect(await resolveCredential(cfg, {}, fakeKeychain())).toBeNull();
+    expect(await resolveCredential(cfg, fakeKeychain())).toBeNull();
   });
 });
 

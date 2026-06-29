@@ -16,6 +16,23 @@ export function isContextLengthError(e: unknown): boolean {
   return /context length|maximum context|too many tokens|reduce the length|context_length_exceeded|prompt is too long|exceeds? the maximum|input is too long/i.test(m);
 }
 
+// 判断是否为凭证/认证类错误(401/403 + 含订阅关键词的 400)——这类错误换模型没用,需换凭证。
+// 导出给 loop.ts 的 credential 降级逻辑使用。
+export function isCredentialError(e: unknown): boolean {
+  const status = (e as { status?: number }).status;
+  if (status === 401 || status === 403) return true;
+  if (status === 400) {
+    const m = e instanceof Error ? e.message : String(e);
+    return /invalid.*key|authentication|unauthorized|subscription|CodingPlan|billing|InvalidSubscription/i.test(m);
+  }
+  return false;
+}
+
+// 拼 API 错误信息时用 provider 名(若已知)或 baseUrl,让用户知道实际发到了哪里。
+function apiLabel(opts: { provider?: string; baseUrl: string }): string {
+  return opts.provider || opts.baseUrl;
+}
+
 export async function* streamChat(
   opts: StreamChatOptions,
 ): AsyncGenerator<StreamDelta, AssistantMessage> {
@@ -66,7 +83,7 @@ export async function* streamChat(
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
-      throw new Error(`DeepSeek API error ${res.status}: ${t}`);
+      throw Object.assign(new Error(`API error ${res.status} from ${apiLabel(opts)}: ${t}`), { status: res.status });
     }
     const data: any = await res.json();
     if (data?.usage) opts.onUsage?.(data.usage as Usage);
@@ -176,8 +193,7 @@ export async function* streamChat(
       if (!res.ok) {
         clearTimeout(idleTimer);
         const text = await res.text().catch(() => "");
-        const e = new Error(`DeepSeek API error ${res.status}: ${text}`) as Error & { retryableStatus?: boolean; status?: number; retryAfterMs?: number };
-        e.status = res.status;
+        const e = Object.assign(new Error(`API error ${res.status} from ${apiLabel(opts)}: ${text}`), { status: res.status }) as Error & { retryableStatus?: boolean; status?: number; retryAfterMs?: number };
         if (RETRYABLE_STATUS.has(res.status)) e.retryableStatus = true; // 过载/限流/网关 → 可重试 + 兜底
         // Retry-After honoring:429/503 时服务端给的等待时长优先于指数退避(秒数;HTTP-date 容错跳过)。
         const ra = res.headers.get("retry-after");
@@ -233,7 +249,7 @@ export async function* streamChat(
           return msg;
         } catch (e2) {
           if (isContextLengthError(e2)) throw e2; // 兜底时撞上下文超限 → 交给上层压缩
-          throw new Error(idledOut ? idleErrMsg : `连接 DeepSeek 失败(流式重试 ${maxRetries} 次 + 非流式兜底均失败:${(e2 as Error).message})`);
+          throw new Error(idledOut ? idleErrMsg : `连接 ${apiLabel(opts)} 失败(流式重试 ${maxRetries} 次 + 非流式兜底均失败:${(e2 as Error).message})`);
         }
       }
       throw err; // 非可重试错误(致命),原样上抛

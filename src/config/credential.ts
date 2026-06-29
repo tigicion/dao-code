@@ -12,16 +12,13 @@ const KEYREF_PREFIX = "keychain:";
 const accountOf = (name: string) => `dao/${name}`;
 const keyRefOf = (name: string) => `${KEYREF_PREFIX}${accountOf(name)}`;
 
-// 解析当前生效凭证:env 覆盖 > 激活 profile(内联 key 直接用,keyRef 则从钥匙串取)。
-// env 覆盖路径绝不触碰钥匙串。缺凭证 → null(需 onboarding)。
+// 解析当前生效凭证:激活 profile(内联 key 直接用,keyRef 则从钥匙串取)。
+// 不读环境变量——交互模式只有 profile 一条路径;headless 通过 --api-key CLI 参数传入。
+// 缺凭证 → null(需 onboarding 或 headless 传参)。
 export async function resolveCredential(
   cfg: ProfilesConfig,
-  env: Record<string, string | undefined>,
   kc: KeychainPort,
 ): Promise<ResolvedCredential | null> {
-  const envHit = resolveActive(cfg, env);
-  if (envHit && envHit.source.startsWith("env:")) return envHit;
-
   const name = cfg.activeProfile;
   const p = cfg.profiles[name];
   if (!p) return null;

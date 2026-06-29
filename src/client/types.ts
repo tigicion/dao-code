@@ -48,6 +48,8 @@ export interface ApiTool {
 export interface StreamChatOptions {
   baseUrl: string;
   apiKey: string;
+  /** 用于错误提示,如 "deepseek" / "volcengine";省略则用 baseUrl */
+  provider?: string;
   model: string;
   messages: ChatMessage[];
   // 工具声明(JSON schema);省略则不带 tools 字段。

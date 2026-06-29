@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { streamChat, isContextLengthError } from "./client.js";
+import { streamChat, isContextLengthError, isCredentialError } from "./client.js";
 import type { StreamDelta, AssistantMessage } from "./types.js";
 
 function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
@@ -372,4 +372,50 @@ describe("streamChat", () => {
       ),
     ).rejects.toThrow(/空闲超时/);
   }, 2000);
+});
+
+describe("isCredentialError", () => {
+  it("status 401 → true", () => {
+    const e = Object.assign(new Error("API error 401"), { status: 401 });
+    expect(isCredentialError(e)).toBe(true);
+  });
+
+  it("status 403 → true", () => {
+    const e = Object.assign(new Error("API error 403"), { status: 403 });
+    expect(isCredentialError(e)).toBe(true);
+  });
+
+  it("status 400 with InvalidSubscription → true", () => {
+    const e = Object.assign(new Error("API error 400 from ark: InvalidSubscription"), { status: 400 });
+    expect(isCredentialError(e)).toBe(true);
+  });
+
+  it("status 400 with subscription → true", () => {
+    const e = Object.assign(new Error("API error 400: subscription expired"), { status: 400 });
+    expect(isCredentialError(e)).toBe(true);
+  });
+
+  it("status 400 with authentication → true", () => {
+    const e = Object.assign(new Error("API error 400: authentication fails"), { status: 400 });
+    expect(isCredentialError(e)).toBe(true);
+  });
+
+  it("status 400 plain bad request → false", () => {
+    const e = Object.assign(new Error("API error 400: bad request"), { status: 400 });
+    expect(isCredentialError(e)).toBe(false);
+  });
+
+  it("status 404 → false", () => {
+    const e = Object.assign(new Error("not found"), { status: 404 });
+    expect(isCredentialError(e)).toBe(false);
+  });
+
+  it("status 429 → false", () => {
+    const e = Object.assign(new Error("rate limited"), { status: 429 });
+    expect(isCredentialError(e)).toBe(false);
+  });
+
+  it("no status → false", () => {
+    expect(isCredentialError(new Error("something"))).toBe(false);
+  });
 });

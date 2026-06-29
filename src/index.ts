@@ -4,9 +4,8 @@ import { readFileSync, mkdirSync, writeFileSync, readdirSync, rmSync } from "nod
 import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
-import { loadDotenv } from "./config/env_file.js";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
-import { DEFAULTS } from "./config/profiles.js";
+import { DEFAULTS, type ResolvedCredential } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
@@ -193,7 +192,16 @@ async function main() {
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
   const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task") || rawArgs.includes("--coordinator"); // --task/--coordinator 为旧别名,均进长任务自主模式(已并入)
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug"]);
+  // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|...>
+  const apiKeyIdx = rawArgs.indexOf("--api-key");
+  const cliApiKey = apiKeyIdx >= 0 ? rawArgs[apiKeyIdx + 1] : undefined;
+  const providerIdx = rawArgs.indexOf("--provider");
+  const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
+  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider"]);
+  // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
+  if (cliApiKey) flags.add(cliApiKey);
+  if (cliProviderRaw) flags.add(cliProviderRaw);
   // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
@@ -253,13 +261,23 @@ async function main() {
     return line ?? "";
   };
 
-  // ---- 解析当前生效凭证:env 覆盖 > 激活 profile(钥匙串/文件)> 首次运行引导 ----
-  // profile = { provider + 凭证 + baseUrl + 默认 model };多 key 切换 = 切 profile,多 provider 同构。
-  const dotenv = await loadDotenv(path.join(workspaceRoot, ".env"));
-  const effectiveEnv = { ...dotenv, ...process.env }; // 环境变量优先,.env 填空缺
+  // ---- 解析当前生效凭证:CLI --api-key(如有) > 激活 profile(钥匙串/文件)> 首次运行引导 ----
+  // 交互模式只有 profile 一条路径;headless 通过 --api-key + --provider CLI 参数传入。
   const kc = keychainAvailable() ? runtimeKeychain : noopKeychain; // keychain 优先,文件兜底
   let profilesCfg = await loadProfiles(keyFile); // 自动迁移旧版 { apiKey }
-  let resolved = await resolveCredential(profilesCfg, effectiveEnv, kc);
+  let resolved: ResolvedCredential | null = null;
+  if (cliApiKey && cliProvider) {
+    // headless 临时 key:构造合成凭证(不持久化,不存 profile)
+    resolved = {
+      key: cliApiKey,
+      provider: cliProvider,
+      baseUrl: DEFAULTS[cliProvider].baseUrl,
+      model: DEFAULTS[cliProvider].model,
+      source: "cli:--api-key",
+    };
+  } else {
+    resolved = await resolveCredential(profilesCfg, kc);
+  }
   let firstRun = false; // 跑过 key 引导 → 信任步骤呈现为同一 onboarding 的下一步
 
   // welcome 束(纯数据,无副作用):banner 信息 + 能力 + 背景 + 箴言。上移到首启分支之前,
@@ -305,12 +323,11 @@ async function main() {
       if (!ob.trusted) write(`${t("trust.untrusted")}\n`); // 首启在 onboarding 拒绝信任时也要提示项目配置不加载(对标非首启 readline 路径)
       firstRun = true;
     } else {
-      // 非交互(管道/CI):无法引导,给出清晰指引后退出
+      // 非交互(管道/CI):无法引导。提示用 --api-key CLI 参数或先跑交互模式配 profile。
       console.error(
         [
           t("key.missing.title"),
-          t("key.missing.env"),
-          t("key.missing.dotenv"),
+          t("key.missing.cli"),
           t("key.missing.tty"),
           t("key.help"),
         ].join("\n"),
@@ -322,9 +339,7 @@ async function main() {
 
   // cfg 形态保持 { apiKey, baseUrl, model } 不变(下游 20+ 处沿用);keySource 仅用于呈现来源。
   let keySource = resolved.source;
-  const cfg = { apiKey: resolved.key, baseUrl: resolved.baseUrl, model: resolved.model };
-  // 明确呈现来源,杜绝"env 里有 key 静默覆盖、被偷偷计费"的惊吓(对标 gemini-cli $150 trap)。
-  if (keySource.startsWith("env:")) write(`${t("key.envSource", keySource.slice(4))}\n`);
+  const cfg = { apiKey: resolved.key, baseUrl: resolved.baseUrl, model: resolved.model, provider: resolved.provider };
 
   // ---- 目录信任(P2-37):紧接 key 之后,作为首次 onboarding 的第二步(对标 CC 单一连贯流程)----
   // 未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行。必须在加载任何项目级配置之前决定。
@@ -360,7 +375,7 @@ async function main() {
     if (!profilesCfg.profiles[name]) return false;
     profilesCfg = setActive(profilesCfg, name);
     saveProfiles(keyFile, profilesCfg).catch(() => {});
-    resolveCredential(profilesCfg, {}, kc).then((r) => {
+    resolveCredential(profilesCfg, kc).then((r) => {
       if (r) { cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; keySource = r.source; }
     }).catch(() => {});
     return true;
