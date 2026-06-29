@@ -64,37 +64,54 @@
 
 > 即:维度去重的"判断"交反思器(它能语义判断"这两条是同一维度"),"落地"交现有 `mergeInto`→`upsertMemory`(已支持按既有 name 覆盖 + 清残片)。store 不新增模糊逻辑。
 
-### 组件三:启动期合并 pass
+### 组件三:启动期合并 pass(三作用域,写回落地)
 
-**触发**:会话启动,`gcMemories` 之后、`loadAllMemories` 注入算定之前(`index.ts` ~L449)。两道闸:
-- `.last-consolidation` 标记(对标 `.last-cleanup`):距上次 < `CONSOLIDATE_EVERY_DAYS`(默认 3)直接跳过。
-- 数量门:仅当 user 作用域 live 记忆数 ≥ `CONSOLIDATE_MIN`(默认 12)才跑。
-- 仅跑 **user 作用域**(重叠风险最高);模型用 distill 档(便宜)。
-- `DAO_NO_MEMORY` / 一次性 `--prompt` / eval 路径不跑。
+一套 `consolidate(scope)` 逻辑,跑在会话启动 `gcMemories` 之后、`loadAllMemories` 注入算定之前(`index.ts` ~L449)。三个作用域共用代码,差异只在**闸门参数 + 力度 prompt**。
 
-**做什么**:把 user 作用域全部 live 记忆喂给合并推理 prompt,输出合并计划:
+| 作用域 | 存储位置 | marker | 力度 | 闸门(天 / 条) |
+|---|---|---|---|---|
+| 用户级(画像) | `~/.dao/memory` | 全局 | 较积极:同维度收敛成一条 | ≥3 / ≥12 |
+| 全局知识库(procedural) | `~/.dao/knowledge` | 全局 | 中:同一技术事实去重 | ≥3 / ≥15 |
+| 项目级(semantic/episodic) | `<项目>/.dao/memory` | 项目内 | 保守:只并明确冗余/矛盾 | ≥3 / ≥20 |
+
+**触发闸**(每作用域独立判定,纯函数 `shouldConsolidate(lastDate, liveCount, today, cfg)`):
+- `.last-consolidation` 标记(对标 `.last-cleanup`,各作用域目录各一份):距上次 < `days` 跳过。
+- 数量门:该作用域 live 记忆数 ≥ `min` 才跑。
+- 模型用 distill 档(便宜);`DAO_NO_MEMORY` / 一次性 `--prompt` / eval 路径不跑。
+- 项目级只合**当前项目目录**——打开哪个项目才合哪个,天然限定范围。
+
+**做什么**:把该作用域全部 live 记忆喂给合并推理 prompt(力度按作用域),输出合并计划:
 ```json
 {"groups":[{"canonical":{"title":"…","text":"合成后的规范全文","importance":8,"confidence":0.85,"source":"inferred"},
             "supersede":["旧记忆 name 1","旧记忆 name 2"],"reason":"二者都讲 X,canonical 已涵盖"}]}
 ```
-**落地**:canonical 经 `upsertMemory` 写入(取最高置信、合并 text);`supersede` 列表经 `supersedeMemory` 软删(保留可追溯,GC 宽限期后清)。
 
-**纪律**(prompt 内):
+**写回落地(硬要求,"实际合并")**:计划必须落盘生效,不能只产出计划。
+1. `canonical` 经 `upsertMemory` 写盘(取最高 confidence、合并后 text)。
+2. `supersede` 列表经 `supersedeMemory` **软删**(`status: superseded` + `supersededBy` 指向 canonical),**立即移出 live 集**——本会话启动后的 `loadAllMemories` 不再加载、不再注入;GC 宽限期(7 天)后清。
+3. 选择软删而非硬删:合并误判可复盘/恢复,代价仅 7 天宽限。与上一轮 #2 的"真删除"并存——真删除是模型主动删一条,合并是系统重组,语义不同。
+4. 落盘成功后才更新该作用域的 `.last-consolidation` 标记。
+
+**纪律**(prompt 内,力度随作用域):
 - 不跨 `source` 合并(`user_stated` 与 `inferred` 永不混)。
 - 保留最高 confidence;矛盾时偏向 `user_stated` 与更新的 `last_seen`。
 - 每个 group 必须给 reason;无可合并 → `groups: []`。
-- 保守:拿不准就不合并(漏合并的代价 < 错合并污染全局)。
+- 保守:拿不准就不合并(漏合并的代价 < 错合并污染全局)。**项目级尤其保守**——只并明确冗余/矛盾(如两条同 title "完成状态" episodic),不做维度式归并(项目事实异质、重叠低,aggressive 合并会丢细节)。
+- 边界:episodic 进度快照"该不该存在"由 GC + 提取纪律管,合并只处理"重叠",不处理"存废"。
 
-**可观测**:每次合并落 `consolidation` trace(沿用 memory-trace.jsonl 或新增 `consolidation-trace.jsonl`),记 `{groups, superseded 数, reasons}`;`/audit` 可读。接续上一轮 onTrack note 的"可观测优先"。
+**可观测**:每次合并落 `consolidation` trace(沿用 memory-trace.jsonl,新增 `kind: "consolidated"`),记 `{scope, groups, superseded 数, reasons}`;`/audit` 可读。接续上一轮 onTrack note 的"可观测优先"。
 
 ## 数据流
 
 ```
 会话启动
   migrateLegacy → gcMemories(3 scope)
-  ├─[新] 合并 pass(gated: user scope, 距上次≥D 天 且 ≥N 条)
-  │       loadAll(user) → 合并推理 LLM → upsert canonical + supersede 旧 → trace
-  loadAllMemories → validate → selectFullText/Index → 冻结进 system prompt 前缀
+  ├─[新] 合并 pass × 3 作用域(各自 gated: 距上次≥days 且 live≥min)
+  │       for scope in [user, knowledge, project(当前项目)]:
+  │         if shouldConsolidate(marker, count): 
+  │           loadAll(scope) → 合并推理 LLM(力度按 scope)
+  │           → upsert canonical + supersede 被并源(立即移出 live)→ trace → 更新 marker
+  loadAllMemories → validate → selectFullText/Index → 冻结进 system prompt 前缀(已反映合并结果)
 回合末
   REFLECT_TAIL(一次)── 领域记忆 + [增]通用画像维度块 → reflectMemToCand → mergeInto/upsert
 ```
@@ -102,17 +119,21 @@
 ## 测试
 
 - 提取 prompt:`unified_reflect.test.ts` / `reflect_prompts.test.ts` 断言 REFLECT_TAIL 含维度关键词(沟通/工作风格/背景/反复目标/硬规矩)、含 user_stated/inferred、含红线。`reflect_result.ts` 解析 `source: user_stated|inferred`。
-- 合并 pass:纯函数 `planConsolidation(parse)` 解析容错(坏 JSON → 空计划);`shouldConsolidate(lastDate, count, today)` 闸门逻辑;落地用现有 supersede/upsert 的集成测试(同维度两条 → 合并为一 + 旧 superseded)。
-- gate:`.last-consolidation` 读写 + 跳过路径。
+- 合并 pass:纯函数 `parseConsolidationPlan(raw)` 解析容错(坏 JSON → 空计划 `{groups:[]}`);`shouldConsolidate(lastDate, liveCount, today, cfg)` 三作用域闸门逻辑(天 + 条数门)。
+- 写回落地(集成测试):同维度两条 → 跑合并 → canonical 写盘、被并源 `status: superseded`+`supersededBy`、`loadAllMemories` 立即只剩 canonical;断言 marker 落盘成功后才更新。
+- 三作用域:user/knowledge/project 各自独立闸门 + 力度;项目级只动当前项目目录。
+- gate:`.last-consolidation` 读写 + 跳过路径(未到天数 / 未到条数 / NO_MEMORY / --prompt)。
 - 回归:全量 vitest 绿;tsc 干净。
 
 ## 风险
 
 - **过度合并**:合并 pass 错并两条不同维度 → 污染。缓解:保守纪律 + 不跨 source + supersede 软删(可追溯,可人工恢复)+ reason 可观测复盘。
 - **画像误判固化**:把"一次表现"当长期人设。缓解:inferred 单次 → 低置信;GC 的 provisional 门会快剪未被重确认的低置信新条目。
-- **启动延迟**:合并 pass 加一次 LLM。缓解:双闸 + 仅 user scope + distill 档;绝大多数启动跳过。
+- **启动延迟**:合并 pass 至多 3 次 LLM(三作用域)。缓解:每作用域双闸独立(天 + 条数)+ distill 档;绝大多数启动三档全跳过,触发也通常只命中一档。
 
 ## 取舍记录
 
 - 不上物化视图:dao-code 注入已是"启动算定 + 前缀缓存"摊销,视图是重复造轮子且引入派生态一致性负担。
 - 合并放启动而非退出:启动在前缀冻结前、立即改善本会话、复用 GC 槽位;退出不可靠(常被强杀)且不改善当前会话。
+- 合并三作用域全做:user/knowledge 跨会话长存、重叠累积明显;project 也累积重叠(实测两条同 title "完成状态" episodic),但力度更保守、阈值更高,且只在打开该项目时触发——天然限定范围。
+- 被并源用软删(supersede)而非硬删:合并是系统重组,误判需可复盘/恢复;硬删留给模型主动删单条(#2)。两者语义不同、并存。
