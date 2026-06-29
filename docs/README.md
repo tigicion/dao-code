@@ -12,4 +12,4 @@
 - 解释"现在怎么运作"的 → `architecture/`(保持与代码一致)。
 - 某次特性的设计/计划草稿 → `design/specs/`、`design/plans/`,文件名带日期前缀。
 - dao 跑通真实任务的实测/实证 → `case-studies/`,带日期与复现配方。
-- 用户怎么用 → 优先写进根目录 `README.md` / `README.en.md`,不堆这里。
+- 用户怎么用 → 优先写进根目录 `README.md` / `README.zh-CN.md`,不堆这里。
