@@ -9,16 +9,19 @@ export type MemoryTraceEvent =
   | { kind: "wrote"; ts: number; type: string; merged: boolean }
   | { kind: "distilled"; ts: number; extracted: number; added: number; updated: number }
   // 统一反思器:每次跑一行(跳过的回合 ran=false)。note=模型一句话复述(可观测,尤其 onTrack=true 时用来判断是否真审视过)。
-  | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string };
+  | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string }
+  // 记忆合并 pass:一轮合并做了什么(scope=作用域,groups=合并组数,superseded=被取代的旧条目数,reasons=每组合并理由)。
+  | { kind: "consolidated"; ts: number; scope: string; groups: number; superseded: number; reasons: string[] };
 
 export interface MemoryAuditSink {
   recalled(injected: number, stale: number, changed: number, types: Record<string, number>): void;
   wrote(type: string, merged: boolean): void;
   distilled(extracted: number, added: number, updated: number): void;
   reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string }): void;
+  consolidated(e: { scope: string; groups: number; superseded: number; reasons: string[] }): void;
 }
 
-const NOOP: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {} };
+const NOOP: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {}, consolidated() {} };
 
 export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv = process.env): MemoryAuditSink {
   if (!auditEnabled(env, "MEMORY")) return NOOP;
@@ -32,6 +35,7 @@ export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv
     wrote: (type, merged) => write({ kind: "wrote", ts: Date.now(), type, merged }),
     distilled: (extracted, added, updated) => write({ kind: "distilled", ts: Date.now(), extracted, added, updated }),
     reflected: (e) => write({ kind: "reflected", ts: Date.now(), ...e }),
+    consolidated: (e) => write({ kind: "consolidated", ts: Date.now(), ...e }),
   };
 }
 

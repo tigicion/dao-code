@@ -676,7 +676,7 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
-  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {} };
+  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {}, consolidated() {} };
   let toolAudit: ToolAuditSink = { call() {} };
   let permAudit: PermAuditSink = { decided() {} };
   // 技能加载审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 loaded)。
