@@ -58,6 +58,33 @@ describe("consolidationCfg / buildConsolidatePrompt", () => {
   });
 });
 
+import { consolidate } from "./consolidate.js";
+
+function stubStream(returnText: string) {
+  return async function* () { yield { kind: "content", text: returnText }; return { content: returnText }; };
+}
+
+describe("consolidate LLM runner", () => {
+  it("把 mems 发给模型并解析返回计划", async () => {
+    let sentModel = "";
+    const plan = await consolidate({
+      streamChat: ((opts: any) => { sentModel = opts.model; return stubStream(JSON.stringify({ groups: [{ canonical: { title: "T", text: "X" }, supersede: ["a"], reason: "r" }] }))(); }) as any,
+      config: { baseUrl: "u", apiKey: "k" }, model: "m-cheap", scope: "user",
+      mems: [{ name: "a", text: "x", type: "user" }],
+    });
+    expect(sentModel).toBe("m-cheap");
+    expect(plan.groups).toHaveLength(1);
+  });
+  it("模型返回乱码 → 空计划(不抛)", async () => {
+    const plan = await consolidate({
+      streamChat: (() => stubStream("乱码")()) as any,
+      config: { baseUrl: "u", apiKey: "k" }, model: "m", scope: "project",
+      mems: [{ name: "a", text: "x", type: "episodic" }],
+    });
+    expect(plan.groups).toEqual([]);
+  });
+});
+
 import { applyConsolidationPlan } from "./consolidate.js";
 import { writeMemory, loadAllMemories } from "./store.js";
 import { newMemory } from "./types.js";

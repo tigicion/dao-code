@@ -93,6 +93,35 @@ ${list}
 {"groups":[{"canonical":{"title":"…","text":"合成后的完整规范正文","type":"user","importance":8,"confidence":0.85,"source":"inferred"},"supersede":["旧name1","旧name2"],"reason":"二者都讲 X,canonical 已涵盖"}]}`;
 }
 
+// LLM runner:把 buildConsolidatePrompt 的结果发给模型,流式读回文本,交 parseConsolidationPlan 解析。
+// 任何异常 → {groups:[]}(合并失败绝不影响启动)。流式读取写法参考 unified_reflect.ts:84-93。
+export interface ConsolidateInput {
+  streamChat: (opts: any) => AsyncGenerator<any, any>;
+  config: { baseUrl: string; apiKey: string };
+  model: string;
+  scope: ConsolScope;
+  mems: { name: string; title?: string; text: string; type: string; source?: string }[];
+  onUsage?: (u: unknown) => void;
+}
+
+export async function consolidate(p: ConsolidateInput): Promise<ConsolidationPlan> {
+  const prompt = buildConsolidatePrompt(p.scope, p.mems);
+  try {
+    const gen = p.streamChat({
+      baseUrl: p.config.baseUrl, apiKey: p.config.apiKey, model: p.model,
+      messages: [{ role: "user", content: prompt }],
+      extra: { thinking: { type: "disabled" }, temperature: 0 },
+      ...(p.onUsage ? { onUsage: p.onUsage } : {}),
+    });
+    let out = ""; let r = await gen.next();
+    while (!r.done) { if (r.value?.kind === "content") out += r.value.text; r = await gen.next(); }
+    if (!out && typeof r.value?.content === "string") out = r.value.content;
+    return parseConsolidationPlan(out);
+  } catch {
+    return { groups: [] }; // 合并失败绝不影响启动
+  }
+}
+
 // 写回落地:canonical upsert 写盘;被并源 supersede 软删(validUntil=today,GC 7 天宽限后清)。
 // canonical 的 name 用 slug(title);若与某 supersede 项同名,跳过对它的 supersede(它就是 canonical 本体)。
 export async function applyConsolidationPlan(
