@@ -48,4 +48,9 @@ describe("t / setLang", () => {
     expect(en.length).toBe(zh.length);
     expect(zh[0]).not.toBe(en[0]);
   });
+  it("has the onboarding step keys in both langs", () => {
+    setLang("zh"); expect(t("onboard.provider.volcengine")).toBe("火山引擎(Coding Plan)");
+    setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
+    setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
+  });
 });
