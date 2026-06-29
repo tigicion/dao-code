@@ -62,4 +62,8 @@ describe("t / setLang", () => {
     setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
     setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
   });
+  it("writeUserLang is callable", async () => {
+    const { writeUserLang } = await import("./i18n.js");
+    expect(typeof writeUserLang).toBe("function");
+  });
 });

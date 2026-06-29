@@ -9,7 +9,6 @@ import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/p
 import { DEFAULTS } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
-import { runKeyWizard } from "./config/auth_wizard.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
 import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat } from "./client/client.js";
@@ -41,7 +40,7 @@ import { memoryWriteTool } from "./tools/memory_write.js";
 import { memoryReadTool } from "./tools/memory_read.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
-import { resolveLang, setLang, t, readUserLang } from "./i18n/i18n.js";
+import { resolveLang, setLang, getLang, t, readUserLang, writeUserLang } from "./i18n/i18n.js";
 import { createTaskManager } from "./agent/tasks.js";
 import { loadAgentDefs } from "./agent/agent_defs.js";
 import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
@@ -98,6 +97,7 @@ import { detectCapabilities } from "./tui/capabilities.js";
 import { resolveBackground } from "./tui/background.js";
 import { randomMaxim } from "./tui/maxim.js";
 import { runInkApp } from "./tui/app/run.js";
+import { runOnboarding } from "./tui/onboarding/run.js";
 import { walkFiles } from "./tools/walk.js";
 import { globToRegExp } from "./tools/glob.js";
 import type { ApprovalPrompt } from "./approval/types.js";
@@ -261,29 +261,46 @@ async function main() {
   let resolved = await resolveCredential(profilesCfg, effectiveEnv, kc);
   let firstRun = false; // 跑过 key 引导 → 信任步骤呈现为同一 onboarding 的下一步
 
+  // welcome 束(纯数据,无副作用):banner 信息 + 能力 + 背景 + 箴言。上移到首启分支之前,
+  // 让 Ink onboarding 与 runInkApp 共用同一束(首启 banner 由 onboarding 渲染,runInkApp 走 skipBanner)。
+  const caps = detectCapabilities(process.env, process.stdout.isTTY ?? false, process.stdout.columns);
+  let gitBranch: string | undefined;
+  try {
+    const head = readFileSync(path.join(workspaceRoot, ".git", "HEAD"), "utf8");
+    gitBranch = head.match(/ref: refs\/heads\/(.+)/)?.[1]?.trim();
+  } catch {}
+  const welcomeInfo = {
+    model: resolved?.model ?? DEFAULTS.deepseek.model, // 首启尚无凭证 → 默认模型(banner 仅展示;runInkApp 首启 skipBanner)
+    thinking: process.env.DAO_REASONING_EFFORT || "max",
+    cwd: workspaceRoot,
+    version: VERSION,
+    branch: gitBranch,
+  };
+  const welcome = { info: welcomeInfo, caps, bg, maxim: randomMaxim() };
+
+  // 目录信任在首启分支之前先求值,便于 onboarding 结果覆盖(onboarding 内已处理信任问答)。
+  let trustProject = await shouldTrustProject(workspaceRoot);
+
   if (!resolved) {
-    if (process.stdin.isTTY) {
-      // 真终端:引导粘贴 → 落盘前校验 → 钥匙串/文件存储 → 标记 onboarding 完成
-      write(`\n${t("onboard.welcome")}\n\n${t("onboard.step1")}\n${t("key.help")}\n`);
-      const meta = { provider: "deepseek" as const, ...DEFAULTS.deepseek };
-      const wiz = await runKeyWizard({
-        cfg: profilesCfg,
-        name: "default",
-        meta,
-        ask,
-        write,
-        validate: (c) => validateCredential({ ...c, provider: meta.provider }),
-        kc,
-        preferKeychain: keychainAvailable(),
+    if (process.stdin.isTTY && !argvPrompt) {
+      // 真终端(非 headless):Ink 引导。交互路径全程不创建 readline(create+close 会污染 stdin → Ink 挂载即退出)。
+      const ob = await runOnboarding({
+        welcome,                       // 与 runInkApp 同一束
+        detectedLang: getLang(),       // setLang(resolveLang(...)) 已在前(B 接线)
+        validate: (c) => validateCredential(c),
+        persist: async (provider, meta, key) => {
+          const { cfg } = await persistKey(profilesCfg, "default", { provider, ...meta }, key, kc, { preferKeychain: keychainAvailable() });
+          profilesCfg = { ...cfg, onboardingComplete: true };
+          await saveProfiles(keyFile, profilesCfg);
+          return { resolved: { key, provider, baseUrl: meta.baseUrl, model: meta.model, source: "profile:default" } };
+        },
+        writeLang: (lang) => writeUserLang(lang),
+        trustCurrent: () => addTrusted(workspaceRoot),
+        workspaceRoot,
       });
-      if (!wiz) {
-        write(`${t("onboard.abortNoKey")}\n`);
-        closeRl();
-        process.exit(1);
-      }
-      profilesCfg = { ...wiz.cfg, onboardingComplete: true };
-      await saveProfiles(keyFile, profilesCfg);
-      resolved = wiz.resolved;
+      if (!ob) { write(`${t("onboard.abortNoKey")}\n`); process.exit(1); }
+      resolved = ob.resolved;
+      trustProject = ob.trusted;       // onboarding 内已处理信任,跳过后续 readline 信任问答
       firstRun = true;
     } else {
       // 非交互(管道/CI):无法引导,给出清晰指引后退出
@@ -311,11 +328,11 @@ async function main() {
   // 未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行。必须在加载任何项目级配置之前决定。
   // 对标 CC 信任对话:交互终端进入未信任文件夹时直接问,y→信任整个文件夹并当场加载(无需重启);
   // 否则继续不信任(只用用户级)。headless(-p 一次性)与非 TTY 不弹问,默认不信任(自动化不卡交互、安全默认)。
-  let trustProject = await shouldTrustProject(workspaceRoot);
+  // trustProject 已在首启分支前求值;首启(firstRun)时 onboarding 已问过信任,这里不再用 readline 重复问。
   if (!trustProject) {
-    if (process.stdin.isTTY && !argvPrompt) {
+    if (process.stdin.isTTY && !argvPrompt && !firstRun) {
       const a = (await ask(
-        `${firstRun ? `\n${t("trust.step2")}\n` : "\n"}${t("trust.prompt", workspaceRoot)}`,
+        `\n${t("trust.prompt", workspaceRoot)}`,
       )).trim().toLowerCase();
       if (a === "y" || a === "yes") {
         await addTrusted(workspaceRoot);
@@ -324,7 +341,7 @@ async function main() {
       } else {
         write(`${t("trust.untrusted")}\n`);
       }
-    } else {
+    } else if (!process.stdin.isTTY || argvPrompt) {
       process.stderr.write(`${t("trust.nonTty")}\n`);
     }
   }
@@ -1105,20 +1122,7 @@ async function main() {
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
       return;
     }
-    const caps = detectCapabilities(process.env, process.stdout.isTTY ?? false, process.stdout.columns);
-    let gitBranch: string | undefined;
-    try {
-      const head = readFileSync(path.join(workspaceRoot, ".git", "HEAD"), "utf8");
-      gitBranch = head.match(/ref: refs\/heads\/(.+)/)?.[1]?.trim();
-    } catch {}
-    const welcomeInfo = {
-      model: cfg.model,
-      thinking: process.env.DAO_REASONING_EFFORT || "max",
-      cwd: workspaceRoot,
-      version: VERSION,
-      branch: gitBranch,
-    };
-
+    // caps / gitBranch / welcomeInfo / welcome 束已在首启分支之前构造(与 onboarding 共用);此处直接复用。
     if (process.stdout.isTTY) {
       // 交互态:Ink REPL(inline)。常见路径下从未创建 readline(stdin 干净),Ink 的 useInput 直接接管;
       // 仅当首次运行做过 key 引导才存在 rl,此时关掉让出 stdin。
@@ -1183,7 +1187,8 @@ async function main() {
           usage: { ...session.usage },
         });
       await runInkApp({
-        welcome: { info: welcomeInfo, caps, bg, maxim: randomMaxim() },
+        welcome,
+        skipBanner: firstRun,
         verbose,
         submit: async (text, { events, signal }) => {
           // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。

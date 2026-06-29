@@ -49,3 +49,13 @@ export async function readUserLang(): Promise<string | undefined> {
     return undefined;
   }
 }
+
+// 写 ~/.dao/settings.json 顶层 lang(与 readUserLang 对称):合并顶层 lang,保留其它字段;mkdir -p 后写回。
+export async function writeUserLang(lang: Lang): Promise<void> {
+  const file = path.join(os.homedir(), ".dao", "settings.json");
+  let obj: Record<string, unknown> = {};
+  try { obj = JSON.parse(await fs.readFile(file, "utf8")) as Record<string, unknown>; } catch { /* 新建 */ }
+  obj.lang = lang;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(obj, null, 2));
+}
