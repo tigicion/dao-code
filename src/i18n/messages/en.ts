@@ -12,6 +12,7 @@ export const en: Record<string, string> = {
   "onboard.key.help.volcengine": "Get a key: Volcengine Ark console → API Key management",
   "onboard.key.validating": "Validating key…",
   "onboard.trust.title": "Trust this folder?",
+  "onboard.trust.body": "DAO CODE loads and may execute this folder's project config (.dao/settings.json and hooks.json). Only trust folders you wrote or have reviewed.",
   "onboard.step.lang": "Language",
   "onboard.step.provider": "Provider",
   "onboard.step.key": "Key",

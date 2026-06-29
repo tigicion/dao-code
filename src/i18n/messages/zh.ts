@@ -12,6 +12,7 @@ export const zh: Record<string, string> = {
   "onboard.key.help.volcengine": "获取 key:火山方舟控制台 → API Key 管理",
   "onboard.key.validating": "正在校验 key…",
   "onboard.trust.title": "信任此文件夹?",
+  "onboard.trust.body": "DAO CODE 会加载并可能执行此文件夹的项目配置(.dao/settings.json 与 hooks.json)。仅信任你自己编写或已审阅的文件夹。",
   "onboard.step.lang": "语言",
   "onboard.step.provider": "来源",
   "onboard.step.key": "密钥",
