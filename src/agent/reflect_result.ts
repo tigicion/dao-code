@@ -14,6 +14,14 @@ export interface ReflectMem {
   mergeInto?: string | null; // 命中则合并进该 title 的已有记忆
 }
 
+// 纠错:被本轮实测推翻或需修订的【旧记忆】。supersede=作废整条;revise=用 newText 替换。
+export interface Correction {
+  target: string; // 命中旧记忆的 title(或可辨识的事实串)
+  action: "supersede" | "revise";
+  newText?: string; // revise 必给:替换后的完整事实
+  reason: string;
+}
+
 export interface ReflectResult {
   onTrack: boolean;
   advisory: string | null;
@@ -21,9 +29,13 @@ export interface ReflectResult {
   // 可观测性:无论在轨与否,模型都给一句话复述「在做什么 + 为何判这个 onTrack」。
   // onTrack=true 时 advisory 被强制丢弃(消噪),note 仍保留 → 事后能区分"认真审视判在轨" vs "橡皮章"。
   note?: string;
+  // 纠错闭环:被实测推翻的旧记忆(作废/修订)。
+  corrections: Correction[];
+  // 被实测证实仍有效的旧记忆 title 列表。
+  confirmed: string[];
 }
 
-const SAFE: ReflectResult = { onTrack: true, advisory: null, memories: [], note: undefined };
+const SAFE: ReflectResult = { onTrack: true, advisory: null, memories: [], note: undefined, corrections: [], confirmed: [] };
 
 // 从模型原始输出里抠出 JSON 对象(去围栏 + 取首个 {...})。
 function extractObject(s: string): Record<string, unknown> | null {
@@ -54,6 +66,22 @@ function parseMem(x: unknown): ReflectMem | null {
   return mem;
 }
 
+// 纠错段:逐条独立降级。revise 无 newText 丢、action 非 supersede/revise 丢、无 target 丢。
+function parseCorrection(x: unknown): Correction | null {
+  if (!x || typeof x !== "object") return null;
+  const o = x as Record<string, unknown>;
+  const target = typeof o.target === "string" ? o.target.trim() : "";
+  const action = o.action;
+  if (!target || (action !== "supersede" && action !== "revise")) return null;
+  const c: Correction = { target, action, reason: typeof o.reason === "string" ? o.reason.trim() : "" };
+  if (action === "revise") {
+    const nt = typeof o.newText === "string" ? o.newText.trim() : "";
+    if (!nt) return null; // revise 必须给 newText
+    c.newText = nt;
+  }
+  return c;
+}
+
 export function parseReflectResult(raw: string): ReflectResult {
   const obj = extractObject(raw);
   if (!obj) return { ...SAFE };
@@ -75,5 +103,15 @@ export function parseReflectResult(raw: string): ReflectResult {
   // note:一句话复述(可观测,不注入主对话)。缺失则降级 undefined。
   const note = typeof obj.note === "string" && obj.note.trim() ? obj.note.trim() : undefined;
 
-  return { onTrack, advisory, memories, note };
+  // 纠错段:逐条独立降级(坏条目丢)。
+  const corrections = Array.isArray(obj.corrections)
+    ? (obj.corrections.map(parseCorrection).filter(Boolean) as Correction[])
+    : [];
+
+  // confirmed:过滤空串,trim 后留非空。
+  const confirmed = Array.isArray(obj.confirmed)
+    ? obj.confirmed.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => s.trim())
+    : [];
+
+  return { onTrack, advisory, memories, note, corrections, confirmed };
 }

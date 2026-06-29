@@ -17,7 +17,7 @@ describe("parseReflectResult — 两段独立容错解析", () => {
 
   it("带 ```json 围栏也能抽出来", () => {
     const raw = "好的\n```json\n" + JSON.stringify({ onTrack: true, advisory: null, memories: [] }) + "\n```";
-    expect(parseReflectResult(raw)).toEqual({ onTrack: true, advisory: null, memories: [] });
+    expect(parseReflectResult(raw)).toEqual({ onTrack: true, advisory: null, memories: [], corrections: [], confirmed: [] });
   });
 
   it("note 被解析(onTrack=true 时仍保留,供可观测)", () => {
@@ -66,7 +66,7 @@ describe("parseReflectResult — 两段独立容错解析", () => {
   });
 
   it("整体不是 JSON → 安全默认(什么都不做,不丢不注入)", () => {
-    expect(parseReflectResult("模型胡言乱语没有 JSON")).toEqual({ onTrack: true, advisory: null, memories: [] });
+    expect(parseReflectResult("模型胡言乱语没有 JSON")).toEqual({ onTrack: true, advisory: null, memories: [], corrections: [], confirmed: [] });
   });
 
   it("memories 不是数组 → []", () => {
@@ -76,5 +76,44 @@ describe("parseReflectResult — 两段独立容错解析", () => {
   it("mergeInto 透传(合并意图)", () => {
     const raw = JSON.stringify({ onTrack: true, advisory: null, memories: [{ title: "t", text: "x", type: "user", mergeInto: "已有标题" }] });
     expect(parseReflectResult(raw).memories[0]!.mergeInto).toBe("已有标题");
+  });
+
+  it("解析 corrections + confirmed", () => {
+    const raw = JSON.stringify({
+      onTrack: true, advisory: null, memories: [],
+      corrections: [
+        { target: "旧事实A", action: "supersede", reason: "命令输出证明已不成立" },
+        { target: "旧事实B", action: "revise", newText: "新的完整事实", reason: "部分过时" },
+      ],
+      confirmed: ["有用事实C"],
+    });
+    const r = parseReflectResult(raw);
+    expect(r.corrections).toHaveLength(2);
+    expect(r.corrections[0]).toMatchObject({ target: "旧事实A", action: "supersede" });
+    expect(r.corrections[1]).toMatchObject({ target: "旧事实B", action: "revise", newText: "新的完整事实" });
+    expect(r.confirmed).toEqual(["有用事实C"]);
+  });
+
+  it("坏 correction 降级:revise 无 newText 丢、action 非法丢、缺 target 丢", () => {
+    const raw = JSON.stringify({
+      onTrack: true, memories: [],
+      corrections: [
+        { target: "X", action: "revise", reason: "r" },          // revise 无 newText → 丢
+        { target: "Y", action: "delete", reason: "r" },           // action 非法 → 丢
+        { action: "supersede", reason: "r" },                     // 无 target → 丢
+        { target: "Z", action: "supersede", reason: "r" },        // 好
+      ],
+      confirmed: ["A", "", "  ", "B"],                            // 空串过滤
+    });
+    const r = parseReflectResult(raw);
+    expect(r.corrections).toHaveLength(1);
+    expect(r.corrections[0]!.target).toBe("Z");
+    expect(r.confirmed).toEqual(["A", "B"]);
+  });
+
+  it("缺失 corrections/confirmed → 空数组", () => {
+    const r = parseReflectResult(JSON.stringify({ onTrack: true, memories: [] }));
+    expect(r.corrections).toEqual([]);
+    expect(r.confirmed).toEqual([]);
   });
 });
