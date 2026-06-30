@@ -1,0 +1,37 @@
+import { describe, it, expect } from "vitest";
+import { gradeExtraction } from "./extract.js";
+
+function fakeStream(text: string) {
+  return async function* () { yield { kind: "content", text }; return { role: "assistant", content: text }; }();
+}
+const cfg = { model: "x", baseUrl: "x", apiKey: "x", judgeK: 1 };
+
+describe("gradeExtraction 接线", () => {
+  it("mustExtract 全覆盖、无 mustNot 命中 → recall=1 precision=1", async () => {
+    // judge:对覆盖判定恒返回 covered=true;质量恒高;mustNot 判定恒 false
+    const streamChat = (o: any) => {
+      const prompt = o.messages[0].content as string;
+      if (prompt.includes("是否被任一")) return fakeStream('{"covered":true,"why":"x"}');
+      if (prompt.includes("四维度")) return fakeStream('{"durable":1,"typeScopeCorrect":1,"notCatalogDump":1,"actionable":1}');
+      return fakeStream('{"covered":false}');
+    };
+    const gold = {
+      existing: [],
+      mustExtract: [{ text: "用户有iPad给2岁孩子做游戏", type: "user" as const, scope: "user" as const, profile: true }],
+      mustNot: [],
+    };
+    const extracted = [{ title: "画像", text: "用户长期给低龄儿童做iPad游戏", type: "user" }];
+    const s = await gradeExtraction({ extracted, gold, streamChat: streamChat as any, cfg });
+    expect(s.factRecall).toBe(1);
+    expect(s.profileRecall).toBe(1);
+    expect(s.precision).toBe(1);
+    expect(s.quality).toBeGreaterThan(0.9);
+  });
+
+  it("漏掉画像事实 → profileRecall=0", async () => {
+    const streamChat = () => fakeStream('{"covered":false,"why":"没覆盖"}');
+    const gold = { existing: [], mustExtract: [{ text: "iPad给2岁孩子", type: "user" as const, scope: "user" as const, profile: true }], mustNot: [] };
+    const s = await gradeExtraction({ extracted: [], gold, streamChat: streamChat as any, cfg });
+    expect(s.profileRecall).toBe(0);
+  });
+});

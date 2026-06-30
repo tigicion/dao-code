@@ -1,0 +1,8 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"用户持续用 iPad 给约 2 岁低龄儿童做游戏","type":"user","scope":"user","profile":true},
+    {"text":"用户偏好先看完整方案再动手","type":"feedback","scope":"user","profile":true}
+  ],
+  "mustNot": ["工程里有 GameScene.swift 和 project.yml 这类一次性目录信息"]
+}
