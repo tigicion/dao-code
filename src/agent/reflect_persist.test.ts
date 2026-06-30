@@ -1,9 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { reflectMemToCand } from "./reflect_persist.js";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { reflectMemToCand, applyCorrections, applyConfirmed } from "./reflect_persist.js";
+import { writeMemory, loadAllMemories } from "../memory/store.js";
 import { newMemory } from "../memory/types.js";
 import type { ReflectMem } from "./reflect_result.js";
 
 const today = "2026-06-25";
+const tmp = () => fs.mkdtemp(path.join(os.tmpdir(), "refpersist-"));
 
 describe("reflectMemToCand — ReflectMem→待 upsert 的 Memory(mergeInto 感知)", () => {
   it("无 mergeInto:name=slug(title),原样建候选", () => {
@@ -35,5 +40,40 @@ describe("reflectMemToCand — ReflectMem→待 upsert 的 Memory(mergeInto 感�
     const existing = [newMemory({ name: "hello-world", title: "Hello World", text: "x", type: "semantic", today })];
     const m: ReflectMem = { title: "ext", text: "y", type: "semantic", mergeInto: "Hello World" };
     expect(reflectMemToCand(m, existing, today).name).toBe("hello-world");
+  });
+});
+
+describe("applyCorrections", () => {
+  it("supersede 软删、revise 改写、cap 截断", async () => {
+    const d = await tmp();
+    const dirFor = () => d;
+    await writeMemory(d, newMemory({ name: "a", title: "事实A", text: "旧A", type: "semantic", today: "2026-06-01" }));
+    await writeMemory(d, newMemory({ name: "b", title: "事实B", text: "旧B", type: "semantic", today: "2026-06-01" }));
+    const existing = await loadAllMemories(d, d + "-x");
+    const n = await applyCorrections([
+      { target: "事实A", action: "supersede", reason: "已不成立" },
+      { target: "事实B", action: "revise", newText: "新B", reason: "更新" },
+    ], existing, dirFor, "2026-06-29", 3);
+    expect(n).toBe(2);
+    const aRaw = await fs.readFile(path.join(d, "a.md"), "utf8");
+    expect(aRaw).toMatch(/status: superseded/);
+    const live = await loadAllMemories(d, d + "-x");
+    expect(live.find((m) => m.name === "b")!.text).toBe("新B");
+  });
+  it("找不到 target → 跳过不抛;cap 限制处理条数", async () => {
+    const d = await tmp();
+    const existing = await loadAllMemories(d, d + "-x");
+    expect(await applyCorrections([{ target: "无", action: "supersede", reason: "r" }], existing, () => d, "2026-06-29", 3)).toBe(0);
+  });
+});
+
+describe("applyConfirmed", () => {
+  it("touch 命中的 lastUsed", async () => {
+    const d = await tmp();
+    await writeMemory(d, newMemory({ name: "c", title: "事实C", text: "x", type: "user", today: "2026-06-01" }));
+    const existing = await loadAllMemories(d, d + "-x");
+    const n = await applyConfirmed(["事实C", "不存在"], existing, () => d, "2026-06-29");
+    expect(n).toBe(1);
+    expect((await loadAllMemories(d, d + "-x"))[0]!.lastUsed).toBe("2026-06-29");
   });
 });
