@@ -93,3 +93,11 @@ describe("REFLECT_TAIL 通用画像维度块", () => {
     expect(REFLECT_TAIL).toContain("上抽");
   });
 });
+
+describe("REFLECT_TAIL 纠错与确认段", () => {
+  it("含 corrections/confirmed 指令与保守纪律", () => {
+    for (const kw of ["纠错", "corrections", "confirmed", "supersede", "revise", "实测证据"]) {
+      expect(REFLECT_TAIL).toContain(kw);
+    }
+  });
+});
