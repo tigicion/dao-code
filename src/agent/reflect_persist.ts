@@ -3,7 +3,7 @@
 // 否则按自身 title 新建。纯函数、可测;落盘(routeScope+upsert)在 index 接线里。
 import type { Memory, MemoryType } from "../memory/types.js";
 import { newMemory } from "../memory/types.js";
-import { slug, supersedeMemory, upsertMemory, touchMemory } from "../memory/store.js";
+import { slug, supersedeMemory, writeMemory, touchMemory } from "../memory/store.js";
 import type { ReflectMem, Correction } from "./reflect_result.js";
 
 export function reflectMemToCand(m: ReflectMem, existing: Memory[], today: string): Memory {
@@ -27,15 +27,15 @@ function findByTitle(existing: Memory[], target: string): Memory | undefined {
   return existing.find((e) => e.title === target || e.name === slug(target));
 }
 
-// 纠错落地:supersede 软删 / revise 改写。上限 cap 防一次误判批量毁库。返回实际处理条数。
+// 纠错落地:supersede 软删 / revise 改写。上限 cap 防一次误判批量毁库。返回【实际应用】的那几条(顺序保留,供接线层发审计 reason)。
 export async function applyCorrections(
   corrections: Correction[],
   existing: Memory[],
   dirFor: (t: MemoryType) => string,
   today: string,
   cap = 3,
-): Promise<number> {
-  let n = 0;
+): Promise<Correction[]> {
+  const applied: Correction[] = [];
   for (const c of corrections.slice(0, cap)) {
     const target = findByTitle(existing, c.target);
     if (!target || target.locked) continue; // 找不到/锁定 → 跳过,不抛
@@ -43,22 +43,12 @@ export async function applyCorrections(
     if (c.action === "supersede") {
       await supersedeMemory(dir, target.name, target.name, today); // 指向自身=纯失效;软删可追溯
     } else {
-      // revise:复用既有 name,upsert 命中既有键覆盖正文
-      const revised = newMemory({
-        name: target.name,
-        title: target.title,
-        text: c.newText!,
-        type: target.type,
-        today,
-        importance: target.importance,
-        confidence: target.confidence,
-        source: target.source,
-      });
-      await upsertMemory(dir, revised, existing);
+      // revise:只改正文,保留 uses/lastUsed/created/sourceHash 等(纠错≠重复抽出,不刷强化信号)
+      await writeMemory(dir, { ...target, text: c.newText! });
     }
-    n++;
+    applied.push(c);
   }
-  return n;
+  return applied;
 }
 
 // 确认续命:touch 命中的 lastUsed。返回实际 touch 条数。

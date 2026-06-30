@@ -96,6 +96,23 @@ describe("memory_audit sink", () => {
     expect(formatReflectReport(sum)).toContain("纠错");
   });
 
+  it("corrected 事件落行 + summarize 收明细 + 报告展示理由", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mem-corr-"));
+    const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);
+    s.corrected({ target: "事实A", action: "supersede", reason: "已被实测推翻" });
+    s.corrected({ target: "事实B", action: "revise", reason: "数值已更新" });
+    s.reflected({ ran: true, onTrack: true, advisoryInjected: false, memAdded: 0, memMerged: 0, interval: 1, corrected: 2, confirmed: 0 });
+    const ev = read(dir);
+    expect(ev.filter((e: any) => e.kind === "corrected")).toHaveLength(2);
+    const sum = summarizeReflectTrace(ev);
+    expect(sum.correctedDetails).toHaveLength(2);
+    expect(sum.correctedDetails[0]).toMatchObject({ target: "事实A", action: "supersede", reason: "已被实测推翻" });
+    expect(sum.corrected).toBe(2); // 计数仍走 reflected 事件聚合,不受明细影响
+    const rep = formatReflectReport(sum);
+    expect(rep).toContain("纠错明细");
+    expect(rep).toContain("数值已更新");
+  });
+
   it("consolidated 事件落行", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "mem-c-"));
     const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);

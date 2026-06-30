@@ -50,11 +50,12 @@ describe("applyCorrections", () => {
     await writeMemory(d, newMemory({ name: "a", title: "事实A", text: "旧A", type: "semantic", today: "2026-06-01" }));
     await writeMemory(d, newMemory({ name: "b", title: "事实B", text: "旧B", type: "semantic", today: "2026-06-01" }));
     const existing = await loadAllMemories(d, d + "-x");
-    const n = await applyCorrections([
+    const applied = await applyCorrections([
       { target: "事实A", action: "supersede", reason: "已不成立" },
       { target: "事实B", action: "revise", newText: "新B", reason: "更新" },
     ], existing, dirFor, "2026-06-29", 3);
-    expect(n).toBe(2);
+    expect(applied).toHaveLength(2);
+    expect(applied.map((c) => c.target)).toEqual(["事实A", "事实B"]); // 顺序保留
     const aRaw = await fs.readFile(path.join(d, "a.md"), "utf8");
     expect(aRaw).toMatch(/status: superseded/);
     const live = await loadAllMemories(d, d + "-x");
@@ -63,7 +64,39 @@ describe("applyCorrections", () => {
   it("找不到 target → 跳过不抛;cap 限制处理条数", async () => {
     const d = await tmp();
     const existing = await loadAllMemories(d, d + "-x");
-    expect(await applyCorrections([{ target: "无", action: "supersede", reason: "r" }], existing, () => d, "2026-06-29", 3)).toBe(0);
+    expect(await applyCorrections([{ target: "无", action: "supersede", reason: "r" }], existing, () => d, "2026-06-29", 3)).toHaveLength(0);
+  });
+  it("cap>3 边界:传 4 条只应用前 3 条,第 4 条目标未被改动", async () => {
+    const d = await tmp();
+    for (const name of ["a", "b", "c", "e"]) {
+      await writeMemory(d, newMemory({ name, title: `事实${name}`, text: `旧${name}`, type: "semantic", today: "2026-06-01" }));
+    }
+    const existing = await loadAllMemories(d, d + "-x");
+    const applied = await applyCorrections([
+      { target: "事实a", action: "revise", newText: "新a", reason: "1" },
+      { target: "事实b", action: "revise", newText: "新b", reason: "2" },
+      { target: "事实c", action: "revise", newText: "新c", reason: "3" },
+      { target: "事实e", action: "revise", newText: "新e", reason: "4" }, // 超 cap,应被截断
+    ], existing, () => d, "2026-06-29", 3);
+    expect(applied).toHaveLength(3);
+    expect(applied.map((c) => c.target)).toEqual(["事实a", "事实b", "事实c"]);
+    const live = await loadAllMemories(d, d + "-x");
+    expect(live.find((m) => m.name === "e")!.text).toBe("旧e"); // 第 4 条未动
+  });
+  it("revise 只改正文:保留 uses/created/importance,且 uses 不 +1", async () => {
+    const d = await tmp();
+    // 构造一条 uses=2 的既有记忆(newMemory 起始 uses=0,手动抬到 2 落盘)
+    const seed = { ...newMemory({ name: "k", title: "事实K", text: "旧K", type: "semantic", today: "2026-06-01", importance: 7, source: "src.ts" }), uses: 2 };
+    await writeMemory(d, seed);
+    const existing = await loadAllMemories(d, d + "-x");
+    const applied = await applyCorrections([{ target: "事实K", action: "revise", newText: "新K", reason: "修订" }], existing, () => d, "2026-06-29", 3);
+    expect(applied).toHaveLength(1);
+    const live = (await loadAllMemories(d, d + "-x")).find((m) => m.name === "k")!;
+    expect(live.text).toBe("新K");      // 正文已改
+    expect(live.uses).toBe(2);          // 关键:纠错不刷强化计数,仍 2(未 +1)
+    expect(live.created).toBe("2026-06-01"); // created 保留
+    expect(live.importance).toBe(7);    // importance 保留
+    expect(live.source).toBe("src.ts"); // source 保留
   });
 });
 

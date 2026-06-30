@@ -692,7 +692,7 @@ async function main() {
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
-  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {}, consolidated() {} };
+  let memoryAudit: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {}, corrected() {}, consolidated() {} };
   let toolAudit: ToolAuditSink = { call() {} };
   let permAudit: PermAuditSink = { decided() {} };
   // 技能加载审计:同样占位,store 就绪后赋值。skillRound = 每条用户消息一轮(关联 loaded)。
@@ -1093,8 +1093,10 @@ async function main() {
         const sc = routeScope(t);
         return sc === "knowledge" ? knowledgeMemoryDir : sc === "user" ? userMemoryDir : projectMemoryDir;
       };
-      const corrected = await applyCorrections(result.corrections, existing, dirFor, today);
+      const applied = await applyCorrections(result.corrections, existing, dirFor, today);
       const confirmed = await applyConfirmed(result.confirmed, existing, dirFor, today);
+      for (const c of applied) memoryAudit.corrected({ target: c.target, action: c.action, reason: c.reason });
+      const corrected = applied.length;
       const advisoryInjected = !!result.advisory;
       if (result.advisory) pendingReflectAdvisories.push(`[反思·参考]\n${result.advisory}`); // 有问题才注入(append-only)
       memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval, note: result.note, corrected, confirmed });

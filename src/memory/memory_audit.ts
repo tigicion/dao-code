@@ -10,6 +10,8 @@ export type MemoryTraceEvent =
   | { kind: "distilled"; ts: number; extracted: number; added: number; updated: number }
   // 统一反思器:每次跑一行(跳过的回合 ran=false)。note=模型一句话复述(可观测,尤其 onTrack=true 时用来判断是否真审视过)。
   | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string; corrected?: number; confirmed?: number }
+  // 每条纠错落一行 reason 明细(可事后复盘"错纠污染全局"最大风险)。计数仍由 reflected 事件聚合,本事件只补 target/action/reason 明细。
+  | { kind: "corrected"; ts: number; target: string; action: "supersede" | "revise"; reason: string }
   // 记忆合并 pass:一轮合并做了什么(scope=作用域,groups=合并组数,superseded=被取代的旧条目数,reasons=每组合并理由)。
   | { kind: "consolidated"; ts: number; scope: string; groups: number; superseded: number; reasons: string[] };
 
@@ -18,10 +20,11 @@ export interface MemoryAuditSink {
   wrote(type: string, merged: boolean): void;
   distilled(extracted: number, added: number, updated: number): void;
   reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string; corrected?: number; confirmed?: number }): void;
+  corrected(e: { target: string; action: "supersede" | "revise"; reason: string }): void;
   consolidated(e: { scope: string; groups: number; superseded: number; reasons: string[] }): void;
 }
 
-const NOOP: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {}, consolidated() {} };
+const NOOP: MemoryAuditSink = { recalled() {}, wrote() {}, distilled() {}, reflected() {}, corrected() {}, consolidated() {} };
 
 export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv = process.env): MemoryAuditSink {
   if (!auditEnabled(env, "MEMORY")) return NOOP;
@@ -35,6 +38,7 @@ export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv
     wrote: (type, merged) => write({ kind: "wrote", ts: Date.now(), type, merged }),
     distilled: (extracted, added, updated) => write({ kind: "distilled", ts: Date.now(), extracted, added, updated }),
     reflected: (e) => write({ kind: "reflected", ts: Date.now(), ...e }),
+    corrected: (e) => write({ kind: "corrected", ts: Date.now(), ...e }),
     consolidated: (e) => write({ kind: "consolidated", ts: Date.now(), ...e }),
   };
 }
@@ -77,11 +81,13 @@ export interface ReflectSummary {
   notes: string[]; // 模型每轮的复述(可观测:advisory=0 时据此判断是否真审视过)
   corrected: number; // 纠错(supersede/revise)累计
   confirmed: number; // 确认续命累计
+  correctedDetails: { target: string; action: string; reason: string }[]; // 每条纠错的 reason 明细(复盘用)
 }
 
 export function summarizeReflectTrace(events: MemoryTraceEvent[]): ReflectSummary {
-  const s: ReflectSummary = { rounds: 0, ran: 0, advisories: 0, memAdded: 0, memMerged: 0, lastInterval: 1, notes: [], corrected: 0, confirmed: 0 };
+  const s: ReflectSummary = { rounds: 0, ran: 0, advisories: 0, memAdded: 0, memMerged: 0, lastInterval: 1, notes: [], corrected: 0, confirmed: 0, correctedDetails: [] };
   for (const e of events) {
+    if (e.kind === "corrected") { s.correctedDetails.push({ target: e.target, action: e.action, reason: e.reason }); continue; }
     if (e.kind !== "reflected") continue;
     s.rounds++;
     if (e.ran) s.ran++;
@@ -105,6 +111,11 @@ export function formatReflectReport(s: ReflectSummary): string {
     `  纠错:supersede/revise ${s.corrected} · 确认续命 ${s.confirmed}`,
     `  当前节奏:每 ${s.lastInterval} 回合反思一次`,
   ];
+  // 纠错明细(reason):防刷屏只列最近 3 条,用来复盘"错纠污染全局"的最大风险。
+  if (s.correctedDetails.length) {
+    lines.push(`  纠错明细(最近 ${Math.min(3, s.correctedDetails.length)}/${s.correctedDetails.length} 条):`);
+    for (const d of s.correctedDetails.slice(-3)) lines.push(`    · ${d.action} 「${d.target}」:${d.reason}`);
+  }
   // 复述抽样(尤其 advisory=0 时,用来判断"零挑战"是真在轨还是橡皮章)。只列最近几条防刷屏。
   if (s.notes.length) {
     lines.push(`  复述(最近 ${Math.min(3, s.notes.length)}/${s.notes.length} 条):`);
