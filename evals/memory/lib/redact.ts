@@ -19,7 +19,12 @@ export function redactText(s: string, rules?: { homedir?: string; nameMap?: Reco
 export function redactEvents(events: RawEvent[], rules?: { homedir?: string; nameMap?: Record<string, string> }): RawEvent[] {
   return events.map((e) => {
     if (e.t === "user") return { ...e, text: redactText(e.text, rules) };
-    if (e.t === "assistant") return { ...e, content: e.content ? redactText(e.content, rules) : e.content };
+    if (e.t === "assistant") return {
+      ...e,
+      content: e.content ? redactText(e.content, rules) : e.content,
+      // toolCalls.args 也要脱敏:toMessages 虽只取工具名,但 fixture 文件本身会落进仓库,args 里常含绝对路径/专名
+      ...(e.toolCalls ? { toolCalls: e.toolCalls.map((tc) => ({ ...tc, args: redactText(tc.args, rules) })) } : {}),
+    };
     if (e.t === "tool_result") return { ...e, content: redactText(e.content, rules) };
     return e;
   });

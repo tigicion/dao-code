@@ -19,4 +19,15 @@ describe("redactEvents", () => {
     expect((out[0] as any).text).toContain("~/x");
     expect((out[0] as any).text).not.toContain("sk-ABCDEFGHIJKLMNOP1234");
   });
+
+  it("脱敏 assistant.toolCalls[].args(否则 args 里的路径/专名会泄漏进进仓 fixture)", () => {
+    const out = redactEvents(
+      [{ t: "assistant", content: "好", toolCalls: [{ name: "write_file", args: "{\"path\":\"/Users/alice/Proj/PeppaSlide/x\"}" }] }] as any,
+      { homedir: "/Users/alice", nameMap: { PeppaSlide: "GameX" } },
+    );
+    const args = (out[0] as any).toolCalls[0].args as string;
+    expect(args).toContain("~/Proj/GameX/x");
+    expect(args).not.toContain("/Users/alice");
+    expect(args).not.toContain("PeppaSlide");
+  });
 });
