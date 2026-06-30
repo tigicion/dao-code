@@ -69,7 +69,7 @@ import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
 import { reflect as unifiedReflect } from "./agent/unified_reflect.js";
 import { initCadence, tickCadence, applyOutcome } from "./agent/reflect_cadence.js";
-import { reflectMemToCand } from "./agent/reflect_persist.js";
+import { reflectMemToCand, applyCorrections, applyConfirmed } from "./agent/reflect_persist.js";
 import { apiToolsForMode } from "./tools/tools_for_mode.js";
 import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
 import { gcMemories } from "./memory/gc.js";
@@ -1088,9 +1088,16 @@ async function main() {
         const res = await upsertMemory(dir, cand, existing);
         if (res.action === "updated") merged++; else added++;
       }
+      // 纠错闭环:被实测推翻 → supersede/revise;被实测证实 → touch 续命。dirFor 按 type 路由作用域目录。
+      const dirFor = (t: import("./memory/types.js").MemoryType) => {
+        const sc = routeScope(t);
+        return sc === "knowledge" ? knowledgeMemoryDir : sc === "user" ? userMemoryDir : projectMemoryDir;
+      };
+      const corrected = await applyCorrections(result.corrections, existing, dirFor, today);
+      const confirmed = await applyConfirmed(result.confirmed, existing, dirFor, today);
       const advisoryInjected = !!result.advisory;
       if (result.advisory) pendingReflectAdvisories.push(`[反思·参考]\n${result.advisory}`); // 有问题才注入(append-only)
-      memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval, note: result.note });
+      memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval, note: result.note, corrected, confirmed });
       return { onTrack: result.onTrack, mem: added + merged };
     } catch (e) {
       if (process.env.DAO_DEBUG_REFLECT) console.error("[reflect] 失败:", e);
