@@ -153,3 +153,12 @@ evals/memory/
 - LLM 评审做金标语义匹配,而非字符串/embedding:抽出记忆和金标事实表述必然不同,字符串对比脆、embedding 是另一套基建;judge 判「语义覆盖」最贴合且复用同一鉴权。
 - 召回相关性缺口只诊断不设闸:当前注入本就无检索,把它当回归点会逼着实现 scope-tagging(超范围);先量化缺口给未来决策。
 - 先 P1 提取后 P2 召回:提取弱点(画像抽不出)是已观测的真实痛点,价值更高、直击北极星。
+
+## 实现澄清(随最终审查整改更新)
+
+- **抽取目前单采样**:`reflect` 每 case 跑一次(非 K 次)。judge 侧 K 次取中位+方差。DeepSeek 非确定 → 基线数字作参考而非精确值;预留 `EVAL_EXTRACT_K` 供后续多采样。README 与报告头均标注。
+- **质量指标**:每条记忆 judge K 次,报中位±方差;空抽取 → N/A(不再假 1.0,避免谄媚空抽取器)。
+- **确定性 type/scope 命中率**:每条 mustExtract 金标,检查是否存在抽出记忆其 `routeScope(type)` 落在期望 scope(确定性,不依赖 judge);与软 judge 维度 `typeScopeCorrect` 互补。
+- **召回 B 轨锚人工金标**:相关性缺口对**人工 `relevanceGold`** 算(稳定锚);另报 `judgeHumanAgreement`(judge 相关集 vs 人工金标 F1)做 judge 校准。B 轨仍仅诊断、不设闸。
+- **空投票守 false**:`majorityVote([])`→false、`judgeK` 校验 ≥1,杜绝「K=0 → 每条判 true → 假满分」。
+- 实际文件为 TypeScript(`.ts`,经 tsx 跑)而非设计稿中的 `.mjs`:需直接 import `src/` TS 函数,故全 TS + 专用 `evals/memory/tsconfig.json` typecheck 门。
