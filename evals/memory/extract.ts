@@ -28,14 +28,12 @@ export async function gradeExtraction(p: {
   // 2) mustNot 精确率:抽出的每条若命中任一 mustNot 噪声描述则算误抽
   let noise = 0;
   for (const m of p.extracted) {
-    const goldNoise = { existing: [], mustExtract: [], mustNot: p.gold.mustNot };
     const hit = p.gold.mustNot.length
       ? (await judgeBool({ streamChat: p.streamChat, cfg: p.cfg,
           prompt: factCoveredPrompt({ text: "以下任一噪声描述:" + p.gold.mustNot.join(";"), type: "episodic", scope: "project" }, [m]),
           key: "covered" }, K)).value
       : false;
     if (hit) noise++;
-    void goldNoise;
   }
   const precision = p.extracted.length ? 1 - noise / p.extracted.length : 1;
   // 3) 单条质量(judge 一次取四维度均值,再对所有记忆取均值)

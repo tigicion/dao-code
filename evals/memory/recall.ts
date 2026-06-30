@@ -38,10 +38,8 @@ export async function runRecallCase(dir: string, streamChat: (o: any) => AsyncGe
   const mems = await loadAllMemories(storeDir);
   const validated: { mem: any; verdict: string }[] = [];
   for (const m of mems) { const { verdict } = await validateMemory(m, ws, today); validated.push({ mem: m, verdict }); }
-  const liveNames = validated.filter((v) => v.verdict !== "stale").map((v) => v.mem.name);
   const staleNames = validated.filter((v) => v.verdict === "stale").map((v) => v.mem.name);
   const injected = selectForInjection(validated as any, today).map((v: any) => v.mem.name);
   const store = mems.map((m: any) => ({ name: m.name, text: m.text }));
-  void liveNames;
   return gradeRecall({ injectedNames: injected, staleNames, store, ctx, streamChat, cfg });
 }
