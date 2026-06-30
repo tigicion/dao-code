@@ -9,7 +9,7 @@ export type MemoryTraceEvent =
   | { kind: "wrote"; ts: number; type: string; merged: boolean }
   | { kind: "distilled"; ts: number; extracted: number; added: number; updated: number }
   // 统一反思器:每次跑一行(跳过的回合 ran=false)。note=模型一句话复述(可观测,尤其 onTrack=true 时用来判断是否真审视过)。
-  | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string }
+  | { kind: "reflected"; ts: number; ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string; corrected?: number; confirmed?: number }
   // 记忆合并 pass:一轮合并做了什么(scope=作用域,groups=合并组数,superseded=被取代的旧条目数,reasons=每组合并理由)。
   | { kind: "consolidated"; ts: number; scope: string; groups: number; superseded: number; reasons: string[] };
 
@@ -17,7 +17,7 @@ export interface MemoryAuditSink {
   recalled(injected: number, stale: number, changed: number, types: Record<string, number>): void;
   wrote(type: string, merged: boolean): void;
   distilled(extracted: number, added: number, updated: number): void;
-  reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string }): void;
+  reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string; corrected?: number; confirmed?: number }): void;
   consolidated(e: { scope: string; groups: number; superseded: number; reasons: string[] }): void;
 }
 
@@ -75,10 +75,12 @@ export interface ReflectSummary {
   memMerged: number;
   lastInterval: number; // 当前自适应间隔
   notes: string[]; // 模型每轮的复述(可观测:advisory=0 时据此判断是否真审视过)
+  corrected: number; // 纠错(supersede/revise)累计
+  confirmed: number; // 确认续命累计
 }
 
 export function summarizeReflectTrace(events: MemoryTraceEvent[]): ReflectSummary {
-  const s: ReflectSummary = { rounds: 0, ran: 0, advisories: 0, memAdded: 0, memMerged: 0, lastInterval: 1, notes: [] };
+  const s: ReflectSummary = { rounds: 0, ran: 0, advisories: 0, memAdded: 0, memMerged: 0, lastInterval: 1, notes: [], corrected: 0, confirmed: 0 };
   for (const e of events) {
     if (e.kind !== "reflected") continue;
     s.rounds++;
@@ -88,6 +90,8 @@ export function summarizeReflectTrace(events: MemoryTraceEvent[]): ReflectSummar
     s.memMerged += e.memMerged;
     s.lastInterval = e.interval;
     if (e.note) s.notes.push(e.note);
+    s.corrected += e.corrected ?? 0;
+    s.confirmed += e.confirmed ?? 0;
   }
   return s;
 }
@@ -98,6 +102,7 @@ export function formatReflectReport(s: ReflectSummary): string {
     `  回合:${s.rounds}(实跑 ${s.ran} · 节奏跳过 ${s.rounds - s.ran})`,
     `  advisory:${s.advisories} 次(有问题才注入)`,
     `  记忆:新增 ${s.memAdded} · 合并 ${s.memMerged}`,
+    `  纠错:supersede/revise ${s.corrected} · 确认续命 ${s.confirmed}`,
     `  当前节奏:每 ${s.lastInterval} 回合反思一次`,
   ];
   // 复述抽样(尤其 advisory=0 时,用来判断"零挑战"是真在轨还是橡皮章)。只列最近几条防刷屏。

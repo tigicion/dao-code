@@ -86,6 +86,16 @@ describe("memory_audit sink", () => {
     expect(formatReflectReport(sum)).toContain("在写测试,验收推进,故在轨");
   });
 
+  it("reflected corrected/confirmed 落行 + 汇总 + 报告", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mem-cc-"));
+    const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);
+    s.reflected({ ran: true, onTrack: true, advisoryInjected: false, memAdded: 0, memMerged: 0, interval: 1, corrected: 2, confirmed: 3 });
+    const sum = summarizeReflectTrace(read(dir));
+    expect(sum.corrected).toBe(2);
+    expect(sum.confirmed).toBe(3);
+    expect(formatReflectReport(sum)).toContain("纠错");
+  });
+
   it("consolidated 事件落行", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "mem-c-"));
     const s = createMemoryAuditSink(dir, {} as NodeJS.ProcessEnv);
