@@ -112,6 +112,15 @@ export async function deleteMemory(dirs: string[], keyRaw: string): Promise<stri
   return removed;
 }
 
+// 被验证使用 → 续命:只把 lastUsed 刷到 today,其它字段不动。文件不存在/坏 → false。
+export async function touchMemory(dir: string, name: string, today: string): Promise<boolean> {
+  const raw = await fs.readFile(path.join(dir, `${name}.md`), "utf8").catch(() => "");
+  const m = parseMemoryFile(name, raw);
+  if (!m) return false;
+  await writeMemory(dir, { ...m, lastUsed: today });
+  return true;
+}
+
 export async function supersedeMemory(dir: string, oldName: string, newName: string, validUntil: string): Promise<void> {
   const raw = await fs.readFile(path.join(dir, `${oldName}.md`), "utf8").catch(() => "");
   const m = parseMemoryFile(oldName, raw); if (!m) return;

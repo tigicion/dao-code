@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAllMemories, upsertMemory, writeMemory, deleteMemory, supersedeMemory, migrateLegacy, routeScope, slug } from "./store.js";
+import { loadAllMemories, upsertMemory, writeMemory, deleteMemory, supersedeMemory, migrateLegacy, routeScope, slug, touchMemory } from "./store.js";
 import { newMemory } from "./types.js";
 
 describe("routeScope — 作用域驱动(与 confidence 无关)", () => {
@@ -117,6 +117,24 @@ describe("deleteMemory — 真删除文件", () => {
   it("无命中返回空", async () => {
     const d = await tmp();
     expect(await deleteMemory([d], "不存在")).toEqual([]);
+  });
+});
+
+describe("touchMemory — 被验证使用续命", () => {
+  it("只刷新 lastUsed,不改 text/uses/importance", async () => {
+    const d = await tmp();
+    await writeMemory(d, { ...newMemory({ name: "m", title: "T", text: "原文", type: "user", today: "2026-06-01", importance: 7 }), uses: 3 });
+    const ok = await touchMemory(d, "m", "2026-06-29");
+    expect(ok).toBe(true);
+    const all = await loadAllMemories(d, d + "-x");
+    expect(all[0]!.lastUsed).toBe("2026-06-29");
+    expect(all[0]!.text).toBe("原文");
+    expect(all[0]!.uses).toBe(3);
+    expect(all[0]!.importance).toBe(7);
+  });
+  it("不存在的 name → false,不抛", async () => {
+    const d = await tmp();
+    expect(await touchMemory(d, "没有", "2026-06-29")).toBe(false);
   });
 });
 
