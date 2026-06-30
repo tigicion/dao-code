@@ -21,6 +21,8 @@ tsx evals/memory/run.ts recall
 
 跑批遍历 `fixtures/extract/*` 与 `fixtures/recall/*` 每个 case 目录,结果汇总成 `evals/memory/report.md` 并打到 stdout。
 
+> **解读注意**:抽取目前每 case 单采样(reflect 跑一次),DeepSeek 非确定 → 基线数字应作参考而非精确值;后续可加 `EVAL_EXTRACT_K` 多采样取中位+方差。judge 侧已 K 次(`EVAL_JUDGE_K`),并对空投票守恒为 false(不会静默假满分)。
+
 ## 环境变量
 
 - `EVAL_JUDGE_K`:judge 多数票次数,默认 3。
@@ -34,6 +36,8 @@ tsx evals/memory/run.ts recall
 ## 金标制备约定
 
 金标(`mustExtract`/`mustNot`/`valueGold`)由 Claude 起草、用户抽查校正。判定哪条事实"该抽"、哪条记忆"该注入"是主观的,起草只是降低人工成本,最终以用户抽查为准。
+
+> **脱敏告示**:`redact.ts` 只覆盖已知密钥模式 + homedir + nameMap;邮箱/电话/IP/真实人名/他人绝对路径不在其内 → 金标人审通读时必须手动抹掉这些。
 
 ## CI 与线下分工
 

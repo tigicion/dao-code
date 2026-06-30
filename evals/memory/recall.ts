@@ -8,7 +8,7 @@ import { judgeBool, relevancePrompt } from "./lib/judge.js";
 import { precisionRecall, relevanceGap } from "./lib/metrics.js";
 import type { EvalConfig, RecallContext } from "./lib/types.js";
 
-export interface RecallScore { valuePR: { p: number; r: number; f1: number }; staleLeak: number; relevanceGapValue: number; }
+export interface RecallScore { valuePR: { p: number; r: number; f1: number }; staleLeak: number; relevanceGapValue: number; judgeHumanAgreement: number; }
 
 export async function gradeRecall(p: {
   injectedNames: string[]; staleNames: string[];
@@ -19,14 +19,15 @@ export async function gradeRecall(p: {
   // A 轨:valueGold P/R + stale 泄漏(硬规则:stale 不该在注入集)
   const valuePR = precisionRecall(injected, new Set(p.ctx.valueGold));
   const staleLeak = p.staleNames.filter((n) => injected.has(n)).length;
-  // B 轨:judge 判 store 每条是否语境相关 → 相关集;相关但未注入 = 缺口
+  // B 轨:judge 判 store 每条是否语境相关(诊断 judge 质量);缺口对【人工 relevanceGold】算(稳定锚),另报 judge 集 vs 人工集 F1 一致度
   const relevant = new Set<string>();
   for (const m of p.store) {
     const v = await judgeBool({ streamChat: p.streamChat, cfg: p.cfg, prompt: relevancePrompt(p.ctx.task, m.text), key: "relevant" }, p.cfg.judgeK);
     if (v.value) relevant.add(m.name);
   }
-  const relevanceGapValue = relevanceGap(injected, relevant);
-  return { valuePR, staleLeak, relevanceGapValue };
+  const relevanceGapValue = relevanceGap(injected, new Set(p.ctx.relevanceGold)); // 对人工金标
+  const judgeHumanAgreement = precisionRecall(relevant, new Set(p.ctx.relevanceGold)).f1; // judge vs 人工
+  return { valuePR, staleLeak, relevanceGapValue, judgeHumanAgreement };
 }
 
 export async function runRecallCase(dir: string, streamChat: (o: any) => AsyncGenerator<any, any>, cfg: EvalConfig): Promise<RecallScore> {

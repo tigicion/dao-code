@@ -25,7 +25,9 @@ describe("gradeExtraction 接线", () => {
     expect(s.factRecall).toBe(1);
     expect(s.profileRecall).toBe(1);
     expect(s.precision).toBe(1);
-    expect(s.quality).toBeGreaterThan(0.9);
+    expect(s.quality).toBe(1);            // K=judgeK=1 → 单样本中位=1
+    expect(s.qualityStdev).toBe(0);
+    expect(s.typeScopeMatch).toBe(1);     // type "user" → routeScope "user" === scope "user"
   });
 
   it("漏掉画像事实 → profileRecall=0", async () => {
@@ -33,5 +35,8 @@ describe("gradeExtraction 接线", () => {
     const gold = { existing: [], mustExtract: [{ text: "iPad给2岁孩子", type: "user" as const, scope: "user" as const, profile: true }], mustNot: [] };
     const s = await gradeExtraction({ extracted: [], gold, streamChat: streamChat as any, cfg });
     expect(s.profileRecall).toBe(0);
+    expect(s.quality).toBeNull();           // 无抽出 → 不谄媚假 1.0
+    expect(s.qualityStdev).toBeNull();
+    expect(s.typeScopeMatch).toBe(0);       // 无抽出 → some 永假
   });
 });

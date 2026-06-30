@@ -22,7 +22,12 @@ async function listCases(kind: "extract" | "recall"): Promise<string[]> {
 
 async function main() {
   const args = process.argv.slice(2);
-  const which = args.find((a) => a === "extract" || a === "recall");
+  // typo 守卫:未识别的非 flag 参数直接报错退出,别静默跑两者
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const which = positional.find((a) => a === "extract" || a === "recall");
+  if (positional.length && !which && !positional.includes("both")) {
+    console.error(`未知子命令:${positional.join(" ")}(应为 extract|recall|both)`); process.exit(1);
+  }
   const cfg = await loadEvalConfig();
   const sc = streamChat as any;
   let report = "";

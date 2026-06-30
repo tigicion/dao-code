@@ -23,6 +23,9 @@ describe("majorityVote", () => {
   it("多数票 + 一致率", () => {
     expect(majorityVote([true, true, false])).toEqual({ value: true, agreement: 2 / 3 });
   });
+  it("空投票 → value:false(防静默假满分)", () => {
+    expect(majorityVote([])).toEqual({ value: false, agreement: 0 });
+  });
 });
 
 describe("relevanceGap", () => {

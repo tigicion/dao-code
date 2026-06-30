@@ -19,8 +19,9 @@ export function aggregate(xs: number[]): { median: number; mean: number; stdev: 
 }
 
 export function majorityVote(bs: boolean[]): { value: boolean; agreement: number } {
+  // 空投票 → value:false(防 K=0/NaN 时 votes=[] 被当作恒 true 的静默假满分)
   const t = bs.filter(Boolean).length;
-  return { value: t * 2 >= bs.length, agreement: bs.length ? Math.max(t, bs.length - t) / bs.length : 0 };
+  return { value: bs.length > 0 && t * 2 >= bs.length, agreement: bs.length ? Math.max(t, bs.length - t) / bs.length : 0 };
 }
 
 export function relevanceGap(injected: Set<string>, relevanceGold: Set<string>): number {

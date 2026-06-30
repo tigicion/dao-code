@@ -16,7 +16,8 @@ describe("gradeRecall", () => {
     });
     expect(s.valuePR.r).toBe(1);
     expect(s.staleLeak).toBe(0);
-    expect(s.relevanceGapValue).toBeCloseTo(1 / 3);   // c 相关但没注入
+    expect(s.relevanceGapValue).toBeCloseTo(1 / 3);   // 对人工金标:c 相关但没注入
+    expect(s.judgeHumanAgreement).toBe(1);            // judge{a,b,c} == 人工{a,b,c}
   });
 
   it("stale 出现在注入集 → staleLeak>0(硬规则违反)", async () => {
@@ -28,5 +29,7 @@ describe("gradeRecall", () => {
       streamChat: streamChat as any, cfg,
     });
     expect(s.staleLeak).toBe(1);
+    expect(s.relevanceGapValue).toBe(0);              // 人工金标为空 → 缺口 0
+    expect(s.judgeHumanAgreement).toBe(0);            // f1(空, 空) = 0
   });
 });
