@@ -5,51 +5,53 @@ import { isCatalogNoise } from "../memory/distill.js";
 import { findSecrets } from "../permissions/secrets.js";
 
 // 追加在主对话之后的尾部指令(fork:命中热缓存)。{existing} 处插入已有记忆候选供 mergeInto 判断。
-export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】,产出两件事。只输出一个 JSON 对象,无其它文字。
+export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。只输出一个 JSON 对象,无其它文字。
 
-## 一、进展反思(独立怀疑视角;看完整上下文;只评估,不干活)
-1) 复述「现在在做什么、最初目标是什么」(别曲解成更蠢的版本)。
-2) 挑 1–3 点,每条扎根具体证据(引文件/报错/命令)。下面任一条命中就该出声,别为了"在轨"而放过:
-   · 在原地打转/反复试同一类改动?改文件≠进展——验收/错误状态真变了吗?没变就是没进展,直说。
-   · 攻错了层?把未验证假设当事实?别客气,直接给根因「最可能是 X,因为 Y」,并指出该先验证什么。
-   · 跑偏最初目标 / 镀金 / scope 蔓延?把该砍掉或推迟的点名。
-   · 用户在重复表达同一问题没解决?若是,别叠加修复——质疑诊断与前提,要求从头复现真实症状。
-3) 真的一切在轨、或只是刚开的新任务 → onTrack=true、advisory=null。但别把"看起来在动"误判成在轨:
-   有可观测的停滞/反复/偏离就 onTrack=false,advisory ≤8 行、口气直接、结尾给最小下一步。是有力的参考,不是命令。
-4) 无论在轨与否,note 都填一句话(≤1 行):复述「现在在做什么 + 为何判 onTrack 为此值」。
-   这条只供事后审计、不注入主对话——别敷衍,要让人据此就能判断你是否真审视过。
+## 一、记忆提取(最重要,优先做)
 
-## 二、记忆(从最近进展抽尚未记录的耐久事实;并判断是否【并入已有】)
-### 2a. 通用用户画像(最高价值,主动抽,别等人提醒)
-对照下列维度,主动抽取【跨项目、跨会话都稳定】的人物画像(type=user;明确规矩 type=feedback):
-- 沟通偏好:语言、详略、先结论后展开、能否接受直接反对、emoji/寒暄。
-- 工作风格:全局优先 vs 细节优先、一次完整方案 vs 小步、重数据 vs 重直觉、容错度(先跑起来 vs 一次做对)。
-- 专业背景:职业/角色、领域、资历(决定术语密度)。
-- 反复出现的目标/项目:用户长期在做的事(如"持续给低龄儿童做 iPad 游戏")。最易混入临时状态,谨慎。
-- 明确硬规矩:用户亲口立的规矩("别用 emoji""先讨论再动手")。
-【纪律】
-1. 稳定性测试:换个项目/话题这条还成立吗?不成立(如"现在在调一个 bug")不抽。
-2. 上抽:把项目事实抽象成人物画像——不是记"这个滑梯游戏",是记"这个人持续做低龄儿童游戏、懂其认知边界"。
-3. 来源区分,填进 source:user_stated(用户亲口立,confidence 可高)/ inferred(你从行为推断,单次信号 confidence 0.3-0.4,需多次出现才升)。
-4. 红线:性格标签、情绪状态、政治/宗教/健康等敏感信息、无对话佐证的人口统计推测,一律不碰。
-5. 每个画像维度只应有一条生效记忆:新证据若延伸/涵盖已有画像,设 mergeInto=该条 title 并入,不要另起一条。
-按 5 type 归类(user/feedback/procedural/semantic/episodic,选错污染全局)。每条给:
-- title(≤1 行概要)、text(完整事实;feedback 带"为什么:…"和"怎么用:…")、type、importance(1–10)、confidence?(0–1)、source?
-- 若新事实延伸/涵盖下面某条已有记忆 → 设 mergeInto=该条 title,text 写【合并增强后的完整版】。
-【绝不记】一次性/情绪、项目专属写成 user/feedback、dao 自身实现细节当用户偏好、显而易见/代码已写明、工具/技能清单(目录倾倒)。无可记 → memories: []。
+从本对话中提取【尚未记录的耐久事实】。宁可多抽一条让 mergeInto 去合并,也不要漏掉。不确定是否跨项目就设低 confidence(0.3-0.5),让后续会话验证。
 
-已有记忆(mergeInto 可指向【下面任一标题】;新事实延伸/涵盖其中某条就并入它,否则 mergeInto=null):
+### 已有记忆(mergeInto 可指向下面任一标题;你新抽的事实若延伸/涵盖其中某条,设 mergeInto=该 title 并写合并后的完整 text):
 {existing}
 
-## 三、对已有记忆的纠错与确认(只在【有本会话实测证据】时)
-对照上面列出的【已有记忆】,仅当本会话的工具输出/命令结果/文件内容给了具体证据:
-- corrections:某条已有记忆的事实被实测【推翻或需修正】→ {target: 该条 title, action: "supersede"|"revise", newText?: 改写后的完整事实(revise 必填), reason: 引具体证据}。
-  极保守:只在【实测证据】确凿时纠错(错纠污染全局);拿不准不纠。supersede=该事实已不成立;revise=部分过时需更新。
-- confirmed:某条已有记忆被本会话实测【证实且实际依赖】→ 列其 title。只列真正用上且成立的,不是"看到了"。
-一切无据 → corrections: [], confirmed: []。
+### 抽什么——三条铁律
+1. **用户亲口立的规矩**(type=feedback):用户明确说了"要做/不要做 X"。带"为什么:…"和"怎么用:…"。
+2. **跨会话稳定的用户画像**(type=user):沟通偏好、工作风格、专业背景、长期目标。从本对话的行为推断即可——有证据就抽,信心低就标低 confidence。
+3. **项目架构/技术决策**(type=semantic/procedural):本对话中做出的重要设计决策、踩过的坑、形成的模式。不是代码目录清单,而是"为什么这样设计"。
+
+### 三个示例
+示例 1 — 用户反馈:
+{"title":"用户要求先出方案再动手","text":"涉及多步或有风险的改动,用户期望先看到简短计划、认可后再执行。为什么:避免方向跑偏浪费轮数。怎么用:收到复杂任务后先列 2-4 个步骤的提纲,等用户说'继续'再开干。","type":"feedback","importance":8,"confidence":0.9,"source":"user_stated","mergeInto":null}
+
+示例 2 — 用户画像(行为推断):
+{"title":"用户偏好选项式引导而非开放式提问","text":"需要用户做选择时,用结构化选项(2-4 个)而非让用户自由输入。为什么:多轮对话中选项式交互更高效、用户反应更积极。怎么用:ask_user 时给 options 数组,每个选项 5-15 字,单选/多选据实际情况定。","type":"user","importance":6,"confidence":0.4,"source":"inferred","mergeInto":null}
+
+示例 3 — 项目事实:
+{"title":"DAO CODE 三层 i18n 架构","text":"国际化的三层:①TUI 展示层(t()字典)②系统 prompt 层(BODY/BODY_EN)③工具描述层(descriptionEn+handler 返回 msg())。只切 TUI 层会让英文 UI 下的 LLM 仍收到中文指令。为什么:LLM 看到中文指令会按中文思维执行,即使 UI 是英文——这比 UI 不一致更隐蔽。怎么用:改语言时确保三层都传 lang 参数。","type":"semantic","importance":7,"confidence":0.9,"source":"本 session 全量实现","mergeInto":null}
+
+### 每条记忆的字段
+title(≤1 行)、text(完整事实)、type(user/feedback/semantic/procedural/episodic)、importance(1–10)、confidence?(0–1)、source?(user_stated/inferred/文件名)、mergeInto?(已有记忆的 title 或 null)。
+
+### 不记什么
+一次性操作步骤、代码行数/文件清单、显而易见的事(代码已写明的框架用法)、情绪/性格标签。
+
+## 二、进展审视(其次;独立怀疑视角)
+
+1) 复述「现在在做什么、最初目标是什么」。
+2) 扎根具体证据,挑 1–3 点。下面任一条命中就该出声:
+   · 在原地打转/反复试同一类改动?
+   · 攻错了层/把未验证假设当事实?
+   · 跑偏最初目标/镀金/scope 蔓延?
+3) 真在轨或刚开新任务 → onTrack=true、advisory=null。有可观测的停滞/反复/偏离 → onTrack=false,advisory ≤8 行,口气直接,给最小下一步。
+4) note 填一句话(≤1 行):「在做什么 + 为何判此值」供审计。
+
+## 三、纠错与确认(只在有实测证据时)
+
+- corrections:已有记忆被实测推翻/需修正 → {target, action:"supersede"|"revise", newText?, reason}。极保守,只在确凿时纠。
+- confirmed:已有记忆被证实且实际依赖 → 列其 title。
 
 ## 输出(严格 JSON)
-{"onTrack":true,"advisory":null,"note":"在做 X,验收/错误状态较上轮有推进,故判在轨","memories":[{"title":"…","text":"…","type":"feedback","importance":9,"confidence":0.9,"source":null,"mergeInto":null}],"corrections":[{"target":"某条旧记忆标题","action":"revise","newText":"更新后的完整事实","reason":"命令 X 输出证明…"}],"confirmed":["被证实的旧记忆标题"]}`;
+{"memories":[{...}],"onTrack":true,"advisory":null,"note":"在做什么,判在轨/偏离的理由","corrections":[],"confirmed":[]}`;
 
 export interface ReflectInput {
   streamChat: (opts: any) => AsyncGenerator<any, any>;

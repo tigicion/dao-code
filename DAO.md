@@ -36,7 +36,7 @@ npm run typecheck && npm run lint && npm test
 - **注释与面向用户的输出一律中文**;匹配周围代码的风格/缩进/命名,不擅自重构。非必要不加 emoji。
 - 测试**就近放**(`*.test.ts` / `*.test.tsx`),与源码同目录;倾向先写/补测试再改实现。
 - 工具:capability ∈ read/write/exec/network/plan;`approval` auto/required。写工具改文件前要求先 read_file;写路径经 `resolveWritePath`(区外写走授权)。
-- 提交信息:**Conventional Commits**(`type(scope): 简述`),type 取 feat/fix/refactor/docs/test/chore/perf。AI 辅助的加 `Co-Authored-By: <Assistant> <noreply@...>`。
+- 提交信息:**Conventional Commits**(`type(scope): 简述`),type 取 feat/fix/refactor/docs/test/chore/perf。AI 辅助的加 `Co-Authored-By: Dao <noreply@dao-code>`。
 - ES 模块导入必须加 `.js` 后缀(TS NodeNext 要求)。
 
 ## 关键环境变量 / CLI 参数

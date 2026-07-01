@@ -71,32 +71,43 @@ describe("unified_reflect.reflect", () => {
     expect(tail).not.toContain("正文内容-34"); // 尾部不给正文(便宜)
   });
 
-  it("REFLECT_TAIL 含两区(反思 + 记忆)与 JSON 输出约定", () => {
-    expect(REFLECT_TAIL).toContain("进展反思");
-    expect(REFLECT_TAIL).toContain("记忆");
+  it("REFLECT_TAIL 含记忆为首、进展审视、纠错三段与 JSON 输出约定", () => {
+    expect(REFLECT_TAIL).toContain("记忆提取");
+    expect(REFLECT_TAIL).toContain("进展审视");
     expect(REFLECT_TAIL).toContain("onTrack");
+    expect(REFLECT_TAIL).toContain("memories");
   });
 });
 
-describe("REFLECT_TAIL 通用画像维度块", () => {
-  it("含五个画像维度关键词", () => {
-    for (const kw of ["沟通偏好", "工作风格", "专业背景", "反复出现", "硬规矩"]) {
-      expect(REFLECT_TAIL).toContain(kw);
-    }
+describe("REFLECT_TAIL 记忆提取段", () => {
+  it("含三条铁律与示例", () => {
+    expect(REFLECT_TAIL).toContain("三条铁律");
+    expect(REFLECT_TAIL).toContain("用户亲口立的规矩");
+    expect(REFLECT_TAIL).toContain("跨会话稳定的用户画像");
+    expect(REFLECT_TAIL).toContain("项目架构/技术决策");
   });
-  it("含 user_stated / inferred 来源区分与隐私红线", () => {
+
+  it("含三个 few-shot 示例", () => {
+    expect(REFLECT_TAIL).toContain("用户要求先出方案再动手");
+    expect(REFLECT_TAIL).toContain("用户偏好选项式引导而非开放式提问");
+    expect(REFLECT_TAIL).toContain("DAO CODE 三层 i18n 架构");
+  });
+
+  it("含 user_stated / inferred 来源区分与低 confidence 兜底", () => {
     expect(REFLECT_TAIL).toContain("user_stated");
     expect(REFLECT_TAIL).toContain("inferred");
-    expect(REFLECT_TAIL).toContain("红线");
+    expect(REFLECT_TAIL).toContain("0.3-0.5");
   });
-  it("含『上抽』指令(项目事实抽象成人物画像)", () => {
-    expect(REFLECT_TAIL).toContain("上抽");
+
+  it("含 mergeInto 指令与不记什么", () => {
+    expect(REFLECT_TAIL).toContain("mergeInto");
+    expect(REFLECT_TAIL).toContain("不记什么");
   });
 });
 
 describe("REFLECT_TAIL 纠错与确认段", () => {
   it("含 corrections/confirmed 指令与保守纪律", () => {
-    for (const kw of ["纠错", "corrections", "confirmed", "supersede", "revise", "实测证据"]) {
+    for (const kw of ["corrections", "confirmed", "supersede", "revise", "实测证据"]) {
       expect(REFLECT_TAIL).toContain(kw);
     }
   });
