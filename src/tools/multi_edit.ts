@@ -4,6 +4,7 @@ import { defineTool } from "./types.js";
 import { resolveWritePath } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
 import { withFileLock } from "./file_lock.js";
+import { buildEditHunk } from "./diff_hunk.js";
 import { msg } from "./lang.js";
 
 // 对一个文件按顺序应用多处精确替换,原子(全部成功才写盘,任一处失败则整体不动)。对标 CC 的 MultiEdit。
@@ -36,6 +37,7 @@ export const multiEditTool = defineTool({
       }
       let text = await fs.readFile(abs, "utf8");
       let total = 0;
+      const hunks: string[] = [];
       // 先全部校验+施加到内存,全部通过才落盘(原子)。
       for (let i = 0; i < args.edits.length; i++) {
         const e = args.edits[i]!;
@@ -44,11 +46,18 @@ export const multiEditTool = defineTool({
         if (count > 1 && !e.replace_all) {
           throw new Error(`第 ${i + 1} 处 old_string 出现 ${count} 次、不唯一;用 replace_all 或扩大上下文(整体未改)`);
         }
+        // 每处编辑生成 diff hunk(基于当前文本,施加前)
+        const hunk = buildEditHunk(text, e.old_string, e.new_string);
+        if (hunk.length) hunks.push(["```diff", ...hunk, "```"].join("\n"));
         text = text.split(e.old_string).join(e.new_string);
         total += e.replace_all ? count : 1;
       }
       await atomicWrite(abs, text);
-      return msg(`已编辑 ${args.path}(${args.edits.length} 组替换,共 ${total} 处)`, `Edited ${args.path} (${args.edits.length} edit group(s), ${total} replacement(s) total)`);
+      const diffBlock = hunks.length ? `\n${hunks.join("\n")}` : "";
+      return msg(
+        `已编辑 ${args.path}(${args.edits.length} 组替换,共 ${total} 处)${diffBlock}`,
+        `Edited ${args.path} (${args.edits.length} edit group(s), ${total} replacement(s) total)${diffBlock}`,
+      );
     });
   },
 });

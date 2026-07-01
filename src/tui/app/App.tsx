@@ -263,16 +263,21 @@ export function App(deps: AppDeps) {
         const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
         const name = call.function.name;
         let pushed = false;
-        if (ok && name === "edit_file") {
-          // edit:红绿 diff(行号来自工具结果"行 N",高亮在 Row 渲染)。
+        if (ok && (name === "edit_file" || name === "multi_edit")) {
+          // edit/multi_edit:红绿 diff(行号来自工具结果,高亮在 Row 渲染)。
           try {
-            const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string };
+            const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string; edits?: Array<{ old_string: string; new_string: string }> };
             const path = String(a.path ?? "");
-            const lm = /行\s*(\d+)/.exec(msg.content);
-            // 工具结果里的 ```diff 块(带行号+上下文)→ 直接渲染;无则退回 old/new 构造。
-            const dm = /```diff\n([\s\S]*?)\n```/.exec(msg.content);
-            const rows = dm ? dm[1]!.split("\n") : undefined;
-            pushItem({ id: nextId(), kind: "diff", path, removed: toLines(String(a.old_string ?? "")), added: toLines(String(a.new_string ?? "")), lang: langFromPath(path), startLine: lm ? Number(lm[1]) : undefined, rows });
+            // 收集所有 ```diff 块(edit_file:1 个;multi_edit:每编辑 1 个)
+            const allDm = [...msg.content.matchAll(/```diff\n([\s\S]*?)\n```/g)];
+            const rows = allDm.length ? allDm.flatMap(m => m[1]!.split("\n")) : undefined;
+            const rm = name === "multi_edit" && a.edits
+              ? Array.from({ length: a.edits.length }, () => "")
+              : toLines(String(a.old_string ?? ""));
+            const ad = name === "multi_edit" && a.edits
+              ? Array.from({ length: a.edits.length }, () => "")
+              : toLines(String(a.new_string ?? ""));
+            pushItem({ id: nextId(), kind: "diff", path, removed: rm, added: ad, lang: langFromPath(path), startLine: undefined, rows });
             pushed = true;
           } catch { /* 参数非 JSON,退回轻量工具行 */ }
         }
@@ -1090,8 +1095,9 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
           {shown.map((r, i) => {
             const sign = r[0] ?? " ";
             return (
-              <Text key={i} color={col(sign)}>
-                {"  "}{sign}{hl(r.slice(1), item.lang)}
+              <Text key={i}>
+                <Text color={col(sign)}>{"  "}{sign}</Text>
+                <Text>{hl(r.slice(1), item.lang)}</Text>
               </Text>
             );
           })}
