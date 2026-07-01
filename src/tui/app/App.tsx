@@ -533,6 +533,17 @@ export function App(deps: AppDeps) {
       return;
     }
     if (approval) {
+      if (key.escape) {
+        // ESC 中断:当前 + 队列里所有待审批一律 deny(空 Map=全拒),清队列,打断回合让位给用户。
+        approval.resolve(new Map());
+        for (const q of approvalQueue.current) q.resolve(new Map());
+        approvalQueue.current = [];
+        showingApproval.current = false;
+        apDecisions.current = new Map();
+        setApproval(null);
+        controllerRef.current?.abort();
+        return;
+      }
       const reqAp = approval.requests[apIdx];
       const noAlways = !!reqAp?.sensitive || !!reqAp?.noPersist; // 敏感 / 记不成规则 → 不接受"始终允许"
       const d: ApprovalDecision | null =
@@ -558,6 +569,8 @@ export function App(deps: AppDeps) {
       const fillIdx = nOpt + (choice.multi ? 1 : 0);
       const discussIdx = nOpt + (choice.multi ? 2 : 1);
       const done = (val: string) => { choice.resolve(val); setChoice(null); setAskInput(""); setChoiceChecked(new Set()); setChoiceWarn(false); };
+      // 选"先讨论一下" = 停下把回合让给用户:先把讨论意向作 tool 结果记入,再打断本回合(否则模型会读完继续干)。
+      const discuss = () => { done(t("ui.choice.discussValue")); controllerRef.current?.abort(); };
       const toggle = (i: number) => { setChoiceWarn(false); setChoiceChecked((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; }); };
       const submitMulti = () => { // 提交已勾选;空集不静默提交,提示先勾选(避免误触丢问题)
         const picked = [...choiceChecked].sort((a, b) => a - b).map((i) => choice.options[i]!);
@@ -575,6 +588,8 @@ export function App(deps: AppDeps) {
       // 移动焦点(函数式更新,正确处理连续按键);落到"自己输入"行则置空,准备直接输入(灰色提示态)。
       const moveBy = (d: number) => setChoiceIdx((i) => { const ni = Math.max(0, Math.min(allOpts.length - 1, i + d)); if (ni === fillIdx) setAskInput(""); return ni; });
       const jumpTo = (ni: number) => { setChoiceIdx(ni); if (ni === fillIdx) setAskInput(""); };
+      // ESC 中断:把回合让给用户(先 resolve 避免 tool_call 悬空致 400,再打断)。
+      if (key.escape) { done("[用户中断]"); controllerRef.current?.abort(); return; }
 
       // 焦点在"自己输入"行:该行就是内联输入框——按键即编辑(数字/空格也算文本),回车提交,上下移动离开。
       if (choiceIdx === fillIdx) {
@@ -593,7 +608,7 @@ export function App(deps: AppDeps) {
           else if (!choice.multi) {
             if (i < nOpt) done(choice.options[i]!);
             else if (i === fillIdx) jumpTo(i);
-            else done(t("ui.choice.discussValue"));
+            else discuss();
           } else jumpTo(i);
         }
         return;
@@ -606,7 +621,7 @@ export function App(deps: AppDeps) {
         return;
       }
       if (key.return) {
-        if (choiceIdx === discussIdx) done(t("ui.choice.discussValue"));
+        if (choiceIdx === discussIdx) discuss();
         else if (choiceIdx === doneRowIdx) submitMulti();      // 多选:在"完成"行回车 → 提交
         else if (choice.multi) toggle(choiceIdx);               // 多选:在正常项回车 → 勾选(不结束,可继续选)
         else done(choice.options[choiceIdx]!);                  // 单选:回车即选中
@@ -614,6 +629,7 @@ export function App(deps: AppDeps) {
       return;
     }
     if (ask) {
+      if (key.escape) { ask.resolve("[用户中断]"); setAsk(null); setAskInput(""); controllerRef.current?.abort(); return; }
       if (key.return) { ask.resolve(askInput); setAsk(null); setAskInput(""); }
       else if (key.backspace || key.delete) setAskInput((s) => s.slice(0, -1));
       else if (ch && !key.ctrl && !key.meta) setAskInput((s) => s + ch);

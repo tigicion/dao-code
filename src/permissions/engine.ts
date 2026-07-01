@@ -44,10 +44,12 @@ function mustConfirm(p: DecideParams): boolean {
 }
 
 // auto 模式安全白名单(对标 CC SAFE_YOLO_ALLOWLISTED_TOOLS):只读/搜索/任务管理/计划类工具
-// 即便被升级到"需确认"也直接放行,省一次分类器调用。危险工具(exec_shell/网络/外部写)不在内,必须过分类器。
+// 即便被升级到"需确认"也直接放行,省一次分类器调用。exec_shell/外部写不在内,必须过分类器。
+// 网络查询(web_search/fetch_url)auto 下放行:属"读取型"取信息,deny 规则仍能覆盖;fetch_url 自带 SSRF 挡内网/元数据。
 const AUTO_ALLOWLIST = new Set([
   "read_file", "grep_files", "file_search", "list_dir",
   "todo_write", "ask_user", "memory_read", "skill", "verify_done", "echo",
+  "web_search", "fetch_url",
 ]);
 
 // 单次工具调用的权限裁决,1:1 复刻 CC 优先级:

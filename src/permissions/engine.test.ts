@@ -52,10 +52,13 @@ describe("decide — auto 模式快速路径(分类器之前)", () => {
   it("③ 安全白名单工具 → 直接 allow", () => {
     expect(decide({ toolName: "todo_write", argsJson: "{}", capability: "write", mode: "auto", ...base })).toBe("allow");
   });
-  it("exec_shell / 网络 / 敏感编辑 → 仍 ask(交分类器)", () => {
+  it("exec_shell(危险)/ 敏感编辑 → 仍 ask(交分类器)", () => {
     expect(decide({ toolName: "exec_shell", argsJson: rm, capability: "exec", mode: "auto", ...base })).toBe("ask");
-    expect(decide({ toolName: "fetch_url", argsJson: '{"url":"http://x"}', capability: "network", mode: "auto", ...base })).toBe("ask");
     expect(decide({ toolName: "edit_file", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "auto", ...base })).toBe("ask");
+  });
+  it("网络查询(web_search/fetch_url)auto 下直接 allow(不再弹审批)", () => {
+    expect(decide({ toolName: "web_search", argsJson: '{"query":"x"}', capability: "network", mode: "auto", ...base })).toBe("allow");
+    expect(decide({ toolName: "fetch_url", argsJson: '{"url":"http://x"}', capability: "network", mode: "auto", ...base })).toBe("allow");
   });
   it("③' 只读 shell 命令(ls/cat/git status/管道)→ 直接 allow,不走分类器", () => {
     const ro = (cmd: string) => decide({ toolName: "exec_shell", argsJson: JSON.stringify({ command: cmd }), capability: "exec", mode: "auto", ...base });
