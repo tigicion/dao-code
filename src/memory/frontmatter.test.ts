@@ -19,6 +19,13 @@ describe("frontmatter round-trip", () => {
   it("returns null on garbage", () => {
     expect(parseMemoryFile("z", "no frontmatter here")).toBeNull();
   });
+  it("origin 往返", () => {
+    const m = newMemory({ name: "k", text: "cli-highlight 返回纯文本", type: "procedural", today: "2026-07-01", origin: "dao-code" });
+    expect(m.origin).toBe("dao-code");
+    const text = serializeMemory(m);
+    expect(text).toMatch(/origin: dao-code/);
+    expect(parseMemoryFile("k", text)?.origin).toBe("dao-code");
+  });
   it("title 往返", () => {
     const m = newMemory({ name: "no-ai-sig", title: "提交不加 AI 署名", text: "提交一律不加署名。为什么:用户要求。怎么用:不写 Co-Authored-By。", type: "feedback", today: "2026-06-25", importance: 9 });
     expect(m.title).toBe("提交不加 AI 署名");

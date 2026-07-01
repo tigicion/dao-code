@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAllMemories, upsertMemory, writeMemory, deleteMemory, supersedeMemory, migrateLegacy, routeScope, slug, touchMemory } from "./store.js";
+import { loadAllMemories, upsertMemory, writeMemory, deleteMemory, supersedeMemory, migrateLegacy, routeScope, slug, touchMemory, projectIdOf, keepKnowledgeForProject } from "./store.js";
 import { newMemory } from "./types.js";
 
 describe("routeScope — 作用域驱动(与 confidence 无关)", () => {
@@ -12,6 +12,29 @@ describe("routeScope — 作用域驱动(与 confidence 无关)", () => {
     expect(routeScope("procedural")).toBe("knowledge");
     expect(routeScope("semantic")).toBe("project");
     expect(routeScope("episodic")).toBe("project");
+  });
+});
+
+describe("projectIdOf", () => {
+  it("取工作区目录名的 slug", () => {
+    expect(projectIdOf("/Users/x/ClaudeProject/dao-code")).toBe("dao-code");
+    expect(projectIdOf("/Users/x/My App")).toBe("my-app");
+  });
+});
+
+describe("keepKnowledgeForProject — knowledge 层按项目过滤注入", () => {
+  it("origin 命中本项目 → 留", () => {
+    expect(keepKnowledgeForProject({ origin: "dao-code" }, "dao-code")).toBe(true);
+  });
+  it("origin 属别的项目 → 挡(iOS 记忆不进 dao-code)", () => {
+    expect(keepKnowledgeForProject({ origin: "kids-game" }, "dao-code")).toBe(false);
+  });
+  it("无 origin 的历史条目 → 不自动注入", () => {
+    expect(keepKnowledgeForProject({}, "dao-code")).toBe(false);
+  });
+  it("locked 钉住的视为通用 → 无视 origin 一律留", () => {
+    expect(keepKnowledgeForProject({ locked: true }, "dao-code")).toBe(true);
+    expect(keepKnowledgeForProject({ origin: "kids-game", locked: true }, "dao-code")).toBe(true);
   });
 });
 
