@@ -2,13 +2,13 @@ import type { ExtractScore } from "./extract.js";
 import type { RecallScore } from "./recall.js";
 
 export function formatExtractReport(rows: { case: string; score: ExtractScore }[]): string {
-  const lines = ["# 提取效果报告", "", "> 注:抽取单采样;judge K 次取中位。数字为参考。", ""];
+  const lines = ["# 提取效果报告", "", "> 注:抽取单采样(reflect fork:true 带推理,对齐线上);judge K 次取中位。数字为参考。", ""];
   for (const r of rows) {
     const s = r.score;
     lines.push(`## ${r.case}`,
       `- 事实召回:${s.factRecall.toFixed(2)}`,
-      `- 画像召回:${s.profileRecall.toFixed(2)}`,
-      `- 精确率(非噪声):${s.precision.toFixed(2)}`,
+      `- 画像召回:${s.profileRecall === null ? "N/A(无画像金标)" : s.profileRecall.toFixed(2)}`,
+      `- 精确率(非噪声):${s.precision === null ? "N/A(无抽出)" : s.precision.toFixed(2)}`,
       `- 单条质量(中位±方差):${s.quality === null ? "N/A(无抽出)" : `${s.quality.toFixed(2)} ±${(s.qualityStdev ?? 0).toFixed(2)}`}`,
       `- type/scope 命中率(确定性):${s.typeScopeMatch.toFixed(2)}`, "");
     for (const f of s.perFact) lines.push(`  · [${f.covered ? "✓" : "✗"} ${f.agreement.toFixed(2)}] ${f.fact}`);

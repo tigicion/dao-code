@@ -35,8 +35,17 @@ describe("gradeExtraction 接线", () => {
     const gold = { existing: [], mustExtract: [{ text: "iPad给2岁孩子", type: "user" as const, scope: "user" as const, profile: true }], mustNot: [] };
     const s = await gradeExtraction({ extracted: [], gold, streamChat: streamChat as any, cfg });
     expect(s.profileRecall).toBe(0);
+    expect(s.precision).toBeNull();         // 无抽出 → 精确率 N/A,不谄媚假 1.0
     expect(s.quality).toBeNull();           // 无抽出 → 不谄媚假 1.0
     expect(s.qualityStdev).toBeNull();
     expect(s.typeScopeMatch).toBe(0);       // 无抽出 → some 永假
+  });
+
+  it("无画像金标 → profileRecall=N/A(null),不假 1.0", async () => {
+    const streamChat = () => fakeStream('{"covered":true}');
+    const gold = { existing: [], mustExtract: [{ text: "某技术事实", type: "procedural" as const, scope: "knowledge" as const }], mustNot: [] };
+    const s = await gradeExtraction({ extracted: [{ title: "x", text: "y", type: "procedural" }], gold, streamChat: streamChat as any, cfg });
+    expect(s.profileRecall).toBeNull();
+    expect(s.factRecall).toBe(1);
   });
 });
