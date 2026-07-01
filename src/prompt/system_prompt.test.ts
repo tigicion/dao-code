@@ -31,6 +31,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toMatch(/模型.*上下文|上下文.*模型/);
   });
 
+  it("含审视/反思提醒段:必须当轮处理、只让实测证据推翻、别再犯第二次", () => {
+    expect(prompt).toContain("审视者·参考");
+    expect(prompt).toContain("反思·参考");
+    expect(prompt).toMatch(/不得默默忽略|必须当轮|停下来显式处理/);
+    expect(prompt).toMatch(/实测证据.*推翻|只有实测证据/);
+  });
+
   it("leaves no unfilled placeholders", () => {
     expect(prompt).not.toMatch(/\{[a-z_]+\}/);
   });
