@@ -19,6 +19,22 @@ export function slug(s: string): string {
   return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";
 }
 
+// 项目 id:工作区目录名的 slug。knowledge 层记忆按此打 origin 标签、并按此过滤注入,
+// 使 A 项目学到的领域知识(如 iOS)不再泄进 B 项目会话(见 memory-effectiveness-eval-baseline)。
+export function projectIdOf(workspaceRoot: string): string {
+  return slug(path.basename(workspaceRoot));
+}
+
+// knowledge 层注入过滤:只留【本项目学到的】(origin 命中)或【手动 locked 钉住的(视为通用)】。
+// 无 origin 的历史条目 = 来源项目未知 → 不自动注入(仍可被 memory_read 按名取)。
+// project/user 层不过滤:project 本就按工作区目录隔离,user 本就该全局。
+export function keepKnowledgeForProject<T extends { origin?: string; locked?: boolean }>(
+  m: T,
+  projectId: string,
+): boolean {
+  return m.locked === true || (!!m.origin && m.origin === projectId);
+}
+
 async function readDir(dir: string): Promise<Memory[]> {
   let names: string[]; try { names = await fs.readdir(dir); } catch { return []; }
   const out: Memory[] = [];

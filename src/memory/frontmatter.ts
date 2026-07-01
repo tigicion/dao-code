@@ -1,6 +1,6 @@
 import type { Memory, MemoryType } from "./types.js";
 
-const STR = new Set(["name", "title", "text", "type", "created", "lastUsed", "source", "sourceHash", "status", "supersededBy", "validUntil"]);
+const STR = new Set(["name", "title", "text", "type", "created", "lastUsed", "source", "sourceHash", "status", "supersededBy", "validUntil", "origin"]);
 const NUM = new Set(["importance", "confidence", "uses"]);
 const BOOL = new Set(["locked"]);
 
@@ -36,6 +36,7 @@ export function parseMemoryFile(name: string, raw: string): Memory | null {
     status: obj.status as Memory["status"],
     ...(obj.supersededBy ? { supersededBy: obj.supersededBy as string } : {}),
     ...(obj.validUntil ? { validUntil: obj.validUntil as string } : {}),
+    ...(obj.origin ? { origin: obj.origin as string } : {}),
     locked: obj.locked === true,
   };
 }
@@ -51,6 +52,7 @@ export function serializeMemory(m: Memory): string {
   lines.push(`status: ${m.status}`);
   if (m.supersededBy) lines.push(`supersededBy: ${m.supersededBy}`);
   if (m.validUntil) lines.push(`validUntil: ${m.validUntil}`);
+  if (m.origin) lines.push(`origin: ${m.origin}`);
   lines.push(`locked: ${m.locked === true}`);
   return `---\n${lines.join("\n")}\n---\n${m.text.trim()}\n`;
 }

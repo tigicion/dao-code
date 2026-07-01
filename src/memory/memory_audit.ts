@@ -5,7 +5,7 @@ import { auditEnabled } from "../session/audit_switch.js";
 // 记忆审计:召回(会话启动注入了什么)/写入(memory_write 新建 vs 合并)/蒸馏(退出抽取)。
 // 落盘 <sessionDir>/memory-trace.jsonl。受总开关 DAO_AUDIT(默认开)/DAO_MEMORY_AUDIT 控制。
 export type MemoryTraceEvent =
-  | { kind: "recalled"; ts: number; injected: number; stale: number; changed: number; types: Record<string, number> }
+  | { kind: "recalled"; ts: number; injected: number; stale: number; changed: number; types: Record<string, number>; foreign?: number }
   | { kind: "wrote"; ts: number; type: string; merged: boolean }
   | { kind: "distilled"; ts: number; extracted: number; added: number; updated: number }
   // 统一反思器:每次跑一行(跳过的回合 ran=false)。note=模型一句话复述(可观测,尤其 onTrack=true 时用来判断是否真审视过)。
@@ -16,7 +16,7 @@ export type MemoryTraceEvent =
   | { kind: "consolidated"; ts: number; scope: string; groups: number; superseded: number; reasons: string[] };
 
 export interface MemoryAuditSink {
-  recalled(injected: number, stale: number, changed: number, types: Record<string, number>): void;
+  recalled(injected: number, stale: number, changed: number, types: Record<string, number>, foreign?: number): void;
   wrote(type: string, merged: boolean): void;
   distilled(extracted: number, added: number, updated: number): void;
   reflected(e: { ran: boolean; onTrack: boolean; advisoryInjected: boolean; memAdded: number; memMerged: number; interval: number; note?: string; corrected?: number; confirmed?: number }): void;
@@ -34,7 +34,7 @@ export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv
     try { appendFileSync(file, JSON.stringify(ev) + "\n"); } catch { /* 观测落盘失败不影响主流程 */ }
   };
   return {
-    recalled: (injected, stale, changed, types) => write({ kind: "recalled", ts: Date.now(), injected, stale, changed, types }),
+    recalled: (injected, stale, changed, types, foreign) => write({ kind: "recalled", ts: Date.now(), injected, stale, changed, types, ...(foreign ? { foreign } : {}) }),
     wrote: (type, merged) => write({ kind: "wrote", ts: Date.now(), type, merged }),
     distilled: (extracted, added, updated) => write({ kind: "distilled", ts: Date.now(), extracted, added, updated }),
     reflected: (e) => write({ kind: "reflected", ts: Date.now(), ...e }),
@@ -44,7 +44,7 @@ export function createMemoryAuditSink(sessionDir: string, env: NodeJS.ProcessEnv
 }
 
 export interface MemorySummary {
-  recall?: { injected: number; stale: number; changed: number; types: Record<string, number> };
+  recall?: { injected: number; stale: number; changed: number; types: Record<string, number>; foreign?: number };
   writes: number;
   writesMerged: number;
   byType: Record<string, { total: number; merged: number }>;
@@ -56,7 +56,7 @@ export interface MemorySummary {
 export function summarizeMemoryTrace(events: MemoryTraceEvent[]): MemorySummary {
   const s: MemorySummary = { writes: 0, writesMerged: 0, byType: {} };
   for (const e of events) {
-    if (e.kind === "recalled") s.recall = { injected: e.injected, stale: e.stale, changed: e.changed, types: e.types };
+    if (e.kind === "recalled") s.recall = { injected: e.injected, stale: e.stale, changed: e.changed, types: e.types, ...(e.foreign ? { foreign: e.foreign } : {}) };
     else if (e.kind === "wrote") {
       s.writes++; if (e.merged) s.writesMerged++;
       const t = (s.byType[e.type] ??= { total: 0, merged: 0 });
@@ -141,7 +141,7 @@ export function readAllMemoryTraces(sessionsRoot: string): MemoryTraceEvent[] {
 
 export function formatMemoryReport(s: MemorySummary): string {
   const lines: string[] = ["记忆审计:"];
-  if (s.recall) lines.push(`  召回:注入 ${s.recall.injected} · 剔除 stale ${s.recall.stale} · 标记 changed ${s.recall.changed}`);
+  if (s.recall) lines.push(`  召回:注入 ${s.recall.injected} · 剔除 stale ${s.recall.stale} · 标记 changed ${s.recall.changed}${s.recall.foreign ? ` · 挡掉跨项目 knowledge ${s.recall.foreign}` : ""}`);
   const mergeRate = s.writes ? ((s.writesMerged / s.writes) * 100).toFixed(0) : "0";
   lines.push(`  写入:${s.writes} 次(合并 ${s.writesMerged},合并率 ${mergeRate}%)`);
   for (const [t, v] of Object.entries(s.byType)) lines.push(`    ${t}: ${v.total} 写 / ${v.merged} 合并`);

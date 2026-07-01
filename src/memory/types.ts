@@ -17,11 +17,12 @@ export interface Memory {
   supersededBy?: string;
   validUntil?: string;
   locked?: boolean;
+  origin?: string;           // 学到这条时所在项目的 id(仅 knowledge 层用于按项目过滤注入;user 层与显然通用的不填)
 }
 
 export function newMemory(p: {
   name: string; text: string; type: MemoryType; today: string; title?: string;
-  importance?: number; confidence?: number; source?: string; sourceHash?: string;
+  importance?: number; confidence?: number; source?: string; sourceHash?: string; origin?: string;
 }): Memory {
   return {
     name: p.name, text: p.text.trim(), type: p.type,
@@ -31,6 +32,7 @@ export function newMemory(p: {
     created: p.today, lastUsed: p.today,
     ...(p.source ? { source: p.source } : {}),
     ...(p.sourceHash ? { sourceHash: p.sourceHash } : {}),
+    ...(p.origin && p.origin.trim() ? { origin: p.origin.trim() } : {}),
     uses: 0,
     status: "active", locked: false,
   };

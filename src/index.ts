@@ -62,7 +62,7 @@ import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { loadMcpConfig, connectMcpServers, type ElicitHandler } from "./mcp/mcp.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
-import { loadAllMemories, upsertMemory, migrateLegacy, routeScope } from "./memory/store.js";
+import { loadAllMemories, upsertMemory, migrateLegacy, routeScope, projectIdOf, keepKnowledgeForProject } from "./memory/store.js";
 import { gatherAudit, formatAudit } from "./memory/audit.js";
 import { buildClassifierMessages } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
@@ -470,7 +470,14 @@ async function main() {
       } catch { /* 后台合并失败绝不影响会话 */ }
     })();
   }
-  const memories = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
+  // knowledge 层单独加载并【按项目过滤】:只留本项目学到的(origin 命中)或 locked 钉住的通用知识,
+  // 挡掉别的项目学到的领域知识泄进本会话(如 iOS 记忆进 dao-code)。project/user 层不过滤。
+  const projectId = projectIdOf(workspaceRoot);
+  const localMems = await loadAllMemories(projectMemoryDir, userMemoryDir);
+  const knowAll = await loadAllMemories(knowledgeMemoryDir);
+  const knowKept = knowAll.filter((m) => keepKnowledgeForProject(m, projectId));
+  const recallForeign = knowAll.length - knowKept.length; // 被项目过滤挡掉的 knowledge 条数(可观测)
+  const memories = [...localMems, ...knowKept];
   // 逐条对照 live code 做确定性验证(stale 剔除 / changed 标注 / ok 注入)。
   const validated: { mem: (typeof memories)[number]; verdict: Verdict }[] = [];
   for (const mem of memories) {
@@ -1105,8 +1112,9 @@ async function main() {
       // 记忆落盘:mergeInto 感知 → 精确键 upsert(同 name 覆盖即合并增强)。
       let added = 0, merged = 0;
       for (const m of result.memories) {
-        const cand = reflectMemToCand(m, existing, today);
-        const scope = routeScope(cand.type);
+        const scope = routeScope(reflectMemToCand(m, existing, today).type);
+        // 只给 knowledge 层打 origin(项目标签):user 层全局、project 层已按目录隔离,无需标签。
+        const cand = reflectMemToCand(m, existing, today, scope === "knowledge" ? projectId : undefined);
         const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
         const res = await upsertMemory(dir, cand, existing);
         if (res.action === "updated") merged++; else added++;
@@ -1236,7 +1244,7 @@ async function main() {
       toolAudit = createToolAuditSink(store.dir);
       permAudit = createPermAuditSink(store.dir, getMode);
       ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
-      memoryAudit.recalled(injectedMems.length, recallStale, recallChanged, recallTypes);
+      memoryAudit.recalled(injectedMems.length, recallStale, recallChanged, recallTypes, recallForeign);
       try {
         if (auditEnabled(process.env, "SKILL")) {
           writeFileSync(path.join(store.dir, "skills-catalog.json"),

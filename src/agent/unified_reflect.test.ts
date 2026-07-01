@@ -80,17 +80,28 @@ describe("unified_reflect.reflect", () => {
 });
 
 describe("REFLECT_TAIL 记忆提取段", () => {
-  it("含三条铁律与示例", () => {
-    expect(REFLECT_TAIL).toContain("三条铁律");
-    expect(REFLECT_TAIL).toContain("用户亲口立的规矩");
-    expect(REFLECT_TAIL).toContain("跨会话稳定的用户画像");
-    expect(REFLECT_TAIL).toContain("项目架构/技术决策");
+  it("含五个高信号时刻指引", () => {
+    expect(REFLECT_TAIL).toContain("高信号时刻");
+    expect(REFLECT_TAIL).toContain("用户纠正/反驳你时");
+    expect(REFLECT_TAIL).toContain("verify_done");
+    expect(REFLECT_TAIL).toContain("同一指令在短时间内重复");
+    expect(REFLECT_TAIL).toContain("跨轮次的用户行为模式");
+    expect(REFLECT_TAIL).toContain("你做错但自己发现并修正了");
   });
 
-  it("含三个 few-shot 示例", () => {
+  it("含三类记忆归类", () => {
+    expect(REFLECT_TAIL).toContain("用户规矩");
+    expect(REFLECT_TAIL).toContain("用户画像");
+    expect(REFLECT_TAIL).toContain("项目知识");
+  });
+
+  it("含三个 few-shot 示例,每个标注信号来源", () => {
     expect(REFLECT_TAIL).toContain("用户要求先出方案再动手");
     expect(REFLECT_TAIL).toContain("用户偏好选项式引导而非开放式提问");
     expect(REFLECT_TAIL).toContain("DAO CODE 三层 i18n 架构");
+    expect(REFLECT_TAIL).toContain("来自信号 1");
+    expect(REFLECT_TAIL).toContain("来自信号 4");
+    expect(REFLECT_TAIL).toContain("来自信号 5");
   });
 
   it("含 user_stated / inferred 来源区分与低 confidence 兜底", () => {
@@ -99,9 +110,9 @@ describe("REFLECT_TAIL 记忆提取段", () => {
     expect(REFLECT_TAIL).toContain("0.3-0.5");
   });
 
-  it("含 mergeInto 指令与不记什么", () => {
+  it("含 mergeInto 指令与不可记", () => {
     expect(REFLECT_TAIL).toContain("mergeInto");
-    expect(REFLECT_TAIL).toContain("不记什么");
+    expect(REFLECT_TAIL).toContain("不可记");
   });
 });
 

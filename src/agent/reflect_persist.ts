@@ -6,7 +6,9 @@ import { newMemory } from "../memory/types.js";
 import { slug, supersedeMemory, writeMemory, touchMemory } from "../memory/store.js";
 import type { ReflectMem, Correction } from "./reflect_result.js";
 
-export function reflectMemToCand(m: ReflectMem, existing: Memory[], today: string): Memory {
+// origin:本会话所在项目 id。只对新建的 knowledge 层记忆打标签(供按项目过滤注入);
+// 合并到已有条目时 upsert 保留旧 origin(见 store.upsertMemory 的 {...match} 展开),这里传了也被忽略。
+export function reflectMemToCand(m: ReflectMem, existing: Memory[], today: string, origin?: string): Memory {
   const target = m.mergeInto
     ? existing.find((e) => e.title === m.mergeInto || e.name === slug(m.mergeInto!))
     : undefined;
@@ -19,6 +21,7 @@ export function reflectMemToCand(m: ReflectMem, existing: Memory[], today: strin
     importance: m.importance,
     confidence: m.confidence,
     source: m.source,
+    ...(origin ? { origin } : {}),
   });
 }
 

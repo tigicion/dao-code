@@ -3,7 +3,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { loadAllMemories, upsertMemory, deleteMemory, routeScope, slug } from "../memory/store.js";
+import { loadAllMemories, upsertMemory, deleteMemory, routeScope, slug, projectIdOf } from "../memory/store.js";
 import { newMemory } from "../memory/types.js";
 import { contentHash } from "../memory/hash.js";
 import { findSecrets } from "../permissions/secrets.js";
@@ -76,6 +76,8 @@ export const memoryWriteTool = defineTool({
     const cand = newMemory({
       name: slug(args.title || args.text), title: args.title, text: args.text, type: args.type ?? "semantic", today,
       importance: args.importance, confidence: args.confidence, source: args.source, sourceHash,
+      // knowledge 层打项目 origin(供按项目过滤注入,挡跨项目泄漏);user/project 层无需。
+      ...(scope === "knowledge" ? { origin: projectIdOf(ctx.workspaceRoot) } : {}),
     });
     const r = await withMemLock(async () => {
       const existing = await loadAllMemories(
