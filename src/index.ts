@@ -448,20 +448,26 @@ async function main() {
   await gcMemories(projectMemoryDir, today);
   await gcMemories(userMemoryDir, today);
   await gcMemories(knowledgeMemoryDir, today);
-  // 启动期合并 pass:GC 后、注入算定前(让合并结果进本会话注入)。三作用域各自 gated(天数+条数)。
-  // memoryAudit/store.dir 此时尚未就绪(L1187+ 才建),故审计事件先缓冲,待 sink 建好后回放(与 recalled 的"早算晚记"同模式)。
-  const pendingConsolidationAudits: { scope: string; groups: number; superseded: number; reasons: string[] }[] = [];
+  // 启动期合并 pass:【后台非阻塞】——合并本身可能带一次 LLM 调用(几十秒),绝不能 await 在用户能打字之前
+  // (见 20260701 慢启动:knowledge 作用域一次合并把启动卡住)。代价:本会话注入用【合并前】的集合,
+  // 合并结果下个会话生效——只影响真正触发合并的那次(每 3 天/作用域一次,shouldConsolidate 节流),可接受。
+  // 审计:onAudit 直接写 memoryAudit;后台合并在 sink 建好(下方创建)之后才完成,触发时 sink 已就绪。
+  // 并发:maybeConsolidate 内部自载记忆快照;与反思器每回合写入极少撞同一文件,撞了 last-write-wins、下轮自愈。
   if (process.env.DAO_NO_MEMORY !== "1" && !argvPrompt) {
     const consolModel = process.env.DAO_CONSOLIDATE_MODEL || cfg.model;
     const consolNow = Date.now();
     const consolCommon = {
       today, now: consolNow, streamChat,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }, model: consolModel,
-      onAudit: (e: { scope: string; groups: number; superseded: number; reasons: string[] }) => pendingConsolidationAudits.push(e),
+      onAudit: (e: { scope: string; groups: number; superseded: number; reasons: string[] }) => memoryAudit.consolidated(e),
     };
-    await maybeConsolidate({ ...consolCommon, dir: userMemoryDir, scope: "user" });
-    await maybeConsolidate({ ...consolCommon, dir: knowledgeMemoryDir, scope: "knowledge" });
-    await maybeConsolidate({ ...consolCommon, dir: projectMemoryDir, scope: "project" });
+    void (async () => {
+      try {
+        await maybeConsolidate({ ...consolCommon, dir: userMemoryDir, scope: "user" });
+        await maybeConsolidate({ ...consolCommon, dir: knowledgeMemoryDir, scope: "knowledge" });
+        await maybeConsolidate({ ...consolCommon, dir: projectMemoryDir, scope: "project" });
+      } catch { /* 后台合并失败绝不影响会话 */ }
+    })();
   }
   const memories = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
   // 逐条对照 live code 做确定性验证(stale 剔除 / changed 标注 / ok 注入)。
@@ -1213,7 +1219,6 @@ async function main() {
       toolAudit = createToolAuditSink(store.dir);
       permAudit = createPermAuditSink(store.dir, getMode);
       ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
-      for (const e of pendingConsolidationAudits) memoryAudit.consolidated(e);
       memoryAudit.recalled(injectedMems.length, recallStale, recallChanged, recallTypes);
       try {
         if (auditEnabled(process.env, "SKILL")) {
@@ -1737,7 +1742,6 @@ async function main() {
       toolAudit = createToolAuditSink(store.dir);
       permAudit = createPermAuditSink(store.dir, getMode);
       ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
-      for (const e of pendingConsolidationAudits) memoryAudit.consolidated(e);
       const readLine = async (): Promise<string | null> => {
         write("\n> ");
         return nextLine();
