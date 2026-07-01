@@ -52,6 +52,9 @@ export interface ToolContext {
   skills?: { name: string; description: string; whenToUse?: string; paths?: string[]; slug?: string; body: string; dir: string }[];
   // skill 工具加载某技能后回调:记录使用频率(用于发现/列表加权)。注入便于测试。
   recordSkillUse?: (name: string) => void;
+  // skill_install 装完后:把新装技能加载进【当前会话】(追加式,便宜、无需重启)。返回新加载的技能名。
+  // 交互/headless 都可(纯追加)。未注入(如子代理)=不支持,装完仍需重启生效。
+  loadInstalledSkills?: (scope: "user" | "project") => Promise<string[]>;
   // 外来技能(为 CC/Codex/Gemini 等所写)正文 → DAO 适配:检测+按用途转换工具名(无字典,缓存)。
   // dao 原生技能原样返回。skill 工具加载正文时调用。注入便于测试。
   adaptSkill?: (body: string) => Promise<string>;

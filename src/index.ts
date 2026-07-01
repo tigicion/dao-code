@@ -51,7 +51,7 @@ import { maybeCheckUpdate } from "./config/update_check.js";
 import { notify } from "./tui/notifier.js";
 import { acquireWakeLock } from "./tui/wakelock.js";
 import { loadCustomCommands, expandCommand } from "./commands/custom.js";
-import { loadSkills, findUserInvocableSkill } from "./skills/skills.js";
+import { loadSkills, findUserInvocableSkill, skillCatalogLines } from "./skills/skills.js";
 import { BUNDLED_SKILLS, toggleBundled } from "./skills/bundled.js";
 import { loadUsage, saveUsage, recordUsage } from "./skills/usage.js";
 import { makeSkillAdapter } from "./skills/convert.js";
@@ -587,13 +587,7 @@ async function main() {
         `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
         `加载后,skill 正文是【必须照做的流程】(含其中"给用户选项/确认/分阶段"的步骤),不是参考——优先级高于你的默认习惯,仅让位于用户当前明确指令与安全/证据。\n` +
         // 只列【可被模型自动触发】的(modelInvokable !== false);disable-model-invocation 的不进此表,仅用户 /手动调。
-        skills.filter((s) => s.modelInvokable !== false).map((s) => {
-          // 触发条件(when_to_use)对"何时该加载"至关重要,必须随描述一起呈现;调用名给 slug(模型不必照抄 Title Case)。
-          const trig = s.whenToUse ? ` 何时用:${s.whenToUse}` : "";
-          const callName = `${s.namespace ? s.namespace + ":" : ""}${s.slug ?? s.name}`; // 插件技能用 plugin:slug 防撞
-          const call = callName.toLowerCase() !== s.name.toLowerCase() ? `(调用名 ${callName})` : "";
-          return `- ${s.name}${call}:${`${s.description}${trig}`.slice(0, 220)}`; // 预算上限 220 字(含触发条件),防多技能撑大常驻 prompt
-        }).join("\n")
+        skillCatalogLines(skills)
       : "";
 
   const systemPrompt =
@@ -745,6 +739,18 @@ async function main() {
   ctx.skills = skills;
   // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
   ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); skillSink.loaded(skillRound, name); };
+  // skill_install 装完 → 把新技能加载进【当前会话】(无需重启):load 目标 scope 目录 → 未知的 push 进活列表(ctx.skills 同引用)
+  // → 追加一条 catalog system 消息(同框法;append-only,只此一条一次性 miss,不动已缓存前缀)。返回新加载技能名。
+  ctx.loadInstalledSkills = async (scope) => {
+    const dir = scope === "project" ? path.join(workspaceRoot, ".dao", "skills") : path.join(os.homedir(), ".dao", "skills");
+    const known = new Set(skills.map((s) => s.name.toLowerCase()));
+    const fresh = (await loadSkills(dir)).filter((s) => !known.has(s.name.toLowerCase()) && !disabledSet.has(s.name) && !s.paths?.length);
+    if (!fresh.length) return [];
+    skills.push(...fresh);
+    const lines = skillCatalogLines(fresh);
+    if (lines) session.messages.push({ role: "system", content: `\n# 新装 skill(本次会话已加载,匹配任务时先用 skill 工具加载其正文再动手)\n${lines}` });
+    return fresh.map((s) => s.name);
+  };
   // 外来技能适配(无翻译字典):检测为他者所写时,用 flash 按用途转换工具名,目标词表=dao 工具注册表,按 hash 缓存。
   const apiTools = registry.toApiTools();
   const daoTools = new Set(apiTools.map((t) => t.function.name));

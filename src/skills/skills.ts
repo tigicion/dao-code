@@ -103,6 +103,22 @@ async function loadFrom(baseDir: string): Promise<Skill[]> {
   return out;
 }
 
+// 把技能列表格式化成 catalog 行(- name(调用名):描述 何时用):启动常驻 skillsSection 与"新装后追加"共用同一框法。
+// 只列可被模型自动触发的(modelInvokable !== false);每条 220 字预算防多技能撑大常驻 prompt。
+export function skillCatalogLines(
+  skills: Pick<Skill, "name" | "description" | "whenToUse" | "slug" | "namespace" | "modelInvokable">[],
+): string {
+  return skills
+    .filter((s) => s.modelInvokable !== false)
+    .map((s) => {
+      const trig = s.whenToUse ? ` 何时用:${s.whenToUse}` : "";
+      const callName = `${s.namespace ? s.namespace + ":" : ""}${s.slug ?? s.name}`;
+      const call = callName.toLowerCase() !== s.name.toLowerCase() ? `(调用名 ${callName})` : "";
+      return `- ${s.name}${call}:${`${s.description}${trig}`.slice(0, 220)}`;
+    })
+    .join("\n");
+}
+
 // 从若干目录加载技能;同名时【后传入的目录覆盖先传入的】(按优先级低→高传)。
 // realpath 去重(对齐 CC):同一物理文件经多路径/符号链接被加载多次时,只保留最高优先级那次。
 export async function loadSkills(...dirs: string[]): Promise<Skill[]> {

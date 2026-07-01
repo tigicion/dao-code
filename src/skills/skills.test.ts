@@ -2,8 +2,32 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadSkills, findUserInvocableSkill } from "./skills.js";
+import { loadSkills, findUserInvocableSkill, skillCatalogLines } from "./skills.js";
 import { skillTool } from "../tools/skill.js";
+
+describe("skillCatalogLines", () => {
+  it("格式化 name+描述,带 何时用,slug 异于 name 时给调用名", () => {
+    const out = skillCatalogLines([
+      { name: "Debugging", description: "系统化调试", whenToUse: "出错时", slug: "systematic-debugging" } as never,
+    ]);
+    expect(out).toContain("Debugging");
+    expect(out).toContain("系统化调试");
+    expect(out).toContain("何时用:出错时");
+    expect(out).toContain("调用名 systematic-debugging");
+  });
+  it("modelInvokable:false 的不列;插件用 plugin:slug 调用名", () => {
+    const out = skillCatalogLines([
+      { name: "手动", description: "x", modelInvokable: false } as never,
+      { name: "Foo", description: "y", slug: "foo", namespace: "sp" } as never,
+    ]);
+    expect(out).not.toContain("手动");
+    expect(out).toContain("调用名 sp:foo");
+  });
+  it("描述+何时用截断到 220 字", () => {
+    const out = skillCatalogLines([{ name: "N", description: "d".repeat(500) } as never]);
+    expect(out.length).toBeLessThan(240);
+  });
+});
 
 let base: string;
 beforeEach(() => {
