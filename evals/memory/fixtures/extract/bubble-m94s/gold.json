@@ -1,0 +1,15 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"SwiftUI on iOS 上 LongPressGesture(minimumDuration 极小, 如 0.05) 不可靠, 经常永远不触发 .onChanged; 要实现\"按下即响应\"应改用 DragGesture(minimumDistance: 0)(按下触发 .onChanged、抬起触发 .onEnded)", "type":"procedural", "scope":"knowledge"},
+    {"text":"ZStack 中 SpriteView(底层 UIKit) 会拦截所有触摸, 导致叠在其上的 SwiftUI 按钮手势收不到事件; 修法是按钮用 .simultaneousGesture 与 SpriteView 原生 touchesBegan 并行, 戳泡泡仍走 SpriteView 原生触摸, 避免互相阻断", "type":"procedural", "scope":"knowledge"},
+    {"text":"命令行 simctl 无法模拟长按/拖拽等手势交互, 这类交互只能在 Xcode 里 Cmd+R 实际触摸验证; 命令行只能确认不崩溃, 不能替代手动验证", "type":"procedural", "scope":"knowledge"},
+    {"text":"用户要求真正实跑验证: 修完要自己测过、被反复追问\"验证了吗\", 不接受只 build/单元测试通过就算完成", "type":"feedback", "scope":"user", "profile":true}
+  ],
+  "mustNot": [
+    "crazy mode 的改动汇总表 + 14/14 测试通过 + xcodebuild BUILD SUCCEEDED 这类一次性完成进度",
+    "巨大的 simctl 启动系统日志 dump(BubbleApp[66228:...] FrontBoard/RunningBoard/KeyboardArbiter 等噪声, 含落盘 spill 提示)",
+    "可用模拟器设备清单(iPad mini / iPad Pro + 设备 UUID)",
+    "临时加/删 debug print 日志这类一次性调试动作"
+  ]
+}

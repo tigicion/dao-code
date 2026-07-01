@@ -1,0 +1,5 @@
+{
+  "task": "继续把 superpowers 工作流适配为 dao 技能，补齐还缺失的技能",
+  "valueGold": ["adapting-superpowers-to-dao", "created-12-dao-skills", "dao-builtin-debug-simplify"],
+  "relevanceGold": ["adapting-superpowers-to-dao", "created-12-dao-skills", "dao-builtin-debug-simplify", "skill-loading-needs-exploration"]
+}

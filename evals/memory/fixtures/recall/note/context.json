@@ -1,0 +1,5 @@
+{
+  "task": "给 Note 备忘录应用的自动保存加防抖（debounce），避免每次按键都直接写盘",
+  "valueGold": ["dataflow-no-debounce", "scenephase-force-save", "plaintext-content-storage"],
+  "relevanceGold": ["dataflow-no-debounce", "scenephase-force-save", "plaintext-content-storage", "note-app-swiftui-appkit"]
+}

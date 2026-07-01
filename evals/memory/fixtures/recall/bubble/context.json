@@ -1,0 +1,13 @@
+{
+  "task": "在 iPad 模拟器上实跑验证泡泡机应用，确认长按吹大泡泡/连发小泡泡两按钮交互和音效都正常",
+  "valueGold": [
+    "泡泡机应用项目-ipad-ios-原生应用-swiftui-spritekit-泡",
+    "泡泡机应用项目-users-user-daoproject-game-使用",
+    "泡泡机应用项目已通过子代理驱动开发完成全部-9-个-task-11-11-单元测试"
+  ],
+  "relevanceGold": [
+    "泡泡机应用项目-ipad-ios-原生应用-swiftui-spritekit-泡",
+    "泡泡机应用项目-users-user-daoproject-game-使用",
+    "泡泡机应用项目已通过子代理驱动开发完成全部-9-个-task-11-11-单元测试"
+  ]
+}

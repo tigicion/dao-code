@@ -1,0 +1,16 @@
+{
+  "task": "给画布应用的贴纸系统再加几种动物贴纸，并确保贴纸图片在画布上能正确加载显示",
+  "valueGold": [
+    "canvasapp-画布应用-是面向-2-岁儿童的-ipad-涂鸦-app-",
+    "canvasapp-贴纸图片位于-canvasapp-resources",
+    "canvasapp-新增-6-种贴纸-小鸭-fluent-duck-noto",
+    "canvasapp-贴纸栏改为每个变体独立展示-每种上限-3-个-不再点击切"
+  ],
+  "relevanceGold": [
+    "canvasapp-画布应用-是面向-2-岁儿童的-ipad-涂鸦-app-",
+    "canvasapp-贴纸图片位于-canvasapp-resources",
+    "canvasapp-贴纸图片加载的坑已修复-stickermanager-r",
+    "canvasapp-新增-6-种贴纸-小鸭-fluent-duck-noto",
+    "canvasapp-贴纸栏改为每个变体独立展示-每种上限-3-个-不再点击切"
+  ]
+}

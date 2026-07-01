@@ -1,0 +1,15 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"把社区(superpowers)技能适配到 dao 的工具名映射:Task→agent、TodoWrite→todo_write、Read/Grep tool→read_file/grep_files、code-reviewer agent→verify、find-skills→dao 内置技能列表","type":"procedural","scope":"knowledge"},
+    {"text":"适配 dao 技能的路径与引用约定:外来技能路径(~/.config/superpowers/skills、~/.claude/skills、SUPERPOWERS_SKILLS_ROOT)统一改为 ~/.dao/skills、CLAUDE.md→DAO.md;跨技能引用用扁平技能名(如 test-driven-development),不用 skills/类别/名 目录前缀,也不用 @.../SKILL.md(会强制加载、烧上下文)","type":"procedural","scope":"knowledge"}
+  ],
+  "mustNot": [
+    "逐条 edit_file/multi_edit 把 skills/类别/名 改成扁平名、删 @ 前缀等行级 diff 一次性改动",
+    "grep_files 的 (无匹配) 空返回与最终全绿确认搜索等一次性检索",
+    "todo_write 列出的 31 项适配进度勾选清单",
+    "后台子代理 task-1 返回的逐文件(13 个问题文件)行号排查长表",
+    "verify_done 工具提示文本、echo 31/统计技能数量等一次性输出",
+    "各 SKILL.md 片段的一次性 read_file 倾倒"
+  ]
+}

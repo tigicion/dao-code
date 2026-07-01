@@ -1,0 +1,17 @@
+{
+  "existing": [
+    {"title":"Slide Game 项目进度","text":"Slide Game 项目代码层完成(12 commit):Model/CharacterData、SlideTypes、Audio/SoundManager、Scene/SlideNode、CharacterNode、GameScene。待做:xcodegen generate、下载音效、Xcode 运行验证。"}
+  ],
+  "mustExtract": [
+    {"text":"用户有一个约 2 岁的孩子,持续用 iPad 为 TA 开发低龄儿童游戏,技术栈偏好 SwiftUI 容器 + SpriteKit 场景(iOS16+、横屏)","type":"user","scope":"user","profile":true},
+    {"text":"用户要求真正实跑验证,'只 build 不算验证'——必须把 app 跑起来、看输出/截图确认,而非只编译通过","type":"feedback","scope":"user","profile":true},
+    {"text":"用户认为项目进度不该写进记忆:git log 是唯一真实来源,进度记忆必然过时冗余;记忆应只存代码里看不出来的踩坑经验与用户画像","type":"feedback","scope":"user","profile":true},
+    {"text":"在该工作区开发 iOS 项目不要默认绕开 xcodegen:已装(如 /opt/homebrew/bin)就直接 generate;project.yml 必须设 SUPPORTED_PLATFORMS \"iphoneos iphonesimulator\",否则只支持真机会报 'Supported platforms for the buildables is empty'","type":"procedural","scope":"knowledge"}
+  ],
+  "mustNot": [
+    "把 14 个 commit 的项目完成进度(BUILD+安装+运行已验证)当作记忆存——与 git log 冗余、必然过时",
+    "xcodebuild 冗长构建日志、可用模拟器设备清单、签名报错等一次性构建输出",
+    "Info.plist / plist 内容 dump、ls 与 ps 进程列表、截图像素取色分析等一次性目录信息",
+    "git commit 哈希清单(a9e89b0..9507c44 等一长串提交记录)"
+  ]
+}

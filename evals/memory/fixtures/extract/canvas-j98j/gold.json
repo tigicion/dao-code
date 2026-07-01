@@ -1,0 +1,16 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"CanvasApp 是给低龄儿童做的 iPad 手指绘画应用(SpriteKit/SwiftUI):手指画出彩色线条、两指/单指唤出贴纸栏(兔猫狗鸡鱼蝴蝶+水果等),三指长按进入家长设置(音效/生物存活时间/背景亮度),首启引导式访问提示,30 秒无触摸画布自动变暗","type":"semantic","scope":"project"},
+    {"text":"用户在为低龄儿童开发 iPad 绘画/游戏应用——带家长设置门槛、引导式访问、动物/水果贴纸、简单手指交互,审美与复杂度要贴合儿童场景","type":"user","scope":"user","profile":true},
+    {"text":"SpriteKit 里把一条线用一串离散的 circleOfRadius 圆点拼接、采样间距过大,会渲染成'一串点/省略号'而非连续线;线条主体应改用单个 SKShapeNode 的连续 path 粗线渲染(只在头尾按需加圆点)","type":"procedural","scope":"knowledge"}
+  ],
+  "mustNot": [
+    "xcodebuild/clang/SDKStatCache 冗长编译日志、DerivedData 的 builtin-copy/swiftmodule 拷贝命令等一次性构建输出",
+    "project.pbxproj 的 PBXBuildFile/PBXResourcesBuildPhase 行级 diff、Info.plist 资源冲突修复的具体改动细节",
+    "git status 暂存文件清单、commit 与 merge 的 diffstat(64 files changed / create mode)等一次性 VCS 输出",
+    "iPad 各型号模拟器的 simulator id/arch/OS 一次性设备枚举列表",
+    "verify_done 工具提示文本、todo_write 全勾选清单、.app 产物 ls 目录列表等过程痕迹",
+    "CanvasScene/DrawingEngine/SnakeCreature/SoundManager 等源码全文的一次性 read_file 倾倒"
+  ]
+}

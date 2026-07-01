@@ -1,0 +1,16 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"用户希望'一次性做对',反对'build 通过/进程没崩就声称完成'的试错;写完代码必须真正运行验证——GUI 应用要 swift run 跑起来确认进程存活且 stderr 无 fatal/crash,而不是只看 swift build 退出码 0","type":"feedback","scope":"user","profile":true},
+    {"text":"用 swift run 启动的无 Bundle CLI 二进制跑 macOS GUI(SwiftUI/AppKit)应用时,默认 activation policy 是 .prohibited——窗口能渲染但拿不到键盘焦点(输入跑到终端);需用 @NSApplicationDelegateAdaptor 注入 AppDelegate,在 applicationDidFinishLaunching 里 setActivationPolicy(.regular)+activate(ignoringOtherApps:)。放 init() 太早(NSApp 尚为 nil 会崩),放 onAppear 太晚","type":"procedural","scope":"knowledge"},
+    {"text":"SwiftUI 里用 NSViewRepresentable 包 NSTextView 做富文本编辑,updateNSView 中比较两个 NSAttributedString 实例会因字体/段落样式是不同对象而永不相等,导致每次刷新都重置 textStorage、冲掉光标/吞输入;应改为只比较纯文本 .string","type":"procedural","scope":"knowledge"},
+    {"text":"用户要求对 DAO 工具层加'写完代码必须跑一遍'的硬验证(GUI 应用:进程存活≥5s 且 stderr 无 crash 才算完成),并在检测到 macOS SwiftUI 应用(@main App+WindowGroup)时自动注入领域知识(如 activation policy 等 best practice)","type":"feedback","scope":"user"}
+  ],
+  "mustNot": [
+    "swift build/swift run 的逐步编译日志(Compiling/Linking/Build complete)一次性输出",
+    "运行崩溃的栈回溯(Fatal error / Backtrace / libswiftCore)一次性日志",
+    "AppViewModel/NoteEditorView/RichTextEditor/Note.swift 等源码全文的一次性 read_file 倾倒",
+    "verify_done 工具提示文本、进程存活(PID xxxx)检查等过程痕迹",
+    "尚未定位修复的'输入不立即保存/会丢失'排查的进行中状态"
+  ]
+}

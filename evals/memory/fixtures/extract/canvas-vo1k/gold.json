@@ -1,0 +1,16 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"iOS 模拟器(尤其 iOS 26.3 这类 beta runtime)可能缺 AppleColorEmoji.ttc 字体, 导致 Text()/UIGraphicsImageRenderer 里所有 emoji 字符渲染成 '?'; 不要依赖系统 emoji 字体, 改用打包的 PNG 图片资源", "type":"procedural", "scope":"knowledge"},
+    {"text":"同一 app 命令行构建用 iPad Pro 11\" M4 / iOS 17.5(有 emoji 字体)正常, 而 Xcode 默认目标 M5 / iOS 26.3(缺字体)出问号 —— 模拟器 runtime 版本差异会造成'命令行正常但 Xcode 不正常'的假象, 排查时要对齐目标 runtime", "type":"procedural", "scope":"knowledge"},
+    {"text":"该项目贴纸图片资源来自 Microsoft Fluent Emoji(3D 风格, 256x256)和 Google Noto Emoji(512x512)的 PNG, 本地放 assets/stickers/fluent-3d 和 assets/stickers/noto; 缺的种类(鸭/老虎/狮子/猫鼬/胡萝卜/桥)用对应 emoji 名去这两套里取图", "type":"semantic", "scope":"project"},
+    {"text":"用户为约 2 岁的孩子开发 iPad 涂鸦/绘画应用(SwiftUI 外壳 + SpriteKit 画布), 连 app 图标也要求适合 2 岁儿童的色彩丰富设计", "type":"user", "scope":"user", "profile":true}
+  ],
+  "mustNot": [
+    "BUILD SUCCEEDED / 44 个 PNG 就位 / 构建产物里有图标 这类一次性进度与验证",
+    "贴纸→图片文件名的逐条映射大表(fluent_duck/noto_tiger/noto_sweetpotato... 一长串) —— 与代码冗余",
+    "一次性 Fluent Emoji github raw URL 探测(各路径命中与否)",
+    "用 Python 生成图标、改 project.pbxproj/Assets.xcassets 四处注册 这类一次性操作步骤",
+    "清理诊断日志这类临时收尾动作"
+  ]
+}

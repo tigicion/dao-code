@@ -1,0 +1,14 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"iOS app 不能靠 SwiftPM(Package.swift 的 .executable target) 在 Xcode 里启动: Xcode 不会为其生成 Info.plist 和 .app bundle, 运行时 CFBundleIdentifier 为 nil 崩溃; 必须建独立 .xcodeproj, 指定 PRODUCT_BUNDLE_IDENTIFIER / INFOPLIST_FILE / productType=com.apple.product-type.application(可参考同作者 canvas-app 的 xcodeproj 结构)", "type":"procedural", "scope":"knowledge"},
+    {"text":"构造 Swift 闭区间 a...b 前必须保证 lowerBound <= upperBound, 否则运行时崩溃 'Range requires lowerBound <= upperBound'; 当下界可能大于上界(如 minDiameter 30 > maxDiameter 10)时要用 safeMax 之类兜底", "type":"procedural", "scope":"knowledge"},
+    {"text":"用户要求实跑验证: 会亲自运行 app 并把控制台报错/崩溃日志贴回来核对, 不接受只 build 通过", "type":"feedback", "scope":"user", "profile":true}
+  ],
+  "mustNot": [
+    "BubbleApp.xcodeproj 创建完成 / BUILD SUCCEEDED / 13 测试通过 这类一次性进度",
+    "seedParams/safeMax/updateGrowth 的逐文件改动汇总表 —— 与 git log 冗余、必然过时",
+    "用户贴的一次性运行时日志(malloc xzm deferred reclamation / SpriteKitViewCoordinator / CA Event 等启动噪声)",
+    "\"提交并清理\"这类一次性 git 操作描述"
+  ]
+}

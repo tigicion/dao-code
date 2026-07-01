@@ -1,0 +1,16 @@
+{
+  "existing": [],
+  "mustExtract": [
+    {"text":"用户偏好先想清楚完整方案/计划再动手('先想好怎么做再动手'),不要边想边改、凭想象直接动手","type":"feedback","scope":"user","profile":true},
+    {"text":"用户反对一次性大改多文件后才验证(大爆炸式),要求小步改一处→build→实跑→看一眼→通过再做下一处","type":"feedback","scope":"user","profile":true},
+    {"text":"用户在为约 2 岁低龄儿童开发 iPad 游戏,审美/复杂度要贴合该场景——勿为儿童游戏过度做性能优化等错方向的事","type":"user","scope":"user","profile":true},
+    {"text":"SpriteKit 视觉应保留多层 SKShapeNode 叠加(可逐层调试),不要为简单儿童游戏把多层合并成单张 UIGraphicsImageRenderer 大纹理:会导致坐标系 Y 翻转、透明通道出错、人物发黑/隔空飞且无法逐层调试","type":"procedural","scope":"knowledge"}
+  ],
+  "mustNot": [
+    "一次性重写 5 个文件的视觉升级方案及'技能指导来源'清单——该大爆炸式做法已被推翻并 git revert",
+    "已写入又被回退的 slide-game-visual-upgrade 设计文档等过时进度",
+    "SpriteKit/SKShapeNode 网页搜索结果列表(Apple 文档、博客、课程链接)等一次性检索噪声",
+    "xcodebuild 冗长构建日志、xcassets unassigned child 警告、git status 文件清单与 diffstat",
+    "returnAction 重构、drawRail 双层轨等具体代码 diff 的一次性实现细节"
+  ]
+}
