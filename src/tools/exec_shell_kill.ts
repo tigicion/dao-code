@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
 import { processManager } from "./process_manager.js";
+import { msg } from "./lang.js";
 
 export const execShellKillTool = defineTool({
   name: "exec_shell_kill",
   description: "终止某个后台进程(发送 SIGTERM)。",
+  descriptionEn: "Terminates a background process (sends SIGTERM).",
   capability: "exec",
   approval: "auto",
   schema: z.object({
@@ -12,6 +14,6 @@ export const execShellKillTool = defineTool({
   }),
   handler: async (args) => {
     processManager.kill(args.id);
-    return `已发送终止信号给 ${args.id}`;
+    return msg(`已发送终止信号给 ${args.id}`, `Sent termination signal to ${args.id}`);
   },
 });

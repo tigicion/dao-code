@@ -137,6 +137,7 @@ describe("executeToolCalls (approval-aware)", () => {
 });
 
 import { describeCall } from "./execute.js";
+import { setLang } from "../i18n/i18n.js";
 describe("③ exec 错误级联", () => {
   it("本批前一个 exec 失败 → 跳过后续 exec(防 install 挂了还跑 build)", async () => {
     const r = new ToolRegistry();
@@ -285,8 +286,14 @@ describe("describeCall", () => {
     expect(out).toContain("\n"); // 真实换行
     expect(out).not.toContain("\\n"); // 不是字面反斜杠 n
   });
-  it("write/edit → 只显路径", () => {
+  it("write/edit → 中文模式下只显路径", () => {
+    setLang("zh");
     expect(describeCall("write_file", '{"path":"a.txt","content":"..."}')).toBe("写入 a.txt");
     expect(describeCall("edit_file", '{"path":"b.ts"}')).toBe("编辑 b.ts");
+  });
+  it("write/edit → 英文模式下只显路径", () => {
+    setLang("en");
+    expect(describeCall("write_file", '{"path":"a.txt","content":"..."}')).toBe("Write a.txt");
+    expect(describeCall("edit_file", '{"path":"b.ts"}')).toBe("Edit b.ts");
   });
 });

@@ -9,6 +9,12 @@ export const askUserTool = defineTool({
     "凡是问题允许选多项(如'要保留哪些功能''勾选所有适用项''可多选')就【必须】设 multiSelect:true——" +
     "否则会渲染成单选,用户无法勾选、一回车就只选中了高亮那项。仅当答案互斥、只能选一个时才省略。" +
     "系统会自动附'其他(自己输入)'与'先讨论一下'两项,你只写正常选项。返回:选中项(多选逗号分隔)/ 用户自填内容 / 讨论意向。",
+  descriptionEn:
+    "Asks the user a clarifying question and waits for an answer. Only use when missing critical information that can't be obtained via other tools; ask one at a time. " +
+    "Use options for structured choices. Single-select: user picks by number or ↑↓ + Enter. " +
+    "For questions that allow multiple answers (e.g., 'which features to keep'), you [MUST] set multiSelect:true — " +
+    "otherwise it renders as single-select and the user can't check multiple items. Only omit when answers are mutually exclusive. " +
+    "The system auto-appends 'Other (type your own)' and 'Discuss first'; you only write normal options. Returns: selected items (comma-separated for multi) / user-typed text / discuss intent.",
   capability: "read",
   approval: "auto",
   schema: z.object({

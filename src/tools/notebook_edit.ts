@@ -10,6 +10,8 @@ export const notebookEditTool = defineTool({
   name: "notebook_edit",
   description:
     "编辑 Jupyter notebook(.ipynb)的单元格:mode=replace 替换 / insert 在该下标处插入 / delete 删除。新建单元格默认 code,可设 cell_type=markdown。编辑前需先 read_file 读过它。",
+  descriptionEn:
+    "Edits cells in a Jupyter notebook (.ipynb): mode=replace to replace / insert to insert at the index / delete to delete. New cells default to code; set cell_type=markdown for markdown. Must read_file the notebook first before editing.",
   capability: "write",
   approval: "required",
   schema: z.object({

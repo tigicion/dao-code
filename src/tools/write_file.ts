@@ -4,10 +4,12 @@ import { defineTool } from "./types.js";
 import { resolveWritePath } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
 import { withFileLock } from "./file_lock.js";
+import { msg } from "./lang.js";
 
 export const writeFileTool = defineTool({
   name: "write_file",
   description: "在工作区内新建或整体重写一个文件。覆盖已存在文件前必须先用 read_file 读过它。",
+  descriptionEn: "Creates or overwrites a file in the workspace. Must read_file existing files before overwriting.",
   capability: "write",
   approval: "required",
   schema: z.object({
@@ -41,7 +43,7 @@ export const writeFileTool = defineTool({
       await atomicWrite(abs, args.content);
       try { const w = await fs.stat(abs); ctx.readMeta?.set(abs, { mtime: w.mtimeMs, size: w.size }); } catch { /* ignore */ } // 写后刷新基线
       ctx.readFiles?.add(abs);
-      return `已写入 ${args.path}(${args.content.split("\n").length} 行)`;
+      return msg(`已写入 ${args.path}(${args.content.split("\n").length} 行)`, `Wrote ${args.path} (${args.content.split("\n").length} lines)`);
     });
   },
 });

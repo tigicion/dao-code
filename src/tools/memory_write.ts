@@ -26,6 +26,8 @@ export const memoryWriteTool = defineTool({
   name: "memory_write",
   description:
     "记录一条跨 session 的稳定记忆。最高价值是【用户模型】:用户信息(环境/技术栈/水平/习惯)、偏好、意图,以及你推断出的、用户没明说的信息/意图(这类把 confidence 设低、type=user)。用户纠正你的做法或确认某个非显然做法可行时,记 type=feedback:正文先写规则,再接'为什么:…'和'怎么用:…'。也可记通用规则(procedural)、项目事实(semantic)与项目进展(episodic)。只记耐久且可泛化的,克制使用。若该事实是从某个文件/代码推导出来的,务必填 source(如 'package.json#packageManager'),以便日后对照实时文件验证是否过期。",
+  descriptionEn:
+    "Records a durable cross-session memory. Highest value is [user model]: user info (environment/stack/level/habits), preferences, intent, and inferred information the user didn't state explicitly (set low confidence and type=user for these). When the user corrects your approach or confirms a non-obvious practice works, record as type=feedback: start with the rule, then 'why:' and 'how to apply:'. Also record general rules (procedural), project facts (semantic), and project progress (episodic). Only record durable and generalizable items; use sparingly. If the fact is derived from a file/code, must fill source (e.g., 'package.json#packageManager') for future stale-detection against the live file.",
   capability: "plan",
   approval: "auto",
   schema: z.object({

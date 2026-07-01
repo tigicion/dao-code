@@ -10,6 +10,10 @@ export const scheduleTool = defineTool({
     "管理本地定时任务(OS crontab,到点用 headless dao 在当前工作区跑一个 prompt)。" +
     "用户表达'每天/每周/每隔…自动跑/提醒/检查…'这类定时需求时用。" +
     "action=add 需 cron(5 字段如 '0 9 * * *')+ prompt;list 列出;remove 需 index。机器需开机才会触发。",
+  descriptionEn:
+    "Manages local scheduled tasks (OS crontab; runs a prompt via headless dao in the current workspace on schedule). " +
+    "Use when the user expresses recurring needs like 'every day / every week / every X hours, automatically run / remind / check...'. " +
+    "action=add requires cron (5 fields, e.g., '0 9 * * *') + prompt; list lists entries; remove requires index. The machine must be powered on to trigger.",
   capability: "exec",
   approval: "required",
   schema: z.object({

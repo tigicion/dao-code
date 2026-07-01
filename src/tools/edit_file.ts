@@ -5,11 +5,14 @@ import { resolveWritePath } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
 import { buildEditHunk } from "./diff_hunk.js";
 import { withFileLock } from "./file_lock.js";
+import { msg } from "./lang.js";
 
 export const editFileTool = defineTool({
   name: "edit_file",
   description:
     "对工作区内已存在文件做精确字符串替换。old_string 必须在文件中唯一(否则用 replace_all 或扩大上下文)。编辑前需先用 read_file 读过它。",
+  descriptionEn:
+    "Performs exact string replacement in a workspace file. old_string must be unique in the file (otherwise use replace_all or broaden context). Must read_file first.",
   capability: "write",
   approval: "required",
   schema: z.object({
@@ -39,7 +42,7 @@ export const editFileTool = defineTool({
       // 带行号+上下文的 diff hunk(```diff 块):模型可读、TUI 据此渲染(复刻 CC)。
       const hunk = buildEditHunk(raw, args.old_string, args.new_string);
       const diffBlock = hunk.length ? `\n\`\`\`diff\n${hunk.join("\n")}\n\`\`\`` : "";
-      return `已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处,行 ${startLine})${diffBlock}`;
+      return msg(`已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处,行 ${startLine})${diffBlock}`, `Edited ${args.path} (${args.replace_all ? count : 1} replacement(s), line ${startLine})${diffBlock}`);
     });
   },
 });

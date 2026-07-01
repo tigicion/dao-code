@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
+import { msg } from "./lang.js";
 
 function stripTags(s: string): string {
   return s
@@ -26,6 +27,7 @@ function decodeDdgUrl(href: string): string {
 export const webSearchTool = defineTool({
   name: "web_search",
   description: "用 DuckDuckGo 联网搜索,返回若干条结果(标题、URL、摘要)。",
+  descriptionEn: "Searches the web via DuckDuckGo, returning results (title, URL, snippet).",
   capability: "network",
   approval: "suggest",
   schema: z.object({
@@ -41,10 +43,10 @@ export const webSearchTool = defineTool({
     try {
       res = await fetchImpl(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.any(signals) });
     } catch (e) {
-      const msg = e instanceof Error && e.name === "TimeoutError" ? "搜索超时(30s)" : e instanceof Error ? e.message : String(e);
-      return `Error: 搜索失败(${msg})`;
+      const reason = e instanceof Error && e.name === "TimeoutError" ? "搜索超时(30s)" : e instanceof Error ? e.message : String(e);
+      return msg(`Error: 搜索失败(${reason})`, `Error: Search failed (${reason})`);
     }
-    if (!res.ok) return `Error: 搜索失败 HTTP ${res.status}`;
+    if (!res.ok) return msg(`Error: 搜索失败 HTTP ${res.status}`, `Error: Search failed HTTP ${res.status}`);
     const html = await res.text();
     const max = args.max_results ?? 5;
 

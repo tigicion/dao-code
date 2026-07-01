@@ -93,6 +93,7 @@ export interface ToolContext {
 export interface Tool {
   name: string;
   description: string;
+  descriptionEn?: string;
   schema: ZodTypeAny;
   capability: Capability;
   approval: Approval;
@@ -108,6 +109,7 @@ export interface Tool {
 export interface ToolDefinition<S extends ZodTypeAny> {
   name: string;
   description: string;
+  descriptionEn?: string;
   schema: S;
   capability: Capability;
   approval: Approval;

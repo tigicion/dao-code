@@ -5,6 +5,7 @@ import { classifyPath } from "./paths.js";
 import { walkFiles } from "./walk.js";
 import { globToRegExp } from "./glob.js";
 import { clampOutput } from "./output.js";
+import { msg } from "./lang.js";
 
 const MAX = 200;
 
@@ -12,6 +13,8 @@ export const grepFilesTool = defineTool({
   name: "grep_files",
   description:
     "在工作区内按内容(正则)搜索文本文件。mode=content(默认)返回 路径:行号:行内容;mode=files 只返回命中文件名。可用 glob 过滤文件名。",
+  descriptionEn:
+    "Searches text files in the workspace by content regex. mode=content (default) returns path:line:content; mode=files returns only matching filenames. Filter by file glob.",
   capability: "read",
   approval: "auto",
   schema: z.object({
@@ -24,7 +27,10 @@ export const grepFilesTool = defineTool({
   handler: async (args, ctx) => {
     const { abs: root, external } = classifyPath(ctx.workspaceRoot, args.path ?? ".");
     if (external && !(await (ctx.approveExternalRead?.(root) ?? Promise.resolve(false)))) {
-      return `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`;
+      return msg(
+        `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`,
+        `Error: ${args.path} is outside the workspace; access not authorized (you may grant access in the popup).`,
+      );
     }
     let re: RegExp;
     try {

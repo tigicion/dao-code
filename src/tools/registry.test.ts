@@ -53,6 +53,42 @@ describe("ToolRegistry", () => {
   });
 });
 
+describe("ToolRegistry descriptionEn", () => {
+  it("uses descriptionEn when lang=en, falls back to description otherwise", () => {
+    const reg = new ToolRegistry();
+    reg.register(defineTool({
+      name: "t1", description: "中文描述", descriptionEn: "English description",
+      capability: "read", approval: "auto", schema: z.object({}), handler: async () => "",
+    }));
+    reg.register(defineTool({
+      name: "t2", description: "只有中文",
+      capability: "read", approval: "auto", schema: z.object({}), handler: async () => "",
+    }));
+    const en = reg.toApiTools(undefined, "en");
+    expect(en[0]!.function.description).toBe("English description");
+    expect(en[1]!.function.description).toBe("只有中文"); // fallback
+    const zh = reg.toApiTools(undefined, "zh");
+    expect(zh[0]!.function.description).toBe("中文描述");
+    const def = reg.toApiTools();
+    expect(def[0]!.function.description).toBe("中文描述"); // default zh
+  });
+
+  it("passes predicate and lang together", () => {
+    const reg = new ToolRegistry();
+    reg.register(defineTool({
+      name: "r", description: "读", descriptionEn: "Read",
+      capability: "read", approval: "auto", schema: z.object({}), handler: async () => "",
+    }));
+    reg.register(defineTool({
+      name: "w", description: "写", descriptionEn: "Write",
+      capability: "write", approval: "required", schema: z.object({}), handler: async () => "",
+    }));
+    const api = reg.toApiTools((t) => t.capability !== "write", "en");
+    expect(api).toHaveLength(1);
+    expect(api[0]!.function.description).toBe("Read");
+  });
+});
+
 const mk = (name: string) =>
   defineTool({ name, description: name, capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" });
 

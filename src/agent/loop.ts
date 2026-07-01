@@ -10,6 +10,7 @@ import type { ToolRegistry } from "../tools/registry.js";
 import type { ApprovalGate } from "../approval/types.js";
 import type { CacheAuditSink, CacheAuditInput } from "../session/cache_audit.js";
 import type { Session } from "../session/session.js";
+import { getLang } from "../i18n/i18n.js";
 import { apiToolsForMode } from "../tools/tools_for_mode.js";
 import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
 import { isContextLengthError } from "../client/client.js";
@@ -194,7 +195,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         for (const n of notes) session.messages.push({ role: "user", content: `[后台任务结果]\n${n}` });
       }
     }
-    const tools = apiToolsForMode(deps.registry, session.mode);
+    const tools = apiToolsForMode(deps.registry, session.mode, getLang());
     const assistant = await requestAssistant(tools, t);
     const toolCalls = assistant.tool_calls ?? [];
     const hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;

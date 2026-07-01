@@ -4,12 +4,14 @@ import { defineTool } from "./types.js";
 import { classifyPath } from "./paths.js";
 import { walkFiles } from "./walk.js";
 import { globToRegExp } from "./glob.js";
+import { msg } from "./lang.js";
 
 const MAX = 100;
 
 export const fileSearchTool = defineTool({
   name: "file_search",
   description: "在工作区内按文件名/路径 glob 搜索文件(如 *.ts 或 **/*.test.ts),按修改时间从新到旧排序。",
+  descriptionEn: "Searches files by name/path glob in the workspace (e.g., *.ts or **/*.test.ts), sorted by modification time (newest first).",
   capability: "read",
   approval: "auto",
   schema: z.object({
@@ -19,7 +21,10 @@ export const fileSearchTool = defineTool({
   handler: async (args, ctx) => {
     const { abs: root, external } = classifyPath(ctx.workspaceRoot, args.path ?? ".");
     if (external && !(await (ctx.approveExternalRead?.(root) ?? Promise.resolve(false)))) {
-      return `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`;
+      return msg(
+        `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`,
+        `Error: ${args.path} is outside the workspace; access not authorized (you may grant access in the popup).`,
+      );
     }
     const re = globToRegExp(args.glob);
     const hits: { rel: string; mtime: number }[] = [];

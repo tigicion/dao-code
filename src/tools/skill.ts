@@ -6,6 +6,8 @@ export const skillTool = defineTool({
   name: "skill",
   description:
     "加载一个开箱即用 skill 的完整指令并据此执行。【强制要求】:当任务匹配可用 skill 列表里的某个 skill 时,必须先调用本工具加载它、再做其它任何回应或动作;绝不只口头提到某个 skill 而不实际调用它。",
+  descriptionEn:
+    "Loads a ready-to-use skill's full instructions and executes accordingly. [MANDATORY]: When a task matches a skill in the available skill list, you MUST call this tool to load it before taking any other action or response; never just mention a skill name without actually loading it.",
   capability: "read",
   approval: "auto",
   schema: z.object({

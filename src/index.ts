@@ -79,7 +79,7 @@ import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { PermissionGate } from "./permissions/gate.js";
 import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
-import { buildSystemPrompt, LONG_TASK_DIRECTIVE } from "./prompt/system_prompt.js";
+import { buildSystemPrompt, LONG_TASK_DIRECTIVE, LONG_TASK_DIRECTIVE_EN } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
 import { createCacheAuditSink, type CacheAuditSink, formatCacheReport } from "./session/cache_audit.js";
@@ -429,8 +429,9 @@ async function main() {
   });
   for (const t of mcp.tools) registry.register(t);
 
+  const lang = getLang();
   const toolSummaries = registry
-    .toApiTools()
+    .toApiTools(undefined, lang)
     .map((t) => `- ${t.function.name}:${t.function.description}`)
     .join("\n");
 
@@ -514,9 +515,12 @@ async function main() {
     path.join(os.homedir(), ".dao", "commands"),
     pluginComp.commandDirs,
   );
+  const agentTypesHeader = lang === "en"
+    ? "\n\n# Available Subagent Types (specify agent_type when dispatching; each has a dedicated role and tools)\n"
+    : "\n\n# 可用子代理类型(派 agent 时用 agent_type 指定,各有专属角色与工具)\n";
   const agentTypesSection =
     agentDefs.length > 0
-      ? `\n\n# 可用子代理类型(派 agent 时用 agent_type 指定,各有专属角色与工具)\n` +
+      ? agentTypesHeader +
         agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
       : "";
   // 开箱即用 skill(.dao/skills/ + 已装插件的 skills/):启动只列 name+description,模型用 skill 工具按需取正文。
@@ -579,15 +583,21 @@ async function main() {
   const skills = visible.filter((s) => !s.paths?.length || condMatched.has(s.name));
   // 使用频率加权(常用且最近用过的技能在发现/列表里靠前)。启动加载一次,记录时增量更新+落盘。
   let usageMap = await loadUsage(os.homedir());
+  const skillsHeader = lang === "en"
+    ? `\n\n# Available Skills — scan this table before starting any task\n` +
+      `[MANDATORY] If a skill could possibly be relevant to the current task (even 1% chance, especially those whose "when to use" says "before…" or "must use" — ` +
+      `such [trigger-tagged] skills must be loaded first), you [MUST use the skill tool to load and follow it, before taking any other action or response] — ` +
+      `including before asking clarifying questions. Don't skip it by "just doing it directly" or only mention the skill name without loading it.\n` +
+      `After loading, the skill body is a [mandatory workflow to follow] (including steps like "present user with options / get confirmation / phase work"), not a reference — its priority is higher than your default habits, only yielding to the user's current explicit instruction and safety/evidence.\n`
+    : `\n\n# 可用 skill —— 开始任何任务前先扫这张表\n` +
+      `【强制要求】只要某个 skill 可能与当前任务相关(哪怕只有一点可能,尤其其"何时用"写明"在…之前/必须用"的——` +
+      `这类标了【触发时机】的,匹配上就该先加载),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
+      `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
+      `加载后,skill 正文是【必须照做的流程】(含其中"给用户选项/确认/分阶段"的步骤),不是参考——优先级高于你的默认习惯,仅让位于用户当前明确指令与安全/证据。\n`;
   const skillsSection =
     skills.length > 0
-      ? `\n\n# 可用 skill —— 开始任何任务前先扫这张表\n` +
-        `【强制要求】只要某个 skill 可能与当前任务相关(哪怕只有一点可能,尤其其"何时用"写明"在…之前/必须用"的——` +
-        `这类标了【触发时机】的,匹配上就该先加载),就【必须先用 skill 工具加载它、照它做,再做其它任何回应或动作】——` +
-        `包括在澄清提问之前。别凭感觉直接上手而跳过它,也别只提技能名却不调用。\n` +
-        `加载后,skill 正文是【必须照做的流程】(含其中"给用户选项/确认/分阶段"的步骤),不是参考——优先级高于你的默认习惯,仅让位于用户当前明确指令与安全/证据。\n` +
-        // 只列【可被模型自动触发】的(modelInvokable !== false);disable-model-invocation 的不进此表,仅用户 /手动调。
-        skillCatalogLines(skills)
+      ? // 只列【可被模型自动触发】的(modelInvokable !== false);disable-model-invocation 的不进此表,仅用户 /手动调。
+        skillsHeader + skillCatalogLines(skills)
       : "";
 
   const systemPrompt =
@@ -598,6 +608,7 @@ async function main() {
       cwd: workspaceRoot,
       platform: process.platform,
       projectInstructions: loadProjectInstructions(workspaceRoot), // DAO.md/AGENTS.md/CLAUDE.md + 用户级
+      lang,
     }) + agentTypesSection + skillsSection;
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
@@ -748,11 +759,11 @@ async function main() {
     if (!fresh.length) return [];
     skills.push(...fresh);
     const lines = skillCatalogLines(fresh);
-    if (lines) session.messages.push({ role: "system", content: `\n# 新装 skill(本次会话已加载,匹配任务时先用 skill 工具加载其正文再动手)\n${lines}` });
+    if (lines) session.messages.push({ role: "system", content: lang === "en" ? `\n# New skills loaded (active this session; use the skill tool to load their full body before acting when they match the task)\n${lines}` : `\n# 新装 skill(本次会话已加载,匹配任务时先用 skill 工具加载其正文再动手)\n${lines}` });
     return fresh.map((s) => s.name);
   };
   // 外来技能适配(无翻译字典):检测为他者所写时,用 flash 按用途转换工具名,目标词表=dao 工具注册表,按 hash 缓存。
-  const apiTools = registry.toApiTools();
+  const apiTools = registry.toApiTools(undefined, lang);
   const daoTools = new Set(apiTools.map((t) => t.function.name));
   const toolCatalog = apiTools.map((t) => `${t.function.name} — ${t.function.description.split(/[。\n]/)[0]!.slice(0, 60)}`).join("\n");
   const callFlash = async (system: string, user: string): Promise<string> => {
@@ -1075,7 +1086,7 @@ async function main() {
     try {
       const fork = process.env.DAO_DISTILL_FORK !== "0";
       const model = fork ? session.model : "deepseek-v4-flash";
-      const tools = fork ? apiToolsForMode(registry, session.mode) : undefined;
+      const tools = fork ? apiToolsForMode(registry, session.mode, lang) : undefined;
       // 只发上次主请求已缓存的前缀(slice 到 lastSentLength)→ 前缀字节一致、命中热缓存。
       const msgs = fork && session.lastSentLength > 0 ? session.messages.slice(0, session.lastSentLength) : session.messages;
       const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
@@ -1236,7 +1247,7 @@ async function main() {
       const ckpt = createCheckpointer(workspaceRoot);
       const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
       let sessionTitle: string | undefined; // /rename 设置
-      if (longTask && !continueFlag) session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
+      if (longTask && !continueFlag) session.messages.push({ role: "system", content: lang === "en" ? LONG_TASK_DIRECTIVE_EN : LONG_TASK_DIRECTIVE });
       await injectSessionStart(); // SessionStart 注入(resume 替换后、首个回合前;幂等见 injectSessionStart)
       const persist = () =>
         store.saveState({
@@ -1621,7 +1632,7 @@ async function main() {
                 longTask = true;
                 // 自主模式用 auto(AI 判定自动批准),而非 yolo 全开——更安全;yolo 只能 --yolo 启动。
                 if (!yolo && session.mode !== "plan") permModeOverride = "auto";
-                session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
+                session.messages.push({ role: "system", content: lang === "en" ? LONG_TASK_DIRECTIVE_EN : LONG_TASK_DIRECTIVE });
               }
               return { handled: true, prompt: arg };
             }
@@ -1629,18 +1640,18 @@ async function main() {
             longTask = !longTask;
             if (longTask) {
               if (!yolo && session.mode !== "plan") permModeOverride = "auto";
-              session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
-              return { handled: true, output: "∞ 长任务自主模式已开启:auto 自动批准(AI 判定)+ 自主连续推进 + 更高轮数;直接 /goal <目标> 或说出要做的长任务即可。" };
+              session.messages.push({ role: "system", content: lang === "en" ? LONG_TASK_DIRECTIVE_EN : LONG_TASK_DIRECTIVE });
+              return { handled: true, output: lang === "en" ? "∞ Long-task mode enabled: auto approval (AI-judged) + autonomous continuous advancement + higher turn limit. Use /goal <goal> or describe your long task to begin." : "∞ 长任务自主模式已开启:auto 自动批准(AI 判定)+ 自主连续推进 + 更高轮数;直接 /goal <目标> 或说出要做的长任务即可。" };
             }
             if (!yolo) permModeOverride = null;
-            return { handled: true, output: "长任务模式已关闭(权限模式恢复 default)。" };
+            return { handled: true, output: lang === "en" ? "Long-task mode disabled (permission mode restored to default)." : "长任务模式已关闭(权限模式恢复 default)。" };
           }
           if (name === "coordinator") {
             // Coordinator 已并入长任务自主模式(阶段化编排现写在 LONG_TASK_DIRECTIVE 里)。保留为别名:开启长任务。
             if (!longTask) {
               longTask = true;
               if (!yolo && session.mode !== "plan") permModeOverride = "auto";
-              session.messages.push({ role: "system", content: LONG_TASK_DIRECTIVE });
+              session.messages.push({ role: "system", content: lang === "en" ? LONG_TASK_DIRECTIVE_EN : LONG_TASK_DIRECTIVE });
             }
             return { handled: true, output: "❖ Coordinator 已并入长任务自主模式:已开启(auto 自动批准 + 自主推进 + 任务大时自动按研究→综合→实现→验证分阶段)。直接说出要做的较大任务即可。" };
           }

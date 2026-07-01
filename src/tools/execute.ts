@@ -5,19 +5,21 @@ import type { ApprovalGate, ApprovalRequest } from "../approval/types.js";
 import { isSensitiveCall, isDangerousCall } from "../permissions/engine.js";
 import { auditDecision } from "../permissions/audit.js";
 import { rememberRule } from "../permissions/identity.js";
+import { getLang } from "../i18n/i18n.js";
 
 // 给审批/展示用的人类可读摘要:命令保留【真实换行】(而非原始 JSON 的字面 \n),路径类只显路径。
 export function describeCall(name: string, argsJson: string): string {
   let a: Record<string, unknown> = {};
   try { a = JSON.parse(argsJson) as Record<string, unknown>; } catch { return `${name} ${argsJson.slice(0, 200)}`; }
   const s = (v: unknown) => (typeof v === "string" ? v : "");
+  const en = getLang() === "en";
   switch (name) {
     case "exec_shell": return `$ ${s(a.command) || name}`;
-    case "write_file": return `写入 ${s(a.path)}`;
-    case "edit_file": case "multi_edit": return `编辑 ${s(a.path)}`;
-    case "notebook_edit": return `编辑笔记本 ${s(a.path)}`;
-    case "fetch_url": return `抓取 ${s(a.url)}`;
-    case "web_search": return `搜索 ${s(a.query)}`;
+    case "write_file": return en ? `Write ${s(a.path)}` : `写入 ${s(a.path)}`;
+    case "edit_file": case "multi_edit": return en ? `Edit ${s(a.path)}` : `编辑 ${s(a.path)}`;
+    case "notebook_edit": return en ? `Edit notebook ${s(a.path)}` : `编辑笔记本 ${s(a.path)}`;
+    case "fetch_url": return en ? `Fetch ${s(a.url)}` : `抓取 ${s(a.url)}`;
+    case "web_search": return en ? `Search ${s(a.query)}` : `搜索 ${s(a.query)}`;
     default: {
       const v = s(a.path) || s(a.command) || s(a.url) || s(a.query);
       return v ? `${name} ${v}` : name;

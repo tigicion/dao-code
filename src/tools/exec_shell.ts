@@ -78,6 +78,8 @@ export const execShellTool = defineTool({
   name: "exec_shell",
   description:
     "在工作区目录执行 shell 命令(git、测试、find 等都走它)。前台执行返回输出与退出码;background=true 则后台启动并返回进程 id(用 exec_shell_poll 读输出、exec_shell_kill 结束)。",
+  descriptionEn:
+    "Executes a shell command in the workspace directory (git, tests, find, etc.). Foreground execution returns output and exit code; background=true starts in background and returns a process id (use exec_shell_poll to read output, exec_shell_kill to stop).",
   capability: "exec",
   approval: "required",
   schema: z.object({

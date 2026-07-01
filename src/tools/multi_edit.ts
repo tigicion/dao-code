@@ -4,12 +4,15 @@ import { defineTool } from "./types.js";
 import { resolveWritePath } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
 import { withFileLock } from "./file_lock.js";
+import { msg } from "./lang.js";
 
 // 对一个文件按顺序应用多处精确替换,原子(全部成功才写盘,任一处失败则整体不动)。对标 CC 的 MultiEdit。
 export const multiEditTool = defineTool({
   name: "multi_edit",
   description:
     "对工作区内一个文件按顺序应用多处精确字符串替换;原子操作——任一处失败则整体不写盘。编辑前需先用 read_file 读过它。每处 old_string 须在【施加该处时的内容】中唯一(或设 replace_all)。比连发多个 edit_file 更安全:要么全成、要么全不改。",
+  descriptionEn:
+    "Applies multiple exact string replacements to a workspace file sequentially; atomic — all succeed or nothing is written. Must read_file first. Each old_string must be unique at its application point (or set replace_all). Safer than multiple edit_file calls: all-or-nothing.",
   capability: "write",
   approval: "required",
   schema: z.object({
@@ -45,7 +48,7 @@ export const multiEditTool = defineTool({
         total += e.replace_all ? count : 1;
       }
       await atomicWrite(abs, text);
-      return `已编辑 ${args.path}(${args.edits.length} 组替换,共 ${total} 处)`;
+      return msg(`已编辑 ${args.path}(${args.edits.length} 组替换,共 ${total} 处)`, `Edited ${args.path} (${args.edits.length} edit group(s), ${total} replacement(s) total)`);
     });
   },
 });

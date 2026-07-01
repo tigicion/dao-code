@@ -10,6 +10,10 @@ export const skillInstallTool = defineTool({
     "安装一套技能:从 git 仓库或本地路径,把含 SKILL.md 的技能克隆/复制到 ~/.dao/skills(用户级)或项目 .dao/skills;" +
     "保留完整内容,工具名在【加载时】自动适配(无需改写)。用户要'装/导入/添加一套技能'(如 superpowers)时用本工具——" +
     "不要逐个 WebFetch 再手抄、更不要压缩内容。装完自动加载进当前会话、本次即可用,无需重启。",
+  descriptionEn:
+    "Installs a set of skills: clones/copies skills containing SKILL.md from a git repo or local path to ~/.dao/skills (user-level) or the project .dao/skills. " +
+    "Preserves full content; tool names are auto-adapted at [load time] (no manual rewriting needed). Use when the user wants to 'install / import / add a skill set' (e.g., superpowers) — " +
+    "do NOT fetch one by one via WebFetch and hand-copy, and do NOT compress the content. Skills are auto-loaded into the current session and usable immediately; no restart needed.",
   capability: "exec", // git clone + 写文件
   approval: "required",
   schema: z.object({

@@ -20,6 +20,11 @@ export const agentTool = defineTool({
     "任务描述要自包含——子代理没有当前对话上下文。" +
     "传 task 派单个;传 tasks 数组则并行派发多个并汇总(适合可并行的独立调查/分析)。" +
     "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行,以免互相冲突。",
+  descriptionEn:
+    "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
+    "Task description must be self-contained — the subagent has no current conversation context. " +
+    "Pass task for a single dispatch; pass tasks array for parallel dispatch with aggregated results (ideal for parallel independent investigation/analysis). " +
+    "Parallel tasks MUST be mutually independent with no dependencies; tasks that modify the same files must not be parallelized to avoid conflicts.",
   capability: "plan",
   approval: "auto",
   schema: z.object({

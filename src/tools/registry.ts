@@ -1,6 +1,7 @@
 import type { ApiTool } from "../client/types.js";
 import { toJsonSchema } from "./schema.js";
 import type { Tool, ToolContext, ToolDispatcher } from "./types.js";
+import type { Lang } from "../i18n/i18n.js";
 
 export class ToolRegistry implements ToolDispatcher {
   // Map 保留插入顺序 → toApiTools 输出稳定,利于前缀 cache。
@@ -28,14 +29,14 @@ export class ToolRegistry implements ToolDispatcher {
     return r;
   }
 
-  toApiTools(predicate?: (tool: Tool) => boolean): ApiTool[] {
+  toApiTools(predicate?: (tool: Tool) => boolean, lang?: Lang): ApiTool[] {
     return [...this.tools.values()]
       .filter((t) => (predicate ? predicate(t) : true))
       .map((t) => ({
         type: "function" as const,
         function: {
           name: t.name,
-          description: t.description,
+          description: lang === "en" && t.descriptionEn ? t.descriptionEn : t.description,
           parameters: t.apiParameters ?? toJsonSchema(t.schema),
         },
       }));
