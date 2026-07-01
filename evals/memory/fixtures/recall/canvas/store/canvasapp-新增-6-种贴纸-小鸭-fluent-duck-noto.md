@@ -6,7 +6,6 @@ uses: 0
 confidence: 1
 created: 2026-06-18
 lastUsed: 2026-06-18
-source: (redacted)
 status: active
 locked: false
 ---

@@ -5,7 +5,6 @@ importance: 7
 uses: 0
 created: 2026-06-19
 lastUsed: 2026-06-19
-source: (redacted)
 status: active
 locked: false
 ---

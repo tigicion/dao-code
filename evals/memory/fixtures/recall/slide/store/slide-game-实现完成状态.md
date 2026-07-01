@@ -7,7 +7,6 @@ uses: 1
 confidence: 0.95
 created: 2026-06-29
 lastUsed: 2026-06-29
-source: (redacted)
 status: active
 locked: false
 ---
