@@ -13,6 +13,9 @@ export async function initObs(on: boolean): Promise<void> {
       httpPort: Number(process.env.LMNR_HTTP_PORT) || 8000,
       grpcPort: Number(process.env.LMNR_GRPC_PORT) || 8001,
     });
+    // ObsSpan 是适配壳,不暴露底层 Laminar Span;用 WeakMap 把壳映射回 raw span,
+    // 供 withActive 调 Laminar.withSpan 建立父子上下文(壳被回收时映射自动清理)。
+    const rawOf = new WeakMap<ObsSpan, ReturnType<typeof Laminar.startSpan>>();
     const backend: ObsBackend = {
       startSpan(o) {
         const span = Laminar.startSpan({
@@ -23,11 +26,13 @@ export async function initObs(on: boolean): Promise<void> {
           setAttributes: (a) => span.setAttributes(a as Record<string, string | number>),
           end: () => span.end(),
         };
+        rawOf.set(obs, span);
         return obs;
       },
       withActive: (span, fn) => {
-        // ObsSpan 是适配壳;真实 withSpan 需要底层 Laminar Span。见下方说明。
-        return fn();
+        const raw = rawOf.get(span);
+        // 让 raw span 成为活跃父上下文,fn 期间新建的 span 挂它下面;endOnExit=false(由 wrap 的 finally 统一 end)。
+        return raw ? Laminar.withSpan(raw, fn, false) : fn();
       },
       flush: () => Laminar.flush(),
     };
