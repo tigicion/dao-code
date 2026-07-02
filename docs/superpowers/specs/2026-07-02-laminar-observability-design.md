@@ -30,7 +30,7 @@ DAO 通过**单一原语** `streamChat()`(`src/client/client.ts`)对 DeepSeek �
 | 后端 | 本地 Docker 自托管,数据不出机器 |
 | 埋点架构 | 方案 A:组合根统一包装,新增 `src/obs/`,核心文件不动 |
 | 依赖方式 | `optionalDependencies` + `await import()` 动态加载 |
-| 开关 | 环境变量 `DAO_OBS=1`,默认关闭;未开=noop 零开销 |
+| 开关 | CLI flag `dao --obs`(主),默认关闭;未开=noop 零开销。密钥/地址走 env(`LMNR_PROJECT_API_KEY` / `LMNR_BASE_URL`) |
 
 ## 权威 API(已从 lmnr-ts 源码核实)
 
@@ -61,20 +61,25 @@ src/obs/
 
 设计边界:
 - `init.ts`:只负责"起没起、往哪送、退出 flush"。对外暴露 `isObsOn()`。
-- `wrap.ts`:三个纯包装器,输入原函数、输出同签名函数;`DAO_OBS` 未开时**原样返回入参函数**。
+- `wrap.ts`:三个纯包装器,输入原函数、输出同签名函数;`--obs` 未开时(`isObsOn()` 为 false)**原样返回入参函数**。
 - `attrs.ts`:把 DAO 的 `Usage`(现成 `onUsage` 回调的类型)翻译成 Laminar 属性对象,单元可测,无副作用。
 - 三者都不 import 核心 loop/client,仅被 `index.ts`(组合根)调用 → 无循环依赖。
 
 ### 初始化与开关(`src/index.ts` 启动最早处)
 
+开关走 CLI flag,贴合现有解析惯例(`src/index.ts:194` 的 `rawArgs.includes("--goal")` 同款):
+- 判 `const OBS = rawArgs.includes("--obs")`;
+- 把 `"--obs"` 加进现有的 `flags` Set(`src/index.ts:202`),防止被当 prompt 拼接;
+- `await initObs(OBS)` 传入。
+
 ```ts
-await initObs(); // DAO_OBS!=1 时立即 return,不 import lmnr
+await initObs(rawArgs.includes("--obs")); // false 时立即 return,不 import lmnr
 ```
 
 `initObs()` 伪代码:
 ```ts
-export async function initObs() {
-  if (process.env.DAO_OBS !== "1") return;
+export async function initObs(on: boolean) {
+  if (!on) return;
   const { Laminar } = await import("@lmnr-ai/lmnr"); // optionalDependency
   Laminar.initialize({
     projectApiKey: process.env.LMNR_PROJECT_API_KEY,
@@ -155,7 +160,7 @@ DAO 是 Ink 长驻进程,span 批量导出。进程正常退出 / SIGINT(ESC 退
 
 对策:
 - 观测**默认路径**走 `npm run dev`(tsx)/ `node dist`,这条路径确定可用。
-- 二进制里 `DAO_OBS` 未开 → `initObs()` 直接 return,**永不 import lmnr**,
+- 二进制里未加 `--obs` → `initObs()` 直接 return,**永不 import lmnr**,
   即使编译期没带上依赖也不影响主功能。
 - "编译二进制能否带观测"列为 plan 里一个**独立验证 spike**,不阻塞主线。
 
@@ -171,12 +176,14 @@ docker compose up -d
 - 前端 UI:`http://localhost:5667` —— 注册账号、建 project、拿 project API key
 - ingest / API:`8000`(HTTP)、`8001`(gRPC)
 
-配置 DAO:
+配置 DAO(密钥设一次,`--obs` 想看就加):
 ```bash
-export DAO_OBS=1
 export LMNR_PROJECT_API_KEY=<从 localhost:5667 project settings 复制>
 export LMNR_BASE_URL=http://localhost   # 可选,默认即此
-npm run dev                              # 或 node dist/index.js
+
+npm run dev -- --obs "帮我重构这个函数"   # 开发路径(推荐,确定带观测)
+# 或 node dist/index.js --obs
+# 不加 --obs = 完全关闭,连 lmnr 都不 import
 ```
 
 写进 `README` 或 `docs/` 的"观测"章节。
@@ -192,7 +199,7 @@ npm run dev                              # 或 node dist/index.js
 - `src/obs/wrap.test.ts`:mock Laminar
   - `wrapStreamChat` 在迭代**结束后**调用 `setSpanAttributes` 且带正确 token;delta 透传不变;abort 路径也 `endSpan`。
   - `wrapToolExec` 每工具一个 span,名 `tool.<name>`。
-  - `DAO_OBS` 未开 → 包装器**原样返回**入参函数,零 Laminar 调用。
+  - `--obs` 未开(isObsOn=false)→ 包装器**原样返回**入参函数,零 Laminar 调用。
 - `src/obs/attrs.test.ts`:Usage → 属性映射(含 cache 命中标记)。
 - 不接真实 Laminar 后端做单测;真实后端联通作为手动验收(docker 起后跑一次 dao,UI 看到 trace)。
 
