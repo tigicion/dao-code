@@ -1,6 +1,6 @@
-import { setBackend, registerExitFlush, type ObsBackend, type ObsSpan } from "./backend.js";
+import { setBackend, type ObsBackend, type ObsSpan } from "./backend.js";
 
-/** 开启观测:动态 import Laminar、初始化、装配 ObsBackend 适配器、注册退出 flush。
+/** 开启观测:动态 import Laminar、初始化、装配 ObsBackend 适配器。退出 flush 由组合根在真实退出路径 await flushObs 完成。
  *  失败一律降级为「未开启」,绝不影响主链路。 */
 export async function initObs(on: boolean): Promise<void> {
   if (!on) return; // 关闭:不 import lmnr,零开销
@@ -37,7 +37,6 @@ export async function initObs(on: boolean): Promise<void> {
       flush: () => Laminar.flush(),
     };
     setBackend(backend);
-    registerExitFlush(() => Laminar.flush());
     if (!process.env.LMNR_PROJECT_API_KEY) {
       process.stderr.write("[obs] 已开启但未设 LMNR_PROJECT_API_KEY,trace 可能无法入库\n");
     }

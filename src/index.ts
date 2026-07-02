@@ -13,7 +13,7 @@ import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat as streamChatRaw } from "./client/client.js";
 import { runTurn as runTurnRaw } from "./agent/loop.js";
 import { executeToolCalls as executeToolCallsRaw } from "./tools/execute.js";
-import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec } from "./obs/index.js";
+import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs } from "./obs/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { readFileTool } from "./tools/read_file.js";
 import { listDirTool } from "./tools/list_dir.js";
@@ -126,8 +126,8 @@ async function main() {
   let cleaned = false;
   const cleanup = () => { if (!cleaned) { cleaned = true; try { processManager.reset(); } catch {} } };
   process.on("exit", cleanup);
-  process.on("SIGINT", () => { cleanup(); process.exit(130); });
-  process.on("SIGTERM", () => { cleanup(); process.exit(143); });
+  process.on("SIGINT", async () => { cleanup(); await flushObs(); process.exit(130); });
+  process.on("SIGTERM", async () => { cleanup(); await flushObs(); process.exit(143); });
 
   const rawArgs = process.argv.slice(2);
   // 观测旁路:仅 --obs 时动态 import Laminar 初始化;三个包装 const 遮蔽原 import 名,
@@ -1797,7 +1797,7 @@ async function main() {
 // 收尾后显式退出:distill 的 flash HTTP keep-alive socket 等滞留 handle 会让 Node 排不空事件循环、
 // 不自然退出(看起来卡在"✓ 记忆无需更新"那行)。要紧的 await(distill/upsert/mcp.close)都已在 main 内完成。
 main().then(
-  () => process.exit(0),
+  async () => { await flushObs(); process.exit(0); },
   (err) => {
     console.error("\n" + (err as Error).message);
     process.exit(1);

@@ -28,18 +28,15 @@ export function isObsOn(): boolean {
   return backend !== null;
 }
 
-let exitHookInstalled = false;
-/** 注册退出时 flush(幂等)。flush 最多等 2s,超时放弃,绝不卡退出。 */
-export function registerExitFlush(flush: () => Promise<void>): void {
-  if (exitHookInstalled) return;
-  exitHookInstalled = true;
-  const run = () => {
-    void Promise.race([
-      flush(),
-      new Promise((r) => setTimeout(r, 2000)),
-    ]).catch(() => {});
-  };
-  process.on("exit", run);
-  process.on("SIGINT", run);
-  process.on("SIGTERM", run);
+/** 退出前 flush 当前 backend(旁路铁律):
+ *  - 未开观测(getBackend() 为 null)→ 立即 resolve、零延迟、不 import lmnr;
+ *  - 已开 → flush 与超时竞速,最多等 timeoutMs(默认 2s),超时放弃;
+ *  - 任何错误一律吞掉,绝不上抛、绝不卡退出。 */
+export function flushObs(timeoutMs = 2000): Promise<void> {
+  const b = getBackend();
+  if (!b) return Promise.resolve();
+  return Promise.race([
+    b.flush(),
+    new Promise<void>((r) => setTimeout(r, timeoutMs)),
+  ]).catch(() => {});
 }
