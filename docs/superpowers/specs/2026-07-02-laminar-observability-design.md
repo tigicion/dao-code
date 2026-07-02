@@ -212,4 +212,6 @@ npm run dev -- --obs "帮我重构这个函数"   # 开发路径(推荐,确定�
 
 ## 未决/后续
 
-- bun `--compile` 能否携带 lmnr:实现阶段做 spike 验证,结论回填本文档。
+- ~~bun `--compile` 能否携带 lmnr~~ **已验证(2026-07-02,scenario 1=支持)**:`npm run bundle` 成功(2004 modules,含 `@lmnr-ai/lmnr` + `@opentelemetry/*`);编译二进制 `./dao --obs` 设 `LMNR_PROJECT_API_KEY` 后 `Laminar.initialize()` 无报错、lmnr 正常加载。即**二进制路径也支持观测**,不限 dev/node。端到端出 trace 仍需后端联通复核(Step 8)。
+- Minor(待优化):`Laminar.initialize()` 在 `projectApiKey` 为空时会**自己抛错**,被 init.ts 的 catch 降级(旁路铁律成立),但导致 init.ts 里「未设 LMNR_PROJECT_API_KEY」友好提示不可达、被 lmnr 冗长报错取代。可改为在 initialize 前先查 key:无 key 则打友好提示并跳过初始化。
+- Minor(final triage 遗留):组合根 `as unknown as Parameters<typeof wrapToolExec>[0]` cast(更干净解=wrap.ts 的 `ToolExecFn` 三个 `unknown` 换成 type-only import 的 `ToolRegistry`/`ToolContext`/`ApprovalGate`);cache 命中当前写成 association property 而非 span tag,待 UI 目视确认呈现。
