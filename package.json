@@ -59,6 +59,9 @@
   },
   "homepage": "https://github.com/tigicion/dao-code#readme",
   "bugs": "https://github.com/tigicion/dao-code/issues",
+  "optionalDependencies": {
+    "@lmnr-ai/lmnr": "^0.8.36"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cli-highlight": "^2.1.11",

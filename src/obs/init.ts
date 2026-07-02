@@ -5,7 +5,7 @@ import { setBackend, registerExitFlush, type ObsBackend, type ObsSpan } from "./
 export async function initObs(on: boolean): Promise<void> {
   if (!on) return; // 关闭:不 import lmnr,零开销
   try {
-    // @ts-expect-error optionalDependency,未安装时由 catch 兜底
+    // optionalDependency:未安装时动态 import 抛错,由 catch 兜底降级为关闭
     const { Laminar } = await import("@lmnr-ai/lmnr");
     Laminar.initialize({
       projectApiKey: process.env.LMNR_PROJECT_API_KEY,

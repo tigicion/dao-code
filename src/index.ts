@@ -10,9 +10,10 @@ import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
 import { migrateLegacyDir } from "./config/migrate_dirs.js";
-import { streamChat } from "./client/client.js";
-import { runTurn } from "./agent/loop.js";
-import { executeToolCalls } from "./tools/execute.js";
+import { streamChat as streamChatRaw } from "./client/client.js";
+import { runTurn as runTurnRaw } from "./agent/loop.js";
+import { executeToolCalls as executeToolCallsRaw } from "./tools/execute.js";
+import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec } from "./obs/index.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { readFileTool } from "./tools/read_file.js";
 import { listDirTool } from "./tools/list_dir.js";
@@ -129,6 +130,14 @@ async function main() {
   process.on("SIGTERM", () => { cleanup(); process.exit(143); });
 
   const rawArgs = process.argv.slice(2);
+  // 观测旁路:仅 --obs 时动态 import Laminar 初始化;三个包装 const 遮蔽原 import 名,
+  // 关闭时 wrap* 返回原函数(引用相等、零开销),main() 内所有引用自动走包装版。
+  await initObs(rawArgs.includes("--obs"));
+  const streamChat = wrapStreamChat(streamChatRaw);
+  const runTurn = wrapRunTurn(runTurnRaw);
+  // wrapToolExec 的 ToolExecFn 刻意用 unknown 解耦 obs↔core;strictFunctionTypes 下
+  // 具体入参函数无法逆变赋给 unknown 入参签名,故在组合根用 cast 桥接(仅入参类型,返回值仍为 ToolMessage[])。
+  const executeToolCalls = wrapToolExec(executeToolCallsRaw as unknown as Parameters<typeof wrapToolExec>[0]);
   // --version/-v 必须在任何初始化(读配置/连 API)之前拦下,否则整句会被当 prompt 发给模型。
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     process.stdout.write(`dao-code v${VERSION}\n`);
@@ -199,7 +208,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--obs"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
