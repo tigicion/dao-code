@@ -1,0 +1,6 @@
+{
+  "task": "给 dao-code 优化工具修改的 diff 展示,让编辑的红绿变动更清晰,并跑起来验证",
+  "projectId": "dao-code",
+  "valueGold": ["cli-highlight-plaintext", "dao-diff-render", "verify-with-evidence"],
+  "relevanceGold": ["cli-highlight-plaintext", "dao-diff-render", "verify-with-evidence", "tsx-vs-esbuild"]
+}

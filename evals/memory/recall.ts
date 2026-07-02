@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadAllMemories } from "../../src/memory/store.js";
+import { loadAllMemories, routeScope, keepKnowledgeForProject } from "../../src/memory/store.js";
 import { selectForInjection } from "../../src/memory/inject.js";
 import { validateMemory } from "../../src/memory/validate.js";
 import { judgeBool, relevancePrompt } from "./lib/judge.js";
@@ -36,7 +36,12 @@ export async function runRecallCase(dir: string, streamChat: (o: any) => AsyncGe
   const today = new Date().toISOString().slice(0, 10);
   // 临时工作区:让 validateMemory 在无 source 时判 ok(fixture 记忆一般无 source)
   const ws = await fs.mkdtemp(path.join(os.tmpdir(), "eval-recall-"));
-  const mems = await loadAllMemories(storeDir);
+  let mems = await loadAllMemories(storeDir);
+  // 项目过滤(仅当 fixture 声明 projectId):镜像 index.ts——knowledge 层(procedural)只留 origin 命中或 locked 的,
+  // 挡别项目的领域知识。project/user 层不动。旧 fixture 无 projectId → 整段跳过,行为不变。
+  if (ctx.projectId) {
+    mems = mems.filter((m) => routeScope(m.type) !== "knowledge" || keepKnowledgeForProject(m, ctx.projectId!));
+  }
   const validated: { mem: any; verdict: string }[] = [];
   for (const m of mems) { const { verdict } = await validateMemory(m, ws, today); validated.push({ mem: m, verdict }); }
   const staleNames = validated.filter((v) => v.verdict === "stale").map((v) => v.mem.name);

@@ -1,0 +1,4 @@
+{
+  "expectOnTrack": true,
+  "note": "U1+U2 正控。纯信息问答:每个结论都由刚跑的 git/grep 工具输出直接支撑,没有未核实断言、没有原地打转、没有偏离。反思器应判 onTrack=true。测反思器不会对『查了再答的简单问答』乱报警(precision)。"
+}

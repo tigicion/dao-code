@@ -1,0 +1,9 @@
+{"t":"user","text":"为啥提交信息是和Assistant，应该是和Dao啊"}
+{"t":"assistant","content":"确实应该署名 Dao。两个提交都写成了 Assistant，我改一下重新提交。","toolCalls":[{"name":"exec_shell","args":"{\"command\":\"git commit --amend ...\"}"}]}
+{"t":"assistant","content":"已推送。两个提交的署名都改成了 Co-Authored-By: Dao <noreply@dao-code>。"}
+{"t":"user","text":"这个是写在系统提示词里面的吗，Co-Authored-By: Dao <noreply@dao-code>"}
+{"t":"assistant","content":"不在系统 prompt 里。在项目指令文件 DAO.md 中：","toolCalls":[{"name":"read_file","args":"{\"file\":\"DAO.md\"}"}]}
+{"t":"tool_result","name":"read_file","ok":true,"content":"...第39行: 提交信息 Conventional Commits，AI 辅助的加 Co-Authored-By: Dao <noreply@dao-code>。..."}
+{"t":"assistant","content":"DAO.md 第 39 行写了这条规则，每次提交我按它拼署名。"}
+{"t":"user","text":"改一下。另外claude code是不是把这个写进系统提示词了"}
+{"t":"assistant","content":"已改。关于你的问题：是的。index.ts 里 buildSystemPrompt 的 projectInstructions 参数来自 loadProjectInstructions(workspaceRoot)，它读取 DAO.md/AGENTS.md/CLAUDE.md 注入到系统 prompt 的 {project_instruction_files} 占位符——也就是模型第二轮就能看到的那段项目指令。所以这条规则相当于刻在宪法里，每次会话都会生效。"}

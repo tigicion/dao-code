@@ -1,0 +1,3 @@
+{"t":"user","text":"这是cc的review结果，你看下，先不用动手，先说你的想法：记忆 C 级——55% stale,iOS 记忆进 TS 会话是 scope 过滤缺失。反思 C- 级——18 次全 onTrack、0 correction,橡皮图章。建议:1 记忆加 scope/项目过滤;2 反思加答案正确性维度;3 技能触发消歧。"}
+{"t":"assistant","content":"CC 的 review 很准，我不为自己辩护。三条建议里我优先做记忆 scope 过滤，这是最小改动最大收益。"}
+{"t":"assistant","content":"具体落地:loadAllMemories 已经按 project/user/knowledge 三层目录分开存储了,但召回时没按当前项目过滤。iOS 记忆存在 user 层,被当成全局用户偏好注入 dao-code 会话——修法是 user 层记忆也做项目相关性判断,或至少排除 type=procedural 且 source 指向非当前项目的。"}

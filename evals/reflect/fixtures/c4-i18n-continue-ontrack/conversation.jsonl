@@ -1,0 +1,11 @@
+{"t":"user","text":"英文模式是否都适配了，比如工具说明等"}
+{"t":"assistant","content":"调查后：TUI 展示层已双语，但工具描述、系统 prompt 正文、handler 返回字符串是硬编码中文，英文模式下会原样发给 LLM。这三层未适配。"}
+{"t":"user","text":"继续"}
+{"t":"assistant","content":"需要先加载技能指导这个多步改动。","toolCalls":[{"name":"skill","args":"{\"name\":\"make-plan\"}"}]}
+{"t":"assistant","content":"方案分级：P0 系统 prompt 正文 + 工具描述；P1 辅助段标题 + 参数 describe；P2 handler 返回字符串。给 ToolDefinition 加 descriptionEn，buildSystemPrompt 按 lang 选 BODY/BODY_EN。先改基础设施。","toolCalls":[{"name":"read_file","args":"{\"file\":\"src/tools/types.ts\"}"}]}
+{"t":"tool_result","name":"read_file","ok":true,"content":"export interface ToolDefinition { name: string; description: string; ... }"}
+{"t":"assistant","content":"给 Tool/ToolDefinition 加可选 descriptionEn，toApiTools() 按 lang 选取。","toolCalls":[{"name":"edit_file","args":"{\"file\":\"src/tools/types.ts\",\"old_string\":\"description: string;\",\"new_string\":\"description: string;\\n  descriptionEn?: string;\"}"}]}
+{"t":"tool_result","name":"edit_file","ok":true,"content":"编辑成功 src/tools/types.ts"}
+{"t":"assistant","content":"基础设施改完，跑 typecheck 验证。","toolCalls":[{"name":"exec_shell","args":"{\"command\":\"npm run typecheck\"}"}]}
+{"t":"tool_result","name":"exec_shell","ok":true,"content":"tsc --noEmit\n(无错误)"}
+{"t":"assistant","content":"typecheck 通过。继续给各工具加 descriptionEn。"}

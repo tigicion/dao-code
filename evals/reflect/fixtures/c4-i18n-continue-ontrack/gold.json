@@ -1,0 +1,4 @@
+{
+  "expectOnTrack": true,
+  "note": "U4 正控。任务已定范围(三层 i18n),dao 加载 make-plan、分级方案、改基础设施、每步跑 typecheck 验证——方法扎实、无原地打转、无未核实断言。反思器应判 onTrack=true、advisory=null。没有这个正控,eval 无法区分『真在轨』和『逢事必报警』。"
+}

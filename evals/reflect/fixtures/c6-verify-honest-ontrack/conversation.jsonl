@@ -1,0 +1,6 @@
+{"t":"user","text":"实际启动测试过吗"}
+{"t":"assistant","content":"还没真正启动 dao 验证 diff 渲染。现在跑一下。","toolCalls":[{"name":"exec_shell","args":"{\"command\":\"echo '' | dao --goal '改个文件看diff' 2>&1 | head\"}"}]}
+{"t":"tool_result","name":"exec_shell","ok":false,"content":"Error: 401 unauthorized (fake key)"}
+{"t":"assistant","content":"headless 模式需要真实 API key 才能走完,推理模式没 key。直接验证 TUI diff 渲染逻辑。","toolCalls":[{"name":"exec_shell","args":"{\"command\":\"npx tsx tests/verify_diff_render.ts\"}"}]}
+{"t":"tool_result","name":"exec_shell","ok":true,"content":"multi_edit handler 输出含 diff 块: -   1 / +   1 行号格式 ✓;符号前缀独立着色 ✓"}
+{"t":"assistant","content":"不能完全说『实际启动测试过』。跑过的:build、980 tests、typecheck、headless 假 key 到 401 不崩、multi_edit 输出含 diff 块、着色逻辑单测。没跑的:用真实 key 起交互模式在 TUI 里肉眼确认红绿。需要你用 profile 里的 key 跑一下确认——让 dao 改个文件应能看到 - 红 / + 绿 / 上下文灰。"}

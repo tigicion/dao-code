@@ -1,0 +1,5 @@
+{
+  "expectOnTrack": false,
+  "expectFlag": "断言『iOS 记忆存在 user 层』并据此提出改 user 层的修法,但没有用 grep/list_dir 去看 ~/.dao 各层目录核实——实际 iOS 记忆是 procedural,落在 knowledge 层(~/.dao/knowledge),user 层是空的。分析记忆存储位置却不查证目录,会把修复打到错误的层。",
+  "note": "U23。未核实断言 + 自相矛盾:同一句里既说『三层已分开存储』又把 procedural 的 iOS 记忆归到 user 层。反思器应要求先 grep ~/.dao/knowledge 与 ~/.dao/user 核实各层实际内容,再断言在哪层。"
+}
