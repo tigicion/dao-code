@@ -14,6 +14,7 @@ import { streamChat as streamChatRaw } from "./client/client.js";
 import { runTurn as runTurnRaw } from "./agent/loop.js";
 import { executeToolCalls as executeToolCallsRaw } from "./tools/execute.js";
 import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs } from "./obs/index.js";
+import { applyDotenv } from "./config/env_file.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { readFileTool } from "./tools/read_file.js";
 import { listDirTool } from "./tools/list_dir.js";
@@ -130,6 +131,9 @@ async function main() {
   process.on("SIGTERM", async () => { cleanup(); await flushObs(); process.exit(143); });
 
   const rawArgs = process.argv.slice(2);
+  // 启动即加载工作目录 .env(如 LMNR_PROJECT_API_KEY):仅补未设置的键,真实 env 变量优先。
+  // 放在 initObs 之前,让 --obs 无需手动 export 即可从 .env 拿到 key。
+  await applyDotenv(`${process.cwd()}/.env`);
   // 观测旁路:仅 --obs 时动态 import Laminar 初始化;三个包装 const 遮蔽原 import 名,
   // 关闭时 wrap* 返回原函数(引用相等、零开销),main() 内所有引用自动走包装版。
   await initObs(rawArgs.includes("--obs"));
