@@ -16,7 +16,9 @@ assert.deepEqual(
 );
 assert.deepEqual(m.uniqBy([3, 1, 3, 2, 1], (x) => x), [3, 1, 2]);
 
-assert.deepEqual(m.groupBy([1, 2, 3, 4], (x) => x % 2), { 0: [2, 4], 1: [1, 3] });
-assert.deepEqual(m.groupBy(["apple", "ant", "bee"], (s) => s[0]), { a: ["apple", "ant"], b: ["bee"] });
+// groupBy 返回字典:普通对象或 Object.create(null) 空原型都算正确(空原型更防污染)。
+// 用 { ...actual } 归一化原型,只比较键/值,避免 assert/strict 因原型不同误判正确实现。
+assert.deepEqual({ ...m.groupBy([1, 2, 3, 4], (x) => x % 2) }, { 0: [2, 4], 1: [1, 3] });
+assert.deepEqual({ ...m.groupBy(["apple", "ant", "bee"], (s) => s[0]) }, { a: ["apple", "ant"], b: ["bee"] });
 
 console.log("arrays OK");
