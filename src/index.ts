@@ -13,7 +13,7 @@ import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat as streamChatRaw } from "./client/client.js";
 import { runTurn as runTurnRaw } from "./agent/loop.js";
 import { executeToolCalls as executeToolCallsRaw } from "./tools/execute.js";
-import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs } from "./obs/index.js";
+import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs, setObsSession, obsStatus } from "./obs/index.js";
 import { applyDotenv } from "./config/env_file.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { readFileTool } from "./tools/read_file.js";
@@ -137,6 +137,12 @@ async function main() {
   // 观测旁路:仅 --obs 时动态 import Laminar 初始化;三个包装 const 遮蔽原 import 名,
   // 关闭时 wrap* 返回原函数(引用相等、零开销),main() 内所有引用自动走包装版。
   await initObs(rawArgs.includes("--obs"));
+  // obs 状态标签(交互模式可见,避免降级了却无声无息);未请求观测则返回空串(不显示)。
+  const obsLabel = (): string => {
+    const s = obsStatus();
+    if (!s.requested) return "";
+    return s.on ? `obs→${s.endpoint}` : "obs降级(检查 LMNR_PROJECT_API_KEY)";
+  };
   const streamChat = wrapStreamChat(streamChatRaw);
   const runTurn = wrapRunTurn(runTurnRaw);
   // wrapToolExec 的 ToolExecFn 刻意用 unknown 解耦 obs↔core;strictFunctionTypes 下
@@ -308,6 +314,7 @@ async function main() {
     cwd: workspaceRoot,
     version: VERSION,
     branch: gitBranch,
+    obs: obsLabel() || undefined, // 带 --obs 时在欢迎屏显示观测状态(开→地址 / 降级),不请求则不显示
   };
   const welcome = { info: welcomeInfo, caps, bg, maxim: randomMaxim() };
 
@@ -1251,6 +1258,7 @@ async function main() {
       }
       const store = createSessionStore(sessionsDir, resumeId);
       exitSessionId = store.id; // 记下,退出时给 resume 提示
+      setObsSession(store.id); // obs:让 turn span 带上 session id,trace 可按 session 分组/查找
       // 缓存审计:主+子+fork+后台+三工具调用全写进 store.dir/cache.jsonl(常驻静默;DAO_CACHE_AUDIT=0 关)。
       cacheSink = createCacheAuditSink(store.dir);
       memoryAudit = createMemoryAuditSink(store.dir);
@@ -1550,7 +1558,7 @@ async function main() {
           if (name === "status") {
             const pct = Math.round((contextTokens() / CONTEXT_WINDOW) * 100);
             const flags = [yolo ? "免审批" : "", longTask ? "长任务" : ""].filter(Boolean).join("/") || "—";
-            return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
+            return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}${obsLabel() ? ` · ${obsLabel()}` : ""}\n${session.usageSummary()}` };
           }
           if (name === "plugin") {
             if (installedPlugins.length === 0) return { handled: true, output: "未装插件。装:dao plugin add <git-url|路径>(插件根需 plugin.json + skills/)。" };
@@ -1775,6 +1783,7 @@ async function main() {
       const sessionsDir = path.join(workspaceRoot, ".dao", "sessions");
       const store = createSessionStore(sessionsDir, undefined);
       exitSessionId = store.id;
+      setObsSession(store.id); // obs:session id 注入(同交互路径)
       cacheSink = createCacheAuditSink(store.dir);
       memoryAudit = createMemoryAuditSink(store.dir);
       toolAudit = createToolAuditSink(store.dir);

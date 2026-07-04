@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { setBackend } from "./backend.js";
+import { setBackend, setObsSession } from "./backend.js";
 import type { ObsBackend, ObsSpan } from "./backend.js";
 import { wrapStreamChat, wrapRunTurn, wrapToolExec } from "./wrap.js";
 import type { StreamChatOptions, AssistantMessage, StreamDelta, ToolCall, ToolMessage } from "../client/types.js";
 
 // 记录型 fake:每个 span 记 attrs 与 end 调用。
 function makeFake() {
-  const spans: { name: string; spanType: string; input?: unknown; attrs: Record<string, unknown>; ended: boolean }[] = [];
+  const spans: { name: string; spanType: string; input?: unknown; sessionId?: string; attrs: Record<string, unknown>; ended: boolean }[] = [];
   const backend: ObsBackend = {
     startSpan(o) {
-      const rec = { name: o.name, spanType: o.spanType, input: o.input, attrs: {} as Record<string, unknown>, ended: false };
+      const rec = { name: o.name, spanType: o.spanType, input: o.input, sessionId: o.sessionId, attrs: {} as Record<string, unknown>, ended: false };
       spans.push(rec);
       const span: ObsSpan = {
         setAttributes(a) { Object.assign(rec.attrs, a); },
@@ -98,7 +98,7 @@ describe("wrapToolExec", () => {
 });
 
 describe("wrapRunTurn", () => {
-  beforeEach(() => setBackend(null));
+  beforeEach(() => { setBackend(null); setObsSession(undefined); });
   it("关闭时原样返回", () => {
     const inner = async () => {};
     expect(wrapRunTurn(inner as any)).toBe(inner);
@@ -107,10 +107,18 @@ describe("wrapRunTurn", () => {
     const { backend, spans } = makeFake();
     setBackend(backend);
     let ran = false;
-    await wrapRunTurn((async () => { ran = true; }) as any)({ sessionId: "s1" });
+    await wrapRunTurn((async () => { ran = true; }) as any)({});
     expect(ran).toBe(true);
     expect(spans[0]!.name).toBe("turn");
     expect(spans[0]!.spanType).toBe("DEFAULT");
     expect(spans[0]!.ended).toBe(true);
+  });
+  it("turn span 带上 setObsSession 注入的 session id(而非 deps.sessionId)", async () => {
+    const { backend, spans } = makeFake();
+    setBackend(backend);
+    setObsSession("20260704-093759-qse2");
+    // deps 里给个不同的 sessionId,证明用的是 obs 通道而非 deps
+    await wrapRunTurn((async () => {}) as any)({ sessionId: "从-deps-不该被用" });
+    expect(spans[0]!.sessionId).toBe("20260704-093759-qse2");
   });
 });

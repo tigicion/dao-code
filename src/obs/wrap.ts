@@ -1,4 +1,4 @@
-import { getBackend, type ObsSpan } from "./backend.js";
+import { getBackend, getObsSession, type ObsSpan } from "./backend.js";
 import { llmAttributes, cacheTag } from "./attrs.js";
 import type {
   StreamChatOptions, StreamDelta, AssistantMessage, ToolCall, ToolMessage, Usage,
@@ -50,7 +50,8 @@ export function wrapRunTurn(inner: RunTurnFn): RunTurnFn {
     if (!backend) return inner(deps);
     const span = backend.startSpan({
       name: "turn", spanType: "DEFAULT",
-      sessionId: typeof deps?.sessionId === "string" ? deps.sessionId : undefined,
+      // session id 走独立通道(TurnDeps 无此字段);main() 建 store 后 setObsSession 注入。
+      sessionId: getObsSession(),
       metadata: {
         identity: deps?.identity ?? "main",
         depth: typeof deps?.depth === "number" ? deps.depth : 0,

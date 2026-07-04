@@ -11,6 +11,7 @@ export interface WelcomeInfo {
   cwd: string;
   version: string;
   branch?: string;
+  obs?: string; // 观测状态标签(带 --obs 时):如 "obs→localhost:8001" 或 "obs降级(…)";未请求则不传
 }
 
 // DAO CODE 词标(ANSI Shadow 风格)。

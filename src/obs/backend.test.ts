@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { setBackend, getBackend, isObsOn, flushObs } from "./backend.js";
+import { setBackend, getBackend, isObsOn, flushObs, setObsSession, getObsSession, setObsStatus, obsStatus } from "./backend.js";
 import type { ObsBackend } from "./backend.js";
 
 const fake: ObsBackend = {
@@ -18,6 +18,35 @@ describe("backend 单例", () => {
     setBackend(fake);
     expect(getBackend()).toBe(fake);
     expect(isObsOn()).toBe(true);
+  });
+});
+
+describe("obs session id", () => {
+  beforeEach(() => setObsSession(undefined));
+  it("默认无 session id", () => {
+    expect(getObsSession()).toBeUndefined();
+  });
+  it("set 后 get 拿到", () => {
+    setObsSession("20260704-093759-qse2");
+    expect(getObsSession()).toBe("20260704-093759-qse2");
+  });
+});
+
+describe("obs status", () => {
+  beforeEach(() => { setBackend(null); setObsStatus({ requested: false, endpoint: undefined }); });
+  it("未请求:requested/on 均 false", () => {
+    expect(obsStatus()).toEqual({ requested: false, on: false, endpoint: undefined });
+  });
+  it("请求但未 setBackend(降级):requested true、on false", () => {
+    setObsStatus({ requested: true });
+    const s = obsStatus();
+    expect(s.requested).toBe(true);
+    expect(s.on).toBe(false);
+  });
+  it("请求且 setBackend + endpoint:on true、带 endpoint", () => {
+    setObsStatus({ requested: true, endpoint: "localhost:8001" });
+    setBackend(fake);
+    expect(obsStatus()).toEqual({ requested: true, on: true, endpoint: "localhost:8001" });
   });
 });
 
