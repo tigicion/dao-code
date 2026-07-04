@@ -1,5 +1,6 @@
 import { getBackend, getObsSession, getObsMeta, type ObsSpan } from "./backend.js";
-import { llmAttributes, cacheTag, TAGS_KEY } from "./attrs.js";
+import { llmAttributes, cacheTag, cacheLow, TAGS_KEY } from "./attrs.js";
+import { looksFailed } from "../tools/execute.js";
 import type {
   StreamChatOptions, StreamDelta, AssistantMessage, ToolCall, ToolMessage, Usage,
 } from "../client/types.js";
@@ -33,6 +34,9 @@ export function wrapStreamChat(inner: StreamFn): StreamFn {
       const tag = cacheTag(usage);
       // 用 Laminar 保留 tags(字符串数组)而非普通 association 属性,让 cache 命中/未命中在 UI tag 面可筛。
       if (tag) span.setAttributes({ [TAGS_KEY]: [tag] });
+      // 异常事件:已建立上下文却命中率异常低 → 疑似服务端缓存驱逐。
+      const low = cacheLow(usage);
+      if (low) backend.event("cache_low", { ...low, model: opts.model });
       span.setAttributes({ [SPAN_OUTPUT]: truncate(msg.content ?? "") });
       return msg;
     } finally {
@@ -49,18 +53,29 @@ export function wrapRunTurn(inner: RunTurnFn): RunTurnFn {
   return async (deps: any): Promise<void> => {
     const backend = getBackend();
     if (!backend) return inner(deps);
+    const identity = deps?.identity ?? "main";
+    const depth = typeof deps?.depth === "number" ? deps.depth : 0;
     const span = backend.startSpan({
       name: "turn", spanType: "DEFAULT",
       // session id 走独立通道(TurnDeps 无此字段);main() 建 store 后 setObsSession 注入。
       sessionId: getObsSession(),
       metadata: {
         ...getObsMeta(), // 进程级 trace 元数据(如 dao 版本号)
-        identity: deps?.identity ?? "main",
-        depth: typeof deps?.depth === "number" ? deps.depth : 0,
+        identity, depth,
       },
     });
+    // 异常事件:反思层是组合根注入的 deps.reflect,在此包一层——非空结论=触发了纠偏
+    // (kind=challenger 卡住 / refocuser 长任务周期)。不改核心,只拦截注入点。
+    const reflect = deps?.reflect;
+    const wrapped = typeof reflect === "function"
+      ? { ...deps, reflect: async (kind: "challenger" | "refocuser") => {
+          const v = await reflect(kind);
+          if (v != null) backend.event("reflect_fired", { kind, identity, depth });
+          return v;
+        } }
+      : deps;
     try {
-      await backend.withActive(span, () => inner(deps));
+      await backend.withActive(span, () => inner(wrapped));
     } finally {
       span.end();
     }
@@ -85,11 +100,14 @@ export function wrapToolExec(inner: ToolExecFn): ToolExecFn {
         input: truncate(tc.function.arguments ?? ""),
       }));
     }
+    const nameOf = new Map(toolCalls.map((tc) => [tc.id, tc.function.name]));
     try {
       const results = await inner(toolCalls, registry, ctx, gate);
       for (const r of results) {
         const span = spans.get(r.tool_call_id);
         if (span) span.setAttributes({ [SPAN_OUTPUT]: truncate(r.content ?? "") });
+        // 异常事件:复用核心的规范失败判定(非零退出/超时/中断/Error);子代理失败也以 Task 结果冒出,一并覆盖。
+        if (looksFailed(r.content ?? "")) backend.event("tool_error", { tool: nameOf.get(r.tool_call_id) ?? "?" });
       }
       return results;
     } finally {

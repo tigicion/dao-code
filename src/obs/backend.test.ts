@@ -5,6 +5,7 @@ import type { ObsBackend } from "./backend.js";
 const fake: ObsBackend = {
   startSpan: () => ({ setAttributes() {}, end() {} }),
   withActive: (_s, fn) => fn(),
+  event: () => {},
   flush: async () => {},
 };
 

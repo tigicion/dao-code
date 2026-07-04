@@ -37,6 +37,7 @@ export async function initObs(on: boolean): Promise<void> {
         // 让 raw span 成为活跃父上下文,fn 期间新建的 span 挂它下面;endOnExit=false(由 wrap 的 finally 统一 end)。
         return raw ? Laminar.withSpan(raw, fn, false) : fn();
       },
+      event: (name, attributes) => Laminar.event({ name, attributes }),
       flush: () => Laminar.flush(),
     };
     setBackend(backend);

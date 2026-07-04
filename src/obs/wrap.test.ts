@@ -7,6 +7,7 @@ import type { StreamChatOptions, AssistantMessage, StreamDelta, ToolCall, ToolMe
 // 记录型 fake:每个 span 记 attrs 与 end 调用。
 function makeFake() {
   const spans: { name: string; spanType: string; input?: unknown; sessionId?: string; metadata?: Record<string, unknown>; attrs: Record<string, unknown>; ended: boolean }[] = [];
+  const events: { name: string; attributes?: Record<string, unknown> }[] = [];
   const backend: ObsBackend = {
     startSpan(o) {
       const rec = { name: o.name, spanType: o.spanType, input: o.input, sessionId: o.sessionId, metadata: o.metadata, attrs: {} as Record<string, unknown>, ended: false };
@@ -18,9 +19,10 @@ function makeFake() {
       return span;
     },
     withActive: (_s, fn) => fn(),
+    event: (name, attributes) => { events.push({ name, attributes }); },
     flush: async () => {},
   };
-  return { backend, spans };
+  return { backend, spans, events };
 }
 
 // 一个最小 streamChat:yield 两个 delta,回调 usage,return 最终消息。
@@ -32,6 +34,12 @@ async function* fakeStream(opts: StreamChatOptions): AsyncGenerator<StreamDelta,
 }
 
 const baseOpts = (): StreamChatOptions => ({ baseUrl: "x", apiKey: "x", model: "deepseek-chat", messages: [] });
+
+// 大提示词但命中率低(20%)→ 触发 cache_low 异常事件。
+async function* lowCacheStream(opts: StreamChatOptions): AsyncGenerator<StreamDelta, AssistantMessage> {
+  opts.onUsage?.({ prompt_tokens: 20000, completion_tokens: 5, total_tokens: 20005, prompt_cache_hit_tokens: 4000 });
+  return { role: "assistant", content: "x" } as AssistantMessage;
+}
 
 describe("wrapStreamChat", () => {
   beforeEach(() => setBackend(null));
@@ -62,6 +70,21 @@ describe("wrapStreamChat", () => {
     // cache 命中写成 Laminar 保留 tags 数组(而非 association 属性),UI tag 面可筛。
     expect(spans[0]!.attrs["lmnr.association.properties.tags"]).toEqual(["cache_hit"]);
     expect(spans[0]!.ended).toBe(true);
+  });
+
+  it("命中率正常时不发 cache_low;大上下文低命中时发 cache_low 事件", async () => {
+    const { backend, events } = makeFake();
+    setBackend(backend);
+    // 正常小调用(fakeStream:100 tok / 80% 命中)不报
+    const g1 = wrapStreamChat(fakeStream)(baseOpts());
+    let r = await g1.next(); while (!r.done) r = await g1.next();
+    expect(events.find((e) => e.name === "cache_low")).toBeUndefined();
+    // 大上下文低命中(20000 tok / 20%)报
+    const g2 = wrapStreamChat(lowCacheStream)(baseOpts());
+    r = await g2.next(); while (!r.done) r = await g2.next();
+    const ev = events.find((e) => e.name === "cache_low");
+    expect(ev).toBeDefined();
+    expect(ev!.attributes).toMatchObject({ hit_rate: 0.2, prompt_tokens: 20000, model: "deepseek-chat" });
   });
 
   it("迭代中途异常也 end span", async () => {
@@ -97,6 +120,19 @@ describe("wrapToolExec", () => {
     expect(spans.map((s) => s.name).sort()).toEqual(["tool.edit", "tool.read_file"]);
     expect(spans.every((s) => s.spanType === "TOOL" && s.ended)).toBe(true);
   });
+
+  it("失败的工具结果(looksFailed)发 tool_error 事件,成功的不发", async () => {
+    const { backend, events } = makeFake();
+    setBackend(backend);
+    const inner = async (): Promise<ToolMessage[]> => [
+      { role: "tool", tool_call_id: "a", content: "ok 内容" },
+      { role: "tool", tool_call_id: "b", content: "Error: boom" },
+    ];
+    await wrapToolExec(inner as any)([tc("a", "read_file"), tc("b", "run_shell")], {} as any, {} as any, {} as any);
+    const errs = events.filter((e) => e.name === "tool_error");
+    expect(errs).toHaveLength(1);
+    expect(errs[0]!.attributes).toMatchObject({ tool: "run_shell" });
+  });
 });
 
 describe("wrapRunTurn", () => {
@@ -129,5 +165,19 @@ describe("wrapRunTurn", () => {
     setObsMeta({ version: "0.3.0" });
     await wrapRunTurn((async () => {}) as any)({ identity: "subagent", depth: 1 });
     expect(spans[0]!.metadata).toMatchObject({ version: "0.3.0", identity: "subagent", depth: 1 });
+  });
+  it("deps.reflect 返回非空结论时发 reflect_fired(带 kind/identity/depth),返回 null 不发", async () => {
+    const { backend, events } = makeFake();
+    setBackend(backend);
+    // inner 内部调用被包装后的 reflect:challenger 出结论、refocuser 返回 null
+    const inner = async (d: any) => {
+      await d.reflect("challenger");
+      await d.reflect("refocuser");
+    };
+    const reflect = async (kind: string) => (kind === "challenger" ? "该收敛了" : null);
+    await wrapRunTurn(inner as any)({ identity: "main", depth: 0, reflect });
+    const fired = events.filter((e) => e.name === "reflect_fired");
+    expect(fired).toHaveLength(1);
+    expect(fired[0]!.attributes).toMatchObject({ kind: "challenger", identity: "main", depth: 0 });
   });
 });

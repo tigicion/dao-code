@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { llmAttributes, cacheTag } from "./attrs.js";
+import { llmAttributes, cacheTag, cacheLow } from "./attrs.js";
 import type { Usage } from "../client/types.js";
 
 describe("llmAttributes", () => {
@@ -31,5 +31,21 @@ describe("cacheTag", () => {
   });
   it("undefined usage → undefined", () => {
     expect(cacheTag(undefined)).toBeUndefined();
+  });
+});
+
+describe("cacheLow", () => {
+  const u = (prompt: number, hit: number): any => ({ prompt_tokens: prompt, completion_tokens: 1, total_tokens: prompt + 1, prompt_cache_hit_tokens: hit });
+  it("大上下文低命中(20% < 50%)→ 返回 hit_rate/prompt_tokens", () => {
+    expect(cacheLow(u(20000, 4000))).toEqual({ hit_rate: 0.2, prompt_tokens: 20000 });
+  });
+  it("命中率达标(90%)→ null", () => {
+    expect(cacheLow(u(20000, 18000))).toBeNull();
+  });
+  it("小/冷调用(低于 floor)即便命中低也 → null(冷启动不算异常)", () => {
+    expect(cacheLow(u(100, 0))).toBeNull();
+  });
+  it("undefined usage → null", () => {
+    expect(cacheLow(undefined)).toBeNull();
   });
 });

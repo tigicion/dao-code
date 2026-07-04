@@ -13,6 +13,8 @@ export interface ObsBackend {
   }): ObsSpan;
   /** 让 span 成为活跃父上下文,fn 执行期间新建的 span 都挂它下面。 */
   withActive<T>(span: ObsSpan, fn: () => T): T;
+  /** trace 级事件(异常信号):挂到当前活跃 trace,供 SQL/dashboard 聚合。 */
+  event(name: string, attributes?: Record<string, string | number | boolean>): void;
   flush(): Promise<void>;
 }
 
