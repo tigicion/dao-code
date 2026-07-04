@@ -38,6 +38,16 @@ export function getObsSession(): string | undefined {
   return sessionId;
 }
 
+// 全局 trace metadata:进程级不变量(如 dao 版本号),main() 启动时 set 一次,
+// wrapRunTurn 合进 turn span 的 metadata → 落到 trace 级,可按版本等维度过滤。
+let obsMeta: Record<string, unknown> = {};
+export function setObsMeta(meta: Record<string, unknown>): void {
+  obsMeta = { ...obsMeta, ...meta };
+}
+export function getObsMeta(): Record<string, unknown> {
+  return obsMeta;
+}
+
 // 观测状态(供 /status 与欢迎屏显示,让交互模式下"开没开/降级没"可见)。
 export interface ObsStatus {
   requested: boolean; // 是否带了 --obs

@@ -1,5 +1,5 @@
-import { getBackend, getObsSession, type ObsSpan } from "./backend.js";
-import { llmAttributes, cacheTag } from "./attrs.js";
+import { getBackend, getObsSession, getObsMeta, type ObsSpan } from "./backend.js";
+import { llmAttributes, cacheTag, TAGS_KEY } from "./attrs.js";
 import type {
   StreamChatOptions, StreamDelta, AssistantMessage, ToolCall, ToolMessage, Usage,
 } from "../client/types.js";
@@ -31,7 +31,8 @@ export function wrapStreamChat(inner: StreamFn): StreamFn {
       const msg = yield* inner(patched);          // 透传全部 delta 与返回值
       span.setAttributes(llmAttributes(opts.model, usage));
       const tag = cacheTag(usage);
-      if (tag) span.setAttributes({ [`lmnr.association.properties.${tag}`]: 1 });
+      // 用 Laminar 保留 tags(字符串数组)而非普通 association 属性,让 cache 命中/未命中在 UI tag 面可筛。
+      if (tag) span.setAttributes({ [TAGS_KEY]: [tag] });
       span.setAttributes({ [SPAN_OUTPUT]: truncate(msg.content ?? "") });
       return msg;
     } finally {
@@ -53,6 +54,7 @@ export function wrapRunTurn(inner: RunTurnFn): RunTurnFn {
       // session id 走独立通道(TurnDeps 无此字段);main() 建 store 后 setObsSession 注入。
       sessionId: getObsSession(),
       metadata: {
+        ...getObsMeta(), // 进程级 trace 元数据(如 dao 版本号)
         identity: deps?.identity ?? "main",
         depth: typeof deps?.depth === "number" ? deps.depth : 0,
       },

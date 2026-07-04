@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { setBackend, getBackend, isObsOn, flushObs, setObsSession, getObsSession, setObsStatus, obsStatus } from "./backend.js";
+import { setBackend, getBackend, isObsOn, flushObs, setObsSession, getObsSession, setObsMeta, getObsMeta, setObsStatus, obsStatus } from "./backend.js";
 import type { ObsBackend } from "./backend.js";
 
 const fake: ObsBackend = {
@@ -29,6 +29,14 @@ describe("obs session id", () => {
   it("set 后 get 拿到", () => {
     setObsSession("20260704-093759-qse2");
     expect(getObsSession()).toBe("20260704-093759-qse2");
+  });
+});
+
+describe("obs meta", () => {
+  it("set 合并、get 拿到累积值", () => {
+    setObsMeta({ version: "0.3.0" });
+    setObsMeta({ env: "self-host" });
+    expect(getObsMeta()).toMatchObject({ version: "0.3.0", env: "self-host" });
   });
 });
 

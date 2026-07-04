@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { setBackend, setObsSession } from "./backend.js";
+import { setBackend, setObsSession, setObsMeta } from "./backend.js";
 import type { ObsBackend, ObsSpan } from "./backend.js";
 import { wrapStreamChat, wrapRunTurn, wrapToolExec } from "./wrap.js";
 import type { StreamChatOptions, AssistantMessage, StreamDelta, ToolCall, ToolMessage } from "../client/types.js";
 
 // 记录型 fake:每个 span 记 attrs 与 end 调用。
 function makeFake() {
-  const spans: { name: string; spanType: string; input?: unknown; sessionId?: string; attrs: Record<string, unknown>; ended: boolean }[] = [];
+  const spans: { name: string; spanType: string; input?: unknown; sessionId?: string; metadata?: Record<string, unknown>; attrs: Record<string, unknown>; ended: boolean }[] = [];
   const backend: ObsBackend = {
     startSpan(o) {
-      const rec = { name: o.name, spanType: o.spanType, input: o.input, sessionId: o.sessionId, attrs: {} as Record<string, unknown>, ended: false };
+      const rec = { name: o.name, spanType: o.spanType, input: o.input, sessionId: o.sessionId, metadata: o.metadata, attrs: {} as Record<string, unknown>, ended: false };
       spans.push(rec);
       const span: ObsSpan = {
         setAttributes(a) { Object.assign(rec.attrs, a); },
@@ -59,6 +59,8 @@ describe("wrapStreamChat", () => {
     expect(spans[0]!.attrs["gen_ai.request.model"]).toBe("deepseek-chat");
     expect(spans[0]!.attrs["gen_ai.usage.input_tokens"]).toBe(100);
     expect(spans[0]!.attrs["llm.span.output" in spans[0]!.attrs ? "llm.span.output" : "lmnr.span.output"]).toBe("hello");
+    // cache 命中写成 Laminar 保留 tags 数组(而非 association 属性),UI tag 面可筛。
+    expect(spans[0]!.attrs["lmnr.association.properties.tags"]).toEqual(["cache_hit"]);
     expect(spans[0]!.ended).toBe(true);
   });
 
@@ -98,7 +100,7 @@ describe("wrapToolExec", () => {
 });
 
 describe("wrapRunTurn", () => {
-  beforeEach(() => { setBackend(null); setObsSession(undefined); });
+  beforeEach(() => { setBackend(null); setObsSession(undefined); setObsMeta({ version: undefined }); });
   it("关闭时原样返回", () => {
     const inner = async () => {};
     expect(wrapRunTurn(inner as any)).toBe(inner);
@@ -120,5 +122,12 @@ describe("wrapRunTurn", () => {
     // deps 里给个不同的 sessionId,证明用的是 obs 通道而非 deps
     await wrapRunTurn((async () => {}) as any)({ sessionId: "从-deps-不该被用" });
     expect(spans[0]!.sessionId).toBe("20260704-093759-qse2");
+  });
+  it("turn span metadata 合入全局 obs meta(如 version)+ identity/depth", async () => {
+    const { backend, spans } = makeFake();
+    setBackend(backend);
+    setObsMeta({ version: "0.3.0" });
+    await wrapRunTurn((async () => {}) as any)({ identity: "subagent", depth: 1 });
+    expect(spans[0]!.metadata).toMatchObject({ version: "0.3.0", identity: "subagent", depth: 1 });
   });
 });

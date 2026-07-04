@@ -1,5 +1,8 @@
 import type { Usage } from "../client/types.js";
 
+// Laminar 保留的 tags 键:值为字符串数组,后端/UI 有专门的 tag 过滤面(区别于普通 association 属性)。
+export const TAGS_KEY = "lmnr.association.properties.tags";
+
 // LaminarAttributes 键(与 @lmnr-ai/lmnr 的 gen_ai/llm 语义约定一致)。
 const REQUEST_MODEL = "gen_ai.request.model";
 const INPUT_TOKENS = "gen_ai.usage.input_tokens";

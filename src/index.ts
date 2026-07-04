@@ -13,7 +13,7 @@ import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat as streamChatRaw } from "./client/client.js";
 import { runTurn as runTurnRaw } from "./agent/loop.js";
 import { executeToolCalls as executeToolCallsRaw } from "./tools/execute.js";
-import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs, setObsSession, obsStatus } from "./obs/index.js";
+import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs, setObsSession, setObsMeta, obsStatus } from "./obs/index.js";
 import { applyDotenv } from "./config/env_file.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { readFileTool } from "./tools/read_file.js";
@@ -137,6 +137,7 @@ async function main() {
   // 观测旁路:仅 --obs 时动态 import Laminar 初始化;三个包装 const 遮蔽原 import 名,
   // 关闭时 wrap* 返回原函数(引用相等、零开销),main() 内所有引用自动走包装版。
   await initObs(rawArgs.includes("--obs"));
+  setObsMeta({ version: VERSION }); // trace 级元数据:按 dao 版本号过滤(空开销,obs 关时被忽略)
   // obs 状态标签(交互模式可见,避免降级了却无声无息);未请求观测则返回空串(不显示)。
   const obsLabel = (): string => {
     const s = obsStatus();
