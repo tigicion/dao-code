@@ -1142,7 +1142,7 @@ async function main() {
       for (const c of applied) memoryAudit.corrected({ target: c.target, action: c.action, reason: c.reason });
       const corrected = applied.length;
       const advisoryInjected = !!result.advisory;
-      if (result.advisory) pendingReflectAdvisories.push(`[反思·参考]\n${result.advisory}`); // 有问题才注入(append-only)
+      if (result.advisory) pendingReflectAdvisories.push(`[反思]\n${result.advisory}`); // 有问题才注入(append-only)
       memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval, note: result.note, corrected, confirmed });
       return { onTrack: result.onTrack, mem: added + merged };
     } catch (e) {

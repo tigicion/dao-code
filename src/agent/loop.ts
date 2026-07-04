@@ -286,7 +286,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       if (deps.reflect && (d.challenger || d.refocuser)) {
         events.notice(`\n[反思:${d.challenger ? "审视当前进展" : "纠偏长任务方向"}…]\n`);
         const verdict = await deps.reflect(d.challenger ? "challenger" : "refocuser");
-        if (verdict) advisories.push(`[${d.challenger ? "审视者" : "纠偏者"}·参考]\n${verdict}`);
+        if (verdict) advisories.push(`[${d.challenger ? "审视者" : "纠偏者"}]\n${verdict}`);
       } else if (deps.selfChallenge && d.challenger) {
         // 子代理只对"卡住"(失败/同错)自省;纠偏(长任务漂移)对单一受限子任务无意义,不触发。
         events.notice(`\n[子代理自检:连续失败,促其反省前提…]\n`);

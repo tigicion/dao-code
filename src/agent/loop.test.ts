@@ -170,9 +170,9 @@ describe("runTurn", () => {
       streamChat: turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }) as any,
       executeToolCalls: async () => [],
       write: (sx) => out.push(sx),
-      drainAdvisories: () => (drained ? [] : (drained = true, ["[审视者·参考]\n根因可能是 X"])),
+      drainAdvisories: () => (drained ? [] : (drained = true, ["[审视者]\n根因可能是 X"])),
     });
-    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("审视者·参考"))).toBe(true);
+    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("[审视者]"))).toBe(true);
     expect(out.join("")).toContain("审视者介入"); // 注入时给用户可见提示(与失败式挑战者一致)
   });
 
