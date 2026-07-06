@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatExtractReport, formatRecallReport } from "./report.js";
+import { formatExtractReport, formatRecallReport, formatInjectionABReport } from "./report.js";
 
 describe("report 格式化", () => {
   it("提取报告含画像召回与各 case", () => {
@@ -18,5 +18,17 @@ describe("report 格式化", () => {
     expect(out).toContain("相关性缺口");
     expect(out).toContain("0.33");
     expect(out).toContain("judge-人工");
+  });
+});
+
+describe("injection A/B 报告格式化", () => {
+  it("含 push/pull P/R/F1 与 delta,按 case 分节", () => {
+    const out = formatInjectionABReport([
+      { case: "slide", score: { push: { p: 1, r: 1, f1: 1 }, pull: { p: 0.5, r: 0.33, f1: 0.4 }, delta: 0.67 } },
+    ]);
+    expect(out).toContain("slide");
+    expect(out).toContain("push");
+    expect(out).toContain("pull");
+    expect(out).toContain("0.67");
   });
 });

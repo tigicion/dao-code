@@ -8,7 +8,8 @@ import { streamChat } from "../../src/client/client.js";
 import { loadEvalConfig } from "./lib/creds.js";
 import { runExtractCase } from "./extract.js";
 import { runRecallCase } from "./recall.js";
-import { formatExtractReport, formatRecallReport } from "./report.js";
+import { runInjectionABCase } from "./injection_ab.js";
+import { formatExtractReport, formatRecallReport, formatInjectionABReport } from "./report.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,9 +25,9 @@ async function main() {
   const args = process.argv.slice(2);
   // typo 守卫:未识别的非 flag 参数直接报错退出,别静默跑两者
   const positional = args.filter((a) => !a.startsWith("--"));
-  const which = positional.find((a) => a === "extract" || a === "recall");
+  const which = positional.find((a) => a === "extract" || a === "recall" || a === "injection-ab");
   if (positional.length && !which && !positional.includes("both")) {
-    console.error(`未知子命令:${positional.join(" ")}(应为 extract|recall|both)`); process.exit(1);
+    console.error(`未知子命令:${positional.join(" ")}(应为 extract|recall|injection-ab|both)`); process.exit(1);
   }
   const cfg = await loadEvalConfig();
   const sc = streamChat as any;
@@ -40,6 +41,11 @@ async function main() {
     const rows = [];
     for (const dir of await listCases("recall")) rows.push({ case: path.basename(dir), score: await runRecallCase(dir, sc, cfg) });
     report += formatRecallReport(rows) + "\n";
+  }
+  if (which === "injection-ab") {
+    const rows = [];
+    for (const dir of await listCases("recall")) rows.push({ case: path.basename(dir), score: await runInjectionABCase(dir, sc, cfg) });
+    report += formatInjectionABReport(rows) + "\n";
   }
   await fs.writeFile(path.join(__dirname, "report.md"), report, "utf8");
   console.log(report);
