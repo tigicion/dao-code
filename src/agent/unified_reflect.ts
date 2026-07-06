@@ -114,6 +114,12 @@ function buildTail(existing?: { title: string; text: string }[]): string {
 
 const SALIENCE_MIN = 4; // importance < 此值的琐碎丢弃(与 distill 一致)
 
+// feedback 类记忆(用户对工作方式的指导)必须带"为什么"和"怎么用"——
+// 提示词里一直这样要求,这里把口头约定升级成硬门:缺一项就不算合格的规则,丢弃。
+// 其余类型(user/semantic/procedural/episodic)不受此约束。
+const hasWhyHow = (m: ReflectMem): boolean =>
+  m.type !== "feedback" || (m.text.includes("为什么") && m.text.includes("怎么用"));
+
 export async function reflect(p: ReflectInput): Promise<ReflectResult> {
   const tail = buildTail(p.existing);
   const messages = p.fork
@@ -144,6 +150,7 @@ export async function reflect(p: ReflectInput): Promise<ReflectResult> {
     if ((m.importance ?? 5) < SALIENCE_MIN) return false;
     if (isCatalogNoise(m.text) || isCatalogNoise(m.title)) return false;
     if (findSecrets(m.text).length || findSecrets(m.title).length) return false;
+    if (!hasWhyHow(m)) return false;
     return true;
   });
   if (dbg) console.error(`[reflect] onTrack=${parsed.onTrack} advisory=${parsed.advisory ? "有" : "无"} memories=${memories.length}`);

@@ -60,7 +60,7 @@ describe("反思器管线(端到端,假模型零 API)", () => {
     // 先放一条已有
     await persist(await reflect({ ...base, streamChat: () => fakeStream(JSON.stringify({ onTrack: true, advisory: null, memories: [{ title: "中文偏好", text: "用户偏好中文思考", type: "user", importance: 7 }] })) } as never), dirs);
     // 再来一条 mergeInto 它
-    const r2 = await reflect({ ...base, streamChat: () => fakeStream(JSON.stringify({ onTrack: true, advisory: null, memories: [{ title: "中文偏好(增强)", text: "用户偏好中文思考与回答", type: "feedback", importance: 9, mergeInto: "中文偏好" }] })) } as never);
+    const r2 = await reflect({ ...base, streamChat: () => fakeStream(JSON.stringify({ onTrack: true, advisory: null, memories: [{ title: "中文偏好(增强)", text: "用户偏好中文思考与回答", type: "user", importance: 9, mergeInto: "中文偏好" }] })) } as never);
     await persist(r2, dirs);
     const all = await loadAllMemories(dirs.proj, dirs.user, dirs.know);
     expect(all).toHaveLength(1);                        // 合并,不新增
