@@ -141,6 +141,11 @@ describe("REFLECT_TAIL 记忆提取段", () => {
     expect(REFLECT_TAIL).toContain("mergeInto");
     expect(REFLECT_TAIL).toContain("不可记");
   });
+
+  it("不可记清单含 CLAUDE.md 重复规则与纯 git 历史事实两条缺口", () => {
+    expect(REFLECT_TAIL).toContain("CLAUDE.md");
+    expect(REFLECT_TAIL).toContain("git log");
+  });
 });
 
 describe("REFLECT_TAIL 纠错与确认段", () => {

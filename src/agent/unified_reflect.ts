@@ -66,7 +66,7 @@ export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。
 title(≤1 行)、text(完整事实;feedback 必须带"为什么:…"和"怎么用:…")、type、importance(1–10)、confidence(0–1)、source(user_stated/inferred/文件名)、mergeInto(已有记忆 title 或 null)。
 
 ### 不可记
-一次性操作步骤、代码行数/文件清单、显而易见的事(代码已写明的框架用法)、情绪/性格标签、纯描述无教训的事件("本 session 做了 X")。
+一次性操作步骤、代码行数/文件清单、显而易见的事(代码已写明的框架用法)、情绪/性格标签、纯描述无教训的事件("本 session 做了 X")、已经写在 CLAUDE.md 或项目文档里的规则(重复记会在两处不一致时不知道以谁为准)、纯 git 历史事实(谁在什么时候改了什么——git log/blame 是权威来源;除非要记的是代码和 commit message 里都没写的"为什么这么改")。
 
 ## 二、进展审视(其次;独立怀疑视角)
 
