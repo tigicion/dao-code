@@ -1,6 +1,7 @@
 // 召回轴 A/B:push(现状,src/memory/inject.ts 的两层读取)vs pull(CC 风格,仅索引、模型自己决定读哪条)。
-// allLiveTitles 是 pull 轴的"注入集"——不像 selectFullText 那样给 user/feedback/locked 全文特权,
-// 一律只留标题,逼近 CC「只有 MEMORY.md 索引常驻,模型主动 Read 单条」的设计。
+// pull 轴由 runInjectionABCase 构造:对每条 live 记忆一律只给一段可读标识交给 judge,不给 user/feedback/locked
+// 全文特权,逼近 CC「只有 MEMORY.md 索引常驻,模型主动 Read 单条」的设计;标识用记忆的 name(而非展示 title 或
+// title||name),这样 judge 选中的集合能直接和 valueGold(存的是 name)的 name-keyed 集合对齐算 P/R。
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -12,10 +13,6 @@ import { validateMemory } from "../../src/memory/validate.js";
 import { judgeBool, pullWorthyPrompt } from "./lib/judge.js";
 import { precisionRecall } from "./lib/metrics.js";
 import type { RecallContext, EvalConfig } from "./lib/types.js";
-
-export function allLiveTitles(items: { mem: Memory; verdict: Verdict }[]): string[] {
-  return items.filter((x) => x.verdict !== "stale").map((x) => x.mem.title || x.mem.name);
-}
 
 export interface InjectionABScore {
   push: { p: number; r: number; f1: number };
@@ -41,8 +38,9 @@ export async function gradeInjectionAB(p: {
   return { push, pull, delta: push.r - pull.r };
 }
 
-// 整合入口:加载 fixture、走 validate/项目过滤(镜像 recall.ts.runRecallCase),
-// 分别算 push 轴(selectForInjection 的注入集)与 pull 轴(allLiveTitles,按 name 而非展示 title 传给 judge——
+// 整合入口:沿用 recall.ts.runRecallCase 的 fixture 装载套路(读 context.json → mkdtemp → loadAllMemories →
+// 逐条 validateMemory),
+// 分别算 push 轴(selectForInjection 的注入集)与 pull 轴(所有 live 记忆,按 name 而非展示 title 传给 judge——
 // judge rubric 只是要"一段可读的标识",用 name 代替展示 title 不影响判断质量,却让结果能直接和 valueGold 比对)。
 // RecallContext 本身没有 projectId 字段,fixture 的 context.json 可能带它做 knowledge 层过滤,故此处局部放宽类型。
 export async function runInjectionABCase(dir: string, streamChat: (o: any) => AsyncGenerator<any, any>, cfg: EvalConfig): Promise<InjectionABScore> {
