@@ -31,6 +31,33 @@ describe("unified_reflect.reflect", () => {
     expect(r.memories).toHaveLength(0);
   });
 
+  it("feedback 类型缺 为什么/怎么用 → 被丢弃", async () => {
+    const out = JSON.stringify({
+      onTrack: true, advisory: null,
+      memories: [{ title: "别用 mock 数据库", text: "集成测试必须连真实数据库,不能 mock。", type: "feedback", importance: 9 }],
+    });
+    const r = await reflect({ ...base, streamChat: () => fakeStream(out) } as never);
+    expect(r.memories).toHaveLength(0);
+  });
+
+  it("feedback 类型带 为什么 和 怎么用 → 保留", async () => {
+    const out = JSON.stringify({
+      onTrack: true, advisory: null,
+      memories: [{ title: "别用 mock 数据库", text: "集成测试必须连真实数据库,不能 mock。为什么:上季度 mock 通过但生产迁移失败。怎么用:integration 测试一律连真实 DB。", type: "feedback", importance: 9 }],
+    });
+    const r = await reflect({ ...base, streamChat: () => fakeStream(out) } as never);
+    expect(r.memories).toHaveLength(1);
+  });
+
+  it("非 feedback 类型不受 Why/How 约束(procedural 缺这两词仍保留)", async () => {
+    const out = JSON.stringify({
+      onTrack: true, advisory: null,
+      memories: [{ title: "Range 崩溃坑", text: "Swift Range lowerBound>upperBound 会 fatal error。", type: "procedural", importance: 7 }],
+    });
+    const r = await reflect({ ...base, streamChat: () => fakeStream(out) } as never);
+    expect(r.memories).toHaveLength(1);
+  });
+
   it("目录倾倒式记忆被过滤", async () => {
     const out = JSON.stringify({ onTrack: true, advisory: null, memories: [{ title: "x", text: "用户使用 grep_files 工具搜索代码", type: "user", importance: 6 }] });
     const r = await reflect({ ...base, streamChat: () => fakeStream(out) } as never);
@@ -113,6 +140,11 @@ describe("REFLECT_TAIL 记忆提取段", () => {
   it("含 mergeInto 指令与不可记", () => {
     expect(REFLECT_TAIL).toContain("mergeInto");
     expect(REFLECT_TAIL).toContain("不可记");
+  });
+
+  it("不可记清单含 CLAUDE.md 重复规则与纯 git 历史事实两条缺口", () => {
+    expect(REFLECT_TAIL).toContain("CLAUDE.md");
+    expect(REFLECT_TAIL).toContain("git log");
   });
 });
 

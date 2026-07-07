@@ -17,6 +17,9 @@ tsx evals/memory/run.ts
 # 只跑其一
 tsx evals/memory/run.ts extract
 tsx evals/memory/run.ts recall
+
+# 召回轴 A/B(push 全文注入 vs pull 仅索引,独立诊断,不含在 both 里)
+tsx evals/memory/run.ts injection-ab
 ```
 
 跑批遍历 `fixtures/extract/*` 与 `fixtures/recall/*` 每个 case 目录,结果汇总成 `evals/memory/report.md` 并打到 stdout。
@@ -33,6 +36,8 @@ tsx evals/memory/run.ts recall
 - `fixtures/extract/<case>/`:`conversation.jsonl`(对话流)+ `gold.json`(`existing`/`mustExtract`/`mustNot` 金标)。
 - `fixtures/recall/<case>/`:`context.json`(任务语境 + `valueGold` + stale 标注)+ `store/`(候选记忆库)。
 
+> `injection-ab` 复用 `fixtures/recall/*` 同一批 fixture,不需要单独的 fixture 目录。
+
 ## 金标制备约定
 
 金标(`mustExtract`/`mustNot`/`valueGold`)由 Claude 起草、用户抽查校正。判定哪条事实"该抽"、哪条记忆"该注入"是主观的,起草只是降低人工成本,最终以用户抽查为准。
@@ -47,3 +52,5 @@ tsx evals/memory/run.ts recall
 ## 后续增强
 
 `run.ts` 的 `--local` 真实 session 接入(直接读 `~/DaoProject/*/.dao/sessions/*/events.jsonl` 当 extract 输入)尚未实现,先以 `fixtures/` 跑通为准。`listCases` 不跳过 `_` 前缀目录,`_synthetic` 合成样本会一并跑,作冒烟。
+
+> `injection-ab` 目前用 judge 模拟"仅凭标题会不会主动去读"——这是对"pull 策略在决策点是否触发检索"的近似,不是真的跑一遍带 `memory_read` 工具的多轮 agent 循环。更真实的验证需要接一个真实工具调用回合,目前先以这个更便宜的近似跑通对比。

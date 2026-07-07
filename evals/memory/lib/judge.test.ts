@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseJudgeJson, judgeBool, factCoveredPrompt, memoryQualityPrompt } from "./judge.js";
+import { parseJudgeJson, judgeBool, factCoveredPrompt, memoryQualityPrompt, pullWorthyPrompt } from "./judge.js";
 
 function fakeStream(text: string) {
   return async function* () { yield { kind: "content", text }; return { role: "assistant", content: text }; }();
@@ -21,6 +21,12 @@ describe("rubric 构造", () => {
   it("memoryQualityPrompt 含四维度键", () => {
     const p = memoryQualityPrompt({ title: "T", text: "x" } as any);
     for (const k of ["durable", "typeScopeCorrect", "notCatalogDump", "actionable"]) expect(p).toContain(k);
+  });
+  it("pullWorthyPrompt 含任务、标题与 wouldRead 键", () => {
+    const p = pullWorthyPrompt("给这个滑梯游戏配角接音效", "slide-game-实现完成状态");
+    expect(p).toContain("给这个滑梯游戏配角接音效");
+    expect(p).toContain("slide-game-实现完成状态");
+    expect(p).toContain("wouldRead");
   });
 });
 

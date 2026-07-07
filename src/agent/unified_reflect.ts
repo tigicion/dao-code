@@ -66,7 +66,7 @@ export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。
 title(≤1 行)、text(完整事实;feedback 必须带"为什么:…"和"怎么用:…")、type、importance(1–10)、confidence(0–1)、source(user_stated/inferred/文件名)、mergeInto(已有记忆 title 或 null)。
 
 ### 不可记
-一次性操作步骤、代码行数/文件清单、显而易见的事(代码已写明的框架用法)、情绪/性格标签、纯描述无教训的事件("本 session 做了 X")。
+一次性操作步骤、代码行数/文件清单、显而易见的事(代码已写明的框架用法)、情绪/性格标签、纯描述无教训的事件("本 session 做了 X")、已经写在 CLAUDE.md 或项目文档里的规则(重复记会在两处不一致时不知道以谁为准)、纯 git 历史事实(谁在什么时候改了什么——git log/blame 是权威来源;除非要记的是代码和 commit message 里都没写的"为什么这么改")。
 
 ## 二、进展审视(其次;独立怀疑视角)
 
@@ -114,6 +114,12 @@ function buildTail(existing?: { title: string; text: string }[]): string {
 
 const SALIENCE_MIN = 4; // importance < 此值的琐碎丢弃(与 distill 一致)
 
+// feedback 类记忆(用户对工作方式的指导)必须带"为什么"和"怎么用"——
+// 提示词里一直这样要求,这里把口头约定升级成硬门:缺一项就不算合格的规则,丢弃。
+// 其余类型(user/semantic/procedural/episodic)不受此约束。
+const hasWhyHow = (m: ReflectMem): boolean =>
+  m.type !== "feedback" || (m.text.includes("为什么") && m.text.includes("怎么用"));
+
 export async function reflect(p: ReflectInput): Promise<ReflectResult> {
   const tail = buildTail(p.existing);
   const messages = p.fork
@@ -144,6 +150,7 @@ export async function reflect(p: ReflectInput): Promise<ReflectResult> {
     if ((m.importance ?? 5) < SALIENCE_MIN) return false;
     if (isCatalogNoise(m.text) || isCatalogNoise(m.title)) return false;
     if (findSecrets(m.text).length || findSecrets(m.title).length) return false;
+    if (!hasWhyHow(m)) return false;
     return true;
   });
   if (dbg) console.error(`[reflect] onTrack=${parsed.onTrack} advisory=${parsed.advisory ? "有" : "无"} memories=${memories.length}`);

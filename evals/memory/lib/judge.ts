@@ -50,3 +50,11 @@ export function memoryQualityPrompt(memory: { title?: string; text: string; type
 export function relevancePrompt(task: string, memoryText: string): string {
   return `判断这条记忆对当前任务是否【真正相关】(能影响怎么做这个任务)。\n任务:${task}\n记忆:${memoryText}\n\n只输出 JSON:{"relevant": true/false, "why": "一句话"}`;
 }
+
+// pull 轴专用:只给标题(不给正文),判断"看到这个任务,你会不会主动去 memory_read 这条记忆的全文"。
+// 用来量化"仅索引"策略下,标题本身的信号是否足以触发正确的检索决策——这是 push(全文常驻)vs
+// pull(仅索引、按需读)两种召回策略的核心分歧点。
+export function pullWorthyPrompt(task: string, title: string): string {
+  return `你是一个 AI 编程助手,手头只有一份【记忆标题索引】(没有正文)。判断:面对下面这个任务,你会不会主动调用 memory_read 去读这条记忆的全文?\n` +
+    `任务:${task}\n记忆标题:${title}\n\n只输出 JSON:{"wouldRead": true/false, "why": "一句话理由"}`;
+}

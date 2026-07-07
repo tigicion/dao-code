@@ -1,5 +1,6 @@
 import type { ExtractScore } from "./extract.js";
 import type { RecallScore } from "./recall.js";
+import type { InjectionABScore } from "./injection_ab.js";
 
 export function formatExtractReport(rows: { case: string; score: ExtractScore }[]): string {
   const lines = ["# 提取效果报告", "", "> 注:抽取单采样(reflect fork:true 带推理,对齐线上);judge K 次取中位。数字为参考。", ""];
@@ -26,6 +27,19 @@ export function formatRecallReport(rows: { case: string; score: RecallScore }[])
       `- stale 泄漏(应为0):${s.staleLeak}`,
       `- 相关性缺口(对人工金标,诊断,越低越好):${s.relevanceGapValue.toFixed(2)}`,
       `- judge-人工相关性一致度 F1(诊断):${s.judgeHumanAgreement.toFixed(2)}`, "");
+  }
+  return lines.join("\n");
+}
+
+export function formatInjectionABReport(rows: { case: string; score: InjectionABScore }[]): string {
+  const lines = ["# 召回轴 A/B 报告(push 全文注入 vs pull 仅索引)", "",
+    "> push=现状(selectForInjection 全文常驻);pull=CC 风格(仅标题索引,judge 模拟\"看标题会不会主动去读\")。", ""];
+  for (const r of rows) {
+    const s = r.score;
+    lines.push(`## ${r.case}`,
+      `- push P/R/F1:${s.push.p.toFixed(2)} / ${s.push.r.toFixed(2)} / ${s.push.f1.toFixed(2)}`,
+      `- pull P/R/F1:${s.pull.p.toFixed(2)} / ${s.pull.r.toFixed(2)} / ${s.pull.f1.toFixed(2)}`,
+      `- delta(push.r - pull.r,越大说明仅索引漏召回越多):${s.delta.toFixed(2)}`, "");
   }
   return lines.join("\n");
 }
