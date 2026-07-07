@@ -877,31 +877,62 @@ export function App(deps: AppDeps) {
         const nOn = all.filter((s) => s.on).length;
         const visible = skillPick.showBundled ? all : all.filter((s) => !isBundledSkill(s));
         const rows = visible.map((s) => `${s.on ? "● on " : "○ off"}  ${s.name}  ·  ${s.source}  ·  ${s.detail.slice(0, 40)}`);
+        // 窗口滚动:skill 过多时只显示可见窗口,选中的始终在屏幕内
+        const WIN = Math.max(5, Math.min(visible.length, (process.stdout.rows ?? 40) - 15));
+        const start = rows.length <= WIN ? 0 : Math.max(0, Math.min(skillPick.idx - Math.floor(WIN / 2), Math.max(0, rows.length - WIN)));
+        const shown = rows.slice(start, start + WIN);
         return (
           <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
             <Text color={c("jade")}>{t("ui.skill.header", nBundled, nThird, nOn, skillPick.showBundled ? t("ui.skill.showAll") : t("ui.skill.showThird"))}</Text>
             {rows.length === 0
               ? <Text color={c("dim")}>{t("ui.skill.empty", skillPick.showBundled ? "" : t("ui.skill.thirdWord"))}</Text>
-              : rows.map((label, i) => (
-                  <Text key={i} color={i === skillPick.idx ? c("jade") : c("ink")}>{i === skillPick.idx ? "❯ " : "  "}{label}</Text>
-                ))}
+              : <>
+                  {start > 0 ? <Text color={c("dim")}>{t("ui.resume.more", start)}</Text> : null}
+                  {shown.map((label, j) => {
+                    const i = start + j;
+                    return (
+                      <Text key={i} color={i === skillPick.idx ? c("jade") : c("ink")}>{i === skillPick.idx ? "❯ " : "  "}{label}</Text>
+                    );
+                  })}
+                  {start + WIN < rows.length ? <Text color={c("dim")}>{t("ui.resume.moreBelow", rows.length - start - WIN)}</Text> : null}
+                </>
+            }
             <Text color={c("dim")}>{t("ui.skill.help1")}</Text>
             <Text color={c("dim")}>{t("ui.skill.help2")}</Text>
           </Box>
         );
       })()}
 
-      {choice && (
-        <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
-          <Text color={c("jade")}>{choice.question}</Text>
-          {(() => {
-            const rows = [...choice.options, ...(choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS])];
-            const fillIdx = choice.options.length + (choice.multi ? 1 : 0);
-            return rows.map((o, i) => {
+      {choice && (() => {
+        const nOpt = choice.options.length;
+        const extras = choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS];
+        const nExtra = extras.length;
+        const fillIdx = nOpt + (choice.multi ? 1 : 0);
+        // 窗口滚动:仅选项部分,extras 始终在底部独立显示,保底 5 行
+        const WIN = Math.max(5, Math.min(nOpt, (process.stdout.rows ?? 40) - 15 - nExtra));
+        const start = nOpt <= WIN ? 0 : Math.max(0, Math.min(
+          (choiceIdx < nOpt ? choiceIdx : nOpt - 1) - Math.floor(WIN / 2),
+          nOpt - WIN
+        ));
+        const shownOpts = choice.options.slice(start, start + WIN);
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>{choice.question}</Text>
+            {start > 0 ? <Text color={c("dim")}>{t("ui.resume.more", start)}</Text> : null}
+            {shownOpts.map((o, j) => {
+              const i = start + j;
               const focused = i === choiceIdx;
-              // 多选:正常项显示 checkbox;"完成/其他/讨论"不参与勾选,仍按序号呈现。
-              const box = choice.multi && i < choice.options.length ? (choiceChecked.has(i) ? "[x] " : "[ ] ") : "";
-              // "自己输入"行:焦点在此即内联输入框——有内容显内容+光标,空则灰色提示;未聚焦仍显灰色提示。
+              const box = choice.multi ? (choiceChecked.has(i) ? "[x] " : "[ ] ") : "";
+              return (
+                <Text key={i} color={focused ? c("jade") : c("ink")}>
+                  {focused ? "❯ " : "  "}{i + 1}. {box}{stripEnum(o)}
+                </Text>
+              );
+            })}
+            {start + WIN < nOpt ? <Text color={c("dim")}>{t("ui.resume.moreBelow", nOpt - start - WIN)}</Text> : null}
+            {extras.map((o, j) => {
+              const i = nOpt + j;
+              const focused = i === choiceIdx;
               if (i === fillIdx) {
                 return (
                   <Text key={i} color={focused ? c("jade") : c("dim")}>
@@ -914,19 +945,19 @@ export function App(deps: AppDeps) {
               }
               return (
                 <Text key={i} color={focused ? c("jade") : c("ink")}>
-                  {focused ? "❯ " : "  "}{i + 1}. {box}{i < choice.options.length ? stripEnum(o) : o}
+                  {focused ? "❯ " : "  "}{i + 1}. {o}
                 </Text>
               );
-            });
-          })()}
-          <Text color={c("dim")}>
-            {choiceIdx === choice.options.length + (choice.multi ? 1 : 0)
-              ? t("ui.choice.hintFill")
-              : choice.multi ? t("ui.choice.hintMulti") : t("ui.choice.hintSingle")}
-          </Text>
-          {choiceWarn ? <Text color={c("vermilion")}>{t("ui.choice.warn")}</Text> : null}
-        </Box>
-      )}
+            })}
+            <Text color={c("dim")}>
+              {choiceIdx === fillIdx
+                ? t("ui.choice.hintFill")
+                : choice.multi ? t("ui.choice.hintMulti") : t("ui.choice.hintSingle")}
+            </Text>
+            {choiceWarn ? <Text color={c("vermilion")}>{t("ui.choice.warn")}</Text> : null}
+          </Box>
+        );
+      })()}
 
       {ask && (
         <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>

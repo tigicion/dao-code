@@ -115,6 +115,11 @@ export function Welcome({
             <Text color={c("ink")}>{shortenPath(info.cwd)}</Text>
             {info.branch ? <Text color={c("jade")}>{"  ⎇ "}{info.branch}</Text> : null}
           </Text>
+          {info.obs ? (
+            <Text>
+              <Text color={c(info.obs.includes("降级") ? "vermilion" : "jade")}>{"◉ "}{info.obs}</Text>
+            </Text>
+          ) : null}
         </Box>
 
         {!narrow && (

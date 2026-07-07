@@ -29,3 +29,17 @@ export async function loadDotenv(file: string): Promise<Record<string, string>> 
     return {};
   }
 }
+
+// 把 .env 里的键补进 process.env——仅当该键尚未在环境中设置(真实 env 变量优先,不被 .env 覆盖)。
+// 返回实际被补入的键名。缺失文件 → 不做事、返回 []。
+export async function applyDotenv(file: string): Promise<string[]> {
+  const parsed = await loadDotenv(file);
+  const applied: string[] = [];
+  for (const [k, v] of Object.entries(parsed)) {
+    if (process.env[k] === undefined) {
+      process.env[k] = v;
+      applied.push(k);
+    }
+  }
+  return applied;
+}

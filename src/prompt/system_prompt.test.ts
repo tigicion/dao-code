@@ -30,9 +30,9 @@ describe("buildSystemPrompt (zh)", () => {
   });
 
   it("含审视/反思提醒段", () => {
-    expect(prompt).toContain("审视者·参考");
-    expect(prompt).toContain("反思·参考");
-    expect(prompt).toMatch(/不得默默忽略|必须当轮|停下来显式处理/);
+    expect(prompt).toContain("[审视者]");
+    expect(prompt).toContain("[反思]");
+    expect(prompt).toMatch(/不得默默忽略|看到即停|停下来显式处理/);
   });
 
   it("leaves no unfilled placeholders", () => {
@@ -95,8 +95,8 @@ describe("buildSystemPrompt (en)", () => {
   });
 
   it("包含 advisory/reflection reminders", () => {
-    expect(prompt).toContain("审视者·参考");
-    expect(prompt).toContain("反思·参考");
+    expect(prompt).toContain("[审视者]");
+    expect(prompt).toContain("[反思]");
     // The English BODY keeps the original Chinese prefixes
   });
 

@@ -10,9 +10,11 @@ import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
 import { migrateLegacyDir } from "./config/migrate_dirs.js";
-import { streamChat } from "./client/client.js";
-import { runTurn } from "./agent/loop.js";
-import { executeToolCalls } from "./tools/execute.js";
+import { streamChat as streamChatRaw } from "./client/client.js";
+import { runTurn as runTurnRaw } from "./agent/loop.js";
+import { executeToolCalls as executeToolCallsRaw } from "./tools/execute.js";
+import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs, setObsSession, setObsMeta, obsStatus } from "./obs/index.js";
+import { applyDotenv } from "./config/env_file.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { readFileTool } from "./tools/read_file.js";
 import { listDirTool } from "./tools/list_dir.js";
@@ -125,10 +127,28 @@ async function main() {
   let cleaned = false;
   const cleanup = () => { if (!cleaned) { cleaned = true; try { processManager.reset(); } catch {} } };
   process.on("exit", cleanup);
-  process.on("SIGINT", () => { cleanup(); process.exit(130); });
-  process.on("SIGTERM", () => { cleanup(); process.exit(143); });
+  process.on("SIGINT", async () => { cleanup(); await flushObs(); process.exit(130); });
+  process.on("SIGTERM", async () => { cleanup(); await flushObs(); process.exit(143); });
 
   const rawArgs = process.argv.slice(2);
+  // 启动即加载工作目录 .env(如 LMNR_PROJECT_API_KEY):仅补未设置的键,真实 env 变量优先。
+  // 放在 initObs 之前,让 --obs 无需手动 export 即可从 .env 拿到 key。
+  await applyDotenv(`${process.cwd()}/.env`);
+  // 观测旁路:仅 --obs 时动态 import Laminar 初始化;三个包装 const 遮蔽原 import 名,
+  // 关闭时 wrap* 返回原函数(引用相等、零开销),main() 内所有引用自动走包装版。
+  await initObs(rawArgs.includes("--obs"));
+  setObsMeta({ version: VERSION }); // trace 级元数据:按 dao 版本号过滤(空开销,obs 关时被忽略)
+  // obs 状态标签(交互模式可见,避免降级了却无声无息);未请求观测则返回空串(不显示)。
+  const obsLabel = (): string => {
+    const s = obsStatus();
+    if (!s.requested) return "";
+    return s.on ? `obs→${s.endpoint}` : "obs降级(检查 LMNR_PROJECT_API_KEY)";
+  };
+  const streamChat = wrapStreamChat(streamChatRaw);
+  const runTurn = wrapRunTurn(runTurnRaw);
+  // wrapToolExec 的 ToolExecFn 刻意用 unknown 解耦 obs↔core;strictFunctionTypes 下
+  // 具体入参函数无法逆变赋给 unknown 入参签名,故在组合根用 cast 桥接(仅入参类型,返回值仍为 ToolMessage[])。
+  const executeToolCalls = wrapToolExec(executeToolCallsRaw as unknown as Parameters<typeof wrapToolExec>[0]);
   // --version/-v 必须在任何初始化(读配置/连 API)之前拦下,否则整句会被当 prompt 发给模型。
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
     process.stdout.write(`dao-code v${VERSION}\n`);
@@ -199,7 +219,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--obs"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -295,6 +315,7 @@ async function main() {
     cwd: workspaceRoot,
     version: VERSION,
     branch: gitBranch,
+    obs: obsLabel() || undefined, // 带 --obs 时在欢迎屏显示观测状态(开→地址 / 降级),不请求则不显示
   };
   const welcome = { info: welcomeInfo, caps, bg, maxim: randomMaxim() };
 
@@ -1129,7 +1150,7 @@ async function main() {
       for (const c of applied) memoryAudit.corrected({ target: c.target, action: c.action, reason: c.reason });
       const corrected = applied.length;
       const advisoryInjected = !!result.advisory;
-      if (result.advisory) pendingReflectAdvisories.push(`[反思·参考]\n${result.advisory}`); // 有问题才注入(append-only)
+      if (result.advisory) pendingReflectAdvisories.push(`[反思]\n${result.advisory}`); // 有问题才注入(append-only)
       memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval, note: result.note, corrected, confirmed });
       return { onTrack: result.onTrack, mem: added + merged };
     } catch (e) {
@@ -1238,6 +1259,7 @@ async function main() {
       }
       const store = createSessionStore(sessionsDir, resumeId);
       exitSessionId = store.id; // 记下,退出时给 resume 提示
+      setObsSession(store.id); // obs:让 turn span 带上 session id,trace 可按 session 分组/查找
       // 缓存审计:主+子+fork+后台+三工具调用全写进 store.dir/cache.jsonl(常驻静默;DAO_CACHE_AUDIT=0 关)。
       cacheSink = createCacheAuditSink(store.dir);
       memoryAudit = createMemoryAuditSink(store.dir);
@@ -1537,7 +1559,7 @@ async function main() {
           if (name === "status") {
             const pct = Math.round((contextTokens() / CONTEXT_WINDOW) * 100);
             const flags = [yolo ? "免审批" : "", longTask ? "长任务" : ""].filter(Boolean).join("/") || "—";
-            return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}\n${session.usageSummary()}` };
+            return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}${obsLabel() ? ` · ${obsLabel()}` : ""}\n${session.usageSummary()}` };
           }
           if (name === "plugin") {
             if (installedPlugins.length === 0) return { handled: true, output: "未装插件。装:dao plugin add <git-url|路径>(插件根需 plugin.json + skills/)。" };
@@ -1762,6 +1784,7 @@ async function main() {
       const sessionsDir = path.join(workspaceRoot, ".dao", "sessions");
       const store = createSessionStore(sessionsDir, undefined);
       exitSessionId = store.id;
+      setObsSession(store.id); // obs:session id 注入(同交互路径)
       cacheSink = createCacheAuditSink(store.dir);
       memoryAudit = createMemoryAuditSink(store.dir);
       toolAudit = createToolAuditSink(store.dir);
@@ -1788,7 +1811,7 @@ async function main() {
 // 收尾后显式退出:distill 的 flash HTTP keep-alive socket 等滞留 handle 会让 Node 排不空事件循环、
 // 不自然退出(看起来卡在"✓ 记忆无需更新"那行)。要紧的 await(distill/upsert/mcp.close)都已在 main 内完成。
 main().then(
-  () => process.exit(0),
+  async () => { await flushObs(); process.exit(0); },
   (err) => {
     console.error("\n" + (err as Error).message);
     process.exit(1);

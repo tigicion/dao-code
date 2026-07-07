@@ -1,0 +1,7 @@
+{
+  "kind": "double",
+  "desc": "修复 configureAxis:显式指定 range 时应保留用户给的顺序,不该被默认排列规则覆盖",
+  "prompt": "工作区里的 axisConfig.mjs 有个 bug:configureAxis 支持两种模式——① 未显式指定 range 时,按 values 自动算边界,并默认按从大到小排列(常见于排行榜展示,第一名在最上面);② 显式指定了 range 时,必须原样保留用户给出的那个顺序,不能被默认排列规则覆盖。但现在无论有没有显式指定 range,都会被无条件按从大到小重排,导致显式指定的顺序被打乱。请修复,同时不要影响未显式指定 range 时的默认行为(仍应从大到小排列)。",
+  "fail2pass": "tests/fail2pass.mjs",
+  "pass2pass": "tests/pass2pass.mjs"
+}
