@@ -1,0 +1,753 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "read_file",
+      "description": "读取工作区内的文本文件,返回带行号(1-based)的内容。可用 offset 指定起始行、limit 指定读取行数。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "相对工作区根目录的文件路径"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "起始行号(1-based,含)"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "最多读取的行数"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_dir",
+      "description": "列出工作区内某个目录的条目,目录名以 / 结尾,按字典序排列。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "相对工作区根目录的目录路径,默认根目录"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "write_file",
+      "description": "在工作区内新建或整体重写一个文件。覆盖已存在文件前必须先用 read_file 读过它。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "相对工作区根目录的文件路径"
+          },
+          "content": {
+            "type": "string",
+            "description": "文件的完整内容"
+          }
+        },
+        "required": [
+          "path",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_file",
+      "description": "对工作区内已存在文件做精确字符串替换。old_string 必须在文件中唯一(否则用 replace_all 或扩大上下文)。编辑前需先用 read_file 读过它。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "相对工作区根目录的文件路径"
+          },
+          "old_string": {
+            "type": "string",
+            "description": "要被替换的原文(需唯一)"
+          },
+          "new_string": {
+            "type": "string",
+            "description": "替换成的新文本"
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "是否替换全部出现"
+          }
+        },
+        "required": [
+          "path",
+          "old_string",
+          "new_string"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "multi_edit",
+      "description": "对工作区内一个文件按顺序应用多处精确字符串替换;原子操作——任一处失败则整体不写盘。编辑前需先用 read_file 读过它。每处 old_string 须在【施加该处时的内容】中唯一(或设 replace_all)。比连发多个 edit_file 更安全:要么全成、要么全不改。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "相对工作区根的文件路径"
+          },
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "old_string": {
+                  "type": "string",
+                  "description": "要被替换的原文"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "替换成的新文本"
+                },
+                "replace_all": {
+                  "type": "boolean",
+                  "description": "是否替换全部出现"
+                }
+              },
+              "required": [
+                "old_string",
+                "new_string"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "description": "按顺序应用的替换列表"
+          }
+        },
+        "required": [
+          "path",
+          "edits"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "notebook_edit",
+      "description": "编辑 Jupyter notebook(.ipynb)的单元格:mode=replace 替换 / insert 在该下标处插入 / delete 删除。新建单元格默认 code,可设 cell_type=markdown。编辑前需先 read_file 读过它。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": ".ipynb 文件路径(相对工作区根)"
+          },
+          "cell_index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "目标单元格下标(0 起)"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "insert",
+              "delete"
+            ],
+            "description": "replace/insert/delete"
+          },
+          "source": {
+            "type": "string",
+            "description": "replace/insert 时的单元格源码"
+          },
+          "cell_type": {
+            "type": "string",
+            "enum": [
+              "code",
+              "markdown"
+            ],
+            "description": "insert 默认 code;replace 可改类型"
+          }
+        },
+        "required": [
+          "path",
+          "cell_index",
+          "mode"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "exec_shell",
+      "description": "在工作区目录执行 shell 命令(git、测试、find 等都走它)。前台执行返回输出与退出码;background=true 则后台启动并返回进程 id(用 exec_shell_poll 读输出、exec_shell_kill 结束)。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "要执行的 shell 命令"
+          },
+          "background": {
+            "type": "boolean",
+            "description": "是否后台运行(长任务/服务)"
+          },
+          "timeout": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "前台超时(毫秒),默认 120000"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "exec_shell_poll",
+      "description": "读取某个后台进程自上次轮询以来的新输出与当前状态(running/exited)。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "exec_shell 返回的后台进程 id"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "exec_shell_kill",
+      "description": "终止某个后台进程(发送 SIGTERM)。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "exec_shell 返回的后台进程 id"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "grep_files",
+      "description": "在工作区内按内容(正则)搜索文本文件。mode=content(默认)返回 路径:行号:行内容;mode=files 只返回命中文件名。可用 glob 过滤文件名。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "正则表达式"
+          },
+          "path": {
+            "type": "string",
+            "description": "搜索子目录,默认工作区根"
+          },
+          "glob": {
+            "type": "string",
+            "description": "文件名 glob 过滤,如 *.ts"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "content",
+              "files"
+            ],
+            "description": "content(默认)或 files"
+          },
+          "ignore_case": {
+            "type": "boolean",
+            "description": "忽略大小写"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "file_search",
+      "description": "在工作区内按文件名/路径 glob 搜索文件(如 *.ts 或 **/*.test.ts),按修改时间从新到旧排序。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "glob": {
+            "type": "string",
+            "description": "文件名/路径 glob"
+          },
+          "path": {
+            "type": "string",
+            "description": "搜索子目录,默认工作区根"
+          }
+        },
+        "required": [
+          "glob"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "ask_user",
+      "description": "向用户提出一个澄清问题并等待回答。仅在缺少关键信息、且无法用其它工具获取时用;一次只问一个。给 options 做结构化选择。单选:用户按数字或 ↑↓ 选 + Enter,回车即选中当前项。凡是问题允许选多项(如'要保留哪些功能''勾选所有适用项''可多选')就【必须】设 multiSelect:true——否则会渲染成单选,用户无法勾选、一回车就只选中了高亮那项。仅当答案互斥、只能选一个时才省略。系统会自动附'其他(自己输入)'与'先讨论一下'两项,你只写正常选项。返回:选中项(多选逗号分隔)/ 用户自填内容 / 讨论意向。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "要问用户的问题"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "description": "正常可选项(无需写'其他'/'先讨论',会自动加)"
+          },
+          "multiSelect": {
+            "type": "boolean",
+            "description": "是否允许多选(checkbox);默认单选"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "fetch_url",
+      "description": "抓取一个网页 URL,返回去掉标签后的纯文本(超长会截断)。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "要抓取的 http(s) URL"
+          },
+          "max_chars": {
+            "type": "integer",
+            "minimum": 100,
+            "description": "最多返回字符数,默认 20000"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "web_search",
+      "description": "用 DuckDuckGo 联网搜索,返回若干条结果(标题、URL、摘要)。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词"
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "返回结果数,默认 5"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "todo_write",
+      "description": "维护单层任务清单(每次整表替换)。状态 pending/in_progress/completed;同一时刻最多一个 in_progress。用于拆解多步任务、边做边更新。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "todos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed"
+                  ]
+                }
+              },
+              "required": [
+                "content",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            "description": "完整任务列表"
+          }
+        },
+        "required": [
+          "todos"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "memory_write",
+      "description": "记录一条跨 session 的稳定记忆。最高价值是【用户模型】:用户信息(环境/技术栈/水平/习惯)、偏好、意图,以及你推断出的、用户没明说的信息/意图(这类把 confidence 设低、type=user)。用户纠正你的做法或确认某个非显然做法可行时,记 type=feedback:正文先写规则,再接'为什么:…'和'怎么用:…'。也可记通用规则(procedural)、项目事实(semantic)与项目进展(episodic)。只记耐久且可泛化的,克制使用。若该事实是从某个文件/代码推导出来的,务必填 source(如 'package.json#packageManager'),以便日后对照实时文件验证是否过期。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "要记住的事实(完整一句;feedback 带'为什么/怎么用')。delete 时可省。"
+          },
+          "title": {
+            "type": "string",
+            "description": "≤1 行概要(索引展示 + 文件名);不填则用 text 派生。delete 时用它定位要删的记忆。"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "feedback",
+              "semantic",
+              "procedural",
+              "episodic"
+            ],
+            "description": "user=用户模型,feedback=用户对工作方式的指导(默认 semantic)"
+          },
+          "importance": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "1–10 重要度,默认 5"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "用户模型/推断类填,0–1"
+          },
+          "source": {
+            "type": "string",
+            "description": "该事实的代码出处 path 或 path#symbol"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "project",
+              "user",
+              "knowledge"
+            ],
+            "description": "不填按类型定:procedural→knowledge(跨项目知识库),user/feedback→user,其余→project"
+          },
+          "delete": {
+            "type": "boolean",
+            "description": "true=删除一条已有记忆(按 title 或 name 定位,真删文件),而非写入。删除时只需给 title/text 之一。"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "memory_read",
+      "description": "查跨会话记忆:给名字(slug)或关键词/问题,返回最相关的若干条(用户模型/偏好/项目事实/历史决策/技术坑)。回答关于用户或项目的问题、或需要回忆之前定下的事时用它,别去翻代码。索引里看到相关名字也用它取整句。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "记忆名(slug)或关键词/问题;支持部分匹配"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "返回条数,默认 6"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "verify_done",
+      "description": "判断任务是否真正完成。配置了验收命令时跑它(exit 0=通过/非0=未完成,继续修);未配置时提示你据证据自判。声称完成前先调用它。",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "skill",
+      "description": "加载一个开箱即用 skill 的完整指令并据此执行。【强制要求】:当任务匹配可用 skill 列表里的某个 skill 时,必须先调用本工具加载它、再做其它任何回应或动作;绝不只口头提到某个 skill 而不实际调用它。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "要加载的 skill 名"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "skill_install",
+      "description": "安装一套技能:从 git 仓库或本地路径,把含 SKILL.md 的技能克隆/复制到 ~/.dao/skills(用户级)或项目 .dao/skills;保留完整内容,工具名在【加载时】自动适配(无需改写)。用户要'装/导入/添加一套技能'(如 superpowers)时用本工具——不要逐个 WebFetch 再手抄、更不要压缩内容。装完自动加载进当前会话、本次即可用,无需重启。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "description": "git URL(如 https://github.com/obra/superpowers-skills)或本地路径"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "user",
+              "project"
+            ],
+            "description": "user=~/.dao/skills(跨项目,默认);project=当前项目 .dao/skills"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "task_send",
+      "description": "给一个正在后台运行的子代理任务追加指令(SendMessage),它会在下一个工具回合边界收到。用于中途纠偏或补充信息。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "后台任务 id(如 task-3)"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "要追加给该任务的指令"
+          }
+        },
+        "required": [
+          "id",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "message_parent",
+      "description": "(后台子代理用)给派发你的父代理发一条中途消息——进度、中间发现、或需要澄清的问题。父代理空闲时会收到。仅当你是后台子代理时有效;前台子代理无需用它(结论会在完成时直接返回父代理)。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "发给父代理的中途消息(进度/发现/问题)"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "agent",
+      "description": "把独立子任务派发给子代理:它用同样的工具自主跑完、只返回最终结果(你看不到中间过程)。任务描述要自包含——子代理没有当前对话上下文。传 task 派单个;传 tasks 数组则并行派发多个并汇总(适合可并行的独立调查/分析)。并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行,以免互相冲突。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "minLength": 1,
+            "description": "单个子任务(与 tasks 二选一)"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "description": "多个相互独立的子任务,并行派发并汇总(最多 20 个;最多 10 个同时跑、其余自动排队)"
+          },
+          "background": {
+            "type": "boolean",
+            "description": "后台运行:立即返回任务 id 不阻塞,完成后结果会自动通知你。适合耗时长、你可同时做别的事的任务。"
+          },
+          "agent_type": {
+            "type": "string",
+            "description": "指定自定义子代理类型(见系统 prompt 的'可用子代理类型');省略则用通用子代理。"
+          },
+          "isolate": {
+            "type": "boolean",
+            "description": "git worktree 隔离:子代理在独立工作树+分支里改文件,并行改文件互不冲突。改动留在分支供事后 review/merge。"
+          },
+          "fork": {
+            "type": "boolean",
+            "description": "fork 模式:子代理继承你当前的【完整上下文】(复用前缀缓存,近乎免费)再做这件事。适合'带全量背景做一个分支调查/尝试';与 agent_type/isolate 互斥。"
+          },
+          "model": {
+            "type": "string",
+            "description": "调用级模型覆盖(如 deepseek-v4-flash 省钱跑廉价子任务)。注意:换模型会让前缀缓存失效——只在任务足够廉价时才划算。与 fork 互斥。"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "plan"
+            ],
+            "description": "调用级权限模式覆盖:plan=只读规划。省略则继承主会话模式。与 fork 互斥。"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "schedule",
+      "description": "管理本地定时任务(OS crontab,到点用 headless dao 在当前工作区跑一个 prompt)。用户表达'每天/每周/每隔…自动跑/提醒/检查…'这类定时需求时用。action=add 需 cron(5 字段如 '0 9 * * *')+ prompt;list 列出;remove 需 index。机器需开机才会触发。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "list",
+              "remove"
+            ],
+            "description": "add 添加 / list 列出 / remove 删除"
+          },
+          "cron": {
+            "type": "string",
+            "description": "add:5 字段 cron,如 '0 9 * * *'(每天 9 点)"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "add:到点要跑的 prompt"
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "remove:dao schedule list 里的序号"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+]
