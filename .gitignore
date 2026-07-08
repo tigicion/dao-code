@@ -14,6 +14,15 @@ dist-bin/
 .claude/
 evals/report.md
 evals/runs/
+evals/terminal-bench/runs/
+__pycache__/
+*.pyc
 
 # 私有项目指令(不提交)
 DAO.local.md
+
+# 框架 wire 快照里含真实 ~/.dao 记忆的两份(system-prompt 把 {memory} 段也拼进去了),不提交公开仓库;
+# 其余 wire 文件(tools/skills/subagents/middleware)不含个人数据,可入库。
+# 用 `npm run debug:harness-wire` 本地重新生成全部。
+docs/harness/wire/memory.wire.md
+docs/harness/wire/system-prompt.wire.md

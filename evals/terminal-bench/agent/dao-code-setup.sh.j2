@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+# 任务容器基础镜像五花八门(有的没 curl/没包管理器权限),尽量兼容,装不上非核心依赖不致命。
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update -qq || true
+  apt-get install -y -qq curl ca-certificates || true
+fi
+
+if ! command -v node >/dev/null 2>&1 || [ "$(node -v | sed 's/^v//;s/\..*//')" -lt 22 ]; then
+  curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | bash
+  export NVM_DIR="$HOME/.nvm"
+  . "$NVM_DIR/nvm.sh"
+  nvm install 22
+fi
+
+npm i -g dao-code@{{ version }}
