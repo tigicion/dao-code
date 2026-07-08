@@ -37,9 +37,16 @@ export async function* streamChat(
   opts: StreamChatOptions,
 ): AsyncGenerator<StreamDelta, AssistantMessage> {
   const fetchImpl = opts.fetchImpl ?? fetch;
+  // 发给 API 的消息绝不带 reasoningContent(那是上一轮落盘用的思维链,不是该重放给模型的上下文——
+  // 多数 reasoning 模型的最佳实践是不要把旧思维链塞回上下文,也没必要多花 token)。
+  const wireMessages = opts.messages.map((m) =>
+    m.role === "assistant" && m.reasoningContent
+      ? { role: m.role, content: m.content, ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}) }
+      : m,
+  );
   const body: Record<string, unknown> = {
     model: opts.model,
-    messages: opts.messages,
+    messages: wireMessages,
     stream: true,
     // 流式下要拿 usage(含 cache 命中/未命中)必须显式开启,usage 在 [DONE] 前最后一个 chunk。
     stream_options: { include_usage: true },
@@ -91,14 +98,19 @@ export async function* streamChat(
     const tc: ToolCall[] = Array.isArray(msg.tool_calls)
       ? msg.tool_calls.filter((t: any) => t?.function?.name).map((t: any) => ({ id: t.id ?? "", type: "function" as const, function: { name: t.function.name, arguments: t.function.arguments ?? "" } }))
       : [];
-    return { role: "assistant", content: typeof msg.content === "string" && msg.content ? msg.content : null, ...(tc.length ? { tool_calls: tc } : {}) };
+    return {
+      role: "assistant",
+      content: typeof msg.content === "string" && msg.content ? msg.content : null,
+      ...(tc.length ? { tool_calls: tc } : {}),
+      ...(typeof msg.reasoning_content === "string" && msg.reasoning_content ? { reasoningContent: msg.reasoning_content } : {}),
+    };
   }
 
   // 续写一次(非流式):把已产出内容作为 assistant 消息回灌 + 让模型直接接着写,返回新增文本与其 finish_reason。
   async function continueOutput(soFar: string): Promise<{ text: string; finish?: string }> {
     const contBody: Record<string, unknown> = {
       ...body, stream: false,
-      messages: [...opts.messages, { role: "assistant", content: soFar }, { role: "user", content: "继续输出剩余内容,直接接着上次结尾写,不要重复已经说过的部分,也不要寒暄。" }],
+      messages: [...wireMessages, { role: "assistant", content: soFar }, { role: "user", content: "继续输出剩余内容,直接接着上次结尾写,不要重复已经说过的部分,也不要寒暄。" }],
     };
     delete contBody.stream_options;
     const t = AbortSignal.timeout(idleMs);
@@ -118,6 +130,7 @@ export async function* streamChat(
 
   // 累积状态(每次尝试前重置——仅在尚未产出任何 delta 时才会重试)。
   let content = "";
+  let reasoning = ""; // 思维链累积,只落盘用(见 wireMessages),不影响请求/重试逻辑
   let finishReason: string | undefined; // length=输出被截断(触发续写恢复)
   const toolAcc: { id: string; name: string; args: string }[] = [];
   const announced = new Set<number>();
@@ -138,6 +151,7 @@ export async function* streamChat(
     if (!delta) return [];
     const out: StreamDelta[] = [];
     if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+      reasoning += delta.reasoning_content;
       out.push({ kind: "reasoning", text: delta.reasoning_content });
     }
     if (typeof delta.content === "string" && delta.content) {
@@ -170,6 +184,7 @@ export async function* streamChat(
   for (let attempt = 0; ; attempt++) {
     // 每次尝试独立的看门狗 + 累积状态(重试 = 从头重来)。
     content = "";
+    reasoning = "";
     finishReason = undefined;
     toolAcc.length = 0;
     announced.clear();
@@ -284,6 +299,7 @@ export async function* streamChat(
     role: "assistant",
     content: content || null,
     ...(tool_calls.length ? { tool_calls } : {}),
+    ...(reasoning ? { reasoningContent: reasoning } : {}),
   };
   return message;
 }

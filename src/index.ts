@@ -1211,7 +1211,18 @@ async function main() {
     if (argvPrompt) {
       // 一次性调用(含 eval 每次跑)不蒸馏:蒸馏只属于真实的交互式工作会话,
       // 既省掉快速查询的 flash 开销,也自动把 eval 排除在外、测量更干净。
-      // 同理不做缓存审计:此路径无会话 store/id(无从按 id 审计),cacheSink 保持 no-op。
+      // 但仍建 session store + 全部审计 sink(与交互态同一套函数),让 headless/eval 也落一份完整结构化 trace
+      // (state.json 全量 messages + cache/tool/perm/memory/skill 各 trace jsonl)——之前这条路径完全没有落盘,
+      // eval 只能拿到 stdout 文本,补上后 evals/run.mjs 才能把它跟 pass/fail 一起归档供事后分析。
+      const sessionsDir = path.join(workspaceRoot, ".dao", "sessions");
+      const store = createSessionStore(sessionsDir);
+      setObsSession(store.id);
+      cacheSink = createCacheAuditSink(store.dir);
+      memoryAudit = createMemoryAuditSink(store.dir);
+      toolAudit = createToolAuditSink(store.dir);
+      permAudit = createPermAuditSink(store.dir, getMode);
+      skillSink = createSkillAuditSink(store.dir);
+      ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
       // hook 钩子:SessionStart 注入 + UserPromptSubmit 裁决 + SessionEnd(与交互态同等防护;对齐 CC——headless `-p` 一次性运行同样触发 SessionEnd)。
       await injectSessionStart();
       const up = await gateUserPrompt(argvPrompt);
@@ -1220,6 +1231,11 @@ async function main() {
       if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
       await runOneTurn();
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(CC 对等:一次性运行也触发)
+      store.saveState({
+        cwd: workspaceRoot, model: session.model, mode: session.mode,
+        messages: session.messages, usage: { ...session.usage },
+      });
+      store.markDone();
       if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
       return;
     }

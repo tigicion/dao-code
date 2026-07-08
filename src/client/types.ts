@@ -16,6 +16,9 @@ export interface AssistantMessage {
   role: "assistant";
   content: string | null;
   tool_calls?: ToolCall[];
+  // 思维链(仅落盘/事后分析用,如 RHO/AHE 论文分析轨迹时读取):从 API 的 reasoning_content 累积而来,
+  // 绝不随 messages 一起重发给 API(client.ts 组包请求体时会剥掉这个字段,只留 content/tool_calls)。
+  reasoningContent?: string;
 }
 export interface ToolMessage {
   role: "tool";

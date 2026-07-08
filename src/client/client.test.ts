@@ -46,7 +46,7 @@ describe("streamChat", () => {
       { kind: "reasoning", text: "think" },
       { kind: "content", text: "hello" },
     ]);
-    expect(message).toEqual({ role: "assistant", content: "hello" });
+    expect(message).toEqual({ role: "assistant", content: "hello", reasoningContent: "think" });
   });
 
   it("assembles a single tool_call from streamed fragments", async () => {
@@ -97,6 +97,26 @@ describe("streamChat", () => {
     expect(sentBody.tools).toHaveLength(1);
     expect(sentBody.parallel_tool_calls).toBe(true);
     expect(sentBody.stream).toBe(true);
+  });
+
+  it("strips reasoningContent from history before sending (never replayed to the API)", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    await run(
+      streamChat({
+        ...base,
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "hello", reasoningContent: "先前的思维链,只落盘不重发" },
+        ],
+        fetchImpl: capturingFetch,
+      }),
+    );
+    expect(sentBody.messages[1]).toEqual({ role: "assistant", content: "hello" });
+    expect(sentBody.messages[1].reasoningContent).toBeUndefined();
   });
 
   it("captures the final usage chunk (with cache hit/miss) via onUsage", async () => {
