@@ -4,6 +4,38 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-08
+
+### 新增
+- **一次性调用(headless `-p`/eval)trace 落盘**:此前是交互式/非交互管道/一次性三种运行模式里唯一没有完整结构化 trace 的一条,现在跟另外两种一样落盘 `state.json` + `cache`/`tool`/`perm`/`memory`/`skill` 各审计 jsonl。同时把 `reasoning_content` 从"只推流给 UI 显示"改为累积落盘(`reasoningContent` 字段),但组包发给 API 的请求体里剥掉这个字段——只存档,不重发,不占请求前缀 token。
+- **记忆纠错闭环**:回合末反思器新增 `corrections`/`confirmed` 两类输出——被实测推翻的记忆 supersede/revise,被实测证实的续命(`touchMemory`),纠错理由落 `corrected` trace 可复盘。`feedback` 类记忆升级为硬门,缺"为什么/怎么用"直接丢弃不落盘。
+- **三作用域记忆合并 pass**:会话启动期后台非阻塞跑一次 `maybeConsolidate`(project/user/knowledge 各自按节流跑),把语义重复的记忆合并为 canonical 条目、旧条目 supersede,`/audit` 记忆报告消费合并事件。
+- **i18n 三层双语适配**:系统提示词、工具描述/工具返回文案、TUI 摘要全部走 `t(key)`,和此前只覆盖 onboarding/主循环 UI 的范围打通。
+- **skill_install 装完自动加载**:不用重启会话,新装的 skill 立刻追加进当前上下文目录。
+- **Laminar 可观测性(`--obs`)**:`streamChat`/`runTurn`/`toolExec` 三层 span 包装,异常事件埋点(`cache_low`/`reflect_fired`/`tool_error`),trace 带 session id 与版本元数据,启动自动读 `.env`(免手动 export key)。关闭态零开销直接透传。
+- **记忆效果评测框架**(`evals/memory/`):提取(覆盖率/画像/精确率/质量)与召回(P/R/F1 + 相关性缺口)两条评测轨道,LLM 评审器(rubric + 容错解析 + K 次多数票)+ 脱敏器 + 人工金标锚点,已跑出首轮真实基线。
+- **SWE-bench Verified 推理适配器**(`evals/swebench/`):裸跑版(宿主临时目录)+ 容器进驻版(官方 harness 建的精确环境容器里跑,判定阶段直接复用镜像)。
+- **terminal-bench 自定义 agent 适配器**(`evals/terminal-bench/`):接进官方 `AbstractInstalledAgent` 接口,容器里装 Node 22 + `npm i -g dao-code`,headless 一次性调用完成任务;API key 走官方 `_env` 注入机制,不落进被录像的 tmux 会话。
+- **trace 物化 + 可导航 HTML 摘要**:把 `state.json` 拆成"每条消息一个文件"的可导航目录(仿论文分析轨迹的输入形式),配一份自包含的 `trace.html`(按轮时间线、思维链、工具调用、缓存命中率图表)。SWE-bench 与本地/OSS eval 三条路径都已接线。
+- **`docs/harness/`**:系统提示词/工具/中间件/技能/子智能体配置/长期记忆六大组件的当前实现快照(区别于 `docs/architecture`/`docs/design` 的历史设计文档),配一份真实 wire 内容生成脚本(`npm run debug:harness-wire`)。
+
+### 变更
+- **⚠️ 破坏性变更:去掉环境变量 API key 支持**——不再读 `DEEPSEEK_API_KEY`/`ARK_API_KEY`/`.env`,统一走 profile(`~/.dao/config.json` + 钥匙串,`/account`/`/login` 管理)或 headless 的 `--api-key <key> --provider <deepseek|volcengine>` CLI 参数。原因:env key 会静默覆盖 profile、且在 `/account` 选择器里不可见,排查困难。
+- **记忆提取信号化**:从"按记忆类型分类"改为"按信号源定位",提取排序去保守化并补充示例。
+- **反思节奏**:DeepSeek 官方 key 每回合都触发反思;火山引擎(Volcengine)保留原有的自适应节奏(连续无收获自动放慢)。
+- **记忆去重**:收敛为精确键匹配(不再用字符相似度),真删除支持;子代理增加自挑战(连续失败/同错复发时就地自省,不额外起 fork)。
+
+### 修复
+- 技能选择器/`ask_user` 选项列表过长时加窗口滚动,选中项始终在可见范围内。
+- `multi_edit` 补齐 diff 展示 + diff 行着色。
+- 审批弹窗(问题/"先讨论一下")ESC 现在会正确打断本回合让位给用户;`auto` 模式下 `web_search`/`fetch_url` 不再弹审批(deny 规则仍覆盖)。
+- 记忆合并 pass 从"启动期同步阻塞"改为"后台非阻塞",不再让三天一次的 LLM 合并调用卡住启动。
+- 两处评测判据假阴性:L1 原型过严、valibot pass2pass flake。
+
+### 工程
+- `evals/` 新增 reflect eval harness + 跨项目记忆泄漏 recall 回归用例。
+- TUI 测试消除一处 CI 偶发 timing flake(轮询替代单次 delay 断言)。
+
 ## [0.3.0] - 2026-06-29
 
 ### 新增
