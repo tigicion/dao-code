@@ -1,0 +1,578 @@
+<title>Trace 摘要</title>
+<style>
+  :root {
+    --bg: #f3f5f2;
+    --surface: #ffffff;
+    --surface-2: #eef0ec;
+    --ink: #282c34;
+    --dim: #6d747c;
+    --dim-2: #9298a0;
+    --border: rgba(40,44,52,0.11);
+    --border-strong: rgba(40,44,52,0.20);
+    --jade: #266e60;
+    --jade-bg: rgba(38,110,96,0.09);
+    --jade-bg-strong: rgba(38,110,96,0.16);
+    --vermilion: #b2302a;
+    --vermilion-bg: rgba(178,48,42,0.10);
+    --gold: #8a6a26;
+    --shadow: 0 1px 2px rgba(30,34,40,0.04), 0 8px 24px -12px rgba(30,34,40,0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --surface: #1b1f22;
+      --surface-2: #23282c;
+      --ink: #dde1e6;
+      --dim: #8b929b;
+      --dim-2: #666c74;
+      --border: rgba(221,225,230,0.10);
+      --border-strong: rgba(221,225,230,0.20);
+      --jade: #7fb7a6;
+      --jade-bg: rgba(127,183,166,0.10);
+      --jade-bg-strong: rgba(127,183,166,0.16);
+      --vermilion: #d8695f;
+      --vermilion-bg: rgba(216,105,95,0.12);
+      --gold: #c9a86a;
+      --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171a; --surface: #1b1f22; --surface-2: #23282c; --ink: #dde1e6; --dim: #8b929b; --dim-2: #666c74;
+    --border: rgba(221,225,230,0.10); --border-strong: rgba(221,225,230,0.20);
+    --jade: #7fb7a6; --jade-bg: rgba(127,183,166,0.10); --jade-bg-strong: rgba(127,183,166,0.16);
+    --vermilion: #d8695f; --vermilion-bg: rgba(216,105,95,0.12); --gold: #c9a86a;
+    --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+  :root[data-theme="light"] {
+    --bg: #f3f5f2; --surface: #ffffff; --surface-2: #eef0ec; --ink: #282c34; --dim: #6d747c; --dim-2: #9298a0;
+    --border: rgba(40,44,52,0.11); --border-strong: rgba(40,44,52,0.20);
+    --jade: #266e60; --jade-bg: rgba(38,110,96,0.09); --jade-bg-strong: rgba(38,110,96,0.16);
+    --vermilion: #b2302a; --vermilion-bg: rgba(178,48,42,0.10); --gold: #8a6a26;
+    --shadow: 0 1px 2px rgba(30,34,40,0.04), 0 8px 24px -12px rgba(30,34,40,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  ::selection { background: var(--jade-bg-strong); }
+  a { color: var(--jade); }
+  :focus-visible { outline: 2px solid var(--jade); outline-offset: 2px; border-radius: 3px; }
+
+  .page {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 96px;
+  }
+
+  /* ---- header ---- */
+  .head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .head-title { display: flex; flex-direction: column; gap: 6px; }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  h1 .mono { font-weight: 500; color: var(--dim); font-size: 0.62em; vertical-align: 2px; }
+  .head-meta {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--dim);
+  }
+  .head-meta span { white-space: nowrap; }
+  .head-meta b { color: var(--ink); font-weight: 600; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .pill-pass { background: var(--jade-bg-strong); color: var(--jade); }
+  .pill-fail { background: var(--vermilion-bg); color: var(--vermilion); }
+  .pill-pending { background: var(--surface-2); color: var(--dim); }
+  .pill svg { width: 13px; height: 13px; }
+
+  /* ---- stat tiles ---- */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 22px;
+  }
+  .tile {
+    background: var(--surface);
+    padding: 16px 16px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .tile-label {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+    font-weight: 600;
+  }
+  .tile-value {
+    font-size: 24px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .tile-sub { font-size: 12px; color: var(--dim-2); font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 620px) {
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ---- cache chart ---- */
+  .chart-card {
+    margin-top: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px 16px;
+  }
+  .chart-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .chart-title { font-size: 13px; font-weight: 650; }
+  .chart-title-sub { font-size: 12px; color: var(--dim); margin-left: 6px; font-weight: 450; }
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    height: 92px;
+    position: relative;
+  }
+  .bars::before, .bars::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0;
+    height: 1px;
+    background: var(--border);
+  }
+  .bars::before { top: 0; }
+  .bars::after { bottom: 22px; }
+  .bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    height: 100%;
+    position: relative;
+    cursor: default;
+  }
+  .bar-pct {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--jade);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    width: 100%;
+    max-width: 46px;
+    background: var(--jade);
+    border-radius: 4px 4px 2px 2px;
+    transition: opacity 0.15s ease;
+  }
+  .bar-col:hover .bar { opacity: 0.82; }
+  .bar-turn {
+    position: absolute;
+    bottom: -20px;
+    font-size: 11px;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .bar-col .tip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: var(--ink);
+    color: var(--bg);
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 7px 10px;
+    border-radius: 7px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    font-variant-numeric: tabular-nums;
+    box-shadow: var(--shadow);
+    z-index: 5;
+  }
+  .bar-col:hover .tip, .bar-col:focus-visible .tip { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .chart-empty { font-size: 13px; color: var(--dim-2); padding: 20px 0; }
+
+  /* ---- timeline ---- */
+  .timeline { margin-top: 30px; }
+  .timeline-label {
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 14px;
+  }
+  .turn {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 14px;
+  }
+  .rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .rail-dot {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dim);
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .turn.has-fail .rail-dot { background: var(--vermilion-bg); border-color: var(--vermilion); color: var(--vermilion); }
+  .rail-line {
+    width: 1px;
+    flex: 1;
+    background: var(--border-strong);
+    margin: 4px 0;
+  }
+  .turn:last-child .rail-line { display: none; }
+
+  .turn-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px 15px;
+    margin-bottom: 18px;
+    min-width: 0;
+  }
+  .turn-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11.5px;
+    color: var(--dim-2);
+    margin-bottom: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .turn-meta .sep { opacity: 0.5; }
+
+  .thought {
+    background: var(--surface-2);
+    border-radius: 8px;
+    margin-bottom: 11px;
+  }
+  .thought summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gold);
+    user-select: none;
+  }
+  .thought summary::-webkit-details-marker { display: none; }
+  .thought summary::before {
+    content: "▸";
+    font-size: 10px;
+    transition: transform 0.12s ease;
+    color: var(--gold);
+  }
+  .thought[open] summary::before { transform: rotate(90deg); }
+  .thought-body {
+    padding: 2px 14px 12px;
+    font-size: 13px;
+    color: var(--dim);
+    font-style: italic;
+    white-space: pre-wrap;
+  }
+
+  .turn-text {
+    font-size: 14.5px;
+    white-space: pre-wrap;
+    margin-bottom: 4px;
+  }
+  .turn-text.empty { color: var(--dim-2); font-style: italic; font-size: 13px; }
+
+  .tool {
+    margin-top: 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .tool + .tool { margin-top: 8px; }
+  .tool-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface-2);
+  }
+  .tool-status {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .tool-status.ok { background: var(--jade-bg-strong); color: var(--jade); }
+  .tool-status.fail { background: var(--vermilion-bg); color: var(--vermilion); }
+  .tool-status svg { width: 9px; height: 9px; }
+  .tool-name { font-size: 12.5px; font-weight: 650; }
+  .tool-args-preview {
+    font-size: 11.5px;
+    color: var(--dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+  details.tool-detail summary {
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--jade);
+    font-weight: 600;
+    padding: 0 12px 8px;
+    display: block;
+  }
+  details.tool-detail summary::-webkit-details-marker { display: none; }
+  details.tool-detail summary::before { content: "展开 →  "; }
+  details.tool-detail[open] summary::before { content: "收起 ↑  "; }
+  .tool-block-label {
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--dim-2);
+    padding: 10px 12px 4px;
+  }
+  pre.code {
+    margin: 0 12px 12px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .foot {
+    margin-top: 40px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--dim-2);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .foot .mono { font-size: 11.5px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="page">
+  <div class="head">
+    <div class="head-title">
+      <div class="eyebrow">Dao Code · Trace 摘要</div>
+      <h1 id="h-title"></h1>
+      <div class="head-meta" id="h-meta"></div>
+    </div>
+    <div id="h-pill"></div>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="chart-card" id="chart-card">
+    <div class="chart-head">
+      <div><span class="chart-title">缓存命中率</span><span class="chart-title-sub">按轮,越高越省钱</span></div>
+    </div>
+    <div class="bars" id="bars"></div>
+  </div>
+
+  <div class="timeline">
+    <div class="timeline-label">按轮展开</div>
+    <div id="turns"></div>
+  </div>
+
+  <div class="foot">
+    <span>来源 <span class="mono" id="f-src"></span></span>
+    <span>由 <span class="mono">evals/render-trace.mjs</span> 生成,改代码或重跑 eval 后重新生成即可</span>
+  </div>
+</div>
+
+<script>
+const DATA = __TRACE_DATA__;
+
+const ICON_CHECK = '<svg viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_CROSS = '<svg viewBox="0 0 16 16" fill="none"><path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+function fmt(n) { return n == null ? "–" : n.toLocaleString("en-US"); }
+function pct(r) { return r == null ? "–" : (r * 100).toFixed(0) + "%"; }
+
+// ---- header ----
+document.getElementById("h-title").innerHTML = esc(DATA.taskId) + ' <span class="mono">trace</span>';
+document.getElementById("h-meta").innerHTML = [
+  ["模型", DATA.model],
+  ["模式", DATA.mode],
+  ["session", DATA.sessionId],
+].filter(([, v]) => v).map(([k, v]) => `<span>${k} <b class="mono">${esc(v)}</b></span>`).join("");
+document.getElementById("h-pill").innerHTML =
+  DATA.pass === true ? `<span class="pill pill-pass">${ICON_CHECK} 通过</span>`
+  : DATA.pass === false ? `<span class="pill pill-fail">${ICON_CROSS} 未通过</span>`
+  : `<span class="pill pill-pending">判定见外部 harness</span>`;
+
+// ---- stat tiles ----
+const totalToolCalls = DATA.turns.reduce((n, t) => n + t.toolCalls.length, 0);
+const failedToolCalls = DATA.turns.reduce((n, t) => n + t.toolCalls.filter((c) => c.ok === false).length, 0);
+const withReasoning = DATA.turns.filter((t) => t.reasoning).length;
+const hasUsage = DATA.usage && (DATA.usage.cacheHitTokens || DATA.usage.cacheMissTokens);
+const aggRatio = hasUsage ? DATA.usage.cacheHitTokens / (DATA.usage.cacheHitTokens + DATA.usage.cacheMissTokens) : null;
+const tiles = [
+  { label: "轮数", value: DATA.turns.length, sub: `${totalToolCalls} 次工具调用` },
+  { label: "Prompt Tokens", value: fmt(DATA.usage?.promptTokens), sub: `输出 ${fmt(DATA.usage?.completionTokens)}` },
+  { label: "缓存命中率", value: pct(aggRatio), sub: hasUsage ? `命中 ${fmt(DATA.usage.cacheHitTokens)} / 未命中 ${fmt(DATA.usage.cacheMissTokens)}` : "无缓存数据" },
+  { label: "思维链捕获", value: `${withReasoning}/${DATA.turns.length}`, sub: failedToolCalls ? `${failedToolCalls} 次工具调用失败` : "全部工具调用成功" },
+];
+document.getElementById("tiles").innerHTML = tiles.map((t) => `
+  <div class="tile">
+    <div class="tile-label">${t.label}</div>
+    <div class="tile-value mono">${t.value}</div>
+    <div class="tile-sub">${t.sub}</div>
+  </div>
+`).join("");
+
+// ---- cache bar chart ----
+const turnsWithCache = DATA.turns.filter((t) => t.cache);
+if (turnsWithCache.length) {
+  document.getElementById("bars").innerHTML = turnsWithCache.map((t) => {
+    const h = Math.max(6, Math.round(t.cache.ratio * 70));
+    return `
+      <div class="bar-col" tabindex="0">
+        <div class="tip">prompt ${fmt(t.cache.prompt)} · 命中 ${fmt(t.cache.hit)} · 未命中 ${fmt(t.cache.miss)}</div>
+        <div class="bar-pct">${pct(t.cache.ratio)}</div>
+        <div class="bar" style="height:${h}px"></div>
+        <div class="bar-turn">T${t.turn}</div>
+      </div>
+    `;
+  }).join("");
+} else {
+  document.getElementById("chart-card").innerHTML = '<div class="chart-empty">本次 trace 没有缓存统计数据</div>';
+}
+
+// ---- timeline ----
+function renderTool(c) {
+  const statusCls = c.ok === false ? "fail" : "ok";
+  const icon = c.ok === false ? ICON_CROSS : ICON_CHECK;
+  let argsPreview = c.args || "";
+  if (argsPreview.length > 64) argsPreview = argsPreview.slice(0, 64) + "…";
+  return `
+    <div class="tool">
+      <div class="tool-head">
+        <div class="tool-status ${statusCls}">${icon}</div>
+        <div class="tool-name mono">${esc(c.name)}</div>
+        <div class="tool-args-preview mono">${esc(argsPreview)}</div>
+      </div>
+      <details class="tool-detail">
+        <summary></summary>
+        <div class="tool-block-label">参数</div>
+        <pre class="code mono">${esc(c.args)}</pre>
+        <div class="tool-block-label">结果</div>
+        <pre class="code mono">${esc(c.result)}</pre>
+      </details>
+    </div>
+  `;
+}
+
+document.getElementById("turns").innerHTML = DATA.turns.map((t, i) => {
+  const hasFail = t.toolCalls.some((c) => c.ok === false);
+  const isLast = i === DATA.turns.length - 1;
+  return `
+    <div class="turn ${hasFail ? "has-fail" : ""}">
+      <div class="rail">
+        <div class="rail-dot">${t.turn}</div>
+        ${isLast ? "" : '<div class="rail-line"></div>'}
+      </div>
+      <div class="turn-card">
+        <div class="turn-meta">
+          <span>轮 ${t.turn}</span>
+          ${t.cache ? `<span class="sep">·</span><span>${fmt(t.cache.prompt)} tok</span><span class="sep">·</span><span>缓存 ${pct(t.cache.ratio)}</span>` : ""}
+        </div>
+        ${t.reasoning ? `
+          <details class="thought">
+            <summary>思维链</summary>
+            <div class="thought-body">${esc(t.reasoning)}</div>
+          </details>
+        ` : ""}
+        <div class="turn-text ${t.text ? "" : "empty"}">${t.text ? esc(t.text) : "(无文本,仅工具调用)"}</div>
+        ${t.toolCalls.map(renderTool).join("")}
+      </div>
+    </div>
+  `;
+}).join("");
+
+document.getElementById("f-src").textContent = DATA.sourceHint || DATA.taskId;
+</script>

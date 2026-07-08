@@ -20,6 +20,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { materializeTrace, findSessionDir } from "../materialize-trace.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
@@ -87,6 +88,18 @@ async function runOne(inst) {
     const diff = await exec("git", ["-C", tmp, "diff", "--cached"]);
     const patch = diff.out;
     await fs.writeFile(path.join(dir, "agent.diff"), patch || "(无改动)", "utf8");
+
+    // 完整结构化 trace(state.json 全量消息 + cache/tool trace 等):这条路径的 pass/fail 由官方
+    // harness 事后单独跑出,不在这里判——先把轨迹落住,后面对上 predictions.jsonl 的结果时能查。
+    try {
+      const sessionDir = await findSessionDir(tmp);
+      if (sessionDir) {
+        await materializeTrace(sessionDir);
+        await fs.cp(sessionDir, path.join(dir, "trace"), { recursive: true });
+      }
+    } catch (e) {
+      console.error(`[trace] ${inst.instance_id} 落盘失败(不影响 patch 产出): ${e.message}`);
+    }
 
     return { instance_id: inst.instance_id, model_name_or_path: MODEL_NAME, model_patch: patch };
   } finally {

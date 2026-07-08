@@ -16,8 +16,10 @@
 
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { materializeTrace } from "../materialize-trace.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
@@ -99,6 +101,27 @@ async function runOne(inst, apiKey) {
     const diff = await exec("docker", ["exec", "-w", workdir, container, "git", "diff", "--cached"]);
     const patch = diff.out;
     await fs.writeFile(path.join(dir, "agent.diff"), patch || "(无改动)", "utf8");
+
+    // 完整结构化 trace:容器里的 .dao/sessions/ 先 docker cp 到宿主临时目录,再物化 + 归档,
+    // 容器删掉前必须做完(finally 里就 docker rm 了)。
+    const localCopy = path.join(os.tmpdir(), `dao-swebench-v2-sessions-${inst.instance_id}-${Math.random().toString(36).slice(2, 8)}`);
+    try {
+      const cpR = await exec("docker", ["cp", `${container}:${workdir}/.dao/sessions`, localCopy]);
+      // docker cp 的目标若不存在会新建同名目录并把 .dao/sessions/ 的内容拷进去,故 localCopy 本身就是那层目录
+      // (一次容器只跑一次 dao,理论上只有一个 session 子目录,但仍按目录逐个物化,不假设数量)。
+      if (cpR.code === 0) {
+        const names = await fs.readdir(localCopy).catch(() => []);
+        for (const n of names) {
+          const sd = path.join(localCopy, n);
+          await materializeTrace(sd);
+          await fs.cp(sd, path.join(dir, "trace"), { recursive: true });
+        }
+      }
+    } catch (e) {
+      console.error(`[trace] ${inst.instance_id} 落盘失败(不影响 patch 产出): ${e.message}`);
+    } finally {
+      await fs.rm(localCopy, { recursive: true, force: true }).catch(() => {});
+    }
 
     return { instance_id: inst.instance_id, model_name_or_path: MODEL_NAME, model_patch: patch };
   } finally {

@@ -30,6 +30,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { weightedCompletion } from "./score.mjs";
+import { materializeTrace, findSessionDir } from "./materialize-trace.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..");
@@ -246,8 +247,8 @@ async function captureDiff(task, tmp) {
   return "";
 }
 
-// 落盘一次运行的全部证据:轨迹 / diff / 两轨测试输出 / 元信息。
-async function persistRun(task, i, { agentOut, diff, v, tools, ms }) {
+// 落盘一次运行的全部证据:轨迹 / diff / 两轨测试输出 / 元信息 / 完整结构化 trace。
+async function persistRun(task, i, { agentOut, diff, v, tools, ms, tmp }) {
   const dir = path.join(RUNS_DIR, task.id, `run-${i + 1}`);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, "agent.log"), stripAnsi(agentOut || ""), "utf8");
@@ -259,6 +260,17 @@ async function persistRun(task, i, { agentOut, diff, v, tools, ms }) {
     JSON.stringify({ id: task.id, kind: task.kind, run: i + 1, pass: v.pass, note: v.note, completion: v.completion ?? (v.pass ? 1 : 0), humanMinutes: task.humanMinutes ?? null, tools, ms }, null, 2),
     "utf8",
   );
+  // 完整结构化 trace(state.json 全量消息 + cache/tool/perm/memory/skill trace):
+  // 在 tmp 被清掉之前,先物化成可导航的 messages/*.md + turns.jsonl + index.md,再整个拷进项目目录常驻。
+  try {
+    const sessionDir = await findSessionDir(tmp);
+    if (sessionDir) {
+      await materializeTrace(sessionDir);
+      await fs.cp(sessionDir, path.join(dir, "trace"), { recursive: true });
+    }
+  } catch (e) {
+    console.error(`[trace] ${task.id} run-${i + 1} 落盘失败(不影响本次判定): ${e.message}`);
+  }
 }
 
 async function runOnce(task, i = 0) {
@@ -294,7 +306,7 @@ async function runOnce(task, i = 0) {
     if (isOss) await injectTests(task, tmp);
     const v = await judge(task, tmp, r.out, r.code);
     const tools = countTools(r.out);
-    await persistRun(task, i, { agentOut: r.out, diff, v, tools, ms: r.ms ?? 0 });
+    await persistRun(task, i, { agentOut: r.out, diff, v, tools, ms: r.ms ?? 0, tmp });
     return { pass: v.pass, note: v.note, completion: v.completion ?? (v.pass ? 1 : 0), tools, ms: r.ms ?? 0, daoMs: r.ms };
   } catch (e) {
     return { pass: false, note: `runner error: ${e.message}`, tools: 0, ms: 0 };
