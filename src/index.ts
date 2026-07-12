@@ -60,6 +60,7 @@ import { makeSkillAdapter } from "./skills/convert.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { messageParentTool } from "./tools/message_parent.js";
+import { notifyUserTool } from "./tools/notify_user.js";
 import { taskCreateTool } from "./tools/task_create.js";
 import { taskListTool } from "./tools/task_list.js";
 import { taskGetTool } from "./tools/task_get.js";
@@ -439,7 +440,7 @@ async function main() {
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
     grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
-    taskCreateTool, taskListTool, taskGetTool, taskUpdateTool, taskStopTool,
+    taskCreateTool, taskListTool, taskGetTool, taskUpdateTool, taskStopTool, notifyUserTool,
   ]) {
     registry.register(t);
   }
@@ -775,6 +776,7 @@ async function main() {
     },
     fetchImpl: fetch,
     today,
+    notifyUser: (m: string) => notify("dao", m), // notify_user 用;主会话与子代理均可(复用现成的桌面通知)
     verifyCommand: process.env.DAO_VERIFY_CMD?.trim() || undefined,
   };
 

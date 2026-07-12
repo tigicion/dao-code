@@ -41,6 +41,8 @@ export interface ToolContext {
   sendToTask?: (id: string, message: string) => boolean;
   // (后台子代理用)给父代理发 mid-run 消息;由 runBackgroundAgent 绑定到本任务 id。前台子代理为 undefined。
   messageParent?: (message: string) => void;
+  // 直达人类桌面的即时通知(notify_user 用);与 messageParent 不同——不经任何代理层排队,当下就弹。
+  notifyUser?: (message: string) => void;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
   createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
