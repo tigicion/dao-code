@@ -81,12 +81,6 @@ export function unpackPrompt(res: unknown): string {
   return lines.join("\n").trim() || "(空模板)";
 }
 
-// 截断 server 暴露项列表,塞进工具描述供模型发现(别让一长串 uri 把描述撑爆)。
-function summarizeList(items: string[], max = 12): string {
-  if (items.length === 0) return "(server 未列出任何项)";
-  const shown = items.slice(0, max);
-  return shown.join(" · ") + (items.length > max ? ` …(共 ${items.length} 项)` : "");
-}
 
 // 连接所有配置的 MCP server,返回其工具(名字前缀 mcp__<server>__<tool>)。单个 server 失败不影响其余。
 // 重连自愈:server 崩溃后,任何调用(工具/资源/提示)会自动重连一次再重试(holder.client 可替换)。
@@ -153,15 +147,29 @@ export async function connectMcpServers(config: McpConfig, opts?: { onElicit?: E
         });
       }
 
-      // —— resources(若 server 声明 resources 能力)——合成一个 read_resource 工具,可用 uri 写进描述。
+      // —— resources(若 server 声明 resources 能力)——list_resources(实时查,结果作为调用输出)+
+      // read_resource(按 uri 读)两个工具,而非把 uri 列表塞进某个工具描述里——描述是【每轮都发】的静态开销,
+      // server 资源多时会被反复重复发送;拆开后,发现的开销只在模型真正调用 list_resources 那一轮产生。
       let resourceCount = 0;
       if (caps?.resources) {
         const rl = await holder.client.listResources().catch(() => ({ resources: [] as Array<{ uri: string; name?: string }> }));
         resourceCount = rl.resources.length;
-        const avail = summarizeList(rl.resources.map((r) => (r.name ? `${r.uri}(${r.name})` : r.uri)));
+        tools.push({
+          name: `mcp__${name}__list_resources`,
+          description: `列出 MCP server「${name}」当前暴露的全部 resource(uri + 名称,实时查询)。`,
+          schema: z.object({}),
+          apiParameters: { type: "object", properties: {} },
+          capability: "network",
+          approval: "suggest",
+          handler: async () => {
+            const r = await call((c) => c.listResources());
+            const items = r.resources.map((x: { uri: string; name?: string }) => (x.name ? `${x.uri}(${x.name})` : x.uri));
+            return items.length ? items.join("\n") : "(server 未列出任何 resource)";
+          },
+        });
         tools.push({
           name: `mcp__${name}__read_resource`,
-          description: `读取 MCP server「${name}」暴露的 resource(按 uri)。可用:${avail}`,
+          description: `读取 MCP server「${name}」的一个 resource(按 uri)。先用 mcp__${name}__list_resources 查可用 uri。`,
           schema: z.object({ uri: z.string() }),
           apiParameters: { type: "object", properties: { uri: { type: "string", description: "resource 的 uri" } }, required: ["uri"] },
           capability: "network",
@@ -170,15 +178,27 @@ export async function connectMcpServers(config: McpConfig, opts?: { onElicit?: E
         });
       }
 
-      // —— prompts(若 server 声明 prompts 能力)——合成一个 get_prompt 工具,可用 name 写进描述。
+      // —— prompts(若 server 声明 prompts 能力)——同上,list_prompts(实时查)+ get_prompt(按 name 取)。
       let promptCount = 0;
       if (caps?.prompts) {
         const pl = await holder.client.listPrompts().catch(() => ({ prompts: [] as Array<{ name: string; description?: string }> }));
         promptCount = pl.prompts.length;
-        const avail = summarizeList(pl.prompts.map((p) => (p.description ? `${p.name}(${p.description})` : p.name)));
+        tools.push({
+          name: `mcp__${name}__list_prompts`,
+          description: `列出 MCP server「${name}」当前暴露的全部 prompt 模板(name + 说明,实时查询)。`,
+          schema: z.object({}),
+          apiParameters: { type: "object", properties: {} },
+          capability: "network",
+          approval: "suggest",
+          handler: async () => {
+            const r = await call((c) => c.listPrompts());
+            const items = r.prompts.map((x: { name: string; description?: string }) => (x.description ? `${x.name}(${x.description})` : x.name));
+            return items.length ? items.join("\n") : "(server 未列出任何 prompt)";
+          },
+        });
         tools.push({
           name: `mcp__${name}__get_prompt`,
-          description: `取 MCP server「${name}」的 prompt 模板(按 name,可带 arguments 字符串映射)。可用:${avail}`,
+          description: `取 MCP server「${name}」的 prompt 模板(按 name,可带 arguments 字符串映射)。先用 mcp__${name}__list_prompts 查可用 name。`,
           schema: z.object({ name: z.string(), arguments: z.record(z.string()).optional() }),
           apiParameters: {
             type: "object",

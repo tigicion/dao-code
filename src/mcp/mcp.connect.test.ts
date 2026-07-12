@@ -93,15 +93,23 @@ describe("connectMcpServers(resources / prompts / elicitation)", () => {
       onElicit ? { onElicit } : undefined,
     );
 
-  it("声明 resources/prompts 能力 → 合成 read_resource / get_prompt 工具,可用项写进描述,且能调用", async () => {
+  it("声明 resources/prompts 能力 → 合成 list_resources/read_resource、list_prompts/get_prompt 四个工具;可用项由 list_* 实时查(不塞进描述),且都能调用", async () => {
     const conn = await rich();
     try {
       const s = conn.servers.find((x) => x.name === "fake");
       expect(s).toMatchObject({ ok: true, tools: 2, resources: 1, prompts: 1 }); // 原始工具 echo + ask_name = 2
+      const listRes = conn.tools.find((t) => t.name === "mcp__fake__list_resources")!;
       const readRes = conn.tools.find((t) => t.name === "mcp__fake__read_resource")!;
+      const listPrompts = conn.tools.find((t) => t.name === "mcp__fake__list_prompts")!;
       const getPrompt = conn.tools.find((t) => t.name === "mcp__fake__get_prompt")!;
-      expect(readRes.description).toContain("mem://greeting"); // 可用 uri 写进描述供模型发现
-      expect(getPrompt.description).toContain("greet");
+      // 描述本身不再带具体 uri/name,只指向对应的 list_* 工具——避免每轮静态发送这些列表。
+      expect(readRes.description).not.toContain("mem://greeting");
+      expect(readRes.description).toContain("list_resources");
+      expect(getPrompt.description).not.toContain("greet(");
+      expect(getPrompt.description).toContain("list_prompts");
+      // 可用项通过调用 list_* 实时拿到(输出,不是描述)。
+      expect(await listRes.handler({}, ctx)).toContain("mem://greeting");
+      expect(await listPrompts.handler({}, ctx)).toContain("greet");
       expect(await readRes.handler({ uri: "mem://greeting" }, ctx)).toBe("hello-resource");
       expect(await getPrompt.handler({ name: "greet", arguments: { who: "dao" } }, ctx)).toContain("say hi to dao");
     } finally {
