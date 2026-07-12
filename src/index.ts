@@ -4,6 +4,7 @@ import { readFileSync, mkdirSync, writeFileSync, readdirSync, rmSync } from "nod
 import { execSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
+import { pathToFileURL } from "node:url";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
 import { DEFAULTS, type ResolvedCredential } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
@@ -69,6 +70,9 @@ import { taskUpdateTool } from "./tools/task_update.js";
 import { taskStopTool } from "./tools/task_stop.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { loadMcpConfig, connectMcpServers, type ElicitHandler } from "./mcp/mcp.js";
+import { loadLspConfig } from "./lsp/config.js";
+import { LspManager } from "./lsp/manager.js";
+import { lspTool } from "./tools/lsp.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy, routeScope, projectIdOf, keepKnowledgeForProject } from "./memory/store.js";
@@ -460,6 +464,15 @@ async function main() {
   // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 tool_search 去找它们。
   if (mcp.tools.length > 0) registry.register(toolSearchTool);
 
+  // LSP:不接入任何语言的二进制,纯协议客户端;server 命令完全来自用户配置(同 MCP 的配置文件模式)。
+  // 没配置任何 server 就不注册 lsp 工具(没意义,只会让模型看见一个必然报错的工具)。
+  const lspConfig = await loadLspConfig([
+    path.join(os.homedir(), ".dao", "lsp.json"),
+    path.join(workspaceRoot, ".dao", "lsp.json"),
+  ]);
+  const lspManager = new LspManager(lspConfig, pathToFileURL(workspaceRoot).href);
+  if (Object.keys(lspConfig.servers ?? {}).length > 0) registry.register(lspTool);
+
   const lang = getLang();
   const toolSummaries = registry
     .toApiTools(undefined, lang)
@@ -781,6 +794,7 @@ async function main() {
     today,
     notifyUser: (m: string) => notify("dao", m), // notify_user 用;主会话与子代理均可(复用现成的桌面通知)
     searchTools: (q: string) => registry.searchAndActivateMcp(q), // tool_search 用
+    lsp: lspManager, // lsp 工具用
     verifyCommand: process.env.DAO_VERIFY_CMD?.trim() || undefined,
   };
 
@@ -1805,6 +1819,7 @@ async function main() {
       taskManager.cancelAll(); // 退出时中止所有后台任务
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子
       await mcp.close(); // 关闭 MCP 连接
+      lspManager.disposeAll(); // 关闭 LSP server 进程
       store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
     } else {
       // 非交互(管道/CI/eval):纯文本 banner + readline REPL,行为不变。
@@ -1827,6 +1842,7 @@ async function main() {
       await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications() });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
+      lspManager.disposeAll();
       store.markDone(); // 干净退出标记(与 TTY 分支对齐)
     }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);

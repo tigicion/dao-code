@@ -1,6 +1,7 @@
 import type { ZodTypeAny, z } from "zod";
 import type { Mode } from "./tools_for_mode.js";
 import type { TaskManager } from "../agent/tasks.js";
+import type { LspManager } from "../lsp/manager.js";
 
 export type Capability = "read" | "write" | "exec" | "network" | "plan";
 export type Approval = "auto" | "suggest" | "required";
@@ -46,6 +47,8 @@ export interface ToolContext {
   // 按关键词搜 MCP 工具并激活命中项(tool_search 用);激活后从下一次工具调用起才会出现在发给模型的
   // 工具列表里——MCP 工具默认不发,避免连了很多 server 时内置工具集合以外的部分拖累前缀缓存。
   searchTools?: (query: string) => string;
+  // lsp 工具用:按文件类型路由到对应 language server(懒启动/复用),未配置对应类型时返回 error。
+  lsp?: LspManager;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
   createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
   // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
