@@ -12,13 +12,23 @@ type Op = (typeof OPS)[number];
 export const lspTool = defineTool({
   name: "lsp",
   description:
-    "用语言服务器(LSP)做语义级代码理解:跳转定义/查引用/hover 类型信息/列出文件符号/按名搜工作区符号/" +
-    "找接口实现/建调用层级并查调用方或被调用方。比 grep_files 精确(理解代码语义,不是纯文本匹配)," +
-    "但只对 .dao/lsp.json 配置过 server 的文件类型有效——没配置会报错,不会静默退化。",
+    "用语言服务器(LSP)做语义级代码理解:goToDefinition 跳转定义 / findReferences 查全部引用 / hover 看类型信息 / " +
+    "documentSymbol 列出整个文件的符号 / workspaceSymbol 按名搜整个工作区的符号 / goToImplementation 找接口的实现 / " +
+    "prepareCallHierarchy 在函数上建立调用层级条目、incomingCalls 查谁调用了它、outgoingCalls 查它调用了谁" +
+    "(这两个内部会自动先 prepareCallHierarchy,不用你分两步调)。line/character 都是 1-based(同编辑器/read_file" +
+    "的行号习惯),workspaceSymbol 用 query 不用 line/character,documentSymbol 不需要具体位置。\n" +
+    "'某个标识符实际指向哪、被谁用了'这类语义问题用 lsp,比 grep_files 精确(理解代码语义,不会把同名但无关的字符串" +
+    "误判为同一个符号);单纯按文本/正则找字符串还是用 grep_files 更快。只对 .dao/lsp.json 配置过 server 的文件类型" +
+    "有效——没配置会直接报错说明缺什么配置,不会静默退化成瞎猜的答案。",
   descriptionEn:
-    "Uses a Language Server (LSP) for semantic code understanding: go to definition/find references/hover type info/list document symbols/search workspace symbols by name/" +
-    "find interface implementations/build a call hierarchy and query callers or callees. More precise than grep_files (understands code semantics, not plain text matching), " +
-    "but only works for file types with a server configured in .dao/lsp.json — errors rather than silently degrading if none is configured.",
+    "Uses a Language Server (LSP) for semantic code understanding: goToDefinition / findReferences (all usages) / hover (type info) / documentSymbol " +
+    "(list all symbols in a file) / workspaceSymbol (search symbols by name across the workspace) / goToImplementation (find interface implementations) / " +
+    "prepareCallHierarchy (establish a call-hierarchy item at a position) / incomingCalls (who calls it) / outgoingCalls (what it calls) — the latter two " +
+    "automatically run prepareCallHierarchy internally, no need to call it separately first. line/character are 1-based (matching editor/read_file convention); " +
+    "workspaceSymbol uses query instead of line/character, documentSymbol needs no position at all.\n" +
+    "Use lsp for semantic questions like 'what does this identifier actually resolve to, who uses it' — more precise than grep_files (understands code semantics, " +
+    "won't mistake an unrelated same-named string for the same symbol); for plain text/regex string matching, grep_files is faster. Only works for file types with " +
+    "a server configured in .dao/lsp.json — errors with what's missing rather than silently degrading into a guessed answer.",
   capability: "read",
   approval: "auto",
   schema: z.object({

@@ -9,9 +9,19 @@ import { withFileLock } from "./file_lock.js";
 export const notebookEditTool = defineTool({
   name: "notebook_edit",
   description:
-    "编辑 Jupyter notebook(.ipynb)的单元格:mode=replace 替换 / insert 在该下标处插入 / delete 删除。新建单元格默认 code,可设 cell_type=markdown。编辑前需先 read_file 读过它。",
+    "编辑 Jupyter notebook(.ipynb)的单元格:mode=replace 替换整个 cell 的内容 / insert 在该下标处插入新 cell / delete 删除该下标的 cell。" +
+    "cell_index 是【0-based】(和 read_file 的 1-based 行号不是一回事,别混用);replace/delete 时下标越界会报错," +
+    "insert 时下标超出范围会自动夹到末尾(不报错)。新建 cell 默认 cell_type=code(会自动清空 outputs/execution_count," +
+    "即视为未运行状态),要建 markdown cell 需显式设 cell_type。replace 时若原 cell 是 code 且没有 outputs 字段," +
+    "也会补上空的 outputs/execution_count。整个 notebook 是普通 JSON 文件,但改前必须先用 read_file 读过它——" +
+    "本工具只操作 cells 数组,不解析/校验 notebook 其它元数据(kernelspec 等)是否合法。",
   descriptionEn:
-    "Edits cells in a Jupyter notebook (.ipynb): mode=replace to replace / insert to insert at the index / delete to delete. New cells default to code; set cell_type=markdown for markdown. Must read_file the notebook first before editing.",
+    "Edits cells in a Jupyter notebook (.ipynb): mode=replace replaces a cell's content / insert adds a new cell at the index / delete removes the cell at the index. " +
+    "cell_index is [0-based] (unlike read_file's 1-based line numbers — don't conflate the two); replace/delete error on an out-of-range index, " +
+    "insert instead clamps an out-of-range index to the end (no error). New cells default to cell_type=code (outputs/execution_count are reset to empty/null, " +
+    "i.e. treated as not-yet-run); set cell_type explicitly for a markdown cell. On replace, if the existing cell is code and lacks an outputs field, " +
+    "empty outputs/execution_count are also added. The notebook is a plain JSON file, but must be read_file'd first before editing — " +
+    "this tool only touches the cells array, it doesn't validate other notebook metadata (kernelspec etc.).",
   capability: "write",
   approval: "required",
   schema: z.object({

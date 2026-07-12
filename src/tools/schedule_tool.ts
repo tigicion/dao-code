@@ -7,13 +7,19 @@ import { scheduleAdd, scheduleList, scheduleRemove } from "../schedule.js";
 export const scheduleTool = defineTool({
   name: "schedule",
   description:
-    "管理本地定时任务(OS crontab,到点用 headless dao 在当前工作区跑一个 prompt)。" +
-    "用户表达'每天/每周/每隔…自动跑/提醒/检查…'这类定时需求时用。" +
-    "action=add 需 cron(5 字段如 '0 9 * * *')+ prompt;list 列出;remove 需 index。机器需开机才会触发。",
+    "管理本地定时任务(OS crontab,到点 cd 到当前工作区、headless 跑一次 dao 带这个 prompt,输出落" +
+    "~/.dao/schedule.log)。用户表达'每天/每周/每隔…自动跑/提醒/检查…'这类定时需求时用。" +
+    "action=add 需 cron(5 字段如 '0 9 * * *')+ prompt;list 列出现有的;remove 需 index(先 list 看序号)。" +
+    "机器需要开机且没休眠才会触发,不是保证一定按时跑。到点跑起来的是 headless 一次性调用,没有终端可以回答审批弹窗——" +
+    "写这个定时 prompt 时要么让它只做只读/auto 级别的事,要么提前跟用户确认好这台机器的审批策略允许免确认执行," +
+    "否则任务到点很可能卡住或什么都没做成。",
   descriptionEn:
-    "Manages local scheduled tasks (OS crontab; runs a prompt via headless dao in the current workspace on schedule). " +
-    "Use when the user expresses recurring needs like 'every day / every week / every X hours, automatically run / remind / check...'. " +
-    "action=add requires cron (5 fields, e.g., '0 9 * * *') + prompt; list lists entries; remove requires index. The machine must be powered on to trigger.",
+    "Manages local scheduled tasks (OS crontab; at the scheduled time, cd's into the current workspace and runs dao headlessly with this prompt once, output " +
+    "goes to ~/.dao/schedule.log). Use when the user expresses recurring needs like 'every day / every week / every X hours, automatically run / remind / check...'. " +
+    "action=add requires cron (5 fields, e.g. '0 9 * * *') + prompt; list shows existing entries; remove requires index (list first to see the numbers). " +
+    "The machine must be powered on and awake to trigger — not a guarantee it fires exactly on time. The triggered run is a one-shot headless invocation with no " +
+    "terminal to answer approval prompts — write the scheduled prompt to only do read-only/auto-approved things, or confirm with the user beforehand that this " +
+    "machine's approval policy allows unattended execution, otherwise the task will likely hang or accomplish nothing when it fires.",
   capability: "exec",
   approval: "required",
   schema: z.object({

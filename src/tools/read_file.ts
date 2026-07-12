@@ -7,11 +7,25 @@ import { msg } from "./lang.js";
 export const readFileTool = defineTool({
   name: "read_file",
   description:
-    "读取工作区内的文本文件,返回带行号(1-based)的内容。可用 offset 指定起始行、limit 指定读取行数。" +
-    "只读文本,遇二进制/超大文件(>5MB)会报错——读文件优先用本工具,不要用 exec_shell 拼 cat/head/tail。",
+    "读取工作区内的文本文件,返回带行号(1-based,制表符分隔)的内容。可用 offset 指定起始行、limit 指定读取行数。" +
+    "读文件优先用本工具,不要用 exec_shell 拼 cat/head/tail——那样拿不到行号,也绕不开下面这些护栏。\n" +
+    "边界:只读文本,遇二进制(含 NUL 字节)或超大文件(>5MB 且未给 offset/limit)会报错,不会返回乱码;" +
+    "单行超 2000 字符会截断(防压缩过的代码/内联 base64 sourcemap 撑爆上下文);" +
+    "不给 limit 时默认只读前 2000 行,截断处会提示续读的 offset,别误以为已经读完整个文件——" +
+    "大文件想找具体内容,直接用 grep_files 定位行号,比一段段翻页更快。\n" +
+    "工作区外的路径需要用户在弹出的授权里放行才能读。\n" +
+    "副作用:成功读过的文件会被记入'已读'状态和当时的 mtime/size 基线——write_file/edit_file 依此判断" +
+    "'编辑前是否读过'和'磁盘内容是否被外部改过'(改文件前必须先读它,就是为了建立这个基线)。",
   descriptionEn:
-    "Reads a text file in the workspace, returning content with 1-based line numbers. Use offset for the starting line and limit to control lines read. " +
-    "Text only — errors on binary or oversized (>5MB) files. Prefer this over shelling out to cat/head/tail via exec_shell.",
+    "Reads a text file in the workspace, returning content with 1-based line numbers (tab-separated). Use offset for the starting line and limit to control lines read. " +
+    "Prefer this over shelling out to cat/head/tail via exec_shell — those give no line numbers and bypass the guardrails below.\n" +
+    "Boundaries: text only — errors (not garbage output) on binary (NUL bytes) or oversized files (>5MB without offset/limit); " +
+    "lines over 2000 chars get truncated (protects against minified code or inline base64 sourcemaps blowing up context); " +
+    "without limit, only the first 2000 lines are read by default — the truncation notice gives you the offset to continue, don't assume the whole file was read. " +
+    "For large files, grep_files to locate the right lines beats paging through with repeated reads.\n" +
+    "Paths outside the workspace require the user to grant access via a popup.\n" +
+    "Side effect: a successful read records the file as 'read' plus its mtime/size baseline — write_file/edit_file rely on this to check " +
+    "'was it read before editing' and 'did the file change externally since' (this is exactly why editing requires reading first).",
   capability: "read",
   approval: "auto",
   schema: z.object({

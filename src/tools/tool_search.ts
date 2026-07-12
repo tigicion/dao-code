@@ -8,13 +8,20 @@ import { defineTool } from "./types.js";
 export const toolSearchTool = defineTool({
   name: "tool_search",
   description:
-    "按关键词搜索当前未直接可见的 MCP 工具(连了 MCP server 才有意义)。命中的工具立即激活," +
-    "从你下一次工具调用起就能直接按名调用——不需要再调用别的工具去'启用'它。" +
-    "只用于找 MCP 工具;dao 自带的内置工具永远都在,不需要搜。",
+    "按关键词(匹配工具名或描述,不分大小写,子串即可)搜索当前未直接可见的 MCP 工具(连了 MCP server 才有意义)。" +
+    "命中的工具立即激活——从你下一次工具调用起就能直接按名调用,不需要再调用别的工具去'启用'它,搜到就能用。" +
+    "只用于找 MCP 工具;dao 自带的内置工具、task_*、notify_user 这些永远都在工具列表里,搜不到也不需要搜。" +
+    "查无结果时换个更宽泛的词试试,而不是反复用同一个词重试。举例:用户要你'在 GitHub 上开个 issue',但工具列表里" +
+    "没看到直接能开 issue 的工具——先用 tool_search 查'issue'或'github'看有没有连了对应的 MCP server,而不是直接" +
+    "回复说做不到。激活是这次会话内长期生效的,不是一次性——同一个 MCP 工具找到过一次后,后面直接按名调用即可," +
+    "不用每次用前都重新搜一遍。",
   descriptionEn:
-    "Searches for currently-hidden MCP tools by keyword (only relevant if MCP servers are connected). Matches are activated immediately — " +
-    "usable by name starting your very next tool call, no separate 'enable' step needed. " +
-    "Only for finding MCP tools; dao's own built-in tools are always visible and never need searching.",
+    "Searches for currently-hidden MCP tools by keyword (matches tool name or description, case-insensitive, substring match — only relevant if MCP servers are " +
+    "connected). Matches are activated immediately — usable by name starting your very next tool call, no separate 'enable' step needed; finding it means you " +
+    "can use it. Only for finding MCP tools; dao's own built-in tools, task_*, notify_user etc. are always in the tool list, won't show up here and don't need " +
+    "searching. On no match, try a broader term rather than retrying the same one. Example: the user asks you to 'open a GitHub issue' but no tool for that is " +
+    "visible — search 'issue' or 'github' via tool_search to check whether an MCP server for it is connected, rather than immediately replying that you can't. " +
+    "Activation lasts for the rest of this session, not one-shot — once you've found a given MCP tool, call it directly by name afterward instead of searching again each time.",
   capability: "read",
   approval: "auto",
   schema: z.object({

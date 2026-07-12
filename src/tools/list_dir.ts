@@ -6,10 +6,19 @@ import { msg } from "./lang.js";
 
 export const listDirTool = defineTool({
   name: "list_dir",
-  description: "列出工作区内某个目录的条目,目录名以 / 结尾,按字典序排列。" +
-    "超过 500 项会截断(如 node_modules),此时改用 grep_files/file_search 精确定位而非翻列表。",
-  descriptionEn: "Lists entries in a workspace directory. Directory names end with /, sorted alphabetically. " +
-    "Truncates past 500 entries (e.g. node_modules) — use grep_files/file_search to target precisely instead of browsing the list.",
+  description: "列出工作区内某个目录的条目(只列这一层,不递归子目录),目录名以 / 结尾,按字典序排列。" +
+    "不给 path 就列工作区根目录。想探一层层往下看用它;想找某个具体文件/按名字模式找,直接用 file_search 更快," +
+    "不用先 list_dir 一层层翻。超过 500 项会截断(如 node_modules),此时改用 grep_files/file_search 精确定位而非翻列表。" +
+    "典型用法:刚接手一个陌生项目,先 list_dir 根目录看大致结构(有哪些顶层目录、配置文件),再决定往哪个子目录深入," +
+    "而不是一上来就用 file_search 漫无目的地搜。目录本身不存在或不是目录会明确报错,不会静默返回空列表让你误以为它是空目录。" +
+    "目录项和文件混在同一层列表里,靠结尾的 / 区分,别把目录当文件直接拿去 read_file。",
+  descriptionEn: "Lists entries in a workspace directory (this level only, not recursive), directory names end with /, sorted alphabetically. " +
+    "Omit path to list the workspace root. Use this to explore level by level; to find a specific file or name pattern, use file_search directly — " +
+    "faster than browsing down one directory at a time. Truncates past 500 entries (e.g. node_modules) — use grep_files/file_search to target precisely instead of browsing the list. " +
+    "Typical use: when first exploring an unfamiliar project, list_dir the root to see the overall structure (top-level directories, config files) before " +
+    "deciding which subdirectory to dig into, rather than searching aimlessly with file_search right away. A nonexistent path or non-directory path errors clearly, " +
+    "rather than silently returning an empty list that could be mistaken for a genuinely empty directory. Directories and files are listed together at the same level, " +
+    "distinguished only by the trailing / — don't mistake a directory entry for a file and pass it to read_file.",
   capability: "read",
   approval: "auto",
   schema: z.object({

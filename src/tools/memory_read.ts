@@ -16,10 +16,18 @@ export const memoryReadTool = defineTool({
   name: "memory_read",
   description:
     "查跨会话记忆:给名字(slug)或关键词/问题,返回最相关的若干条(用户模型/偏好/项目事实/历史决策/技术坑)。回答关于用户或项目的问题、或需要回忆之前定下的事时用它,别去翻代码。索引里看到相关名字也用它取整句。" +
-    "多词查询是【全部命中】(AND,非模糊/OR),查不到就换更短的关键词而非加更多词。",
+    "多词查询是【全部命中】(AND,非模糊/OR),查不到就换更短的关键词而非加更多词。查询范围跨三层:项目级" +
+    "(这个仓库)、用户级(跨项目,~/.dao/memory)、知识库(跨项目的通用经验,~/.dao/knowledge)——名字精确匹配时" +
+    "只返回那一条整句;关键词匹配默认最多返回 6 条,可用 limit 调到最多 20。举例:用户说'按我之前说的偏好来'," +
+    "先用它查一下'偏好'相关的记忆,而不是凭这一轮对话里的印象自己猜。多次查不到不代表这类记忆一定不存在," +
+    "先换更短更泛的关键词试一两次,再判断确实没有,别一次落空就直接下结论说'没有相关记忆'。",
   descriptionEn:
     "Queries cross-session memories: pass a name (slug) or keyword/question, returns the most relevant entries (user model/preferences/project facts/past decisions/technical pitfalls). Use when answering questions about the user or project, or when recalling previously established facts — don't search code for these. Also use when you see a relevant name in an index to retrieve the full entry. " +
-    "Multi-word queries require ALL terms to match (AND, not fuzzy/OR) — if nothing found, try fewer/shorter keywords rather than adding more.",
+    "Multi-word queries require ALL terms to match (AND, not fuzzy/OR) — if nothing found, try fewer/shorter keywords rather than adding more. Searches across three scopes: " +
+    "project-level (this repo), user-level (cross-project, ~/.dao/memory), and knowledge base (cross-project general know-how, ~/.dao/knowledge) — an exact name match returns " +
+    "just that one full entry; keyword matches return up to 6 by default, adjustable via limit up to 20. Example: the user says 'do it the way I prefer' — " +
+    "query memory for 'preference'-related entries first rather than guessing from impressions within this conversation alone. One empty result doesn't mean the memory " +
+    "doesn't exist — try a shorter, broader keyword once or twice before concluding 'no relevant memory found'.",
   capability: "read",
   approval: "auto",
   schema: z.object({

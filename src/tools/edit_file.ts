@@ -10,11 +10,23 @@ import { msg } from "./lang.js";
 export const editFileTool = defineTool({
   name: "edit_file",
   description:
-    "对工作区内已存在文件做精确字符串替换。old_string 必须在文件中唯一(否则用 replace_all 或扩大上下文)。编辑前需先用 read_file 读过它。" +
-    "并行编辑同一文件会自动排队,不会互相覆盖。同一文件要做多处改动时优先用 multi_edit(原子、要么全成要么全不改),别连发多个 edit_file。",
+    "对工作区内已存在文件做精确字符串替换。old_string 必须在文件中原样(含缩进/空白)唯一出现——不唯一就报错," +
+    "报错信息会告诉你出现了几次,此时要么扩大 old_string 的上下文让它变唯一,要么设 replace_all 全部替换,别瞎猜换个词试。" +
+    "old_string/new_string 按字面文本替换(不是正则,new_string 里的 $、反斜杠等都当普通字符,不用转义)。" +
+    "编辑前需先用 read_file 读过它(没读过会直接报错拒绝);复制 old_string 时用 read_file 输出里行号后面的原文," +
+    "保留其真实缩进——DAO 已有的既定风格优先于你自己的排版偏好,别顺手改格式。\n" +
+    "同一文件的并行 edit_file 调用会自动排队,不会互相覆盖或撞坏;但同一文件要做多处改动时优先用 multi_edit" +
+    "(一次性提交、原子——要么全成要么全不改),别连发多个 edit_file,那样中途某一处失败会留下改了一半的文件。\n" +
+    "成功后返回一个 ```diff 代码块和改动首行行号,可以直接读出来确认改对了地方。",
   descriptionEn:
-    "Performs exact string replacement in a workspace file. old_string must be unique in the file (otherwise use replace_all or broaden context). Must read_file first. " +
-    "Concurrent edits to the same file are automatically queued, not racing. For multiple changes to one file, prefer multi_edit (atomic, all-or-nothing) over several edit_file calls.",
+    "Performs exact string replacement in a workspace file. old_string must appear verbatim (including indentation/whitespace) exactly once — otherwise it errors " +
+    "(the error tells you how many times it occurred; broaden old_string's context to make it unique, or set replace_all, rather than guessing a different substring). " +
+    "old_string/new_string are literal text (not regex) — $, backslashes etc. in new_string are treated as plain characters, no escaping needed. " +
+    "Must read_file first (errors otherwise); when copying old_string, use the actual content after the line-number prefix in read_file's output and preserve its real " +
+    "indentation — match the codebase's existing style rather than your own formatting preference.\n" +
+    "Concurrent edit_file calls on the same file are automatically queued, not racing or corrupting each other; but for multiple changes to one file, prefer multi_edit " +
+    "(single atomic commit — all-or-nothing) over several edit_file calls, since a mid-sequence failure there would leave the file half-edited.\n" +
+    "On success returns a ```diff block and the first changed line number, so you can verify the edit landed in the right place.",
   capability: "write",
   approval: "required",
   schema: z.object({

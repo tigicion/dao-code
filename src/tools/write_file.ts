@@ -8,10 +8,20 @@ import { msg } from "./lang.js";
 
 export const writeFileTool = defineTool({
   name: "write_file",
-  description: "在工作区内新建或整体重写一个文件。覆盖已存在文件前必须先用 read_file 读过它。" +
-    "若文件自上次 read_file 后被外部改动过(mtime/size 变化),会拒绝写入并提示重新 read_file——防止覆盖并发改动。只改一部分内容用 edit_file/multi_edit,不要为局部改动整篇重写。",
-  descriptionEn: "Creates or overwrites a file in the workspace. Must read_file existing files before overwriting. " +
-    "Rejects the write (and asks you to re-read) if the file changed externally since your last read_file (mtime/size drift) — prevents clobbering concurrent edits. For partial changes, use edit_file/multi_edit instead of rewriting the whole file.",
+  description: "在工作区内新建文件,或整篇重写一个已存在的文件——content 是文件的完整内容,原内容整段被替换掉,没有 diff。" +
+    "新建文件不需要先读;覆盖已存在文件前必须先用 read_file 读过它(没读过会直接拒绝)。" +
+    "若文件自上次 read_file 后被外部改动过(mtime/size 变化,如用户手改或其它进程写了它),会拒绝写入并提示重新 read_file——" +
+    "防止你拿着旧内容整篇覆盖掉别人刚做的改动;遇到这个报错,重新读一遍最新内容,再决定要不要接着写。\n" +
+    "只改一部分内容优先用 edit_file/multi_edit(基于原文精确替换,改动可见、不会误删你没打算动的部分)," +
+    "不要为了改几行就把整篇内容重新敲一遍传进来——那样既容易在无关处引入疏漏,diff 也没法审查具体改了什么。" +
+    "写入是原子的(先写临时文件再替换),中途崩溃不会留下半截文件。",
+  descriptionEn: "Creates a new file, or completely overwrites an existing one — content is the file's full text, replacing everything, no diff. " +
+    "New files don't need a prior read; overwriting an existing file requires read_file first (rejected otherwise). " +
+    "Rejects the write (and asks you to re-read) if the file changed externally since your last read_file (mtime/size drift, e.g. the user hand-edited it or another process wrote it) — " +
+    "prevents you from clobbering someone else's recent change with stale content; on this error, re-read the current content before deciding whether to write again.\n" +
+    "For partial changes, prefer edit_file/multi_edit (precise replacement against the original, changes are reviewable, nothing unrelated gets touched) instead of retyping the whole " +
+    "file just to change a few lines — that risks introducing unrelated slips and the diff can't show exactly what changed. " +
+    "Writes are atomic (write to a temp file then swap in) — a crash mid-write never leaves a half-written file.",
   capability: "write",
   approval: "required",
   schema: z.object({

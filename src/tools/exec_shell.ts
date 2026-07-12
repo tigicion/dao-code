@@ -77,11 +77,27 @@ function runForeground(
 export const execShellTool = defineTool({
   name: "exec_shell",
   description:
-    "在工作区目录执行 shell 命令(git、跑测试、npm/pip 等构建工具都走它)。前台执行返回输出与退出码;background=true 则后台启动并返回进程 id(用 exec_shell_poll 读输出、exec_shell_kill 结束)。" +
-    "查文件内容用 grep_files、查文件名/路径用 file_search、读文件用 read_file——不要用本工具拼 grep/rg/find/cat/head/tail,专用工具有护栏(大小限制、二进制探测)且不占审批。",
+    "在工作区目录执行 shell 命令(git、跑测试、npm/pip 等构建工具都走它)。前台执行等到命令结束,返回 stdout/stderr" +
+    "和退出码/超时/中断状态;background=true 立即返回进程 id 不阻塞(适合起个服务、跑个长任务),用 exec_shell_poll" +
+    "读它自上次轮询以来的新输出、exec_shell_kill 结束它——别对同一命令又前台等又后台起。前台默认超时 120 秒,可用" +
+    "timeout(毫秒)调;超时或中断都会杀掉整个进程组(不只是 shell 本身,命令里再拉起的子进程也一起终止)。" +
+    "输出在内存里最多攒 10MB,超了会截断并提示改用更精确的命令或重定向到文件后再查——命令本身别指望它能把一个几十MB" +
+    "的输出原样倒给你。\n" +
+    "查文件内容用 grep_files、查文件名/路径用 file_search、读文件用 read_file——不要用本工具拼 grep/rg/find/cat/head/tail," +
+    "专用工具有护栏(大小限制、二进制探测)且不占审批。\n" +
+    "高风险命令(rm -rf /、curl|sh 直接执行远程脚本、提权、写裸盘设备等)即便审批规则整体放宽了,也会被强制要求" +
+    "确认一次,绕不过去;命令里混了同形字符/零宽字符伪装成正常样子也会被拦下强制确认。",
   descriptionEn:
-    "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution returns output and exit code; background=true starts in background and returns a process id (use exec_shell_poll to read output, exec_shell_kill to stop). " +
-    "Use grep_files for content search, file_search for filename/path search, read_file for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated tools have guardrails (size limits, binary detection) and skip approval.",
+    "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution waits for completion and returns stdout/stderr " +
+    "plus exit code / timeout / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) — use " +
+    "exec_shell_poll to read its new output since the last poll, exec_shell_kill to stop it. Don't both wait in foreground and also start the same command in background. " +
+    "Foreground defaults to a 120s timeout, adjustable via timeout (ms); both a timeout and an abort kill the entire process group, not just the shell — " +
+    "child processes spawned by the command are terminated too. Output is capped at 10MB in memory; past that it's truncated with a hint to use a more precise " +
+    "command or redirect to a file and inspect that instead — don't expect a raw multi-MB output to come back intact.\n" +
+    "Use grep_files for content search, file_search for filename/path search, read_file for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated " +
+    "tools have guardrails (size limits, binary detection) and skip approval.\n" +
+    "High-risk commands (rm -rf /, piping curl straight into a shell, privilege escalation, writing raw disk devices, etc.) force a confirmation even if approval rules " +
+    "are otherwise relaxed — there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.",
   capability: "exec",
   approval: "required",
   schema: z.object({

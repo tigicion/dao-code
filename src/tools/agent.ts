@@ -22,7 +22,11 @@ export const agentTool = defineTool({
     "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行,以免互相冲突。" +
     "嵌套上限 2 层(子代理里再派子代理,超限会拒绝——请自己完成或拆小任务)。" +
     "单个前台子代理跑超过默认 60 秒会自动转后台(不阻塞你,完成后通知)。" +
-    "并行任务默认最多 10 个同时跑(嵌套派发时收紧到 3),其余排队,不代表真的全部同时执行。",
+    "并行任务默认最多 10 个同时跑(嵌套派发时收紧到 3),其余排队,不代表真的全部同时执行。\n" +
+    "四个可选调用方式互斥、别混用:isolate(独立 git worktree 里改文件,并行改文件不冲突,改动留在分支供你事后 review/merge)、" +
+    "fork(继承你当前完整上下文+复用前缀缓存,近乎免费,适合带全量背景做分支尝试)、model(临时换模型,通常为了省钱跑廉价任务," +
+    "但换模型本身会让前缀缓存失效,不够便宜的任务不划算)、mode=plan(只读规划模式)。fork 和 model/mode 天生冲突——fork 的" +
+    "价值就是复用缓存,换模型/换模式会让这份缓存作废。agent_type 指定自定义子代理类型(有专属 prompt/工具白名单),不给就是通用子代理。",
   descriptionEn:
     "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
     "Task description must be self-contained — the subagent has no current conversation context. " +
@@ -30,7 +34,12 @@ export const agentTool = defineTool({
     "Parallel tasks MUST be mutually independent with no dependencies; tasks that modify the same files must not be parallelized to avoid conflicts. " +
     "Nesting cap: 2 levels (a subagent dispatching its own subagent beyond that is rejected — do it yourself or split into smaller tasks). " +
     "A single foreground subagent running past a default 60s threshold auto-promotes to background (doesn't block you; notified on completion). " +
-    "Parallel tasks run at most 10 concurrently by default (throttled to 3 for nested dispatches) — the rest queue, so not all tasks truly run simultaneously.",
+    "Parallel tasks run at most 10 concurrently by default (throttled to 3 for nested dispatches) — the rest queue, so not all tasks truly run simultaneously.\n" +
+    "Four optional dispatch modes are mutually exclusive, don't mix them: isolate (edits happen in an isolated git worktree, safe to parallelize file changes, " +
+    "changes are left on a branch for you to review/merge afterward), fork (inherits your full current context + reuses the prefix cache, nearly free — good for a " +
+    "branch attempt with full background), model (temporarily switch models, usually to run a cheap task on a cheaper model — but switching itself invalidates the " +
+    "prefix cache, not worth it unless the task is cheap enough), mode=plan (read-only planning mode). fork inherently conflicts with model/mode — fork's whole value " +
+    "is reusing the cache, and switching model/mode invalidates that cache. agent_type selects a custom subagent type (with its own prompt/tool allowlist); omit for a generic subagent.",
   capability: "plan",
   approval: "auto",
   schema: z.object({

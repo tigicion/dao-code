@@ -4,21 +4,25 @@ import { defineTool } from "./types.js";
 export const askUserTool = defineTool({
   name: "ask_user",
   description:
-    "向用户提出一个澄清问题并等待回答。仅在缺少关键信息、且无法用其它工具获取时用;一次只问一个。" +
+    "向用户提出一个澄清问题并等待回答。仅在缺少关键信息、且无法用其它工具获取时用(先想清楚这个信息是不是能靠" +
+    "read_file/grep_files/memory_read 自己查到——能查到就别问);一次只问一个,别把好几个问题堆一次问,问完这个" +
+    "根据回答再决定下一个问什么。不给 options 就是纯开放式问题,靠用户自由输入。\n" +
     "给 options 做结构化选择。单选:用户按数字或 ↑↓ 选 + Enter,回车即选中当前项。" +
     "凡是问题允许选多项(如'要保留哪些功能''勾选所有适用项''可多选')就【必须】设 multiSelect:true——" +
     "否则会渲染成单选,用户无法勾选、一回车就只选中了高亮那项。仅当答案互斥、只能选一个时才省略。" +
     "系统会自动附'其他(自己输入)'与'先讨论一下'两项,你只写正常选项——" +
     "【无论怎么措辞】都不要自己加类似含义的选项(如'其他'/'以上都不是'/'自定义'/'手动输入'),否则会和系统自动追加的重复出现两条几乎一样的行。" +
-    "返回:选中项(多选逗号分隔)/ 用户自填内容 / 讨论意向。",
+    "返回:选中项(多选逗号分隔)/ 用户自填内容 / 讨论意向——用户选了'先讨论一下'就是想在拍板前先聊聊,别当成同意了继续推进。",
   descriptionEn:
-    "Asks the user a clarifying question and waits for an answer. Only use when missing critical information that can't be obtained via other tools; ask one at a time. " +
+    "Asks the user a clarifying question and waits for an answer. Only use when missing critical information that can't be obtained via other tools (first consider whether " +
+    "read_file/grep_files/memory_read could answer it — don't ask if you can look it up). Ask one at a time, don't stack multiple questions into one call; decide the next " +
+    "question based on the answer to this one. Omitting options makes it a fully open-ended question relying on free-text input.\n" +
     "Use options for structured choices. Single-select: user picks by number or ↑↓ + Enter. " +
     "For questions that allow multiple answers (e.g., 'which features to keep'), you [MUST] set multiSelect:true — " +
     "otherwise it renders as single-select and the user can't check multiple items. Only omit when answers are mutually exclusive. " +
     "The system auto-appends 'Other (type your own)' and 'Discuss first'; you only write normal options — " +
     "do NOT add your own option with similar meaning [no matter how it's worded] (e.g. 'other'/'none of the above'/'custom'/'something else'), or it will show up as a near-duplicate row next to the auto-appended one. " +
-    "Returns: selected items (comma-separated for multi) / user-typed text / discuss intent.",
+    "Returns: selected items (comma-separated for multi) / user-typed text / discuss intent — if the user picked 'discuss first', they want to talk before committing, don't treat it as agreement to proceed.",
   capability: "read",
   approval: "auto",
   schema: z.object({
