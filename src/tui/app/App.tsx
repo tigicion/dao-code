@@ -240,8 +240,15 @@ export function App(deps: AppDeps) {
     const askChoice = (question: string, options: string[], multi?: boolean) =>
       new Promise<string>((resolve) => {
         // 去重:剔掉模型误写的"其他/先讨论/完成"——这几项 dao 会自动追加,否则会重复(如两个"先讨论一下")。
-        const norm = (s: string) => s.trim().replace(/^\d+[.、)]\s*/, "");
-        const reserved = new Set([CHOICE_FILL, CHOICE_DISCUSS, CHOICE_DONE].map(norm));
+        // 纯字符串精确匹配拦不住模型的同义改写(如"以上都不是"/"None of the above"),
+        // 故额外收一批已知常见变体做精确匹配(非模糊/子串,避免误伤真实业务选项)。
+        const norm = (s: string) => s.trim().replace(/^\d+[.、)]\s*/, "").toLowerCase();
+        const KNOWN_VARIANTS = [
+          CHOICE_FILL, CHOICE_DISCUSS, CHOICE_DONE,
+          "其他", "其它", "以上都不是", "以上都不对", "都不是", "自定义", "自己输入", "手动输入",
+          "other", "none of the above", "none of these", "something else", "custom",
+        ];
+        const reserved = new Set(KNOWN_VARIANTS.map(norm));
         const cleaned = options.filter((o) => !reserved.has(norm(o)));
         setChoice({ question, options: cleaned, multi: !!multi, resolve });
         setChoiceIdx(0); setChoiceChecked(new Set()); setChoiceWarn(false);

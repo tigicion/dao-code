@@ -105,4 +105,22 @@ describe("multi-select (ask_user)", () => {
     stdin.write("\r");
     expect(await p).toBe("乙");
   });
+
+  it("去重:模型误写的'其他/以上都不是'等同义变体被过滤,不与系统自动追加的重复出现", async () => {
+    const { lastFrame, getAskChoice } = mount();
+    await delay();
+    // 模型误加了两种常见变体;真实业务选项只有 A、B。
+    getAskChoice()("选哪个?", ["A", "其他", "B", "以上都不是"], false);
+    await delay();
+    const frame = lastFrame()!;
+    // 过滤后只剩 A(1)、B(2),系统追加的"其他(自己输入)"是第 3 行、"先讨论一下"第 4 行——
+    // 而不是 A(1)、其他(2)、B(3)、以上都不是(4)、其他(自己输入)(5)、先讨论一下(6)。
+    expect(frame).toContain("1. A");
+    expect(frame).toContain("2. B");
+    expect(frame).toContain("3. 其他(自己输入)");
+    expect(frame).toContain("4. 先讨论一下");
+    // "其他"这个词只该出现一次(在自动追加的那行里),不该有模型自己写的那条重复行。
+    expect((frame.match(/其他/g) ?? []).length).toBe(1);
+    expect(frame).not.toContain("以上都不是");
+  });
 });
