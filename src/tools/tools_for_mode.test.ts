@@ -22,4 +22,12 @@ describe("apiToolsForMode", () => {
     const names = apiToolsForMode(reg(), "plan").map((t) => t.function.name);
     expect(names).toEqual(["read_file"]);
   });
+
+  it("mcp__ 工具默认不出现,tool_search 命中激活后才出现(normal/plan 均生效)", () => {
+    const r = reg();
+    r.register(defineTool({ name: "mcp__github__create_issue", description: "建 issue", capability: "network", approval: "suggest", schema: z.object({}), handler: async () => "" }));
+    expect(apiToolsForMode(r, "normal").map((t) => t.function.name)).not.toContain("mcp__github__create_issue");
+    r.searchAndActivateMcp("issue");
+    expect(apiToolsForMode(r, "normal").map((t) => t.function.name)).toContain("mcp__github__create_issue");
+  });
 });

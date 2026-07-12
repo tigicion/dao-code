@@ -109,3 +109,50 @@ describe("ToolRegistry.subsetExcluding", () => {
     expect(r.subsetExcluding(new Set()).toApiTools()).toHaveLength(2);
   });
 });
+
+const mkMcp = (name: string, description: string) =>
+  defineTool({ name, description, capability: "network", approval: "suggest", schema: z.object({}), handler: async () => "" });
+
+describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => {
+  it("非 mcp__ 前缀的工具永远可见", () => {
+    const r = new ToolRegistry();
+    r.register(mk("read_file"));
+    expect(r.isMcpVisible("read_file")).toBe(true);
+  });
+
+  it("mcp__ 工具默认不可见,搜到并激活后可见", () => {
+    const r = new ToolRegistry();
+    r.register(mkMcp("mcp__github__create_issue", "在 GitHub 建一个 issue"));
+    expect(r.isMcpVisible("mcp__github__create_issue")).toBe(false);
+    const out = r.searchAndActivateMcp("issue");
+    expect(out).toContain("mcp__github__create_issue");
+    expect(out).toContain("已激活");
+    expect(r.isMcpVisible("mcp__github__create_issue")).toBe(true);
+  });
+
+  it("按描述关键词也能命中(不止工具名)", () => {
+    const r = new ToolRegistry();
+    r.register(mkMcp("mcp__github__foo", "在 GitHub 建一个 issue"));
+    const out = r.searchAndActivateMcp("GitHub");
+    expect(out).toContain("mcp__github__foo");
+  });
+
+  it("不分大小写", () => {
+    const r = new ToolRegistry();
+    r.register(mkMcp("mcp__github__create_issue", "desc"));
+    expect(r.searchAndActivateMcp("ISSUE")).toContain("mcp__github__create_issue");
+  });
+
+  it("查无命中 → 提示,不激活任何东西", () => {
+    const r = new ToolRegistry();
+    r.register(mkMcp("mcp__github__foo", "desc"));
+    const out = r.searchAndActivateMcp("不存在的关键词xyz");
+    expect(out).toContain("没有 MCP 工具匹配");
+    expect(r.isMcpVisible("mcp__github__foo")).toBe(false);
+  });
+
+  it("空查询 → 提示提供关键词", () => {
+    const r = new ToolRegistry();
+    expect(r.searchAndActivateMcp("  ")).toContain("请提供搜索关键词");
+  });
+});

@@ -61,6 +61,7 @@ import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { messageParentTool } from "./tools/message_parent.js";
 import { notifyUserTool } from "./tools/notify_user.js";
+import { toolSearchTool } from "./tools/tool_search.js";
 import { taskCreateTool } from "./tools/task_create.js";
 import { taskListTool } from "./tools/task_list.js";
 import { taskGetTool } from "./tools/task_get.js";
@@ -456,6 +457,8 @@ async function main() {
     onElicit: (m, s) => (mcpElicit ? mcpElicit(m, s) : Promise.resolve({ action: "decline" as const })),
   });
   for (const t of mcp.tools) registry.register(t);
+  // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 tool_search 去找它们。
+  if (mcp.tools.length > 0) registry.register(toolSearchTool);
 
   const lang = getLang();
   const toolSummaries = registry
@@ -777,6 +780,7 @@ async function main() {
     fetchImpl: fetch,
     today,
     notifyUser: (m: string) => notify("dao", m), // notify_user 用;主会话与子代理均可(复用现成的桌面通知)
+    searchTools: (q: string) => registry.searchAndActivateMcp(q), // tool_search 用
     verifyCommand: process.env.DAO_VERIFY_CMD?.trim() || undefined,
   };
 
