@@ -16,6 +16,12 @@ export interface TaskManager {
   launch(description: string, run: (signal: AbortSignal, id: string) => Promise<string>): string;
   // 接管一个已在运行的 promise(前台超时自动转后台用):完成/失败时入队通知。不可取消。
   adopt(description: string, promise: Promise<string>): string;
+  // 手动建一个任务(不背靠任何 promise/进程)——纯状态追踪,配合 update() 手动推进。
+  create(description: string): string;
+  // 手动更新一个任务(仅对 create() 建的、或已结束的任务生效;运行中的 launch/adopt 任务由 promise 驱动,
+  // 不接受手动改 status,防止和自动结算打架——但 description 任何时候都能改)。
+  // status 改为 completed/failed 时,和 promise 结算路径一样入队 <task-notification>。
+  update(id: string, patch: { status?: "completed" | "failed" | "canceled"; result?: string; description?: string }): boolean;
   // 给运行中的任务追加一条消息(SendMessage),由其在下一个工具回合边界消费。
   send(id: string, message: string): boolean;
   // 运行中任务给父代理发一条 mid-run 消息(进度/发现/提问):入通知队列 + 触发 onChange。
@@ -25,6 +31,7 @@ export interface TaskManager {
   drainNotifications(): string[]; // 取出并清空待通知(已完成/失败任务的 XML 通知)
   hasPending(): boolean;
   running(): BgTask[];
+  all(): BgTask[]; // 全部任务(含已结束),供 task_list 工具查询历史
   get(id: string): BgTask | undefined;
   cancel(id: string): boolean;
   cancelAll(): void;
@@ -73,10 +80,10 @@ export function createTaskManager(): TaskManager {
   const notify = () => onChangeCb?.();
 
   const cancelOne = (id: string): boolean => {
-    const ac = controllers.get(id);
     const t = tasks.get(id);
-    if (!ac || !t || t.status !== "running") return false;
-    ac.abort();
+    if (!t || t.status !== "running") return false;
+    const ac = controllers.get(id);
+    ac?.abort(); // 手动建的任务(create())没有 controller,无进程可 abort,仍走下面的状态转移
     t.status = "canceled";
     t.endedAt = Date.now();
     notify();
@@ -118,6 +125,7 @@ export function createTaskManager(): TaskManager {
       notify();
       promise.then(
         (result) => {
+          if (t.status !== "running") return; // 已被 update()/cancel() 手动结束,不再覆盖(补齐与 launch() 一致的防御)
           t.status = "completed";
           t.result = result;
           t.endedAt = Date.now();
@@ -125,6 +133,7 @@ export function createTaskManager(): TaskManager {
           notify();
         },
         (e) => {
+          if (t.status !== "running") return;
           t.status = "failed";
           t.error = e instanceof Error ? e.message : String(e);
           t.endedAt = Date.now();
@@ -133,6 +142,30 @@ export function createTaskManager(): TaskManager {
         },
       );
       return id;
+    },
+    create(description) {
+      const id = `task-${++counter}`;
+      const t: BgTask = { id, description, status: "running", startedAt: Date.now() };
+      tasks.set(id, t);
+      notify();
+      return id;
+    },
+    update(id, patch) {
+      const t = tasks.get(id);
+      if (!t) return false;
+      if (patch.description !== undefined) t.description = patch.description;
+      if (patch.status !== undefined) {
+        if (t.status !== "running") return false; // 已结束的任务不可再改状态(防止和自动结算的通知重复)
+        t.status = patch.status;
+        t.endedAt = Date.now();
+        if (patch.result !== undefined) {
+          if (t.status === "completed") t.result = patch.result;
+          else t.error = patch.result;
+        }
+        notifications.push(notificationXml(t));
+      }
+      notify();
+      return true;
     },
     send(id, message) {
       const t = tasks.get(id);
@@ -161,6 +194,9 @@ export function createTaskManager(): TaskManager {
     },
     running() {
       return [...tasks.values()].filter((t) => t.status === "running");
+    },
+    all() {
+      return [...tasks.values()];
     },
     get(id) {
       return tasks.get(id);

@@ -60,6 +60,11 @@ import { makeSkillAdapter } from "./skills/convert.js";
 import { skillTool } from "./tools/skill.js";
 import { taskSendTool } from "./tools/task_send.js";
 import { messageParentTool } from "./tools/message_parent.js";
+import { taskCreateTool } from "./tools/task_create.js";
+import { taskListTool } from "./tools/task_list.js";
+import { taskGetTool } from "./tools/task_get.js";
+import { taskUpdateTool } from "./tools/task_update.js";
+import { taskStopTool } from "./tools/task_stop.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { loadMcpConfig, connectMcpServers, type ElicitHandler } from "./mcp/mcp.js";
 import { processManager } from "./tools/process_manager.js";
@@ -434,6 +439,7 @@ async function main() {
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
     grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
+    taskCreateTool, taskListTool, taskGetTool, taskUpdateTool, taskStopTool,
   ]) {
     registry.register(t);
   }
@@ -901,6 +907,7 @@ async function main() {
 
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
+  ctx.taskManager = taskManager; // task_create/get/list/update/stop 用;同一个实例,不是第二套系统
   ctx.runBackgroundAgent = (task: string, agentType?: string) =>
     taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
       ctx.runSubagent!({

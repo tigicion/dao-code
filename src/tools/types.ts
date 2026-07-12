@@ -1,5 +1,6 @@
 import type { ZodTypeAny, z } from "zod";
 import type { Mode } from "./tools_for_mode.js";
+import type { TaskManager } from "../agent/tasks.js";
 
 export type Capability = "read" | "write" | "exec" | "network" | "plan";
 export type Approval = "auto" | "suggest" | "required";
@@ -46,6 +47,9 @@ export interface ToolContext {
   runBackgroundAgent?: (task: string, agentType?: string) => string;
   // 接管一个已在运行的子代理 promise 转入后台(前台超时自动后台化用)。
   adoptBackground?: (description: string, promise: Promise<string>) => string;
+  // 完整任务管理器引用(task_create/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create,
+  // 不是并行的第二套系统——后台子代理派发(runBackgroundAgent/adoptBackground)也走它。
+  taskManager?: TaskManager;
   // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。
   agentTypes?: { name: string; description: string }[];
   // 可用 skill(名字+描述+触发条件+slug+正文+目录),供 skill 工具按需加载正文。
