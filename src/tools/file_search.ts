@@ -10,8 +10,10 @@ const MAX = 100;
 
 export const fileSearchTool = defineTool({
   name: "file_search",
-  description: "在工作区内按文件名/路径 glob 搜索文件(如 *.ts 或 **/*.test.ts),按修改时间从新到旧排序。",
-  descriptionEn: "Searches files by name/path glob in the workspace (e.g., *.ts or **/*.test.ts), sorted by modification time (newest first).",
+  description: "在工作区内按文件名/路径 glob 搜索文件(如 *.ts 或 **/*.test.ts),按修改时间从新到旧排序。" +
+    "按文件名/路径找文件优先用本工具,不要用 exec_shell 拼 find——不占审批,结果按时间排序更利于定位最近改动。",
+  descriptionEn: "Searches files by name/path glob in the workspace (e.g., *.ts or **/*.test.ts), sorted by modification time (newest first). " +
+    "Prefer this over shelling out to find via exec_shell — no approval needed, and time-sorting helps surface recently changed files.",
   capability: "read",
   approval: "auto",
   schema: z.object({

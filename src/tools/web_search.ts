@@ -26,8 +26,8 @@ function decodeDdgUrl(href: string): string {
 
 export const webSearchTool = defineTool({
   name: "web_search",
-  description: "用 DuckDuckGo 联网搜索,返回若干条结果(标题、URL、摘要)。",
-  descriptionEn: "Searches the web via DuckDuckGo, returning results (title, URL, snippet).",
+  description: "用 DuckDuckGo 联网搜索,返回若干条结果(标题、URL、摘要)。只有摘要,没有正文——需要完整内容时对结果 URL 再调 fetch_url。",
+  descriptionEn: "Searches the web via DuckDuckGo, returning results (title, URL, snippet). Snippets only, no page content — call fetch_url on a result URL when you need the full text.",
   capability: "network",
   approval: "suggest",
   schema: z.object({

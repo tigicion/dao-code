@@ -10,9 +10,11 @@ import { msg } from "./lang.js";
 export const editFileTool = defineTool({
   name: "edit_file",
   description:
-    "对工作区内已存在文件做精确字符串替换。old_string 必须在文件中唯一(否则用 replace_all 或扩大上下文)。编辑前需先用 read_file 读过它。",
+    "对工作区内已存在文件做精确字符串替换。old_string 必须在文件中唯一(否则用 replace_all 或扩大上下文)。编辑前需先用 read_file 读过它。" +
+    "并行编辑同一文件会自动排队,不会互相覆盖。同一文件要做多处改动时优先用 multi_edit(原子、要么全成要么全不改),别连发多个 edit_file。",
   descriptionEn:
-    "Performs exact string replacement in a workspace file. old_string must be unique in the file (otherwise use replace_all or broaden context). Must read_file first.",
+    "Performs exact string replacement in a workspace file. old_string must be unique in the file (otherwise use replace_all or broaden context). Must read_file first. " +
+    "Concurrent edits to the same file are automatically queued, not racing. For multiple changes to one file, prefer multi_edit (atomic, all-or-nothing) over several edit_file calls.",
   capability: "write",
   approval: "required",
   schema: z.object({

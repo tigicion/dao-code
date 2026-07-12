@@ -6,8 +6,10 @@ import { msg } from "./lang.js";
 
 export const listDirTool = defineTool({
   name: "list_dir",
-  description: "列出工作区内某个目录的条目,目录名以 / 结尾,按字典序排列。",
-  descriptionEn: "Lists entries in a workspace directory. Directory names end with /, sorted alphabetically.",
+  description: "列出工作区内某个目录的条目,目录名以 / 结尾,按字典序排列。" +
+    "超过 500 项会截断(如 node_modules),此时改用 grep_files/file_search 精确定位而非翻列表。",
+  descriptionEn: "Lists entries in a workspace directory. Directory names end with /, sorted alphabetically. " +
+    "Truncates past 500 entries (e.g. node_modules) — use grep_files/file_search to target precisely instead of browsing the list.",
   capability: "read",
   approval: "auto",
   schema: z.object({

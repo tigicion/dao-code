@@ -20,8 +20,10 @@ function htmlToText(html: string): string {
 
 export const fetchUrlTool = defineTool({
   name: "fetch_url",
-  description: "抓取一个网页 URL,返回去掉标签后的纯文本(超长会截断)。",
-  descriptionEn: "Fetches a web page URL, returning plain text with HTML tags stripped (truncated if very long).",
+  description: "抓取一个网页 URL,返回去掉标签后的纯文本(超长会截断)。30 秒超时。" +
+    "拒绝内网/环回/云元数据地址(SSRF 防护)。只拉原始 HTML,不执行 JS——依赖客户端渲染的页面拿不到真实内容。",
+  descriptionEn: "Fetches a web page URL, returning plain text with HTML tags stripped (truncated if very long). 30s timeout. " +
+    "Refuses internal/loopback/cloud-metadata addresses (SSRF protection). Fetches raw HTML only, no JS execution — client-rendered pages won't return meaningful content.",
   capability: "network",
   approval: "suggest",
   schema: z.object({

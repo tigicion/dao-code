@@ -7,9 +7,11 @@ import { msg } from "./lang.js";
 export const readFileTool = defineTool({
   name: "read_file",
   description:
-    "读取工作区内的文本文件,返回带行号(1-based)的内容。可用 offset 指定起始行、limit 指定读取行数。",
+    "读取工作区内的文本文件,返回带行号(1-based)的内容。可用 offset 指定起始行、limit 指定读取行数。" +
+    "只读文本,遇二进制/超大文件(>5MB)会报错——读文件优先用本工具,不要用 exec_shell 拼 cat/head/tail。",
   descriptionEn:
-    "Reads a text file in the workspace, returning content with 1-based line numbers. Use offset for the starting line and limit to control lines read.",
+    "Reads a text file in the workspace, returning content with 1-based line numbers. Use offset for the starting line and limit to control lines read. " +
+    "Text only — errors on binary or oversized (>5MB) files. Prefer this over shelling out to cat/head/tail via exec_shell.",
   capability: "read",
   approval: "auto",
   schema: z.object({

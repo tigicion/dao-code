@@ -12,9 +12,11 @@ const MAX = 200;
 export const grepFilesTool = defineTool({
   name: "grep_files",
   description:
-    "在工作区内按内容(正则)搜索文本文件。mode=content(默认)返回 路径:行号:行内容;mode=files 只返回命中文件名。可用 glob 过滤文件名。",
+    "在工作区内按内容(正则)搜索文本文件。mode=content(默认)返回 路径:行号:行内容;mode=files 只返回命中文件名。可用 glob 过滤文件名。" +
+    "内容搜索优先用本工具,不要用 exec_shell 拼 grep/rg——结果格式统一、不占审批。",
   descriptionEn:
-    "Searches text files in the workspace by content regex. mode=content (default) returns path:line:content; mode=files returns only matching filenames. Filter by file glob.",
+    "Searches text files in the workspace by content regex. mode=content (default) returns path:line:content; mode=files returns only matching filenames. Filter by file glob. " +
+    "Prefer this over shelling out to grep/rg via exec_shell — consistent output format, no approval needed.",
   capability: "read",
   approval: "auto",
   schema: z.object({

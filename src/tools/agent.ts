@@ -19,12 +19,18 @@ export const agentTool = defineTool({
     "把独立子任务派发给子代理:它用同样的工具自主跑完、只返回最终结果(你看不到中间过程)。" +
     "任务描述要自包含——子代理没有当前对话上下文。" +
     "传 task 派单个;传 tasks 数组则并行派发多个并汇总(适合可并行的独立调查/分析)。" +
-    "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行,以免互相冲突。",
+    "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行,以免互相冲突。" +
+    "嵌套上限 2 层(子代理里再派子代理,超限会拒绝——请自己完成或拆小任务)。" +
+    "单个前台子代理跑超过默认 60 秒会自动转后台(不阻塞你,完成后通知)。" +
+    "并行任务默认最多 10 个同时跑(嵌套派发时收紧到 3),其余排队,不代表真的全部同时执行。",
   descriptionEn:
     "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
     "Task description must be self-contained — the subagent has no current conversation context. " +
     "Pass task for a single dispatch; pass tasks array for parallel dispatch with aggregated results (ideal for parallel independent investigation/analysis). " +
-    "Parallel tasks MUST be mutually independent with no dependencies; tasks that modify the same files must not be parallelized to avoid conflicts.",
+    "Parallel tasks MUST be mutually independent with no dependencies; tasks that modify the same files must not be parallelized to avoid conflicts. " +
+    "Nesting cap: 2 levels (a subagent dispatching its own subagent beyond that is rejected — do it yourself or split into smaller tasks). " +
+    "A single foreground subagent running past a default 60s threshold auto-promotes to background (doesn't block you; notified on completion). " +
+    "Parallel tasks run at most 10 concurrently by default (throttled to 3 for nested dispatches) — the rest queue, so not all tasks truly run simultaneously.",
   capability: "plan",
   approval: "auto",
   schema: z.object({

@@ -15,9 +15,11 @@ const fmtFull = (m: Memory): string =>
 export const memoryReadTool = defineTool({
   name: "memory_read",
   description:
-    "查跨会话记忆:给名字(slug)或关键词/问题,返回最相关的若干条(用户模型/偏好/项目事实/历史决策/技术坑)。回答关于用户或项目的问题、或需要回忆之前定下的事时用它,别去翻代码。索引里看到相关名字也用它取整句。",
+    "查跨会话记忆:给名字(slug)或关键词/问题,返回最相关的若干条(用户模型/偏好/项目事实/历史决策/技术坑)。回答关于用户或项目的问题、或需要回忆之前定下的事时用它,别去翻代码。索引里看到相关名字也用它取整句。" +
+    "多词查询是【全部命中】(AND,非模糊/OR),查不到就换更短的关键词而非加更多词。",
   descriptionEn:
-    "Queries cross-session memories: pass a name (slug) or keyword/question, returns the most relevant entries (user model/preferences/project facts/past decisions/technical pitfalls). Use when answering questions about the user or project, or when recalling previously established facts — don't search code for these. Also use when you see a relevant name in an index to retrieve the full entry.",
+    "Queries cross-session memories: pass a name (slug) or keyword/question, returns the most relevant entries (user model/preferences/project facts/past decisions/technical pitfalls). Use when answering questions about the user or project, or when recalling previously established facts — don't search code for these. Also use when you see a relevant name in an index to retrieve the full entry. " +
+    "Multi-word queries require ALL terms to match (AND, not fuzzy/OR) — if nothing found, try fewer/shorter keywords rather than adding more.",
   capability: "read",
   approval: "auto",
   schema: z.object({

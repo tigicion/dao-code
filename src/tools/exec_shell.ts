@@ -77,9 +77,11 @@ function runForeground(
 export const execShellTool = defineTool({
   name: "exec_shell",
   description:
-    "在工作区目录执行 shell 命令(git、测试、find 等都走它)。前台执行返回输出与退出码;background=true 则后台启动并返回进程 id(用 exec_shell_poll 读输出、exec_shell_kill 结束)。",
+    "在工作区目录执行 shell 命令(git、跑测试、npm/pip 等构建工具都走它)。前台执行返回输出与退出码;background=true 则后台启动并返回进程 id(用 exec_shell_poll 读输出、exec_shell_kill 结束)。" +
+    "查文件内容用 grep_files、查文件名/路径用 file_search、读文件用 read_file——不要用本工具拼 grep/rg/find/cat/head/tail,专用工具有护栏(大小限制、二进制探测)且不占审批。",
   descriptionEn:
-    "Executes a shell command in the workspace directory (git, tests, find, etc.). Foreground execution returns output and exit code; background=true starts in background and returns a process id (use exec_shell_poll to read output, exec_shell_kill to stop).",
+    "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution returns output and exit code; background=true starts in background and returns a process id (use exec_shell_poll to read output, exec_shell_kill to stop). " +
+    "Use grep_files for content search, file_search for filename/path search, read_file for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated tools have guardrails (size limits, binary detection) and skip approval.",
   capability: "exec",
   approval: "required",
   schema: z.object({
