@@ -106,5 +106,8 @@ Docker/系统层面的问题,是这个环境本身在长时间后台任务生命
 | constraints-scheduling | ✅ 1 |
 | count-dataset-tokens | ❌ 0(token 数算错,63841 vs 期望 79586,像是分词方法选错,待蒸馏) |
 | hf-model-inference | ✅ 1 |
+| sqlite-with-gcov | ✅ 1 |
+| multi-source-data-merger | ✅ 1 |
+| qemu-startup | 第一次被杀,重跑后 ❌ 0(expect 脚本登录 QEMU VM 卡在密码提示,没配对登录方式,待蒸馏) |
 
 被外部信号杀掉的任务不计入失败统计(不是真实结果),需要重跑到拿到真结果为止。
