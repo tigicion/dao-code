@@ -79,7 +79,11 @@ export const execShellTool = defineTool({
   description:
     "在工作区目录执行 shell 命令(git、跑测试、npm/pip 等构建工具都走它)。前台执行等到命令结束,返回 stdout/stderr" +
     "和退出码/超时/中断状态;background=true 立即返回进程 id 不阻塞(适合起个服务、跑个长任务),用 exec_shell_poll" +
-    "读它自上次轮询以来的新输出、exec_shell_kill 结束它——别对同一命令又前台等又后台起。前台默认超时 120 秒,可用" +
+    "读它自上次轮询以来的新输出、exec_shell_kill 结束它——别对同一命令又前台等又后台起。background=true 启动的" +
+    "是真正独立于 DAO 自身进程存活的后台进程,不会随这次调用结束而自动消失——只在确实需要它持续跑着(起服务、" +
+    "长时间任务)时才用,命令本身很快就能跑完就别用后台;不再需要时记得 exec_shell_kill 收尾,除非任务本身就要求" +
+    "这个服务保持运行(比如要求'启动并保持在后台运行'的服务类任务,这种就应该让它继续跑,不用主动杀)。" +
+    "前台默认超时 120 秒,可用" +
     "timeout(毫秒)调;超时或中断都会杀掉整个进程组(不只是 shell 本身,命令里再拉起的子进程也一起终止)。" +
     "输出在内存里最多攒 10MB,超了会截断并提示改用更精确的命令或重定向到文件后再查——命令本身别指望它能把一个几十MB" +
     "的输出原样倒给你。\n" +
@@ -91,6 +95,10 @@ export const execShellTool = defineTool({
     "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution waits for completion and returns stdout/stderr " +
     "plus exit code / timeout / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) — use " +
     "exec_shell_poll to read its new output since the last poll, exec_shell_kill to stop it. Don't both wait in foreground and also start the same command in background. " +
+    "A background=true process is genuinely independent of DAO's own process lifetime — it does NOT vanish just because this call returns. Only reach for it when " +
+    "something actually needs to keep running (a service, a long task) — not for commands that will finish quickly anyway. Remember to exec_shell_kill it once it's " +
+    "no longer needed, unless the task itself requires the service to keep running (e.g. a task asking you to 'start and keep it running in the background' — leave " +
+    "that one up, don't kill it). " +
     "Foreground defaults to a 120s timeout, adjustable via timeout (ms); both a timeout and an abort kill the entire process group, not just the shell — " +
     "child processes spawned by the command are terminated too. Output is capped at 10MB in memory; past that it's truncated with a hint to use a more precise " +
     "command or redirect to a file and inspect that instead — don't expect a raw multi-MB output to come back intact.\n" +
