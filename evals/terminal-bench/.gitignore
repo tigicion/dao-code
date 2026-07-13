@@ -1,4 +1,4 @@
-agent/bin/
+agent/bin*/
 jobs/
 runs/
 *.log

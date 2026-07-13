@@ -22,13 +22,9 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 from harbor.models.trial.paths import EnvironmentPaths
 
-# 按容器架构选二进制,构建方式见 ./build-binaries.sh(输出到 agent/bin/,已 gitignore)。
+# 默认二进制目录,构建方式见 ./build-binaries.sh(BIN_DIR=... 可指到别的目录,已 gitignore)。
 # 路径相对 harbor run 的调用目录(约定在 evals/terminal-bench/ 下跑,见 README)。
-_BIN_DIR = "agent/bin"
-DAO_BINARY_LOCAL_PATHS = {
-    "x86_64": f"{_BIN_DIR}/dao-linux-x64",
-    "aarch64": f"{_BIN_DIR}/dao-linux-arm64",
-}
+_DEFAULT_BIN_DIR = "agent/bin"
 DAO_BINARY_REMOTE_PATH = "/usr/local/bin/dao"
 
 _AGENT_DIR = EnvironmentPaths.agent_dir.as_posix()
@@ -37,11 +33,20 @@ _STDOUT_FILE = f"{_AGENT_DIR}/dao_stdout.txt"
 
 
 class DaoAgent(BaseInstalledAgent):
-    """把 DAO CODE 的 headless 一次性调用(argvPrompt 模式)包成 Harbor 装机型 agent。"""
+    """把 DAO CODE 的 headless 一次性调用(argvPrompt 模式)包成 Harbor 装机型 agent。
+
+    bin_dir(可选构造参数,经 `--ak bin_dir=<路径>` 传入):要装机的二进制所在目录,
+    默认 agent/bin。跑 A/B(比如某个基线 commit vs 当前 HEAD)时,分别把两个 commit
+    的二进制编到不同目录,同一份 agent 代码指过去即可,不用为每次对比复制一份 agent 类。
+    """
 
     @staticmethod
     def name() -> str:
         return "dao-code"
+
+    def __init__(self, *args, bin_dir: str = _DEFAULT_BIN_DIR, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._bin_dir = bin_dir
 
     def get_version_command(self) -> str | None:
         return f"{DAO_BINARY_REMOTE_PATH} --version"
@@ -49,9 +54,11 @@ class DaoAgent(BaseInstalledAgent):
     async def install(self, environment: BaseEnvironment) -> None:
         arch_result = await self.exec_as_root(environment, command="uname -m")
         arch = arch_result.stdout.strip()
-        local_path = DAO_BINARY_LOCAL_PATHS.get(arch)
-        if not local_path:
+        binary_names = {"x86_64": "dao-linux-x64", "aarch64": "dao-linux-arm64"}
+        binary_name = binary_names.get(arch)
+        if not binary_name:
             raise RuntimeError(f"没有为容器架构 '{arch}' 交叉编译过 DAO 二进制,先跑 build-binaries.sh")
+        local_path = f"{self._bin_dir}/{binary_name}"
         await environment.upload_file(local_path, DAO_BINARY_REMOTE_PATH)
         await self.exec_as_root(
             environment,
