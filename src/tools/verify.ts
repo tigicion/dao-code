@@ -16,7 +16,10 @@ export const verifyDoneTool = defineTool({
     "真把它跑起来、读回改动、看输出,不能用'看起来对/应该没问题/我的测试过了'代替独立验证。每次声称任务完成前都调用它," +
     "不是只在一长串工作的最后调一次——中途每完成一个可验证的子目标就调一次,别攒到最后才发现前面某步其实没做对。" +
     "举例:改完一个函数就该跑一下它的单测,而不是等改完十个文件、准备收尾时才第一次验证,那样出问题定位成本高得多。" +
-    "这里的通过只代表配置的命令退出码是 0,不代表功能真的做对了——如果命令本身太浅(比如只跑了类型检查),通过了也不等于验证完整。",
+    "这里的通过只代表配置的命令退出码是 0,不代表功能真的做对了——如果命令本身太浅(比如只跑了类型检查),通过了也不等于验证完整。" +
+    "尤其注意:如果你自己动手做过检查(跑过测试、探测过连接、diff 过关键约束)、结果是失败/超时/不匹配,这个负面结果" +
+    "本身就是明确的信号——不能因为'已经很晚了/已经改了很多次/其它部分都对了'就把它当没看见、照样收尾。" +
+    "拿到负面结果意味着还没做完,该做的是继续修或如实说明卡在哪,不是重新描述一遍意图就当验证过了。",
   descriptionEn:
     "Determines whether a task is truly complete. If an acceptance command is configured (via /dod or DAO_VERIFY_CMD), actually runs it (300s timeout, output truncated), " +
     "exit 0=pass, non-zero=not done yet, keep fixing; if none is configured, it won't quietly let you self-approve — instead it reminds you to judge based on [actual evidence]: " +
@@ -24,7 +27,10 @@ export const verifyDoneTool = defineTool({
     "independent verification. Call this before every claim of completion, not just once at the end of a long task — call it after each verifiable sub-goal along the way, " +
     "rather than discovering at the very end that an earlier step wasn't actually right. Example: run a function's unit tests right after changing it, rather than " +
     "waiting until ten files later when you're wrapping up to verify for the first time — much more expensive to pinpoint the problem that way. A pass here means the " +
-    "configured command exited 0, nothing more — it doesn't certify the feature is actually correct if the command itself is too shallow (e.g. only a type check).",
+    "configured command exited 0, nothing more — it doesn't certify the feature is actually correct if the command itself is too shallow (e.g. only a type check). " +
+    "In particular: if you already ran a real check yourself (a test, a connectivity probe, a diff against a ground-truth constraint) and it came back failed/timed-out/" +
+    "mismatched, that negative result IS the signal — don't wave it away just because it's late, you've iterated many times already, or everything else checks out. " +
+    "A negative result means the task isn't done; the move is to keep fixing it or honestly report what's blocking, not restate your intent and call it verified.",
   capability: "read",
   approval: "auto",
   schema: z.object({}),
