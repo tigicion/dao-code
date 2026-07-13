@@ -6,535 +6,713 @@
       "name": "adaptive-rejection-sampler",
       "difficulty": "medium",
       "category": "scientific-computing",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "bn-fit-modify",
       "difficulty": "hard",
       "category": "scientific-computing",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "break-filter-js-from-html",
       "difficulty": "medium",
       "category": "security",
-      "agent_timeout_sec": 1200.0
+      "agent_timeout_sec": 1200.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "build-cython-ext",
       "difficulty": "medium",
       "category": "debugging",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "build-pmars",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "build-pov-ray",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 12000.0
+      "agent_timeout_sec": 12000.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "caffe-cifar-10",
       "difficulty": "medium",
       "category": "machine-learning",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 4,
+      "memory_mb": 8192
     },
     {
       "name": "cancel-async-tasks",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "chess-best-move",
       "difficulty": "medium",
       "category": "games",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "circuit-fibsqrt",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "cobol-modernization",
       "difficulty": "easy",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "code-from-image",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 1200.0
+      "agent_timeout_sec": 1200.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "compile-compcert",
       "difficulty": "medium",
       "category": "system-administration",
-      "agent_timeout_sec": 2400.0
+      "agent_timeout_sec": 2400.0,
+      "cpus": 2,
+      "memory_mb": 4096
     },
     {
       "name": "configure-git-webserver",
       "difficulty": "hard",
       "category": "system-administration",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "constraints-scheduling",
       "difficulty": "medium",
       "category": "personal-assistant",
-      "agent_timeout_sec": 1200.0
+      "agent_timeout_sec": 1200.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "count-dataset-tokens",
       "difficulty": "medium",
       "category": "model-training",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "crack-7z-hash",
       "difficulty": "medium",
       "category": "security",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "custom-memory-heap-crash",
       "difficulty": "medium",
       "category": "debugging",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "db-wal-recovery",
       "difficulty": "medium",
       "category": "file-operations",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "distribution-search",
       "difficulty": "medium",
       "category": "machine-learning",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "dna-assembly",
       "difficulty": "hard",
       "category": "scientific-computing",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "dna-insert",
       "difficulty": "medium",
       "category": "scientific-computing",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "extract-elf",
       "difficulty": "medium",
       "category": "file-operations",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "extract-moves-from-video",
       "difficulty": "hard",
       "category": "file-operations",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "feal-differential-cryptanalysis",
       "difficulty": "hard",
       "category": "mathematics",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "feal-linear-cryptanalysis",
       "difficulty": "hard",
       "category": "mathematics",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "filter-js-from-html",
       "difficulty": "medium",
       "category": "security",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 8192
     },
     {
       "name": "financial-document-processor",
       "difficulty": "medium",
       "category": "data-processing",
-      "agent_timeout_sec": 1200.0
+      "agent_timeout_sec": 1200.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "fix-code-vulnerability",
       "difficulty": "hard",
       "category": "security",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "fix-git",
       "difficulty": "easy",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "fix-ocaml-gc",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "gcode-to-text",
       "difficulty": "medium",
       "category": "file-operations",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "git-leak-recovery",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "git-multibranch",
       "difficulty": "medium",
       "category": "system-administration",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "gpt2-codegolf",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 8192
     },
     {
       "name": "headless-terminal",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "hf-model-inference",
       "difficulty": "medium",
       "category": "data-science",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "install-windows-3.11",
       "difficulty": "hard",
       "category": "system-administration",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 2,
+      "memory_mb": 4096
     },
     {
       "name": "kv-store-grpc",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "large-scale-text-editing",
       "difficulty": "medium",
       "category": "file-operations",
-      "agent_timeout_sec": 1200.0
+      "agent_timeout_sec": 1200.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "largest-eigenval",
       "difficulty": "medium",
       "category": "mathematics",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "llm-inference-batching-scheduler",
       "difficulty": "hard",
       "category": "machine-learning",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "log-summary-date-ranges",
       "difficulty": "medium",
       "category": "data-processing",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "mailman",
       "difficulty": "medium",
       "category": "system-administration",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "make-doom-for-mips",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "make-mips-interpreter",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "mcmc-sampling-stan",
       "difficulty": "hard",
       "category": "data-science",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 4,
+      "memory_mb": 8192
     },
     {
       "name": "merge-diff-arc-agi-task",
       "difficulty": "medium",
       "category": "debugging",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "model-extraction-relu-logits",
       "difficulty": "hard",
       "category": "mathematics",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "modernize-scientific-stack",
       "difficulty": "medium",
       "category": "scientific-computing",
-      "agent_timeout_sec": 600.0
+      "agent_timeout_sec": 600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "mteb-leaderboard",
       "difficulty": "medium",
       "category": "data-science",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 8192
     },
     {
       "name": "mteb-retrieve",
       "difficulty": "medium",
       "category": "data-science",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "multi-source-data-merger",
       "difficulty": "medium",
       "category": "data-processing",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "nginx-request-logging",
       "difficulty": "medium",
       "category": "system-administration",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "openssl-selfsigned-cert",
       "difficulty": "medium",
       "category": "security",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "overfull-hbox",
       "difficulty": "easy",
       "category": "debugging",
-      "agent_timeout_sec": 750.0
+      "agent_timeout_sec": 750.0,
+      "cpus": 2,
+      "memory_mb": 4096
     },
     {
       "name": "password-recovery",
       "difficulty": "hard",
       "category": "security",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "path-tracing-reverse",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "path-tracing",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "polyglot-c-py",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "polyglot-rust-c",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "portfolio-optimization",
       "difficulty": "medium",
       "category": "optimization",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "protein-assembly",
       "difficulty": "hard",
       "category": "scientific-computing",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "prove-plus-comm",
       "difficulty": "easy",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "pypi-server",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "pytorch-model-cli",
       "difficulty": "medium",
       "category": "model-training",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "pytorch-model-recovery",
       "difficulty": "medium",
       "category": "model-training",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "qemu-alpine-ssh",
       "difficulty": "medium",
       "category": "system-administration",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "qemu-startup",
       "difficulty": "medium",
       "category": "system-administration",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "query-optimize",
       "difficulty": "medium",
       "category": "data-science",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "raman-fitting",
       "difficulty": "medium",
       "category": "scientific-computing",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "regex-chess",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "regex-log",
       "difficulty": "medium",
       "category": "data-processing",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "reshard-c4-data",
       "difficulty": "medium",
       "category": "data-science",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "rstan-to-pystan",
       "difficulty": "medium",
       "category": "data-science",
-      "agent_timeout_sec": 1800.0
+      "agent_timeout_sec": 1800.0,
+      "cpus": 4,
+      "memory_mb": 8192
     },
     {
       "name": "sam-cell-seg",
       "difficulty": "hard",
       "category": "data-science",
-      "agent_timeout_sec": 7200.0
+      "agent_timeout_sec": 7200.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "sanitize-git-repo",
       "difficulty": "medium",
       "category": "security",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "schemelike-metacircular-eval",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 2400.0
+      "agent_timeout_sec": 2400.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "sparql-university",
       "difficulty": "hard",
       "category": "data-querying",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "sqlite-db-truncate",
       "difficulty": "medium",
       "category": "debugging",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "sqlite-with-gcov",
       "difficulty": "medium",
       "category": "system-administration",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "torch-pipeline-parallelism",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 8192
     },
     {
       "name": "torch-tensor-parallelism",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 8192
     },
     {
       "name": "train-fasttext",
       "difficulty": "hard",
       "category": "model-training",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 4096
     },
     {
       "name": "tune-mjcf",
       "difficulty": "medium",
       "category": "scientific-computing",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "video-processing",
       "difficulty": "hard",
       "category": "video-processing",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "vulnerable-secret",
       "difficulty": "medium",
       "category": "security",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "winning-avg-corewars",
       "difficulty": "medium",
       "category": "software-engineering",
-      "agent_timeout_sec": 3600.0
+      "agent_timeout_sec": 3600.0,
+      "cpus": 1,
+      "memory_mb": 2048
     },
     {
       "name": "write-compressor",
       "difficulty": "hard",
       "category": "software-engineering",
-      "agent_timeout_sec": 900.0
+      "agent_timeout_sec": 900.0,
+      "cpus": 1,
+      "memory_mb": 2048
     }
   ]
 }
