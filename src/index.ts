@@ -135,11 +135,23 @@ function transcriptFromMessages(messages: ChatMessage[]): TranscriptItem[] {
 
 async function main() {
   // 退出/中断时清理所有后台进程,避免孤儿(长任务里模型常起 dev server/watch)。
+  // 但一次性 headless 调用(argvPrompt,eval/脚本化场景的主要形态)正常跑完退出时不清——
+  // 这类调用常常就是靠 background:true 起一个任务要求"保持运行"的服务(见 exec_shell 工具描述),
+  // 退出就杀等于把这个用法废掉;isHeadlessOneShot 在下面 argvPrompt 算出来后回填,
+  // 处理函数注册要趁早(即便早期崩溃也能兜底清理),用闭包变量而非把注册挪到 argvPrompt 之后。
+  // SIGINT/SIGTERM 是显式中断信号,不管什么模式都应该清——用户/上层主动喊停就是要停干净。
   let cleaned = false;
-  const cleanup = () => { if (!cleaned) { cleaned = true; try { processManager.reset(); } catch {} } };
+  let isHeadlessOneShot = false;
+  const cleanup = () => {
+    if (!cleaned) {
+      cleaned = true;
+      if (!isHeadlessOneShot) { try { processManager.reset(); } catch {} }
+    }
+  };
+  const cleanupForce = () => { if (!cleaned) { cleaned = true; } try { processManager.reset(); } catch {} };
   process.on("exit", cleanup);
-  process.on("SIGINT", async () => { cleanup(); await flushObs(); process.exit(130); });
-  process.on("SIGTERM", async () => { cleanup(); await flushObs(); process.exit(143); });
+  process.on("SIGINT", async () => { cleanupForce(); await flushObs(); process.exit(130); });
+  process.on("SIGTERM", async () => { cleanupForce(); await flushObs(); process.exit(143); });
 
   const rawArgs = process.argv.slice(2);
   // 启动即加载工作目录 .env(如 LMNR_PROJECT_API_KEY):仅补未设置的键,真实 env 变量优先。
@@ -237,6 +249,7 @@ async function main() {
   // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
+  isHeadlessOneShot = !!argvPrompt; // 回填给上面注册好的 exit cleanup 用
   const workspaceRoot = process.cwd();
   // 语言先于迁移提示解析:readUserLang 读 ~/.dao/settings.json(缺失→undefined,容错),
   // resolveLang 再回退 env/locale/en;迁移读写 .codeds→.dao 与语言无关,故安全前置。
