@@ -1,4 +1,13 @@
-"""dao-code 的 terminal-bench 自定义 agent 适配器。
+"""[已被 harbor_dao_agent.py 取代,保留作 2026-07-08 历史跑分记录(见 ../runs/)]
+
+改用 Harbor + 源码交叉编译二进制的两个原因:(1) 这个脚本装的是 npm 已发布版,自进化闭环要测的是
+未发布的候选改动,npm 装不到;(2) 实测发现调用命令里的 `-p` 不是 DAO 真实支持的 flag(见
+src/index.ts 的 argvPrompt 解析),历史跑分里每条 prompt 前面都多了个字面 "-p " 前缀——模型扛住了
+没影响解题,但不是干净的调用。新脚本走 harbor_dao_agent.py,不再维护这个。
+
+---
+
+dao-code 的 terminal-bench 自定义 agent 适配器。
 
 安装式(AbstractInstalledAgent):在任务容器里装 Node + `npm i -g dao-code`,
 用 headless 一次性模式(`dao -p "<instruction>" --api-key ... --provider deepseek`)
