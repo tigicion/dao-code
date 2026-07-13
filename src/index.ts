@@ -705,7 +705,7 @@ async function main() {
   // 长任务不再强开 yolo,改用 auto(AI 判定自动批准,见下方 permModeOverride 初始化)。
   let yolo = yoloFlag || !!process.env.DAO_AUTO_APPROVE;
   const alwaysApproved = await loadAlwaysApproved(approvalsFile);
-  const readlinePrompt = makeApprovalPrompt(ask);
+  const readlinePrompt = makeApprovalPrompt(ask, process.stdin.isTTY === true && !argvPrompt);
 
   void maybeCleanup(workspaceRoot); // P2-58/67 卫生清理:每日一次、非阻塞、best-effort
   void maybeCheckUpdate((msg) => process.stderr.write(`ℹ ${msg}\n`)); // P3-59 更新检查:每日一次、非阻塞、仅提示
