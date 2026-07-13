@@ -184,3 +184,14 @@ qemu-startup, protein-assembly, video-processing),看是否有跨题的可立案
 的常规循环)模型可能压根没意识到该调用 verify_done"。这是个新的、更深的候选模式,需要
 设计"怎么让 verify_done 更可靠地被调用"(可能涉及系统提示词或更强的机制,风险层级更高),
 不适合现在(凌晨,时间有限)仓促决定,留给下一轮专门处理。
+
+### held-out 抽查(防过拟合)
+
+用带今晚全部改动的二进制,抽了 2 道从未进过任何 dev batch 的 held-out 题:
+- `prove-plus-comm`:✅ 1
+- `openssl-selfsigned-cert`:❌ 0(5/6 子测试过,`check_cert.py` 用了 `cryptography` 库
+  没装到验收阶段能用的地方,单独的近似 miss,不是今晚改动引入的新问题)
+
+没有看到"改动导致 held-out 题变差"的迹象——今晚这几个改动(exec_shell 后台持久化、
+退出清理按场景区分、无 TTY 审批 fail-closed、verify_done 负面结果规则)看起来是干净的
+增量修复,没有在 dev 题上过拟合到伤害泛化能力。
