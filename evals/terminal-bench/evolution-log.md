@@ -116,4 +116,30 @@ Docker/系统层面的问题,是这个环境本身在长时间后台任务生命
 | reshard-c4-data | 第一次被杀,重跑后 ✅ 1 |
 
 被外部信号杀掉的任务不计入失败统计(不是真实结果),需要重跑到拿到真结果为止。
-`circuit-fibsqrt` 目前重试到第 5 次,前 4 次全部被外部信号杀,从未拿到真实结果。
+`circuit-fibsqrt` 重试到第 7 次才拿到真实结果(前 6 次全部被外部信号杀)——这题是这批里
+推理量最大的(数字电路状态机设计,轨迹里全是大段长文本推理),真实耗时显著长于其它题,
+猜测是"耗时越长、撞上外部随机杀信号的概率越高"这个统计效应的极端案例,不是这题本身有
+特殊毛病。
+
+### iteration 2 dev batch 最终结果(15/15 全部拿到真实结果)
+
+| 任务 | 结果 |
+|---|---|
+| caffe-cifar-10 | ✅ 1 |
+| largest-eigenval | ❌ 0 |
+| password-recovery | ✅ 1 |
+| constraints-scheduling | ✅ 1 |
+| count-dataset-tokens | ❌ 0(token 数算错) |
+| hf-model-inference | ✅ 1 |
+| sqlite-with-gcov | ✅ 1 |
+| multi-source-data-merger | ✅ 1 |
+| qemu-startup | ❌ 0(QEMU 登录卡在密码提示) |
+| financial-document-processor | ✅ 1 |
+| protein-assembly | ❌ 0(融合蛋白结构域顺序错) |
+| bn-fit-modify | ✅ 1 |
+| video-processing | ❌ 0 |
+| reshard-c4-data | ✅ 1 |
+| circuit-fibsqrt | ✅ 1(第 7 次重试) |
+
+**10 过 5 未过。** 接下来蒸馏这 5 个真实失败(largest-eigenval, count-dataset-tokens,
+qemu-startup, protein-assembly, video-processing),看是否有跨题的可立案模式。
