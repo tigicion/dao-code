@@ -502,3 +502,29 @@ path-tracing, sam-cell-seg, git-leak-recovery, regex-chess。
 `path-tracing__EmpH7jd`:`exception.txt` 签名是 `AgentTimeoutError`(1800s 自然超时),
 不是 `_handle_sigterm`,不需要清理重跑,算真实结果 ❌ 0(超时未完成)。
 `gpt2-codegolf` 已从队列接续起跑(千帆),`regex-chess` 仍在跑(42/60分钟)。
+
+---
+
+## 操作失误更正:usage 归一化修复(f730364)提交后忘了重编二进制
+
+发现经过:用户追问"之前不是说缓存字段取错了吗,实际是有缓存的?"——回头核实
+`git log` 时间戳发现 `f730364`(usage 归一化修复)是 15:29:54 提交的,而当时在跑的
+`iter4-qianfan` 二进制是 14:39 编的,**修复提交在编译之后 53 分钟**,从未重新编译过。
+
+也就是说上一条"path-tracing 真实会话 34 次调用、hit 全程为 0"的结论**不可靠**——用的
+是没带修复的旧二进制,很可能只是同一个字段解析 bug 的重复表现,不能当作"千帆真实场景
+下没有缓存"的证据。**撤回该结论**,任务本身的 pass/fail 结果(`reward.txt`)不受这个
+bug 影响(该 bug 只影响 DAO 记录/展示的缓存统计,不影响实际发给 API 的请求或 API 行为),
+所以已出的 `reward.txt` 结果保留:
+
+| gpt2-codegolf(千帆,旧二进制) | ❌ 0 |
+| path-tracing(千帆,旧二进制) | ❌ 0 |
+
+已用带修复的最新代码(`32addbd`)重新编译二进制。`regex-chess`(跑到48/60分钟被打断,
+无结果)、`sam-cell-seg`(刚起34秒被打断)算未完成,连同从未跑过的 8 题一起用新二进制
+重新提交:query-optimize, large-scale-text-editing, tune-mjcf, winning-avg-corewars,
+polyglot-c-py, build-pmars, make-mips-interpreter, sam-cell-seg, git-leak-recovery,
+regex-chess。
+
+**教训**:代码改动(尤其是修复评测本身依赖的诊断能力)提交后,必须在启动新一批评测前
+确认二进制是不是同一个 commit——这次靠用户追问才发现,不是自己主动核对流程发现的。
