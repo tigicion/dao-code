@@ -403,9 +403,10 @@ node dist/index.js --api-key <真实千帆 Token Plan key> --provider qianfan -p
 ```
 Expected: 正常收到回复,不报 401/404,`resolved.source` 为 `cli:--api-key`。
 
-- [ ] **Step 2: 校验探针验证(`/account` 交互式加账户路径)**
+- [ ] **Step 2: 校验探针验证(首启 onboarding 路径)**
 
-跑 `dao`(交互式)→ `/account` → 添加账户 → 选 `qianfan` → 粘贴真实 key,观察校验是否通过。
+> 修正(全分支审查发现):`/account` 加账户流程目前硬编码 `provider: "deepseek"`(`src/index.ts:441-446`,新账户无 provider 选择器)——这是与 volcengine 共享的既有限制,本子项目未改动、也不在范围内。故校验探针改走首启 onboarding(`ProviderStep` 已在 Task 4 加了 qianfan 选项):清空/新建 `~/.dao/config.json` 测试目录后跑 `dao`,首启引导选语言 → 选 `qianfan` → 粘贴真实 key,观察校验是否通过。
+
 Expected: 校验通过(✓ 已校验),若 `/chat/completions` 探针返回非 2xx,记录 status 并回到 Task 2 调整探针 body/model。
 
 - [ ] **Step 3: pro 跑一轮真实对话**
