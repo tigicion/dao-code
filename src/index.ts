@@ -1202,7 +1202,7 @@ async function main() {
   };
 
   // 回合末入口:deepseek 官方 key 不限流,每轮都跑(仅 reflectBusy 防并发);
-  // volcengine CodingPlan 计费贵,用自适应节奏(连续安静则放慢)。
+  // 其它 provider(volcengine/qianfan 等 coding-plan/token-plan,计费敏感)用自适应节奏(连续安静则放慢)。
   const maybeReflect = async (opts: { compactionImminent: boolean }): Promise<void> => {
     if (argvPrompt || NO_MEMORY) return;
     // deepseek 不限流:跳过 cadence,每轮直接跑(仅用 reflectBusy 防并发堆叠)。
@@ -1210,7 +1210,7 @@ async function main() {
       void runReflector(); // fire-and-forget;reflectBusy 在内部防并发;真实 audit 在 runReflector 内写
       return;
     }
-    // volcengine:自适应 cadence,省钱
+    // 非 deepseek 官方 key(coding-plan/token-plan 计费敏感):自适应 cadence,省钱
     const tick = tickCadence(cadenceState, REFLECT_MAX_INTERVAL);
     const run = tick.run || opts.compactionImminent;
     cadenceState = run ? { ...tick.next, counter: 0 } : tick.next;
