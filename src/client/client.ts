@@ -28,6 +28,18 @@ export function isCredentialError(e: unknown): boolean {
   return false;
 }
 
+// 千帆冒烟测试实测发现:千帆代理层的 usage.prompt_tokens_details.cached_tokens(OpenAI 标准形状)
+// 才是真实缓存命中数,DeepSeek 原生的 prompt_cache_hit_tokens/prompt_cache_miss_tokens 这两个扁平
+// 字段千帆压根不返回——不是没有缓存(实测同前缀重复调用有 ~96% 命中),是字段名对不上,之前
+// DAO 一直把 hit 读成 0。这里做归一化:原生字段缺失但 details.cached_tokens 存在时用后者补齐,
+// 不改变已经有原生字段的响应(DeepSeek 直连不受影响)。
+function normalizeUsage(raw: Usage): Usage {
+  if (raw.prompt_cache_hit_tokens !== undefined) return raw; // 已有原生字段,不覆盖
+  const cached = (raw as { prompt_tokens_details?: { cached_tokens?: number } }).prompt_tokens_details?.cached_tokens;
+  if (typeof cached !== "number") return raw; // 两种形状都没有,原样返回(hit 由调用方按 undefined→0 处理)
+  return { ...raw, prompt_cache_hit_tokens: cached, prompt_cache_miss_tokens: Math.max(0, raw.prompt_tokens - cached) };
+}
+
 // 拼 API 错误信息时用 provider 名(若已知)或 baseUrl,让用户知道实际发到了哪里。
 function apiLabel(opts: { provider?: string; baseUrl: string }): string {
   return opts.provider || opts.baseUrl;
@@ -93,7 +105,7 @@ export async function* streamChat(
       throw Object.assign(new Error(`API error ${res.status} from ${apiLabel(opts)}: ${t}`), { status: res.status });
     }
     const data: any = await res.json();
-    if (data?.usage) opts.onUsage?.(data.usage as Usage);
+    if (data?.usage) opts.onUsage?.(normalizeUsage(data.usage as Usage));
     const msg = data?.choices?.[0]?.message ?? {};
     const tc: ToolCall[] = Array.isArray(msg.tool_calls)
       ? msg.tool_calls.filter((t: any) => t?.function?.name).map((t: any) => ({ id: t.id ?? "", type: "function" as const, function: { name: t.function.name, arguments: t.function.arguments ?? "" } }))
@@ -123,7 +135,7 @@ export async function* streamChat(
     });
     if (!res.ok) return { text: "" };
     const data: any = await res.json();
-    if (data?.usage) opts.onUsage?.(data.usage as Usage);
+    if (data?.usage) opts.onUsage?.(normalizeUsage(data.usage as Usage));
     const c = data?.choices?.[0];
     return { text: typeof c?.message?.content === "string" ? c.message.content : "", finish: typeof c?.finish_reason === "string" ? c.finish_reason : undefined };
   }
@@ -145,7 +157,7 @@ export async function* streamChat(
       return []; // 半个 JSON 不该出现(已按 \n\n 切),保险跳过
     }
     // usage chunk(choices 常为空)在 [DONE] 前到达——先抓它再判 delta。
-    if (parsed?.usage) opts.onUsage?.(parsed.usage as Usage);
+    if (parsed?.usage) opts.onUsage?.(normalizeUsage(parsed.usage as Usage));
     if (typeof parsed?.choices?.[0]?.finish_reason === "string") finishReason = parsed.choices[0].finish_reason; // 截断检测
     const delta = parsed?.choices?.[0]?.delta;
     if (!delta) return [];

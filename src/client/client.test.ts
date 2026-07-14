@@ -137,6 +137,39 @@ describe("streamChat", () => {
     expect(seen).toMatchObject({ prompt_tokens: 1000, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 });
   });
 
+  it("千帆等走 OpenAI 形状 usage(prompt_tokens_details.cached_tokens,无原生 hit/miss 字段)→ 归一化补齐 hit/miss", async () => {
+    // 实测千帆代理层不返回 prompt_cache_hit_tokens/prompt_cache_miss_tokens 这两个 DeepSeek 原生扁平字段,
+    // 只在 prompt_tokens_details.cached_tokens 里给真实缓存命中数——之前 DAO 一直把这类响应的 hit 读成 0。
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":9611,"completion_tokens":14,"total_tokens":9625,"prompt_tokens_details":{"cached_tokens":9216}}}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    let seen: any;
+    await run(
+      streamChat({
+        ...base,
+        messages: [{ role: "user", content: "hi" }],
+        onUsage: (u) => { seen = u; },
+        fetchImpl: fakeFetch(chunks),
+      }),
+    );
+    expect(seen).toMatchObject({ prompt_tokens: 9611, prompt_cache_hit_tokens: 9216, prompt_cache_miss_tokens: 395 });
+  });
+
+  it("两种缓存字段都没有 → 原样透传,不臆造 hit/miss", async () => {
+    const chunks = [
+      'data: {"choices":[],"usage":{"prompt_tokens":500,"completion_tokens":10,"total_tokens":510}}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    let seen: any;
+    await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], onUsage: (u) => { seen = u; }, fetchImpl: fakeFetch(chunks) }),
+    );
+    expect(seen).toMatchObject({ prompt_tokens: 500 });
+    expect(seen.prompt_cache_hit_tokens).toBeUndefined();
+  });
+
   it("requests usage in the stream (stream_options.include_usage)", async () => {
     let sentBody: any;
     const capturingFetch = (async (_url: string, init: any) => {
