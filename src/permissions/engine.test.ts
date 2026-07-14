@@ -27,8 +27,24 @@ describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默
 describe("decide — CC 1g:安全敏感目标", () => {
   it("bypass(yolo)下写/执行敏感目标 → 仍 ask(S3.1 bypass-immune,对标 CC)", () => {
     expect(decide({ toolName: "write_file", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
-    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
     expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
+  });
+  it("纯读写只写才危险的目标(/etc、.git、shell 启动脚本)→ 放行,不再一律拦(粒度太粗,曾反复拦住 sysadmin 类任务里无害的 cat/ls 探查)", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat /etc/postfix/main.cf"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"ls /etc/systemd/system/"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
+  });
+  it("写/改动这类目标仍要确认——只放行读,不放行写", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"echo x > ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"echo x > /etc/postfix/main.cf"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
+    expect(decide({ toolName: "write_file", argsJson: '{"path":"/etc/hosts"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
+  });
+  it("凭据/密钥类(SECRET_TARGET)读也泄漏,不管读写、不管走哪个工具,一律确认", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat /etc/shadow"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
+    // read_file 之前完全没被 mustConfirm 覆盖过(capability=read 从不满足旧条件)——这是新补的一致性:
+    // 不管拿 read_file 还是 exec_shell 的 cat 读私钥,结果都是内容进模型上下文,不该只挡后者。
+    expect(decide({ toolName: "read_file", argsJson: '{"path":"~/.ssh/id_rsa"}', capability: "read", mode: "bypassPermissions", ...base })).toBe("ask");
   });
   it("acceptEdits / auto 下编辑敏感路径仍 ask(不自动放行)", () => {
     expect(decide({ toolName: "edit_file", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "acceptEdits", ...base })).toBe("ask");

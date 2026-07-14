@@ -12,9 +12,20 @@ export interface DecideParams {
   rules: PermissionsConfig;
 }
 
-// 安全敏感目标:SSH 私钥/凭据、shell 启动脚本、.git 内部、/etc、dao/claude 自身状态等。
-const SENSITIVE_TARGET =
-  /\.ssh\/|id_rsa|id_ed25519|id_ecdsa|authorized_keys|\.aws\/|\.npmrc|\.netrc|credentials|\.gitconfig|\.git\/|\.bashrc|\.zshrc|\.bash_profile|\.zprofile|\/etc\/|\.dao\/config\.json/;
+// 读也会泄漏的目标:凭据/密钥material。不分 capability、不分读写——read_file 读一遍 id_rsa
+// 跟 exec_shell 里 cat 一遍,结果都是私钥内容进了模型上下文,没道理只挡后者。
+const SECRET_TARGET =
+  /\.ssh\/|id_rsa|id_ed25519|id_ecdsa|authorized_keys|\.aws\/|\.npmrc|\.netrc|credentials|\.dao\/config\.json|\/etc\/(shadow|gshadow|ssl\/private|ssh\/ssh_host_\w+_key)\b/;
+
+// 只有写/改动才危险、纯读安全的目标:/etc 配置(除上面已经算 SECRET_TARGET 的那几个子路径)、
+// shell 启动脚本、.git 内部/.gitconfig。这类文件本身不是秘密,危险的是被改写(比如往 .bashrc
+// 里种持久化后门、往 /etc/postfix 写坏配置),看一眼不会泄漏什么也不会改变系统状态。
+const WRITE_ONLY_SENSITIVE_TARGET =
+  /\.gitconfig|\.git\/|\.bashrc|\.zshrc|\.bash_profile|\.zprofile|\/etc\//;
+
+// 沿用旧的合并集合,给"审批时不提供始终允许"这个更宽松的用途用(不需要精确区分读写,
+// 保守一点没坏处——避免把敏感目标的访问权限永久固化下来)。
+const SENSITIVE_TARGET = new RegExp(`${SECRET_TARGET.source}|${WRITE_ONLY_SENSITIVE_TARGET.source}`);
 
 // 该调用是否触及安全敏感目标(写/执行)。审批时据此【不提供"始终允许"】——避免永久放行危险操作。
 export function isSensitiveCall(toolName: string, argsJson: string): boolean {
@@ -39,8 +50,19 @@ export function isDangerousCall(toolName: string, argsJson: string): boolean {
 // 除非有显式 allow 规则 opt-in。配合 gate auto 路径:此类调用跳过分类器、直接走人工。
 function mustConfirm(p: DecideParams): boolean {
   const id = toCcIdentity(p.toolName, p.argsJson);
-  const sensitiveTarget = (p.capability === "write" || p.capability === "exec") && !!id?.value && SENSITIVE_TARGET.test(id.value);
-  return sensitiveTarget || isDangerousCall(p.toolName, p.argsJson);
+  if (!id?.value) return isDangerousCall(p.toolName, p.argsJson);
+  // 凭据/密钥类:读也泄漏,不管 capability、不管是不是纯读命令,一律强制确认。
+  if (SECRET_TARGET.test(id.value)) return true;
+  // 只写才危险的目标(/etc、.git、shell 启动脚本):capability 得是 write/exec 才可能构成风险;
+  // 如果是 exec_shell 且整条命令能确认是纯只读(cat/ls/grep 这类,isReadOnlyShellCommand 已经
+  // 排除了重定向/命令替换/危险命令等),读一眼不算风险,放行——之前不分读写一律拦,是
+  // sysadmin 类任务(改 /etc/postfix、/etc/mailman3 这种)反复被同一条规则拦、且往往拦的是
+  // 无害的 cat/ls 探查步骤,才发现这个粒度太粗。
+  if ((p.capability === "write" || p.capability === "exec") && WRITE_ONLY_SENSITIVE_TARGET.test(id.value)) {
+    const isReadOnlyExec = p.toolName === "exec_shell" && isReadOnlyShellCommand(extractCommand(p.argsJson));
+    if (!isReadOnlyExec) return true;
+  }
+  return isDangerousCall(p.toolName, p.argsJson);
 }
 
 // auto 模式安全白名单(对标 CC SAFE_YOLO_ALLOWLISTED_TOOLS):只读/搜索/任务管理/计划类工具
