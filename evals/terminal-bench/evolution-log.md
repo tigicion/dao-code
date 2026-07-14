@@ -243,3 +243,4 @@ KeyboardInterrupt`),容器本身没被杀、变成孤儿(`docker events` 确认�
 
 
 | merge-diff-arc-agi-task | ✅ 1(6m28s,干净跑完) |
+| polyglot-rust-c | ✅ 1(7m57s,干净跑完) |
