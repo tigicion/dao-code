@@ -974,3 +974,9 @@ cryptanalysis` 在网络耗尽前已经成功起了容器,继续正常跑,没受
 `-n4` 并发槽位没轮到,从没启动过。已清理孤儿容器和网络。剩余6题重跑:
 chess-best-move, extract-moves-from-video, fix-git, git-multibranch,
 path-tracing-reverse, feal-differential-cryptanalysis。
+
+### iter5-2048-r4 第4次重跑,这次干净了,故障计数保持2/3
+
+chess-best-move ❌ 0(自然超时93%预算,真实难度,无异常)。其余4题(extract-moves-from-video,
+feal-differential-cryptanalysis, git-multibranch, path-tracing-reverse)健康在跑,
+fix-git 排队中。这次没有外部杀进程或网络问题,基础设施故障计数维持2/3。
