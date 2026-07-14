@@ -109,3 +109,21 @@ if (cred.provider === "volcengine" || cred.provider === "qianfan") {
 ## 7. 与既有子项目的关系
 
 千帆是 `volcengine`(子项目 C)之后的第二个 coding-plan 型 provider,复用同一套已验证的最小改动骨架(provider 枚举/DEFAULTS/探针选择/onboarding 加项),不新增抽象层。i18n 展示层(子项目 B)与道家 onboarding 整合层(子项目 A)已支持"任意 provider 的 meta",千帆直接消费,无需改动 A/B 的既有机制。
+
+## 8. 实测后回填(真实 key 验证 + 账户/模型管理加固)
+
+定稿日期 2026-07-14(同日回填)。用真实千帆 Token Plan key 实测确认:
+
+- `deepseek-v4-pro`/`deepseek-v4-flash` 在千帆下均正常返回(headless 全链路走通,真实 usage/费用记账生效)。
+- `GET .../v2/tokenplan/personal/models` 确认 404(§1/§6 的假设成立),鉴权探针改用 chat 探针的决策正确。
+- 无效 key 走 chat 探针正确判 401→invalid。
+- **`glm-5.2` 在千帆下同样可调用**(直连 `chat/completions`,`model: "glm-5.2"`,返回正常)。用户明确要求支持——**推翻 §3 原 YAGNI 条款"不支持 Token Plan 里的 glm/kimi/ernie 等非 DeepSeek 模型",改为仅新增支持 `glm-5.2`**(kimi/ernie 仍不支持,范围收窄而非全开)。
+
+全分支审查(见 `docs/design/plans/2026-07-14-qianfan-provider.md` 的 review 记录)额外发现 4 处账户/模型管理缺口,均为**既有缺口**(非本 provider 引入,deepseek/volcengine 同样受影响),借这次 glm-5.2 需求一并加固:
+
+1. **`/account` 加新账户不问 provider**——`src/index.ts` 的 `addAccount` 对任何新账户名硬编码 `provider: "deepseek"`,导致 onboarding 之后无法通过 UI 再加一个 volcengine/qianfan 账户。
+2. **切换/新增账户后状态不完全同步**——`switchAccount`/`addAccount` 只更新了 `cfg.apiKey`/`cfg.baseUrl`/`cfg.model` 中的部分字段,漏了 `cfg.provider`(导致反思节奏判定读到的 `resolved.provider` 永远是启动时的快照)和 `session.model`(实际发请求用的字段,从不重新同步)。
+3. **`/model` 完全 provider-unaware**——自由文本、零校验,纯靠"三个 provider 目前模型串巧合相同"才没出错;且切换 provider 后无法感知该 provider 支持哪些模型(如 qianfan 的 `glm-5.2`)。
+4. **`/logout` 文案与实际行为不符**——提示"已清除…的 key",实际是把整个 profile(provider+baseUrl+model+key)一起删了。
+
+处置方案见 `docs/design/plans/2026-07-14-qianfan-provider.md` 后追加的 Task 9–12(同一 PR/分支内完成,不新开子项目)。
