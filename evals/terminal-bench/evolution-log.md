@@ -724,3 +724,18 @@ DAO框架缺陷**——这跟最初"5题各自领域真实难度,不牵强立案
 
 下一步:用带两处修复的二进制复测 schemelike-metacircular-eval 和 tune-mjcf,拿真实
 结果验证这个诊断对不对,不能只停在"我认为这样"。
+
+### 首次验证跑撞上无关的网络故障,数据作废,已重跑
+
+`verify-eval-fix`(用带修复的新二进制复测 schemelike-metacircular-eval + tune-mjcf)
+两题都在极短时间内(23s、101s)以 `NonZeroAgentExitCodeError` 崩溃。查了完整
+`dao_stdout.txt`,两题末尾都是同一个签名:`[主模型异常,本回合临时回退
+deepseek-v4-flash…]` 紧接着 `Unable to connect. Is the computer able to access
+the url?`——是那一刻真实的网络/千帆连通性故障同时打中了同一批次的两个任务,
+连内置的模型回退机制本身也连不上,不是这两处修复引入的新问题。
+
+**有效信号**:两题的 `ask-denied` 都降到了 **0%**(之前分别是32%和之前一次的
+64%左右),证明 eval/sudo 假阳性修复本身在权限裁决层面确实生效了——只是这次
+连接故障导致会话在能验证到"任务本身有没有做对"之前就中断,reward 结果不算数。
+
+已清理容器、重新提交(`verify-eval-fix-r2`),等真实结果。
