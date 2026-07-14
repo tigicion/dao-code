@@ -964,3 +964,13 @@ have been fully subnetted`,纯粹是长时间连续跑很多批次堆积了28个
 **这次不计入"同一类基础设施故障连续复现"的计数**——是纯资源维护问题,清一次后
 预期不会再犯,跟未解之谜的外部杀进程信号是不同性质。`feal-differential-
 cryptanalysis` 在网络耗尽前已经成功起了容器,继续正常跑,没受影响。
+
+---
+
+## 第2次外部杀进程(9小时窗口内计数2/3,再发生1次要停下汇报)
+
+`_handle_sigterm` 签名确认,同时打中了两个并发跑着的批次(`iter5-2048-r2` 的
+`feal-differential-cryptanalysis`、`iter5-2048-r3` 的全部题目)。`fix-git` 因为
+`-n4` 并发槽位没轮到,从没启动过。已清理孤儿容器和网络。剩余6题重跑:
+chess-best-move, extract-moves-from-video, fix-git, git-multibranch,
+path-tracing-reverse, feal-differential-cryptanalysis。
