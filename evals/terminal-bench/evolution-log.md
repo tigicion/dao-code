@@ -942,3 +942,8 @@ feal-differential-cryptanalysis, path-tracing-reverse)不算真实结果,2题
 
 清理孤儿容器,重跑这6题:chess-best-move, extract-moves-from-video,
 feal-differential-cryptanalysis, path-tracing-reverse, fix-git, git-multibranch。
+
+### dna-assembly / llm-inference-batching-scheduler 体检:真实难度,无异常
+
+两题都是自然超时(89%/93%预算用满),ask-denied 0%,无权限或框架层面异常,真实
+任务难度,不追加改动。
