@@ -12,7 +12,12 @@ debugger 那一层,之前一直是手工读日志时想起来才查,这个脚本
    但又没有 exception,是"静默提前结束"的强信号(loop.ts 空响应 bug 就是这么揪出来的)
 3. verify_done 有没有被调用过
 4. "[收尾前检查]"这条 L4.5 提醒有没有出现过、模型有没有回应
-5. dao_stdout.txt 最后 30 行原文,供人工再读一遍收尾方式
+5. perm-trace.jsonl 里 ask-denied 占比——占比高是"模型反复想做一件事却被权限系统拦住"
+   的强信号(schemelike-metacircular-eval/tune-mjcf 的 eval.scm/eval.py 假阳性就是
+   这么揪出来的:文件名撞上 isDangerousCommand 的 eval/sudo 检测正则,无 TTY 下
+   ask 自动转 deny,模型反复重试却始终被拦,最后被迫放弃真实验证)。占比高时应该去
+   dao_stdout.txt 搜"reject"/"denied"/"拒绝"找模型自己对这件事的反应原文。
+6. dao_stdout.txt 最后 30 行原文,供人工再读一遍收尾方式
 """
 import json
 import sys
@@ -65,11 +70,33 @@ def main():
         text = stdout_path.read_text(errors="ignore")
         print(f"[3] verify_done 调用次数: {text.count('verify_done')}")
         print(f"[4] '[收尾前检查]'提醒出现次数: {text.count('收尾前检查')}")
-        print("\n[5] dao_stdout.txt 最后 30 行(人工复核收尾方式):")
+    else:
+        text = None
+        print("[3/4] 未找到 dao_stdout.txt")
+
+    # 5. perm-trace ask-denied 占比
+    perm_files = list((task_dir / "agent" / "dao_snapshot" / ".dao" / "sessions").glob("*/perm-trace.jsonl")) \
+        if (task_dir / "agent" / "dao_snapshot" / ".dao" / "sessions").exists() else []
+    if perm_files:
+        perm_lines = [json.loads(l) for l in perm_files[0].read_text().splitlines() if l.strip()]
+        total = len(perm_lines)
+        denied = sum(1 for p in perm_lines if p.get("decision") == "ask-denied")
+        if total:
+            pct = denied / total * 100
+            print(f"[5] 权限裁决: 共 {total} 次,ask-denied {denied} 次({pct:.0f}%)")
+            if pct >= 15:
+                print(f"    ⚠ ask-denied 占比 {pct:.0f}% 偏高——去 dao_stdout.txt 搜",
+                      "'reject'/'denied'/'拒绝' 看模型自己对这件事的反应,",
+                      "很可能是某个正常操作(比如文件名撞上 eval/sudo 检测正则)被系统性误拦,",
+                      "不是任务难度本身。")
+    else:
+        print("[5] 未找到 perm-trace.jsonl")
+
+    # 6. 最后30行原文
+    if text is not None:
+        print("\n[6] dao_stdout.txt 最后 30 行(人工复核收尾方式):")
         print("-" * 60)
         print("\n".join(text.splitlines()[-30:]))
-    else:
-        print("[3/4/5] 未找到 dao_stdout.txt")
 
 if __name__ == "__main__":
     main()
