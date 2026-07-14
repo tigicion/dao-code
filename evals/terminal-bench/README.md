@@ -58,6 +58,22 @@ harbor run -d terminal-bench/terminal-bench-2-1 \
 (pytest 完整输出)、`trial.log`(DAO 的调用记录)、**`agent/dao_stdout.txt` + `agent/dao_snapshot/.dao/`**
 (DAO 自己的完整会话轨迹——含 reasoning_content、逐工具调用耗时/成败,复盘蒸馏步骤读这个)。
 
+## 并发与内存分桶
+
+不要把高内存题目和低内存题目混进同一个 `-n` 里跑——单一并发数要么为了迁就少数高内存题目
+被迫压得很低、拖慢大多数题目的迭代速度,要么为了让大多数题目跑得快而对高内存题目并发过高、
+撑爆 Docker VM 内存(实测总预算约 12.5GB)引入偶发 OOM 这类新的不稳定源。
+
+`task_meta.json` 每题有 `memory_mb`(89 题里 2048/4096/8192MB 三档,2048MB 占大多数)。
+按内存分桶、每桶配不同并发数,用 `agent/batch_by_memory.py` 自动分组(阈值:每桶
+`-n × 桶内存上限 ≈ 8GB`,留 ~4.5GB 给 host/harbor 自身开销,不是精确计算,是留够余量):
+
+```bash
+python3 agent/batch_by_memory.py task1 task2 task3 ...
+# 输出三组 -i 列表,分别带各自建议的 -n(2048MB→4、4096MB→2、8192MB→1),
+# 拼进对应的三条 harbor run 命令分别提交,而不是塞进同一条命令的同一个 -n。
+```
+
 ## 超时:已放宽到可配置,默认建议 4x(≈1 小时)
 
 `task_meta.json` 里每题的 `agent_timeout_sec` 大多是 900s(15 分钟),少数 1800/2400s。
