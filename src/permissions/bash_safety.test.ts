@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isDangerousCommand } from "./bash_safety.js";
+import { isDangerousCommand, isReadOnlyShellCommand } from "./bash_safety.js";
 
 describe("isDangerousCommand", () => {
   it("flags destructive / RCE / privilege commands", () => {
@@ -80,5 +80,41 @@ describe("isDangerousCommand", () => {
     expect(isDangerousCommand("kill -9 12345")).toBeNull();
     expect(isDangerousCommand("echo hi > out.txt")).toBeNull();
     expect(isDangerousCommand("truncate -s 100M ./local.img")).toBeNull();
+  });
+});
+
+describe("isReadOnlyShellCommand", () => {
+  it("放行分号/换行/&& 链起来的多条只读命令(mailman 那次真实撞见的场景)", () => {
+    expect(isReadOnlyShellCommand("cat /etc/systemd/system/*.service 2>/dev/null; ls /lib/systemd/system/mailman* 2>/dev/null; ls /lib/systemd/system/postfix* 2>/dev/null")).toBe(true);
+    expect(isReadOnlyShellCommand("cat a.txt\nls -la")).toBe(true);
+    expect(isReadOnlyShellCommand("cat a.txt && cat b.txt")).toBe(true);
+    expect(isReadOnlyShellCommand("cat a.txt | grep foo")).toBe(true);
+  });
+  it("链里只要有一段不是只读程序,整条拒绝", () => {
+    expect(isReadOnlyShellCommand("cat a.txt; rm b.txt")).toBe(false);
+    expect(isReadOnlyShellCommand("cat a.txt && echo x > b.txt")).toBe(false);
+  });
+  it("仍然拒绝重定向/命令替换/后台/逻辑或", () => {
+    expect(isReadOnlyShellCommand("cat a.txt > out.txt")).toBe(false);
+    expect(isReadOnlyShellCommand("cat $(find . -name x)")).toBe(false);
+    expect(isReadOnlyShellCommand("cat `whoami`.txt")).toBe(false);
+    expect(isReadOnlyShellCommand("cat a.txt &")).toBe(false);
+    expect(isReadOnlyShellCommand("cat a.txt || cat b.txt")).toBe(false);
+  });
+  it("危险命令即便看起来只读也拒绝(双保险)", () => {
+    expect(isReadOnlyShellCommand("cat a.txt; sudo ls")).toBe(false);
+  });
+  it("丢弃到 /dev/null 的重定向(2>/dev/null 等)不算写文件,放行;其余重定向仍拒绝", () => {
+    expect(isReadOnlyShellCommand("cat missing.txt 2>/dev/null")).toBe(true);
+    expect(isReadOnlyShellCommand("ls x &>/dev/null")).toBe(true);
+    expect(isReadOnlyShellCommand("cat a.txt 2>/tmp/err.log")).toBe(false); // 真实文件,不是 /dev/null
+    // 裸 >/dev/null(没有 fd 数字前缀)撞上 isDangerousCommand 里"重定向到 /dev 家族路径"的更保守规则,
+    // 双保险生效,继续拒绝——这是既有行为,不在本次修复范围内。
+    expect(isReadOnlyShellCommand("ls x >/dev/null")).toBe(false);
+  });
+  it("普通单条只读命令照常放行", () => {
+    expect(isReadOnlyShellCommand("ls -la")).toBe(true);
+    expect(isReadOnlyShellCommand("git status")).toBe(true);
+    expect(isReadOnlyShellCommand("find . -name '*.ts'")).toBe(true);
   });
 });

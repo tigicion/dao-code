@@ -70,18 +70,29 @@ const SAFE_GIT_SUB = new Set([
 ]);
 
 // 判定一条 shell 命令是否【纯只读、可在 auto 模式快速放行】——保守优先,拿不准就返回 false(交分类器/人工)。
-// 仅放行:每个管道段首词都是只读程序;无重定向/命令替换/后台/链式/子shell;非危险命令。
+// 放行:管道 | 和顺序链接 ; \n && 把多条只读命令串起来(每段首词都是只读程序即可,比如
+// "cat /etc/x.service; ls /lib/y*" 这种探查式复合命令——mailman 那次撞见的真实卡死场景就是
+// 这种由分号链起来的三条纯读命令,之前 ; 直接被当危险字符整条拒绝,根本没走到"分段判断只读"这步,
+// 这次一起补上)。同一场景里三段命令还各自带了 2>/dev/null(消音 stderr,不写入任何有意义的
+// 地方)——这类"丢弃到 /dev/null"的重定向单独摘出来放行,其余重定向 > < >>(会写真实文件)、
+// 命令替换 $() ` `(可执行任意子命令)仍然拒绝。后台 &(不参与逻辑判断,单独出现即拒)、
+// 逻辑或 ||(可能藏"失败就干别的"这类分支,保持保守)。
 // 不替代敏感目标判定(cat ~/.ssh/id_rsa 由 mustConfirm 拦,调用方应先查 mustConfirm)。
 export function isReadOnlyShellCommand(command: string): boolean {
   if (typeof command !== "string") return false;
   const s = command.trim();
   if (!s) return false;
   if (isDangerousCommand(s)) return false; // 双保险
-  // 拒绝可能改写/外联/链接危险命令的元字符:重定向 > < >>、命令替换 $() ` `、后台/链式 & &&、换行
-  if (/[;&<>\n`]/.test(s)) return false;
-  if (/\$\(/.test(s)) return false;
-  if (/\|\|/.test(s)) return false; // 只允许管道 |,不允许逻辑或 ||
-  const segs = s.split("|").map((x) => x.trim()).filter(Boolean);
+  // 丢弃到 /dev/null 的重定向(2>/dev/null、>/dev/null、&>/dev/null、>>/dev/null)和纯 fd 复制
+  // (2>&1、>&2,只是让 stderr/stdout 互相指向,不落盘)先摘掉再判——都不算"会写文件"。
+  const sansDevNull = s.replace(/\s*&?\d*>>?\s*(\/dev\/null\b|&\d+\b)/g, "");
+  if (/<|>|`/.test(sansDevNull)) return false; // 重定向/命令替换(反引号形式)
+  if (/\$\(/.test(s)) return false; // 命令替换 $(...)
+  if (/\|\|/.test(s)) return false; // 逻辑或,保持保守
+  // 裸 & (后台/并发)要拒,但不能被 && 或已摘掉的 fd 复制(2>&1 里的 &)误伤:
+  // 用 sansDevNull(已经去掉 2>&1 这类)挖掉所有 &&,剩下还有 & 才是真背景执行。
+  if (/&/.test(sansDevNull.replace(/&&/g, ""))) return false;
+  const segs = s.split(/;|\n|&&|\|/).map((x) => x.trim()).filter(Boolean);
   if (!segs.length) return false;
   for (const seg of segs) {
     const toks = seg.split(/\s+/);
