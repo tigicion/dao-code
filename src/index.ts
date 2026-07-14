@@ -1780,7 +1780,7 @@ async function main() {
             const sk = findUserInvocableSkill(skills, name);
             if (sk) return { handled: true, prompt: sk.body };
           }
-          return dispatchCommand(line, session);
+          return dispatchCommand(line, session, cfg.provider);
         },
         compact: inkCompact,
         getStatus: () => ({
@@ -1857,7 +1857,7 @@ async function main() {
         return nextLine();
       };
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications() });
+      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), getProvider: () => cfg.provider });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
       lspManager.disposeAll();

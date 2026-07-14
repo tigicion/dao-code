@@ -1,5 +1,6 @@
 import { dispatchCommand } from "./commands/commands.js";
 import type { Session } from "./session/session.js";
+import type { Provider } from "./config/profiles.js";
 
 export interface ReplDeps {
   session: Session;
@@ -18,6 +19,8 @@ export interface ReplDeps {
   drainNotifications?: () => string[];
   // 真实用户消息入回合前回调(由 index 绑定 replyChallenge.onUserMessage;省略=不处理)。
   onUserMessage?: (text: string) => void;
+  // 当前生效 provider 的实时读取(/model 按 provider 校验/循环用);省略 = 按 deepseek 处理。
+  getProvider?: () => Provider;
 }
 
 async function drainAndContinue(deps: ReplDeps): Promise<void> {
@@ -35,7 +38,7 @@ export async function runRepl(deps: ReplDeps): Promise<void> {
   for (;;) {
     const line = await deps.readLine();
     if (line === null) return; // EOF
-    const cmd = dispatchCommand(line, deps.session);
+    const cmd = dispatchCommand(line, deps.session, deps.getProvider?.());
     if (cmd.handled) {
       if (cmd.compact) {
         await deps.compact();

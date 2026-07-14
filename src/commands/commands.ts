@@ -1,4 +1,6 @@
 import type { Session } from "../session/session.js";
+import type { Provider } from "../config/profiles.js";
+import { MODELS_BY_PROVIDER } from "../config/profiles.js";
 import { todoStore } from "../tools/todo_store.js";
 
 export interface CommandResult {
@@ -9,7 +11,7 @@ export interface CommandResult {
   clearTranscript?: boolean; // /rewind /resume:已改写 session.messages,App 应清空可视 transcript
 }
 
-export function dispatchCommand(input: string, session: Session): CommandResult {
+export function dispatchCommand(input: string, session: Session, provider: Provider = "deepseek"): CommandResult {
   const trimmed = input.trim();
   if (!trimmed.startsWith("/")) return { handled: false };
   const parts = trimmed.slice(1).split(/\s+/);
@@ -18,11 +20,16 @@ export function dispatchCommand(input: string, session: Session): CommandResult 
 
   switch (cmd) {
     case "model": {
+      const known = MODELS_BY_PROVIDER[provider] ?? MODELS_BY_PROVIDER.deepseek;
       if (arg) {
+        if (!known.includes(arg)) {
+          return { handled: true, output: `✗ ${provider} 下未知模型「${arg}」,可选:${known.join(" / ")}` };
+        }
         session.setModel(arg);
         return { handled: true, output: `已切换模型:${arg}` };
       }
-      const next = session.model.includes("flash") ? "deepseek-v4-pro" : "deepseek-v4-flash";
+      const idx = known.indexOf(session.model);
+      const next = known[(idx + 1) % known.length] ?? known[0]!;
       session.setModel(next);
       return { handled: true, output: `已切换模型:${next}` };
     }
