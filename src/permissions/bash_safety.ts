@@ -35,9 +35,15 @@ function dangerSegment(s: string): string | null {
   if (/\bkill\b\s+-9\s+-1\b/i.test(s) || /\bkill\b\s+-1\b/i.test(s)) return "kill -1/-9 -1,杀光本用户所有进程";
   if (/\bkillall\b/i.test(s)) return "killall 批量杀进程";
   if (/\bpkill\b/i.test(s) && /(^|\s)-9\b/i.test(s)) return "pkill -9 强杀进程";
-  // 提权 / 动态执行
-  if (/(^|\s)sudo\b/i.test(s)) return "sudo 提权";
-  if (/(^|\s)eval\b/i.test(s)) return "eval 动态执行";
+  // 提权 / 动态执行:关键词后面必须紧跟空白/命令分隔符/结尾才算"在调用这个命令"。
+  // 之前用 \b 做词边界,`.`/`-`/`_` 这类字符也算词边界,导致纯粹是文件名前缀的
+  // "eval.scm"(`python3 interp.py eval.scm`)被误判成 eval 动态执行——无 TTY 场景下
+  // ask 判定会自动转 deny,连续拦掉模型对自己解题文件的正常执行,逼得模型放弃真实
+  // 运行、改成纯人工代码走查,漏掉了跑测试才能发现的 bug(schemelike-metacircular-eval
+  // 真实撞见的案例:9 次 exec_shell 被拒,最终因为没跑通官方测试集漏了 boolean? 原语)。
+  const CMD_END = "(?=\\s|$|;|&|\\|)";
+  if (new RegExp(`(^|\\s)sudo${CMD_END}`, "i").test(s)) return "sudo 提权";
+  if (new RegExp(`(^|\\s)eval${CMD_END}`, "i").test(s)) return "eval 动态执行";
   return null;
 }
 

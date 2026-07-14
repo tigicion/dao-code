@@ -81,6 +81,23 @@ describe("isDangerousCommand", () => {
     expect(isDangerousCommand("echo hi > out.txt")).toBeNull();
     expect(isDangerousCommand("truncate -s 100M ./local.img")).toBeNull();
   });
+
+  it("eval/sudo 只在真正被当命令调用时才拦,文件名前缀不算(词边界 \\b 挡不住 . - _ 这类字符)", () => {
+    // 真实撞见的案例:schemelike-metacircular-eval 任务里解题文件就叫 eval.scm,
+    // `python3 interp.py eval.scm` 曾被 \b 词边界正则误判成 eval 动态执行,无 TTY 下
+    // ask→自动 deny,连续拦掉模型对自己文件的正常执行。
+    expect(isDangerousCommand("python3 interp.py eval.scm")).toBeNull();
+    expect(isDangerousCommand("cat eval.scm")).toBeNull();
+    expect(isDangerousCommand("./eval.scm")).toBeNull();
+    expect(isDangerousCommand("cat sudo.txt")).toBeNull();
+    expect(isDangerousCommand("ls sudoku/")).toBeNull();
+    // 真正的 eval/sudo 调用(关键词后面是空白/分隔符/结尾)仍然要拦
+    expect(isDangerousCommand("eval $CMD")).toBeTruthy();
+    expect(isDangerousCommand('eval "$X"')).toBeTruthy();
+    expect(isDangerousCommand("sudo apt install x")).toBeTruthy();
+    expect(isDangerousCommand("cd /tmp && eval")).toBeTruthy();
+    expect(isDangerousCommand("cd /tmp; sudo rm -rf x")).toBeTruthy();
+  });
 });
 
 describe("isReadOnlyShellCommand", () => {
