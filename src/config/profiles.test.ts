@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { migrateConfig, resolveActive, DEFAULTS } from "./profiles.js";
+import { migrateConfig, resolveActive, DEFAULTS, MODELS_BY_PROVIDER } from "./profiles.js";
 
 describe("migrateConfig", () => {
   it("wraps a legacy { apiKey } config into a default deepseek profile", () => {
@@ -77,5 +77,24 @@ describe("DEFAULTS.volcengine", () => {
       baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
       model: "deepseek-v4-pro",
     });
+  });
+});
+
+describe("DEFAULTS.qianfan", () => {
+  it("points at the token-plan base url with deepseek-v4-pro as default model", () => {
+    expect(DEFAULTS.qianfan).toEqual({
+      baseUrl: "https://qianfan.baidubce.com/v2/tokenplan/personal",
+      model: "deepseek-v4-pro",
+    });
+  });
+});
+
+describe("MODELS_BY_PROVIDER", () => {
+  it("qianfan 额外支持 glm-5.2(与 pro/flash 并列)", () => {
+    expect(MODELS_BY_PROVIDER.qianfan).toEqual(["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2"]);
+  });
+  it("deepseek 与 volcengine 只有共享的 pro/flash 两档", () => {
+    expect(MODELS_BY_PROVIDER.deepseek).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
+    expect(MODELS_BY_PROVIDER.volcengine).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
   });
 });

@@ -14,8 +14,8 @@ export async function validateCredential(
 ): Promise<ValidateResult> {
   let res: Response;
   try {
-    if (cred.provider === "volcengine") {
-      // coding plan 路径无 /models;用一发最小 chat 探针判鉴权(max_tokens:1)。
+    if (cred.provider === "volcengine" || cred.provider === "qianfan") {
+      // coding/token-plan 路径无 /models;用一发最小 chat 探针判鉴权(max_tokens:1)。
       res = await fetchImpl(`${cred.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cred.key}` },

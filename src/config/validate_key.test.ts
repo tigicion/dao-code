@@ -71,3 +71,29 @@ describe("validateCredential · volcengine probe", () => {
     expect(seenUrl).toBe("https://api.deepseek.com/models");
   });
 });
+
+describe("validateCredential · qianfan probe", () => {
+  const qf = { baseUrl: "https://qianfan.baidubce.com/v2/tokenplan/personal", key: "qf-x", provider: "qianfan" as const };
+
+  it("probes chat/completions with a tiny POST for qianfan", async () => {
+    let seenUrl = ""; let seenMethod = "";
+    const fakeFetch = async (url: string, init?: { method?: string }) => {
+      seenUrl = url; seenMethod = init?.method ?? "GET";
+      return { ok: true, status: 200 } as Response;
+    };
+    const r = await validateCredential(qf, fakeFetch as unknown as typeof fetch);
+    expect(r.ok).toBe(true);
+    expect(seenUrl).toBe("https://qianfan.baidubce.com/v2/tokenplan/personal/chat/completions");
+    expect(seenMethod).toBe("POST");
+  });
+
+  it("reports invalid on 401 for qianfan", async () => {
+    const fakeFetch = async () => ({ ok: false, status: 401 } as Response);
+    expect(await validateCredential(qf, fakeFetch as unknown as typeof fetch)).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("reports unreachable when the qianfan probe throws", async () => {
+    const fakeFetch = async () => { throw new Error("ENOTFOUND"); };
+    expect(await validateCredential(qf, fakeFetch as unknown as typeof fetch)).toEqual({ ok: false, reason: "unreachable" });
+  });
+});

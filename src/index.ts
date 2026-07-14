@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
-import { DEFAULTS, type ResolvedCredential } from "./config/profiles.js";
+import { DEFAULTS, type Provider, type ResolvedCredential } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
@@ -236,12 +236,12 @@ async function main() {
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
   const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task") || rawArgs.includes("--coordinator"); // --task/--coordinator 为旧别名,均进长任务自主模式(已并入)
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
-  // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|...>
+  // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
   const cliApiKey = apiKeyIdx >= 0 ? rawArgs[apiKeyIdx + 1] : undefined;
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
-  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
+  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
   const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--obs"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
@@ -422,7 +422,10 @@ async function main() {
     profilesCfg = setActive(profilesCfg, name);
     saveProfiles(keyFile, profilesCfg).catch(() => {});
     resolveCredential(profilesCfg, kc).then((r) => {
-      if (r) { cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; keySource = r.source; }
+      if (r) {
+        cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; cfg.provider = r.provider; keySource = r.source;
+        session.setModel(r.model); // 实际发请求用的字段;不重放会拿旧 provider 的模型串打新 baseUrl
+      }
     }).catch(() => {});
     return true;
   };
@@ -438,18 +441,19 @@ async function main() {
     for (let i = 2; ; i++) if (!profilesCfg.profiles[`account-${i}`]) return `account-${i}`;
   };
   // 添加:校验 → 持久化(钥匙串优先)→ 激活并即时生效。失败返回原因,不落盘。
-  const addAccount = async (key: string, name?: string): Promise<{ ok: boolean; name?: string; reason?: string }> => {
+  const addAccount = async (key: string, name?: string, provider: Provider = "deepseek"): Promise<{ ok: boolean; name?: string; reason?: string }> => {
     const targetName = name?.trim() || nextAccountName();
     const cur = profilesCfg.profiles[targetName];
     const meta = cur
       ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model }
-      : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
+      : { provider, ...DEFAULTS[provider] };
     const v = await validateCredential({ baseUrl: meta.baseUrl, key, provider: meta.provider });
     if (!v.ok) return { ok: false, reason: v.reason };
     const { cfg: nc } = await persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() });
     profilesCfg = { ...nc, onboardingComplete: true };
     await saveProfiles(keyFile, profilesCfg);
-    cfg.apiKey = key; keySource = `profile:${targetName}`;
+    cfg.apiKey = key; cfg.baseUrl = meta.baseUrl; cfg.model = meta.model; cfg.provider = meta.provider; keySource = `profile:${targetName}`;
+    session.setModel(meta.model);
     return { ok: true, name: targetName };
   };
 
@@ -1202,15 +1206,16 @@ async function main() {
   };
 
   // 回合末入口:deepseek 官方 key 不限流,每轮都跑(仅 reflectBusy 防并发);
-  // volcengine CodingPlan 计费贵,用自适应节奏(连续安静则放慢)。
+  // 其它 provider(volcengine/qianfan 等 coding-plan/token-plan,计费敏感)用自适应节奏(连续安静则放慢)。
   const maybeReflect = async (opts: { compactionImminent: boolean }): Promise<void> => {
     if (argvPrompt || NO_MEMORY) return;
     // deepseek 不限流:跳过 cadence,每轮直接跑(仅用 reflectBusy 防并发堆叠)。
-    if (resolved.provider === "deepseek") {
+    // 读 cfg.provider(活值,随 /account 切换更新)而非 resolved.provider(启动时快照,切账户后不再变)。
+    if (cfg.provider === "deepseek") {
       void runReflector(); // fire-and-forget;reflectBusy 在内部防并发;真实 audit 在 runReflector 内写
       return;
     }
-    // volcengine:自适应 cadence,省钱
+    // 非 deepseek 官方 key(coding-plan/token-plan 计费敏感):自适应 cadence,省钱
     const tick = tickCadence(cadenceState, REFLECT_MAX_INTERVAL);
     const run = tick.run || opts.compactionImminent;
     cadenceState = run ? { ...tick.next, counter: 0 } : tick.next;
@@ -1688,7 +1693,7 @@ async function main() {
           if (name === "logout") {
             const active = profilesCfg.activeProfile;
             removeAccount(active);
-            return { handled: true, output: `✓ 已清除账户「${active}」的 key。本会话仍用当前 key;重启后需 /login。` };
+            return { handled: true, output: `✓ 已删除账户「${active}」(整个 profile:provider/baseUrl/model/key 一起删)。本会话仍用当前凭证;重启后需 /login 或切到其它账户。` };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。
@@ -1775,7 +1780,7 @@ async function main() {
             const sk = findUserInvocableSkill(skills, name);
             if (sk) return { handled: true, prompt: sk.body };
           }
-          return dispatchCommand(line, session);
+          return dispatchCommand(line, session, cfg.provider);
         },
         compact: inkCompact,
         getStatus: () => ({
@@ -1852,7 +1857,7 @@ async function main() {
         return nextLine();
       };
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications() });
+      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), getProvider: () => cfg.provider });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
       lspManager.disposeAll();

@@ -15,6 +15,7 @@ export function ProviderStep({ bg, onPick }: { bg: Background; onPick: (provider
         items={[
           { label: t("onboard.provider.deepseek"), value: "deepseek" },
           { label: t("onboard.provider.volcengine"), value: "volcengine" },
+          { label: t("onboard.provider.qianfan"), value: "qianfan" },
         ]}
         onSelect={(v) => onPick(v as Provider)}
       />

@@ -26,6 +26,37 @@ describe("dispatchCommand", () => {
     expect(s.model).toBe("deepseek-v4-flash");
   });
 
+  it("/model 无参在 qianfan 下按 pro→flash→glm→pro 循环", () => {
+    const s = sess(); // 初始 deepseek-v4-pro
+    dispatchCommand("/model", s, "qianfan");
+    expect(s.model).toBe("deepseek-v4-flash");
+    dispatchCommand("/model", s, "qianfan");
+    expect(s.model).toBe("glm-5.2");
+    dispatchCommand("/model", s, "qianfan");
+    expect(s.model).toBe("deepseek-v4-pro");
+  });
+
+  it("/model glm-5.2 对 qianfan 合法", () => {
+    const s = sess();
+    const r = dispatchCommand("/model glm-5.2", s, "qianfan");
+    expect(r.handled).toBe(true);
+    expect(s.model).toBe("glm-5.2");
+  });
+
+  it("/model glm-5.2 对 deepseek 非法,给出可选列表且不改动当前模型", () => {
+    const s = sess();
+    const r = dispatchCommand("/model glm-5.2", s, "deepseek");
+    expect(s.model).toBe("deepseek-v4-pro");
+    expect(r.output).toContain("deepseek-v4-pro");
+    expect(r.output).toContain("deepseek-v4-flash");
+  });
+
+  it("省略 provider 参数时按 deepseek 处理(向后兼容)", () => {
+    const s = sess();
+    dispatchCommand("/model", s);
+    expect(s.model).toBe("deepseek-v4-flash");
+  });
+
   it("/plan toggles mode", () => {
     const s = sess();
     dispatchCommand("/plan", s);

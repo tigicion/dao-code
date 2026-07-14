@@ -21,7 +21,9 @@ export function KeyStep({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
-  const helpKey = provider === "volcengine" ? "onboard.key.help.volcengine" : "onboard.key.help.deepseek";
+  const helpKey = provider === "volcengine" ? "onboard.key.help.volcengine"
+    : provider === "qianfan" ? "onboard.key.help.qianfan"
+    : "onboard.key.help.deepseek";
 
   const submit = async (k: string) => {
     if (!k) { onAbort(); return; }

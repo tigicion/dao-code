@@ -27,4 +27,11 @@ describe("ProviderStep", () => {
     stdin.write(DOWN); await delay(); stdin.write(ENTER); await delay();
     expect(onPick).toHaveBeenCalledWith("volcengine");
   });
+
+  it("picks qianfan after two DOWN", async () => {
+    const onPick = vi.fn();
+    const { stdin } = render(<ProviderStep bg="dark" onPick={onPick} />);
+    stdin.write(DOWN); await delay(); stdin.write(DOWN); await delay(); stdin.write(ENTER); await delay();
+    expect(onPick).toHaveBeenCalledWith("qianfan");
+  });
 });
