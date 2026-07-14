@@ -34,6 +34,12 @@ wakeup 就能做到"批跑完自动触发"。
 
 1. 从 `split.json` 的 `dev_pool_order` 里,按 `evolution-log.md` 记录的上一批止步位置,
    取下 15 题(到头了从 0 循环,split.json 注释本来就这么设计)。
+0. **启动前先 `docker network prune -f`**(不只是 `docker container prune`)——长时间
+   连续跑很多批次会堆积大量 docker-compose 起的 per-task 网络,不清理会撞上
+   "all predefined address pools have been fully subnetted"(Docker 网络地址池耗尽),
+   报错是 `RuntimeError: Docker compose command failed...`,exception.txt 里既不是
+   `_handle_sigterm` 也不是 `AgentTimeoutError` 签名(是空/未知签名),容易被误判成
+   新的外部杀进程问题——实际上是纯粹的资源堆积,清网络就好,不是 bug。
 2. **确认二进制 commit 跟当前 HEAD 一致**(`git log --oneline -1` 对比编译时打印的
    commit hash)。不一致就先 `./agent/build-binaries.sh` 重编——这条踩过坑,别省。
 3. **按内存分桶决定并发,不要用同一个 `-n` 糊弄所有题**:
@@ -53,6 +59,10 @@ wakeup 就能做到"批跑完自动触发"。
    明文打进 docker-compose exec 的命令行参数里,已经踩过坑)。
 2. `exception.txt` 里 `_handle_sigterm` 签名 → 外部杀进程,清理孤儿容器、重跑该题
    (不算真实结果)。`AgentTimeoutError` 签名 → 自然超时,算真实结果,不重跑。
+   **签名是空的/`RuntimeError: Docker compose command failed`/`address pools have been
+   fully subnetted`** → 不是外部杀进程也不是超时,是 docker 网络堆积耗尽,`docker network
+   prune -f` 清一遍再重跑,不要误判成基础设施故障计数(这个不算进"同一类故障连续3次"
+   的停止条件,是纯资源维护,清一次基本不会再犯)。
 3. 三个桶都出齐结果(没有新容器在跑、没有排队的)→ 进 DEBUG 阶段。
    没出齐 → 继续排 WAIT 阶段的 wakeup,间隔按批次里最长预算题目的剩余时间估算
    (查 `task_meta.json` 的 `agent_timeout_sec`,不要无脑固定 1200s)。
