@@ -274,3 +274,13 @@ reward.txt)。这批到目前为止没有一例出现 `exception.txt`。
 `compile-compcert`(长任务,2400s 预算)仍在跑,`cancel-async-tasks` 排队中,剩余
 `fix-code-vulnerability`/`modernize-scientific-stack`/`crack-7z-hash`/
 `custom-memory-heap-crash` 待 `-n 2` 空出槽位后依次跑。
+
+### 并发批次(-n 2)10/11 出结果,无一例 exception.txt
+
+| cancel-async-tasks | ✅ 1 |
+| compile-compcert | ✅ 1 |
+| custom-memory-heap-crash | ✅ 1 |
+| fix-code-vulnerability | ✅ 1 |
+| modernize-scientific-stack | ✅ 1 |
+
+`crack-7z-hash` 仍在跑(17分钟,预算30分钟),等它跑完再做整批小结。
