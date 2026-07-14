@@ -892,3 +892,33 @@ held_out 抽查(距上次已经过了好几轮,拖欠了)。
 `torch-*-parallelism` 类任务或同类"环境缺工具"场景是否有改善。
 
 二进制已用带这条修复的最新代码重编,continuing iteration 5(等 `iter5-2048` 桶出齐)。
+
+---
+
+## 重要发现(非bug,是安全策略的真实两难):headless+yolo 场景下 /etc/ 写操作永远无法完成
+
+`nginx-request-logging`(reward=0,ask-denied 54%,85次裁决里46次被拒)深挖后发现:
+
+跟今天早些时候的 eval/sudo 假阳性**性质完全不同**——那次是误判(命中的根本不是真的
+危险操作)。这次是**真实的写 `/etc/` 操作**:任务要求配置 nginx,需要改
+`/etc/nginx/nginx.conf`、删 `/etc/nginx/sites-enabled/default` 等。这类操作按
+`a2dc8dc` 的设计本来就该拦(`WRITE_ONLY_SENSITIVE_TARGET` 覆盖 `/etc/`,且 S3.1
+bypass-immune,即便 `--yolo` 也要人工确认)——但 **headless 模式没有人能确认**,
+所有 ask 判定自动转 deny(`35958c7` 的 fail-closed 设计)。
+
+轨迹显示模型很努力地想绕过去:换 `edit_file`/`write_file`/`exec_shell`/`tee`/`install`
+各种方式全部试了一遍,全部被拒,最后甚至怀疑是不是要用 `sudo`(容器本来就是 root,
+sudo 用不上)。**这是一个结构性死结,不是模型能力或某个具体bug能解决的**——只要
+任务要求 headless+yolo 场景下写 `/etc/` 下的文件,现在的策略设计下永远拦得死死的。
+
+**这是一个需要人工决策的安全策略问题,不是我该在无人值守期间单方面改的东西**:
+- 选项A:保持现状,接受这类 sysadmin 任务在 headless eval 场景下结构性地做不了
+  (损失的是评测覆盖率,不是安全)。
+- 选项B:headless(无 TTY)+ yolo 场景下,对 `WRITE_ONLY_SENSITIVE_TARGET`(不含
+  `SECRET_TARGET`,密钥类还是要拦)放宽 bypass-immune,理由是这类场景通常跑在一次性
+  容器里,"防止被劫持的 agent 对用户真实机器造成不可逆破坏"这个设计初衷在容器里
+  权重会小很多。
+- 选项C:只在 terminal-bench 这个评测专用场景(而不是 DAO 的通用行为)放宽,比如
+  给 harbor_dao_agent.py 传一个专属 flag。
+
+不追加改动,留给用户判断,继续跑批次。
