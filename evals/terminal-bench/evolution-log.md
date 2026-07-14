@@ -496,3 +496,9 @@ path-tracing, sam-cell-seg, git-leak-recovery, regex-chess。
 命令行确认带 `--provider qianfan`(job.log 核实),真实在用千帆。目前 `path-tracing`
 (30min预算,21min进行中)、`regex-chess`(60min预算,21min进行中)在跑,均无结果、无
 `exception.txt`,无 infra 事故。继续等待。
+
+### path-tracing(千帆)真实结果:自然超时,非外部杀进程
+
+`path-tracing__EmpH7jd`:`exception.txt` 签名是 `AgentTimeoutError`(1800s 自然超时),
+不是 `_handle_sigterm`,不需要清理重跑,算真实结果 ❌ 0(超时未完成)。
+`gpt2-codegolf` 已从队列接续起跑(千帆),`regex-chess` 仍在跑(42/60分钟)。
