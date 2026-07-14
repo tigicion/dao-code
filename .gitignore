@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-bin/
+.worktrees/
 /dao
 *.log
 .env
