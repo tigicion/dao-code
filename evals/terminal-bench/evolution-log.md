@@ -922,3 +922,23 @@ sudo 用不上)。**这是一个结构性死结,不是模型能力或某个具�
   给 harbor_dao_agent.py 传一个专属 flag。
 
 不追加改动,留给用户判断,继续跑批次。
+
+---
+
+## iter5-2048 被外部信号打断(今晚反复出现过的老问题,第1次复现在这个9小时窗口内)
+
+harbor 自身进程被外部杀掉(跟之前多次记录的同一个未解之谜信号源),4题
+`_handle_sigterm`(chess-best-move, extract-moves-from-video,
+feal-differential-cryptanalysis, path-tracing-reverse)不算真实结果,2题
+(fix-git, git-multibranch)从没启动过。已出的7个真实结果保留:
+
+| build-pov-ray | ✅ 1 |
+| sqlite-db-truncate | ✅ 1 |
+| pytorch-model-cli | ✅ 1 |
+| dna-assembly | ❌ 0(待体检) |
+| llm-inference-batching-scheduler | ❌ 0(待体检) |
+| nginx-request-logging | ❌ 0(已深挖,/etc/写操作策略问题非bug) |
+| raman-fitting | ❌ 0(已深挖,自然超时真实难度) |
+
+清理孤儿容器,重跑这6题:chess-best-move, extract-moves-from-video,
+feal-differential-cryptanalysis, path-tracing-reverse, fix-git, git-multibranch。
