@@ -19,7 +19,10 @@ export const verifyDoneTool = defineTool({
     "这里的通过只代表配置的命令退出码是 0,不代表功能真的做对了——如果命令本身太浅(比如只跑了类型检查),通过了也不等于验证完整。" +
     "尤其注意:如果你自己动手做过检查(跑过测试、探测过连接、diff 过关键约束)、结果是失败/超时/不匹配,这个负面结果" +
     "本身就是明确的信号——不能因为'已经很晚了/已经改了很多次/其它部分都对了'就把它当没看见、照样收尾。" +
-    "拿到负面结果意味着还没做完,该做的是继续修或如实说明卡在哪,不是重新描述一遍意图就当验证过了。",
+    "拿到负面结果意味着还没做完,该做的是继续修或如实说明卡在哪,不是重新描述一遍意图就当验证过了。" +
+    "如果发现跑验证需要的解释器/工具压根没装(比如没有 python3、没有某个库),先试着装上再验证" +
+    "(apt-get/pip/npm 等),不要因为环境暂时缺东西就退回'只读代码走查、不实际执行'——静态走查发现不了" +
+    "运行时才会暴露的问题,'装不上'和'没试着装'是两回事,后者不该被当成前者的理由跳过真实执行。",
   descriptionEn:
     "Determines whether a task is truly complete. If an acceptance command is configured (via /dod or DAO_VERIFY_CMD), actually runs it (300s timeout, output truncated), " +
     "exit 0=pass, non-zero=not done yet, keep fixing; if none is configured, it won't quietly let you self-approve — instead it reminds you to judge based on [actual evidence]: " +
@@ -30,7 +33,10 @@ export const verifyDoneTool = defineTool({
     "configured command exited 0, nothing more — it doesn't certify the feature is actually correct if the command itself is too shallow (e.g. only a type check). " +
     "In particular: if you already ran a real check yourself (a test, a connectivity probe, a diff against a ground-truth constraint) and it came back failed/timed-out/" +
     "mismatched, that negative result IS the signal — don't wave it away just because it's late, you've iterated many times already, or everything else checks out. " +
-    "A negative result means the task isn't done; the move is to keep fixing it or honestly report what's blocking, not restate your intent and call it verified.",
+    "A negative result means the task isn't done; the move is to keep fixing it or honestly report what's blocking, not restate your intent and call it verified. " +
+    "If the interpreter/tool you need to actually run the verification isn't installed (no python3, missing a library), try installing it first (apt-get/pip/npm/etc.) " +
+    "before falling back to \"just read the code, don't actually execute it\" — static review can't catch bugs that only surface at runtime, and \"couldn't install it\" " +
+    "is a different claim from \"didn't try\"; the latter isn't a valid reason to skip real execution.",
   capability: "read",
   approval: "auto",
   schema: z.object({}),
