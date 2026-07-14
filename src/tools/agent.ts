@@ -26,7 +26,10 @@ export const agentTool = defineTool({
     "四个可选调用方式互斥、别混用:isolate(独立 git worktree 里改文件,并行改文件不冲突,改动留在分支供你事后 review/merge)、" +
     "fork(继承你当前完整上下文+复用前缀缓存,近乎免费,适合带全量背景做分支尝试)、model(临时换模型,通常为了省钱跑廉价任务," +
     "但换模型本身会让前缀缓存失效,不够便宜的任务不划算)、mode=plan(只读规划模式)。fork 和 model/mode 天生冲突——fork 的" +
-    "价值就是复用缓存,换模型/换模式会让这份缓存作废。agent_type 指定自定义子代理类型(有专属 prompt/工具白名单),不给就是通用子代理。",
+    "价值就是复用缓存,换模型/换模式会让这份缓存作废。agent_type 指定自定义子代理类型(有专属 prompt/工具白名单),不给就是通用子代理。" +
+    "拿到结果后留个心眼:子代理返回的是它自称做了什么,不是你亲眼确认过的事实——它可能把「应该改好了」当「已经改好了」报回来。" +
+    "涉及代码改动、修 bug、跑测试这类子任务,回来后花一次工具调用亲自复核关键结论(读一下实际 diff、跑一下它说过的命令)," +
+    "不要原样把子代理的自述转述给用户当作你自己验证过的结论。",
   descriptionEn:
     "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
     "Task description must be self-contained — the subagent has no current conversation context. " +
@@ -39,7 +42,10 @@ export const agentTool = defineTool({
     "changes are left on a branch for you to review/merge afterward), fork (inherits your full current context + reuses the prefix cache, nearly free — good for a " +
     "branch attempt with full background), model (temporarily switch models, usually to run a cheap task on a cheaper model — but switching itself invalidates the " +
     "prefix cache, not worth it unless the task is cheap enough), mode=plan (read-only planning mode). fork inherently conflicts with model/mode — fork's whole value " +
-    "is reusing the cache, and switching model/mode invalidates that cache. agent_type selects a custom subagent type (with its own prompt/tool allowlist); omit for a generic subagent.",
+    "is reusing the cache, and switching model/mode invalidates that cache. agent_type selects a custom subagent type (with its own prompt/tool allowlist); omit for a generic subagent. " +
+    "Trust but verify what comes back: a subagent's summary describes what it claims it did, not what you've confirmed happened — it may report \"should be fixed\" as " +
+    "\"fixed\". For subtasks touching code changes, bug fixes, or tests, spend one follow-up tool call checking the actual result yourself (read the real diff, run the " +
+    "command it says it ran) before reporting the subagent's account to the user as your own verified conclusion.",
   capability: "plan",
   approval: "auto",
   schema: z.object({

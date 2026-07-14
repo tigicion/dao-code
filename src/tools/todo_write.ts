@@ -1,12 +1,24 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
 import { todoStore, type TodoStatus } from "./todo_store.js";
+import { msg } from "./lang.js";
 
 const ICON: Record<TodoStatus, string> = {
   pending: "☐",
   in_progress: "▶",
   completed: "☑",
 };
+
+// 全部完成且 ≥3 项时提醒一句:自述"完成"不等于验证过,别看着清单全勾就直接收尾报告。
+// 参考 CC 的 TodoWrite "全 done 触发 verification nudge" 机制——软提示,不强制,只在这个
+// 具体时刻(清单从有未完成变成全部完成)打个岔,提醒去 verify_done 或独立核实一遍。
+function completionNudge(todos: { status: TodoStatus }[]): string {
+  if (todos.length < 3 || !todos.every((t) => t.status === "completed")) return "";
+  return msg(
+    "\n\n(清单已全部勾完——先别急着收尾报告:这只是你自己记的进度,不代表验证过。逐项拿实际证据核实一遍,或调 verify_done。)",
+    "\n\n(All items checked off — before wrapping up: this checklist only reflects your own progress tracking, not verification. Confirm each item against actual evidence, or call verify_done.)",
+  );
+}
 
 export const todoWriteTool = defineTool({
   name: "todo_write",
@@ -44,6 +56,6 @@ export const todoWriteTool = defineTool({
     }
     todoStore.set(args.todos);
     if (args.todos.length === 0) return "(任务清单已清空)";
-    return args.todos.map((t) => `${ICON[t.status]} ${t.content}`).join("\n");
+    return args.todos.map((t) => `${ICON[t.status]} ${t.content}`).join("\n") + completionNudge(args.todos);
   },
 });

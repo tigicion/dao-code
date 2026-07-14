@@ -48,4 +48,45 @@ describe("todo_write tool", () => {
     expect(todoWriteTool.approval).toBe("auto");
     expect(todoWriteTool.name).toBe("todo_write");
   });
+
+  it("all ≥3 items completed → appends a verification nudge", async () => {
+    const out = await todoWriteTool.handler(
+      {
+        todos: [
+          { content: "a", status: "completed" },
+          { content: "b", status: "completed" },
+          { content: "c", status: "completed" },
+        ],
+      },
+      ctx,
+    );
+    expect(out).toContain("verify_done");
+  });
+
+  it("fewer than 3 items, all completed → no nudge", async () => {
+    const out = await todoWriteTool.handler(
+      {
+        todos: [
+          { content: "a", status: "completed" },
+          { content: "b", status: "completed" },
+        ],
+      },
+      ctx,
+    );
+    expect(out).not.toContain("verify_done");
+  });
+
+  it("≥3 items but not all completed → no nudge", async () => {
+    const out = await todoWriteTool.handler(
+      {
+        todos: [
+          { content: "a", status: "completed" },
+          { content: "b", status: "completed" },
+          { content: "c", status: "pending" },
+        ],
+      },
+      ctx,
+    );
+    expect(out).not.toContain("verify_done");
+  });
 });
