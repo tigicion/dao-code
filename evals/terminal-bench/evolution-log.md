@@ -528,3 +528,11 @@ regex-chess。
 
 **教训**:代码改动(尤其是修复评测本身依赖的诊断能力)提交后,必须在启动新一批评测前
 确认二进制是不是同一个 commit——这次靠用户追问才发现,不是自己主动核对流程发现的。
+
+### 切换到内存分桶并发(用户建议评估后采纳)
+
+`iter4-qianfan-r2`(-n2)只跑了2/10题(各12分钟)就按建议截停重调度——沉没成本小,
+换取后面明显更快。按 `batch_by_memory.py` 分桶:9题(2048MB)用 `-n 4` 起
+(`iter4-qianfan-2048`),`sam-cell-seg`(4096MB)单独用 `-n 2` 起(`iter4-qianfan-4096`)。
+`gpt2-codegolf`/`path-tracing`(旧二进制拿到的真实结果,pass/fail不受usage bug影响)
+继续保留计入 iteration 4 最终统计。
