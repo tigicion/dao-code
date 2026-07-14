@@ -26,6 +26,18 @@ security find-generic-password -a dao/default -s dao-api-key -w \
   | (echo -n "DEEPSEEK_API_KEY=" && cat) > evals/terminal-bench/.env
 ```
 
+## 换 provider(比如千帆 Coding Plan)
+
+`harbor_dao_agent.py` 的 `DaoAgent` 支持 `provider` 构造参数(默认 `deepseek`),经
+`--ak provider=<名字>` 传入;对应的 key 变量名从脚本里的 `_API_KEY_ENV` 表查(千帆是
+`QIANFAN_API_KEY`),没列出的 provider 兜底 `<PROVIDER>_API_KEY`。`.env` 里加一行对应的
+key 即可,同一份 `.env` 文件可以同时放多个 provider 的 key(harbor 只会读用到的那个):
+
+```bash
+security find-generic-password -a dao/<你的千帆 profile 名> -s dao-api-key -w \
+  | (echo -n "QIANFAN_API_KEY=" && cat) >> evals/terminal-bench/.env
+```
+
 ## 跑
 
 ```bash
@@ -35,6 +47,7 @@ cd evals/terminal-bench
 source venv/bin/activate
 harbor run -d terminal-bench/terminal-bench-2-1 \
   --agent-import-path agent.harbor_dao_agent:DaoAgent \
+  --ak provider=qianfan \           # 省略则默认 deepseek(向后兼容)
   --env-file .env \
   --agent-timeout-multiplier 4 \    # 900s 基线放宽到 3600s(约 1 小时),见下方"超时"一节
   -i "<task-name>" [-i "<task-name>" ...] \  # 不给就是全量 89 题,真跑之前务必先用 -i 圈定范围
