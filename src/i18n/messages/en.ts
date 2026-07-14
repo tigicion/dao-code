@@ -93,7 +93,7 @@ export const en: Record<string, string> = {
   "cmd.plugin": "Show installed plugins",
   "cmd.account": "Accounts: switch/add/remove (picker)",
   "cmd.login": "Add or replace the API key (guided paste)",
-  "cmd.logout": "Clear the current account's key",
+  "cmd.logout": "Remove the current account (the whole profile, not just the key)",
   "cmd.simplify": "Quality cleanup of uncommitted changes (no bug hunting)",
   "cmd.remember": "Save a cross-session memory",
   "cmd.debug-session": "Read recent session logs to diagnose dao itself",

@@ -93,7 +93,7 @@ export const zh: Record<string, string> = {
   "cmd.plugin": "查看已装插件",
   "cmd.account": "账户:切换/添加/删除(弹选择器)",
   "cmd.login": "添加或更换 API key(粘贴引导)",
-  "cmd.logout": "清除当前账户的 key",
+  "cmd.logout": "删除当前账户(整个 profile,不止 key)",
   "cmd.simplify": "质量清理未提交改动(不抓 bug)",
   "cmd.remember": "记一条跨会话记忆",
   "cmd.debug-session": "读最近会话日志诊断 dao 自身问题",

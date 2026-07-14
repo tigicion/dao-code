@@ -1693,7 +1693,7 @@ async function main() {
           if (name === "logout") {
             const active = profilesCfg.activeProfile;
             removeAccount(active);
-            return { handled: true, output: `✓ 已清除账户「${active}」的 key。本会话仍用当前 key;重启后需 /login。` };
+            return { handled: true, output: `✓ 已删除账户「${active}」(整个 profile:provider/baseUrl/model/key 一起删)。本会话仍用当前凭证;重启后需 /login 或切到其它账户。` };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。
