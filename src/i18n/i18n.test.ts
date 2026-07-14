@@ -60,6 +60,8 @@ describe("t / setLang", () => {
   it("has the onboarding step keys in both langs", () => {
     setLang("zh"); expect(t("onboard.provider.volcengine")).toBe("火山引擎(Coding Plan)");
     setLang("en"); expect(t("onboard.provider.volcengine")).toBe("Volcengine (Coding Plan)");
+    setLang("zh"); expect(t("onboard.provider.qianfan")).toBe("千帆 Token Plan");
+    setLang("en"); expect(t("onboard.provider.qianfan")).toBe("Qianfan (Token Plan)");
     setLang("en"); expect(t("onboard.progress", 2, 4)).toBe("Step 2 / 4");
   });
   it("运行时通知/工具标签 ui.* 抽样 zh/en", () => {
