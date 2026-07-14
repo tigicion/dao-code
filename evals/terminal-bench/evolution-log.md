@@ -553,3 +553,12 @@ regex-chess。
 ### sam-cell-seg(4096MB桶)完成
 
 sam-cell-seg | ✅ 1(33m28s,干净跑完)
+
+### 2048MB桶8/9出结果
+
+| make-mips-interpreter | ❌ 0 |
+| tune-mjcf | ❌ 0 |
+| winning-avg-corewars | ❌ 0 |
+
+无 exception,非外部杀进程。只剩 `regex-chess` 在跑(54/60分钟,快到预算上限),等它出结果做
+iteration 4 完整15题小结。
