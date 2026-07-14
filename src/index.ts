@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
-import { DEFAULTS, type ResolvedCredential } from "./config/profiles.js";
+import { DEFAULTS, type Provider, type ResolvedCredential } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
@@ -441,12 +441,12 @@ async function main() {
     for (let i = 2; ; i++) if (!profilesCfg.profiles[`account-${i}`]) return `account-${i}`;
   };
   // 添加:校验 → 持久化(钥匙串优先)→ 激活并即时生效。失败返回原因,不落盘。
-  const addAccount = async (key: string, name?: string): Promise<{ ok: boolean; name?: string; reason?: string }> => {
+  const addAccount = async (key: string, name?: string, provider: Provider = "deepseek"): Promise<{ ok: boolean; name?: string; reason?: string }> => {
     const targetName = name?.trim() || nextAccountName();
     const cur = profilesCfg.profiles[targetName];
     const meta = cur
       ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model }
-      : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
+      : { provider, ...DEFAULTS[provider] };
     const v = await validateCredential({ baseUrl: meta.baseUrl, key, provider: meta.provider });
     if (!v.ok) return { ok: false, reason: v.reason };
     const { cfg: nc } = await persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() });

@@ -164,6 +164,7 @@ export const zh: Record<string, string> = {
   "ui.resume.moreBelow": "  ↓ 还有 {0} 个",
   // 账户选择器/添加
   "ui.account.pastePrompt": "粘贴新账户的 DeepSeek key(留空取消):",
+  "ui.account.providerPrompt": "这个 key 属于哪个 provider?(deepseek/volcengine/qianfan,回车默认 deepseek):",
   "ui.account.namePrompt": "给这个账户起个名(回车用默认):",
   "ui.account.validating": "正在校验 key…",
   "ui.account.added": "✓ 已添加并切到「{0}」,下一回合生效。",

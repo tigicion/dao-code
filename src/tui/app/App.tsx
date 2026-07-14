@@ -10,6 +10,7 @@ import { clampLines, parseTodoResult } from "./format.js";
 import type { TurnEvents } from "../render.js";
 import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../approval/types.js";
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
+import type { Provider } from "../../config/profiles.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 // 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
@@ -470,9 +471,11 @@ export function App(deps: AppDeps) {
   const runAddAccount = async () => {
     const key = (await askLine(t("ui.account.pastePrompt"))).trim();
     if (!key) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+    const providerInput = (await askLine(t("ui.account.providerPrompt"))).trim().toLowerCase();
+    const provider = (["deepseek", "volcengine", "qianfan"].includes(providerInput) ? providerInput : "deepseek") as Provider;
     const name = (await askLine(t("ui.account.namePrompt"))).trim();
     pushItem({ id: nextId(), kind: "notice", text: t("ui.account.validating") });
-    const r = await deps.addAccount?.(key, name || undefined);
+    const r = await deps.addAccount?.(key, name || undefined, provider);
     pushItem({ id: nextId(), kind: "notice", text: r?.ok ? t("ui.account.added", r.name ?? "") : t("ui.account.addFailed", reasonText(r?.reason)) });
     setStatus(deps.getStatus());
   };

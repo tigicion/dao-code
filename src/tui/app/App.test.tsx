@@ -192,6 +192,56 @@ describe("App", () => {
     expect(lastFrame()!).toContain("粘贴新账户");
   });
 
+  it("/account 添加账户:key → provider → name,provider 透传给 addAccount", async () => {
+    let seenProvider: string | undefined;
+    const { stdin } = render(
+      <App {...makeDeps({
+        listAccounts: () => [],
+        addAccount: async (key, name, provider) => { seenProvider = provider; return { ok: true, name: name ?? "default" }; },
+      })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 无账户,直接进添加
+    await delay();
+    for (const ch of "qf-key") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 粘贴 key
+    await delay();
+    for (const ch of "qianfan") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 选 provider
+    await delay();
+    stdin.write("\r"); // 起名(留空用默认)
+    await delay();
+    expect(seenProvider).toBe("qianfan");
+  });
+
+  it("/account 添加账户:provider 打错字 → 静默回退 deepseek", async () => {
+    let seenProvider: string | undefined;
+    const { stdin } = render(
+      <App {...makeDeps({
+        listAccounts: () => [],
+        addAccount: async (key, name, provider) => { seenProvider = provider; return { ok: true, name: name ?? "default" }; },
+      })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    for (const ch of "qf-key") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    for (const ch of "not-a-provider") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(seenProvider).toBe("deepseek");
+  });
+
   it("/account → 🗑 删除 → 选中账户删除", async () => {
     let removed = "";
     const { lastFrame, stdin } = render(

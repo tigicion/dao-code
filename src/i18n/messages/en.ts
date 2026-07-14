@@ -164,6 +164,7 @@ export const en: Record<string, string> = {
   "ui.resume.moreBelow": "  ↓ {0} more",
   // Account picker / add
   "ui.account.pastePrompt": "Paste the new account's DeepSeek key (blank to cancel): ",
+  "ui.account.providerPrompt": "Which provider is this key for? (deepseek/volcengine/qianfan, Enter for deepseek): ",
   "ui.account.namePrompt": "Name this account (Enter for default): ",
   "ui.account.validating": "Validating key…",
   "ui.account.added": "✓ Added and switched to \"{0}\"; effective next turn.",
