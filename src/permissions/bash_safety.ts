@@ -3,47 +3,60 @@ import { splitBashCommands } from "./rules.js";
 // S2.1 危险命令黑名单:识别"不可逆破坏 / 远程代码执行 / 提权"类 shell 命令。
 // 命中者即便在 auto/yolo 下也强制人工确认(见 engine.mustConfirm + gate auto 路径)。
 // 启发式(非完备),宁可多问一次:复合命令逐段判定,任一段命中即返回原因。
+// 命令词边界:关键词后面必须紧跟空白/命令分隔符/结尾才算"在调用这个命令"。
+// 用 \b 做词边界曾经是全文件的通用写法,但 `.`/`-`/`_` 这类字符也算词边界——纯粹是
+// 文件名前缀的 "eval.scm"(`python3 interp.py eval.scm`)会被误判成 eval 动态执行,
+// 无 TTY 场景下 ask 判定自动转 deny,连续拦掉模型对自己解题文件的正常执行,逼得模型
+// 放弃真实运行、改成纯人工代码走查,漏掉了跑测试才能发现的 bug(schemelike-metacircular-eval
+// 真实撞见的案例:9 次 exec_shell 被拒,最终因为没跑通官方测试集漏了 boolean? 原语;
+// tune-mjcf 的 eval.py 也是同一个根因)。这不是 eval/sudo 两处的个例,是"用 \b 判断命令名"
+// 这整类写法的通病——全文件所有命令名边界检查统一换成这个 helper,不只补两个洞。
+const CMD_END = "(?=\\s|$|;|&|\\|)";
+function cmdRe(name: string): RegExp {
+  return new RegExp(`(^|\\s)${name}${CMD_END}`, "i");
+}
+
 function dangerSegment(s: string): string | null {
   // rm 递归 + 危险目标(根/家目录/通配)——相对路径如 node_modules 不触发
-  if (/\brm\b/i.test(s) && /(^|\s)-\S*r/i.test(s)) {
+  if (cmdRe("rm").test(s) && /(^|\s)-\S*r/i.test(s)) {
     if (/\s(\/|~|\$home)(\s|\/|$)/i.test(s) || /\s\/\*(\s|$)/.test(s) || /(^|\s)\*(\s|$)/.test(s) || /\s~\//i.test(s)) return "rm 递归删除根/家目录/通配,可能毁坏系统";
   }
   // 写裸磁盘设备 / 格式化(含 dd of=/dev/disk)
   if (/\b(dd|tee)\b[^|]*of=\s*\/dev\/(sd|nvme|disk|hd)/i.test(s) || />\s*\/dev\/(sd|nvme|disk|hd)/i.test(s)) return "写入裸磁盘设备";
-  if (/\bmkfs(\.\w+)?\b/i.test(s)) return "格式化文件系统";
+  // mkfs 本身之前是裸检查(无任何复合条件),风险最高——文件名叫 mkfs.conf 光是 cat 一下就会误判。
+  // 可选后缀之前是 (\.\w+)? 任意扩展名,连边界写法都救不了(mkfs.conf 从正则角度跟真实的
+  // mkfs.ext4 没法区分),收窄成真实存在的文件系统类型后缀,不再匹配任意 .xxx。
+  if (cmdRe("mkfs(\\.(ext[234]|xfs|btrfs|fat|vfat|ntfs|reiserfs|jfs|f2fs|minix|swap))?").test(s)) return "格式化文件系统";
   // 递归改权限/属主到危险目标
-  if (/\bchmod\s+-?R?\s*0?777\b/i.test(s) || (/\bchmod\b/i.test(s) && /(^|\s)-\S*R/.test(s) && /\s(\/|~)(\s|\/|$)/i.test(s))) return "递归/全开 chmod,可能破坏权限";
+  if (/\bchmod\s+-?R?\s*0?777\b/i.test(s) || (cmdRe("chmod").test(s) && /(^|\s)-\S*R/.test(s) && /\s(\/|~)(\s|\/|$)/i.test(s))) return "递归/全开 chmod,可能破坏权限";
   // chmod 000:清空权限会让文件/目录不可访问
   if (/\bchmod\s+(-\S+\s+)*0{3,4}\b/i.test(s)) return "chmod 000 清空权限,文件将不可访问";
-  if (/\bchown\b/i.test(s) && /(^|\s)-\S*R/.test(s) && /\s(\/|~)(\s|\/|$)/i.test(s)) return "递归 chown 到根/家目录";
+  if (cmdRe("chown").test(s) && /(^|\s)-\S*R/.test(s) && /\s(\/|~)(\s|\/|$)/i.test(s)) return "递归 chown 到根/家目录";
   // 递归改属组到根/家目录
-  if (/\bchgrp\b/i.test(s) && /(^|\s)-\S*R/.test(s) && /\s(\/|~)(\s|\/|$)/i.test(s)) return "递归 chgrp 到根/家目录";
+  if (cmdRe("chgrp").test(s) && /(^|\s)-\S*R/.test(s) && /\s(\/|~)(\s|\/|$)/i.test(s)) return "递归 chgrp 到根/家目录";
   // 覆盖系统配置
   if (/>\s*\/etc\//i.test(s)) return "覆盖 /etc 系统配置";
   // :> /important 截断(把现有文件清空)——危险目标:根/家目录/etc/dev
   if (/(^|\s):?\s*>\s*(\/(etc|dev|bin|usr|boot|lib|sbin|var)\/|~\/|\$home)/i.test(s)) return "重定向截断系统/家目录文件";
   // truncate / shred 危险目标(不可逆清空/抹除)
-  if (/\btruncate\b/i.test(s) && /\s(\/|~)(\S)/i.test(s)) return "truncate 截断文件(可能清空数据)";
-  if (/\bshred\b/i.test(s)) return "shred 不可逆抹除文件";
+  if (cmdRe("truncate").test(s) && /\s(\/|~)(\S)/i.test(s)) return "truncate 截断文件(可能清空数据)";
+  // shred 本身之前也是裸检查(无任何复合条件),风险最高——文件名叫 shred.py 光是 cat 一下就会误判
+  if (cmdRe("shred").test(s)) return "shred 不可逆抹除文件";
   // find ... -delete / -exec rm:批量删除,易因路径/通配失误酿灾
-  if (/\bfind\b/i.test(s) && (/(^|\s)-delete\b/i.test(s) || /(^|\s)-exec\s+(sudo\s+)?rm\b/i.test(s))) return "find 批量删除(-delete/-exec rm)";
+  if (cmdRe("find").test(s) && (/(^|\s)-delete\b/i.test(s) || /(^|\s)-exec\s+(sudo\s+)?rm\b/i.test(s))) return "find 批量删除(-delete/-exec rm)";
   // git 毁历史 / 丢改动
-  if (/\bgit\b/i.test(s) && /\bpush\b/i.test(s) && /(--force(-with-lease)?|(^|\s)-f)\b/i.test(s)) return "git push 强推,可能覆盖远程历史";
-  if (/\bgit\b/i.test(s) && /\breset\b/i.test(s) && /--hard\b/i.test(s)) return "git reset --hard,丢弃未提交改动";
-  if (/\bgit\b/i.test(s) && /\bclean\b/i.test(s) && /(^|\s)-\S*f/i.test(s) && /(^|\s)-\S*[dx]/i.test(s)) return "git clean -fdx,删除未跟踪文件";
-  // 批量杀进程
-  if (/\bkill\b\s+-9\s+-1\b/i.test(s) || /\bkill\b\s+-1\b/i.test(s)) return "kill -1/-9 -1,杀光本用户所有进程";
-  if (/\bkillall\b/i.test(s)) return "killall 批量杀进程";
-  if (/\bpkill\b/i.test(s) && /(^|\s)-9\b/i.test(s)) return "pkill -9 强杀进程";
-  // 提权 / 动态执行:关键词后面必须紧跟空白/命令分隔符/结尾才算"在调用这个命令"。
-  // 之前用 \b 做词边界,`.`/`-`/`_` 这类字符也算词边界,导致纯粹是文件名前缀的
-  // "eval.scm"(`python3 interp.py eval.scm`)被误判成 eval 动态执行——无 TTY 场景下
-  // ask 判定会自动转 deny,连续拦掉模型对自己解题文件的正常执行,逼得模型放弃真实
-  // 运行、改成纯人工代码走查,漏掉了跑测试才能发现的 bug(schemelike-metacircular-eval
-  // 真实撞见的案例:9 次 exec_shell 被拒,最终因为没跑通官方测试集漏了 boolean? 原语)。
-  const CMD_END = "(?=\\s|$|;|&|\\|)";
-  if (new RegExp(`(^|\\s)sudo${CMD_END}`, "i").test(s)) return "sudo 提权";
-  if (new RegExp(`(^|\\s)eval${CMD_END}`, "i").test(s)) return "eval 动态执行";
+  if (cmdRe("git").test(s) && /\bpush\b/i.test(s) && /(--force(-with-lease)?|(^|\s)-f)\b/i.test(s)) return "git push 强推,可能覆盖远程历史";
+  if (cmdRe("git").test(s) && /\breset\b/i.test(s) && /--hard\b/i.test(s)) return "git reset --hard,丢弃未提交改动";
+  if (cmdRe("git").test(s) && /\bclean\b/i.test(s) && /(^|\s)-\S*f/i.test(s) && /(^|\s)-\S*[dx]/i.test(s)) return "git clean -fdx,删除未跟踪文件";
+  // 批量杀进程:kill 后面紧跟 -9 -1 / -1(不是"kill 和这些 flag 分别出现在字符串某处"这么松,
+  // 保持跟原来一样的"紧跟"语义,只是换成不怕文件名前缀撞上的边界写法)
+  if (new RegExp(`(^|\\s)kill${CMD_END}\\s+-9\\s+-1\\b`, "i").test(s) || new RegExp(`(^|\\s)kill${CMD_END}\\s+-1\\b`, "i").test(s)) return "kill -1/-9 -1,杀光本用户所有进程";
+  // killall 本身之前也是裸检查,风险最高——文件名叫 killall.sh 光是 cat 一下就会误判
+  if (cmdRe("killall").test(s)) return "killall 批量杀进程";
+  if (cmdRe("pkill").test(s) && /(^|\s)-9\b/i.test(s)) return "pkill -9 强杀进程";
+  // 提权 / 动态执行
+  if (cmdRe("sudo").test(s)) return "sudo 提权";
+  if (cmdRe("eval").test(s)) return "eval 动态执行";
   return null;
 }
 

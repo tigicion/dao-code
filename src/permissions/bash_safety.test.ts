@@ -98,6 +98,44 @@ describe("isDangerousCommand", () => {
     expect(isDangerousCommand("cd /tmp && eval")).toBeTruthy();
     expect(isDangerousCommand("cd /tmp; sudo rm -rf x")).toBeTruthy();
   });
+
+  it("同一类文件名假阳性:mkfs/shred/killall 之前是裸检查(零复合条件),风险比eval/sudo更高,一起修了", () => {
+    // 之前完全没有额外条件兜底,文件名一撞上 \b 就直接误判,比 eval/sudo(至少语义上"应该"
+    // 只在真正调用时触发)更容易被日常操作撞到。
+    expect(isDangerousCommand("cat mkfs.conf")).toBeNull();
+    expect(isDangerousCommand("vim mkfs.py")).toBeNull();
+    expect(isDangerousCommand("cat shred.py")).toBeNull();
+    expect(isDangerousCommand("python3 shred_test.rb")).toBeNull();
+    expect(isDangerousCommand("./killall.sh --help")).toBeNull();
+    expect(isDangerousCommand("cat killall.txt")).toBeNull();
+    // 真正调用仍然要拦
+    expect(isDangerousCommand("mkfs.ext4 /dev/sdb1")).toBeTruthy();
+    expect(isDangerousCommand("mkfs /dev/sda")).toBeTruthy();
+    expect(isDangerousCommand("shred -u secret.key")).toBeTruthy();
+    expect(isDangerousCommand("killall node")).toBeTruthy();
+  });
+
+  it("同一类文件名假阳性:chmod/chown/chgrp/truncate/find/git/kill/pkill 有复合条件部分兜底,但机制相同,一起修了不留隐患", () => {
+    // 这几个平时需要额外的 flag/路径才会误触发,风险比上面那组低,但漏洞成因一样,
+    // 一致性修完(不只挑高风险的修,遗留同构漏洞会在意料之外的组合下复发)。
+    expect(isDangerousCommand("cat chmod.md")).toBeNull();
+    expect(isDangerousCommand("cat chown.log")).toBeNull();
+    expect(isDangerousCommand("cat chgrp.log")).toBeNull();
+    expect(isDangerousCommand("python3 truncate.py --help")).toBeNull();
+    expect(isDangerousCommand("cat find.txt")).toBeNull();
+    expect(isDangerousCommand("cat git.md")).toBeNull();
+    expect(isDangerousCommand("cat kill.py")).toBeNull();
+    expect(isDangerousCommand("cat pkill.log")).toBeNull();
+    // 真正的危险调用仍然要拦(复合条件本身没变,只是命令名边界换了写法)
+    expect(isDangerousCommand("chmod -R 777 /")).toBeTruthy();
+    expect(isDangerousCommand("chown -R x /")).toBeTruthy();
+    expect(isDangerousCommand("chgrp -R x /")).toBeTruthy();
+    expect(isDangerousCommand("truncate -s 0 /etc/passwd")).toBeTruthy();
+    expect(isDangerousCommand("find / -name '*.log' -delete")).toBeTruthy();
+    expect(isDangerousCommand("git push --force origin main")).toBeTruthy();
+    expect(isDangerousCommand("kill -9 -1")).toBeTruthy();
+    expect(isDangerousCommand("pkill -9 java")).toBeTruthy();
+  });
 });
 
 describe("isReadOnlyShellCommand", () => {
