@@ -217,12 +217,28 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       }
     }
     const tools = apiToolsForMode(deps.registry, session.mode, getLang());
-    const assistant = await requestAssistant(tools, t);
-    const toolCalls = assistant.tool_calls ?? [];
-    const hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
-    // 防御:空内容且无工具调用的回合(只有 reasoning、或被打断)不能入库——否则下一轮
-    // DeepSeek 会 400「content or tool_calls must be set」直接崩会话。空回合直接结束。
-    if (toolCalls.length === 0 && !hasContent) return;
+    let assistant = await requestAssistant(tools, t);
+    let toolCalls = assistant.tool_calls ?? [];
+    let hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+    // 空内容且无工具调用的回合(只有 reasoning、或被打断)不能直接入库——否则下一轮
+    // DeepSeek 会 400「content or tool_calls must be set」直接崩会话。但也不能悄悄当成
+    // "模型主动决定收尾了"就地结束:蒸馏过 iteration 4 两道题(large-scale-text-editing、
+    // winning-avg-corewars)发现,这种情况实际是模型陷入了长时间未收敛的推理(反复
+    // "wait,这不对…让我重新想想"那种),最后一轮没能收敛出结论或动作,返回了空响应——
+    // 不是真的没有更多要做的了。之前直接 return 会把"没说完"悄悄当成"说完了",且没有
+    // 任何可观测的痕迹,一次性/eval 场景下这类情况会被误判成模型"想清楚了但做错了"的
+    // 干净失败,掩盖了真实问题。改成重试一次(不入库这次的空响应,原样重发相同的
+    // session.messages);仍是空的才真正结束,但留一条可见提示,不再无声无息消失。
+    if (toolCalls.length === 0 && !hasContent) {
+      events.notice("\n[模型返回空响应,重试一次…]\n");
+      assistant = await requestAssistant(tools, t);
+      toolCalls = assistant.tool_calls ?? [];
+      hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+      if (toolCalls.length === 0 && !hasContent) {
+        events.notice("\n[连续两次空响应,结束本轮]\n");
+        return;
+      }
+    }
     session.messages.push(assistant);
     if (toolCalls.length === 0) {
       // L4.5 收尾前锚点:纯文本回合(模型认为已经可以结束了)——但如果本会话碰过代码/命令、

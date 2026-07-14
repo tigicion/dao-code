@@ -50,23 +50,45 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("空 assistant(无内容无工具)不入库,防下一轮 DeepSeek 400", async () => {
+  it("空 assistant(无内容无工具)先重试一次;连续两次空才不入库、结束(防下一轮 DeepSeek 400)", async () => {
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
+    let calls = 0;
     await runTurn({
       session: s,
       config,
       registry: emptyReg(),
       ctx,
       gate: stubGate,
-      streamChat: scripted([turn([], { role: "assistant", content: "" })]),
+      streamChat: (() => { calls++; return turn([], { role: "assistant", content: "" })(); }) as any,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(calls).toBe(2); // 第一次空响应触发了一次重试,不是立刻放弃
+    expect(s.messages).toEqual([
+      { role: "system", content: "SYS" },
+      { role: "user", content: "hi" },
+    ]); // 两次都空 → 都不入库,结束
+  });
+
+  it("空 assistant 重试后拿到真实内容 → 用重试结果,不当成模型主动结束", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    const calls = scripted([
+      turn([], { role: "assistant", content: "" }), // 第一次:空(比如陷入未收敛的长推理)
+      turn([{ kind: "content", text: "总算想清楚了" }], { role: "assistant", content: "总算想清楚了" }), // 重试:拿到真实结论
+    ]);
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => calls()) as any,
       executeToolCalls: async () => [],
       write: () => {},
     });
     expect(s.messages).toEqual([
       { role: "system", content: "SYS" },
       { role: "user", content: "hi" },
-    ]); // 空 assistant 被丢弃,不入库
+      { role: "assistant", content: "总算想清楚了" },
+    ]); // 空响应被丢弃(不入库),重试拿到的真实内容才入库
   });
 
   it("sends session.model and runs tools then loops", async () => {
