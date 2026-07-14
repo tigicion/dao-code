@@ -562,3 +562,69 @@ sam-cell-seg | ✅ 1(33m28s,干净跑完)
 
 无 exception,非外部杀进程。只剩 `regex-chess` 在跑(54/60分钟,快到预算上限),等它出结果做
 iteration 4 完整15题小结。
+
+---
+
+## iteration 4 最终小结(15/15 全部拿到真实结果)
+
+这轮过程本身很不寻常(deepseek→千帆中途切换、旧二进制usage bug、两次用 TaskStop
+截停重调度),数据来源拆成三段,合起来是完整的15题:
+
+| 任务 | 结果 | 来源 |
+|---|---|---|
+| model-extraction-relu-logits | ✅ 1 | DeepSeek 直连 |
+| schemelike-metacircular-eval | ❌ 0 | DeepSeek 直连 |
+| torch-pipeline-parallelism | ❌ 0 | DeepSeek 直连 |
+| gpt2-codegolf | ❌ 0 | 千帆(旧二进制,reward不受usage bug影响) |
+| path-tracing | ❌ 0(超时) | 千帆(旧二进制) |
+| build-pmars | ✅ 1 | 千帆(新二进制,2048MB桶) |
+| git-leak-recovery | ✅ 1 | 千帆(新二进制,2048MB桶) |
+| polyglot-c-py | ✅ 1 | 千帆(新二进制,2048MB桶) |
+| query-optimize | ✅ 1 | 千帆(新二进制,2048MB桶) |
+| large-scale-text-editing | ❌ 0(干净,完整跑完) | 千帆(新二进制,2048MB桶) |
+| make-mips-interpreter | ❌ 0(超时) | 千帆(新二进制,2048MB桶) |
+| regex-chess | ❌ 0(超时) | 千帆(新二进制,2048MB桶) |
+| tune-mjcf | ❌ 0(超时) | 千帆(新二进制,2048MB桶) |
+| winning-avg-corewars | ❌ 0(干净,完整跑完) | 千帆(新二进制,2048MB桶) |
+| sam-cell-seg | ✅ 1 | 千帆(新二进制,4096MB桶) |
+
+**6 过 9 未过。**
+
+### 千帆缓存问题最终定论(用新二进制拿到的干净数据)
+
+`make-mips-interpreter`/`regex-chess`/`tune-mjcf` 三个真实超时任务,缓存命中率分别是
+**92.2% / 88.3% / 90.8%**——跟 DeepSeek 直连的典型水平相当。**千帆的 prompt caching
+在真实 DAO 会话里确实正常工作**,此前"0%命中"的结论(无论是孤立测试还是这轮 path-tracing
+用旧二进制的读数)都是解析 bug 导致的假象,现在彻底定论,不再需要进一步验证。
+
+### 5 个失败题蒸馏:都是任务难度,没有共享的可立案模式
+
+逐题读了收尾轨迹:
+- `make-mips-interpreter`:深入 MIPS 二进制/ELF 头逆向调试(分析被当成指令执行的
+  ELF header 字节),真实推进,超时。
+- `regex-chess`:FEN 棋局记法的正则表达式转换,过程里自己发现步骤顺序错了
+  ("Wait, this is wrong!")并纠正,真实推进,超时。
+- `tune-mjcf`:MuJoCo 物理引擎调参搜索(遍历 CG/implicitfast/cone 等多种求解器配置),
+  最优结果 pctg=0.692,离目标 ≤0.6 还差一点,真实推进,超时。
+- `large-scale-text-editing`(完整跑完,非超时):Vim 宏构造与语义验证,收尾时给出了
+  完整用量(命中率90.6%),说明在预算内跑完但答案有误,没有明显的可归因 bug。
+- `winning-avg-corewars`(完整跑完,非超时):Redcode(Core War 汇编)内存扫描逻辑推理,
+  同样在预算内跑完但结果错,没有明显的可归因 bug。
+
+五个失败横跨五个完全不同的专业领域(系统底层/正则文本/物理仿真/编辑器宏/汇编游戏),
+没有共享的失败模式,不牵强立案——跟迭代2的 `largest-eigenval`、迭代3的
+`crack-7z-hash`/`qemu-alpine-ssh` 是同一类"真实推进、纯难度/预算问题"。
+
+### 本轮操作层面的产出(比题目本身的过/未过更重要)
+
+1. `harbor_dao_agent.py` provider 参数化,支持 `--ak provider=qianfan`。
+2. 修复了 `client.ts` 的 usage 归一化 bug(千帆走 OpenAI 形状的
+   `prompt_tokens_details.cached_tokens`,不是 DeepSeek 原生扁平字段)。
+3. 定论千帆缓存在真实场景下工作正常(88-92%命中,不逊于 DeepSeek 直连)。
+4. 按内存分桶配并发(`batch_by_memory.py`),2048MB 题目从 -n2 提到 -n4。
+5. 一个流程教训:代码修复提交后启动新一批评测前,必须确认二进制是不是同一个 commit
+   (这次是被用户追问才发现二进制没重编,不是自己主动核对流程发现的)。
+
+由于本轮切了两次 provider、换了一次二进制,不是一次干净的单一条件评测,6/15 这个
+通过率跟前几轮(iteration 1-3 大多 9-11/15)不能直接横向对比——过程噪声太大,不能
+据此下"千帆比DeepSeek表现差"这种结论。
