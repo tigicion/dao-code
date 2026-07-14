@@ -241,3 +241,5 @@ KeyboardInterrupt`),容器本身没被杀、变成孤儿(`docker events` 确认�
 |---|---|
 | train-fasttext | ❌ 0(自然超时 1h2m35s,最好配置 0.6102 vs 要求 0.62,近距离未达标) |
 
+
+| merge-diff-arc-agi-task | ✅ 1(6m28s,干净跑完) |
