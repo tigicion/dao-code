@@ -79,3 +79,12 @@ describe("DEFAULTS.volcengine", () => {
     });
   });
 });
+
+describe("DEFAULTS.qianfan", () => {
+  it("points at the token-plan base url with deepseek-v4-pro as default model", () => {
+    expect(DEFAULTS.qianfan).toEqual({
+      baseUrl: "https://qianfan.baidubce.com/v2/tokenplan/personal",
+      model: "deepseek-v4-pro",
+    });
+  });
+});
