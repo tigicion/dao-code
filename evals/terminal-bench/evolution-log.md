@@ -549,3 +549,7 @@ regex-chess。
 
 无 `exception.txt`,无需清理重跑。剩余 `make-mips-interpreter`/`regex-chess`/`tune-mjcf`/
 `winning-avg-corewars`(2048MB桶)+ `sam-cell-seg`(4096MB桶)继续跑。
+
+### sam-cell-seg(4096MB桶)完成
+
+sam-cell-seg | ✅ 1(33m28s,干净跑完)
