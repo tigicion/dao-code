@@ -782,3 +782,49 @@ winning-avg-corewars 已修复待复测)都算上,15题里潜在能拿到 14/15*
 下一步按 `.claude/skills/terminal-bench-debug-evolve/SKILL.md` 的清单:复测
 large-scale-text-editing/winning-avg-corewars 确认空响应修复也生效,然后做一次
 held_out 抽查(距上次已经过了好几轮,拖欠了)。
+
+---
+
+## 验证完成:空响应重试修复确认生效,但两题原始失败原因不完全一样
+
+`verify-empty-response-fix`(large-scale-text-editing + winning-avg-corewars,用带
+`c80a3c7` 修复的二进制复测):**两题依然 reward=0**,但跟修复前的失败方式完全不同——
+这次是真实、完整、正常收尾的会话,不是被静默丢弃。
+
+| 任务 | 修复前 | 复测后 | 关键证据 |
+|---|---|---|---|
+| large-scale-text-editing | 空响应静默丢弃(433s/1200s预算,原始日志中途戛然而止) | 干净完整跑完(1136s/1200s,95%预算,无exception,verify_done调用1次,给出完整总结) | 真实失败原因不一样了:验收5个子测试4个通过(含真正的功能正确性测试),只差一条格式检查——脚本缺精确匹配 `:wq`/`:x` 的独立一行,模型自己实现的小疏漏,不是DAO框架问题 |
+| winning-avg-corewars | 空响应静默丢弃(908s/3600s预算) | 自然超时(3584s/3600s,100%预算,AgentTimeoutError,ask-denied 0%) | 真实推进:实时快照显示模型在系统性测试多种 Redcode 战士配置对抗5种不同对手(stone/paper/vampire/snake/g2-clear)的胜率,是真实的多对手博弈优化难题,预算内没收敛,任务难度 |
+
+**结论**:空响应静默丢弃这个 bug 本身**确认修复生效**——两次复测都是正常、完整、有真实
+内容的会话收尾,不再是原来那种"戛然而止+紧跟用量总结"的异常模式。但修掉这个 bug 并不
+等于这两题就会变成"通过"——large-scale-text-editing 揭示出另一个独立的小疏漏(格式检查
+未精确匹配),winning-avg-corewars 本身就是真实难度题(时间对得上 100% 预算,ask-denied
+0%,没有权限或框架层面的异常)。**这是诚实的验证结果,不夸大**:bug 修复本身生效了,
+但没有让这两题从失败变成通过——跟 eval/sudo 那次(直接让两题从失败变通过)是不同性质
+的验证结果。
+
+## iteration 4 九题最终归因表(全部验证完成,收尾版)
+
+| 任务 | 最终状态 | 归因 |
+|---|---|---|
+| model-extraction-relu-logits | ✅ 1 | 原始结果 |
+| build-pmars | ✅ 1 | 原始结果 |
+| git-leak-recovery | ✅ 1 | 原始结果 |
+| polyglot-c-py | ✅ 1 | 原始结果 |
+| query-optimize | ✅ 1 | 原始结果 |
+| sam-cell-seg | ✅ 1 | 原始结果 |
+| schemelike-metacircular-eval | ❌→**✅**(复测确认) | DAO框架bug:eval/sudo正则假阳性,已修复并真实验证通过 |
+| tune-mjcf | ❌→**✅**(复测确认) | DAO框架bug:同上,已修复并真实验证通过 |
+| large-scale-text-editing | ❌(复测仍失败,原因已变) | 空响应bug已确认修复生效;真实失败原因是格式检查未精确匹配,模型实现小疏漏 |
+| winning-avg-corewars | ❌(复测仍失败,超时) | 空响应bug已确认修复生效;真实难度是多对手博弈优化,预算内未收敛 |
+| torch-pipeline-parallelism | ❌ | 环境工具缺口:容器没装Python,L4.5锚点真实触发但被环境挡住 |
+| gpt2-codegolf | ❌(超时) | 真实任务难度 |
+| path-tracing | ❌(超时99%预算) | 真实任务难度 |
+| make-mips-interpreter | ❌(超时100%预算) | 真实任务难度 |
+| regex-chess | ❌(超时76%预算) | 真实任务难度 |
+
+**15题最终:8过7未过**(2题因 eval/sudo 修复直接翻盘,2个 bug 都确认修复生效但没有
+额外救回题目)。比原始 6/15 有实质提升,而且提升是靠真实机制修复拿到的,不是巧合。
+
+按用户指示,本轮到此为止,不自动做 held_out 抽查或启动下一批,等待后续指示。
