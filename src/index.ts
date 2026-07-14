@@ -422,7 +422,10 @@ async function main() {
     profilesCfg = setActive(profilesCfg, name);
     saveProfiles(keyFile, profilesCfg).catch(() => {});
     resolveCredential(profilesCfg, kc).then((r) => {
-      if (r) { cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; keySource = r.source; }
+      if (r) {
+        cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; cfg.provider = r.provider; keySource = r.source;
+        session.setModel(r.model); // 实际发请求用的字段;不重放会拿旧 provider 的模型串打新 baseUrl
+      }
     }).catch(() => {});
     return true;
   };
@@ -449,7 +452,8 @@ async function main() {
     const { cfg: nc } = await persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() });
     profilesCfg = { ...nc, onboardingComplete: true };
     await saveProfiles(keyFile, profilesCfg);
-    cfg.apiKey = key; keySource = `profile:${targetName}`;
+    cfg.apiKey = key; cfg.baseUrl = meta.baseUrl; cfg.model = meta.model; cfg.provider = meta.provider; keySource = `profile:${targetName}`;
+    session.setModel(meta.model);
     return { ok: true, name: targetName };
   };
 
@@ -1206,7 +1210,8 @@ async function main() {
   const maybeReflect = async (opts: { compactionImminent: boolean }): Promise<void> => {
     if (argvPrompt || NO_MEMORY) return;
     // deepseek 不限流:跳过 cadence,每轮直接跑(仅用 reflectBusy 防并发堆叠)。
-    if (resolved.provider === "deepseek") {
+    // 读 cfg.provider(活值,随 /account 切换更新)而非 resolved.provider(启动时快照,切账户后不再变)。
+    if (cfg.provider === "deepseek") {
       void runReflector(); // fire-and-forget;reflectBusy 在内部防并发;真实 audit 在 runReflector 内写
       return;
     }
