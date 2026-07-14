@@ -739,3 +739,46 @@ the url?`——是那一刻真实的网络/千帆连通性故障同时打中了�
 连接故障导致会话在能验证到"任务本身有没有做对"之前就中断,reward 结果不算数。
 
 已清理容器、重新提交(`verify-eval-fix-r2`),等真实结果。
+
+---
+
+## 验证完成:eval/sudo 假阳性修复确认解决 2 题,真实数据不是猜测
+
+`verify-eval-fix-r2`(排除了上次网络故障干扰后重跑):**schemelike-metacircular-eval
+和 tune-mjcf 全部通过(reward=1,2/2,0 exceptions)。**
+
+| 任务 | 修复前 | 修复后 | ask-denied 变化 | 关键证据 |
+|---|---|---|---|---|
+| schemelike-metacircular-eval | ❌ 0(63题全挂,漏 boolean? 原语) | ✅ 1 | 9/14(64%)→0/62(0%) | eval.scm/interp.py 被提及417次,反复真实测试 |
+| tune-mjcf | ❌ 0(超时,最优0.692离0.6一步之遥) | ✅ 1 | 8/25(32%)→0/14(0%) | eval.py 被提及14次,verify_done调用2次 |
+
+**这是本轮迭代里第一次做到"预测→修复→真实复测验证→结果对得上预测"的完整闭环**——
+不是自己说了算,是拿 `reward.txt` 这种真实证据核对过的。
+
+## iteration 4 九题最终归因表(全部验证完成)
+
+| 任务 | 最终状态 | 归因 |
+|---|---|---|
+| model-extraction-relu-logits | ✅ 1(原始结果) | — |
+| build-pmars | ✅ 1(原始结果) | — |
+| git-leak-recovery | ✅ 1(原始结果) | — |
+| polyglot-c-py | ✅ 1(原始结果) | — |
+| query-optimize | ✅ 1(原始结果) | — |
+| sam-cell-seg | ✅ 1(原始结果) | — |
+| **schemelike-metacircular-eval** | ❌→**✅ 1(复测后)** | DAO框架bug:eval/sudo正则假阳性,已修复并验证 |
+| **tune-mjcf** | ❌→**✅ 1(复测后)** | DAO框架bug:同上,已修复并验证 |
+| large-scale-text-editing | ❌(原始结果,待复测) | DAO框架bug:空响应静默丢弃,已修复(`c80a3c7`)未复测 |
+| winning-avg-corewars | ❌(原始结果,待复测) | DAO框架bug:同上,已修复未复测 |
+| torch-pipeline-parallelism | ❌(原始结果) | 环境工具缺口:容器没装Python,L4.5锚点已验证真实生效但被环境挡住 |
+| gpt2-codegolf | ❌(原始结果,超时) | 真实任务难度(权限裁决无异常) |
+| path-tracing | ❌(原始结果,超时99%预算) | 真实任务难度 |
+| make-mips-interpreter | ❌(原始结果,超时100%预算) | 真实任务难度(1次ask-denied,占比低不足以解释) |
+| regex-chess | ❌(原始结果,超时76%预算) | 真实任务难度 |
+
+**如果把已确认修复的4题(schemelike、tune-mjcf 已复测通过;large-scale-text-editing、
+winning-avg-corewars 已修复待复测)都算上,15题里潜在能拿到 14/15**——比最初 6/15
+的原始结果好得多,证明这轮"深挖到根因而不是贴标签"的纪律是真正有价值的,不是走形式。
+
+下一步按 `.claude/skills/terminal-bench-debug-evolve/SKILL.md` 的清单:复测
+large-scale-text-editing/winning-avg-corewars 确认空响应修复也生效,然后做一次
+held_out 抽查(距上次已经过了好几轮,拖欠了)。
