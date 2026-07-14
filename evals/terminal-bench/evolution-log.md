@@ -195,3 +195,49 @@ qemu-startup, protein-assembly, video-processing),看是否有跨题的可立案
 没有看到"改动导致 held-out 题变差"的迹象——今晚这几个改动(exec_shell 后台持久化、
 退出清理按场景区分、无 TTY 审批 fail-closed、verify_done 负面结果规则)看起来是干净的
 增量修复,没有在 dev 题上过拟合到伤害泛化能力。
+
+---
+
+## 迭代 3(2026-07-14,用户在线,非自动)
+
+代码基线:commit `7631356`(含今天新增的 `isReadOnlyShellCommand` 分号/devnull 修复、
+agent 工具 trust-but-verify、todo_write 全勾提醒),已用 `build-binaries.sh` 重新编译。
+
+dev batch(15 题,`split.json.dev_pool_order[30:45]`):
+train-fasttext, merge-diff-arc-agi-task, polyglot-rust-c, mteb-retrieve, pypi-server,
+fix-code-vulnerability, cancel-async-tasks, modernize-scientific-stack, crack-7z-hash,
+filter-js-from-html, custom-memory-heap-crash, overfull-hbox, qemu-alpine-ssh,
+compile-compcert, vulnerable-secret
+
+### 环境笔记
+- venv 目录(gitignore)不知何时丢失,重新 `python3 -m venv venv && pip install harbor`,
+  装到的是更新版本(0.6.1),任务名过滤参数需要加 `terminal-bench/` 前缀
+  (如 `-i "terminal-bench/train-fasttext"`),不带前缀会报 `No tasks matched`。
+- 启动前清理了上次会话遗留的孤儿容器(1 个仍在跑的 `video-processing`、8 个
+  exited 容器,回收 2GB)。
+
+### train-fasttext:同一个 harbor SIGTERM 问题这次白天也复现了
+第一次(`-i train-fasttext`,不带前缀)因为任务名过滤格式问题直接报错,不算尝试。
+第二次(`-r2`,带前缀)容器正常起来跑了 34 分钟,`harbor` 主进程自己被外部信号杀掉——
+`exception.txt` 里是同样的签名(`harbor/cli/jobs.py:282 _handle_sigterm: raise
+KeyboardInterrupt`),容器本身没被杀、变成孤儿(`docker events` 确认容器无 kill/die,
+只有 harbor host 进程消失)。清理孤儿容器后重跑(`-r3`)。
+第三次干净跑完,自然 `AgentTimeoutError`(1h2m35s,`agent_timeout_sec=3600 × 1x`),
+拿到真实结果 ❌ 0——不是这次基础设施问题导致的假失败。
+
+**结论**:overnight 那次诊断的"harbor 自身进程被外部信号杀,不是 Docker/系统层面问题"
+这个结论,今天白天用户在线时段又复现了一次(不是只在无人值守时段发生),排除了"只在
+凌晨/长时间无交互时才触发"这个假设。具体外部信号源头依然没能定位,继续用"一题一题跑、
+撞上就清孤儿容器重跑"的策略兜底。
+
+**安全笔记**:巡检过程中一次 `ps aux | grep harbor` 意外把 docker-compose exec 命令行里的
+`DEEPSEEK_API_KEY` 明文打进了工具输出(harbor 自己的 `-e KEY=value` 写法导致,README 已经
+记过这个反模式,这次是撞在被动巡检上,不是我们自己脚本写的)。已提醒用户轮换 key,之后
+巡检改用 `docker ps`/`docker events --filter` 精确到容器名,不再用 `ps aux`。
+
+### train-fasttext 结果
+
+| 任务 | 结果 |
+|---|---|
+| train-fasttext | ❌ 0(自然超时 1h2m35s,最好配置 0.6102 vs 要求 0.62,近距离未达标) |
+
