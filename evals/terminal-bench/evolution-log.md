@@ -449,3 +449,22 @@ DeepSeek 直连,千帆缓存问题单独跟进,不卡在这轮评测上。
 
 千帆是否适合继续用于这轮自进化评测循环,留给用户按实际观察到的稳定性/速度决定,不再基于
 错误的"无缓存"结论下判断。
+
+---
+
+## 迭代 4(2026-07-14,DeepSeek 直连)
+
+代码基线:含 L4.5 收尾锚点(`0c861bd`)、千帆 provider 支持(`6b4474d`)、usage 归一化修复
+(`f730364`)的最新 commit。dev batch(15题,`dev_pool_order[45:60]`):query-optimize,
+large-scale-text-editing, tune-mjcf, winning-avg-corewars, gpt2-codegolf,
+model-extraction-relu-logits, polyglot-c-py, build-pmars, make-mips-interpreter,
+path-tracing, sam-cell-seg, git-leak-recovery, torch-pipeline-parallelism,
+schemelike-metacircular-eval, regex-chess。`-n 2` 并发,单批一次性提交。
+
+### 中途巡检(2/15 出结果)
+
+| schemelike-metacircular-eval | ❌ 0(干净失败,非超时) |
+| torch-pipeline-parallelism | ❌ 0(干净失败,非超时) |
+
+无 `exception.txt`,不是 `_handle_sigterm` 外部杀进程、也不是 `AgentTimeoutError`,没有
+需要清理重跑的 infra 事故。剩余 13 题(2 题在跑、11 题排队)继续等待。
