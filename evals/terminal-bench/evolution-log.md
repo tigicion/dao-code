@@ -843,3 +843,16 @@ held_out 抽查(距上次已经过了好几轮,拖欠了)。
 空响应重试、eval/sudo系统性修复共12处)看起来是干净的增量修复,没有在dev题上过拟合。
 
 进入下一轮 LAUNCH(iteration 5)。
+
+---
+
+## Iteration 5 启动(dev_pool_order[60:75])
+
+代码基线 `a5b02d6`(含今天新增的 eval/sudo 系统性修复)。按内存分桶:
+- `iter5-2048`(13题,`-n 4`):path-tracing-reverse, sqlite-db-truncate,
+  llm-inference-batching-scheduler, dna-assembly, feal-differential-cryptanalysis,
+  raman-fitting, extract-moves-from-video, fix-git, git-multibranch, chess-best-move,
+  build-pov-ray, nginx-request-logging, pytorch-model-cli
+- `iter5-8192`(2题,`-n 1`):rstan-to-pystan, torch-tensor-parallelism
+
+千帆 provider,等待结果。
