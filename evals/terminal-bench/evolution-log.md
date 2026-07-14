@@ -980,3 +980,58 @@ path-tracing-reverse, feal-differential-cryptanalysis。
 chess-best-move ❌ 0(自然超时93%预算,真实难度,无异常)。其余4题(extract-moves-from-video,
 feal-differential-cryptanalysis, git-multibranch, path-tracing-reverse)健康在跑,
 fix-git 排队中。这次没有外部杀进程或网络问题,基础设施故障计数维持2/3。
+
+---
+
+## 9小时自主迭代:第3次外部杀进程触发停止条件,中期汇报(2026-07-15 01:50)
+
+启动时间 2026-07-14 23:59:43,当前 2026-07-15 01:50:42,运行约1小时51分钟。
+`_handle_sigterm` 在这个窗口内第3次复现(同时打中 extract-moves-from-video、
+feal-differential-cryptanalysis、path-tracing-reverse 三题),触发"同一类基础设施
+故障连续复现≥3次"的停止条件,按纪律停下不再自动重跑/继续下一批。
+
+### 这1小时51分钟做了什么
+
+1. **Held_out 第3次抽查**(2/2通过):adaptive-rejection-sampler、
+   log-summary-date-ranges,确认此前改动无过拟合迹象。
+2. **系统性修复同类的命令名 `\b` 边界漏洞**(`34e7519`):不止 eval/sudo,还有
+   mkfs/shred/killall(零复合条件,风险最高)+ chmod/chown/chgrp/truncate/find/
+   git/kill/pkill(有复合条件部分兜底但同一漏洞机制)。mkfs 额外发现后缀正则
+   `(\.\w+)?` 本身有问题,收窄成真实文件系统类型列表。
+3. **verify_done 补规则**(`c5a882d`):缺解释器/工具先试装,不能拿"环境没有"
+   当跳过执行的理由。根据 torch-tensor-parallelism(iter5)与
+   torch-pipeline-parallelism(iter4)两个独立任务的同一行为模式(n=2)——模型
+   发现没装Python从不尝试apt-get/pip装,直接放弃执行验证。**如实说明**:纯
+   提示词层面的改动,历史上这类改动经常不可靠触发,不确定效果。
+4. **iteration 5 进展**(15题,12题已有真实结果,3题因故障未完成):
+   - 通过:build-pov-ray, sqlite-db-truncate, pytorch-model-cli, fix-git,
+     git-multibranch(5题)
+   - 真实难度失败:dna-assembly, llm-inference-batching-scheduler, raman-fitting,
+     chess-best-move, rstan-to-pystan(5题,均已体检确认无异常)
+   - 新发现但非bug:nginx-request-logging(安全策略两难,见下)、
+     torch-tensor-parallelism(环境缺口,已尝试修复)
+   - 未完成:extract-moves-from-video, feal-differential-cryptanalysis,
+     path-tracing-reverse(3题,连续3次被外部信号打断,未拿到真实结果)
+
+### 两个重要的开放问题(未解决,需要人工判断)
+
+1. **headless+yolo 场景下 `/etc/` 写操作结构性拦死**——不是bug,是安全策略设计
+   的真实两难(见"重要发现"那条记录)。`nginx-request-logging` 这类需要改系统
+   配置的任务,现在的策略下 headless 场景永远做不了。需要用户决定要不要针对
+   headless+yolo 场景放宽 `WRITE_ONLY_SENSITIVE_TARGET` 的 bypass-immune。
+2. **空响应重试机制"重试一次"有时不够**——rstan-to-pystan 里模型陷入真实的
+   调试死循环("I'm going in circles"),连续两次都返回空响应,今天新加的重试
+   机制没能救回来。目前只有 n=1,机制细节还不清楚(重试是不是应该带一句提示
+   而不是原样重发)。
+
+### 基础设施故障:未解之谜,今晚第N次复现
+
+这次9小时窗口内3次 `_handle_sigterm`(harbor 自身 Python 进程被外部信号杀,不是
+Docker/系统睡眠/网络问题——这些之前都排查过)。具体外部信号源头始终没有定位到,
+超出诊断范围。中途还额外撞上一次 docker 网络地址池耗尽(纯资源堆积,已清理,
+不计入这个故障类别的计数,已把清理步骤补进编排技能)。
+
+### 下一步建议
+
+等用户看过这份汇报再决定:是否要继续跑完 iteration 5 剩余3题、是否要投入时间
+专门查这个未解的外部杀进程问题、以及上面两个开放问题怎么处理。
