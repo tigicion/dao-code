@@ -1,5 +1,6 @@
 import type {
   AssistantMessage,
+  ChatMessage,
   StreamChatOptions,
   StreamDelta,
   ToolCall,
@@ -23,6 +24,25 @@ function cheapHash(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
+}
+
+// L4.5 收尾锚点:本会话是否碰过代码/命令(写文件/改文件/跑 shell)却从没调用过 verify_done。
+// 纯文字提示(工具描述里的话术、todo_write 全勾提醒)有个共同盲区——都得指望模型"恰好用到某个
+// 特定工具"才有机会触发,像 protein-assembly、filter-js-from-html 这类会话里模型全程没用过
+// todo_write,那些提示就完全没被看到。这个检测不依赖任何特定工具是否被用过,直接扫整个会话
+// 历史,在循环真正"要收尾"(纯文本回合、没有更多工具调用)那一刻锚定判断。
+const CODE_TOUCHING_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "exec_shell"]);
+function touchedCodeWithoutVerify(messages: ChatMessage[]): boolean {
+  let touchedCode = false;
+  let calledVerify = false;
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    for (const tc of m.tool_calls ?? []) {
+      if (CODE_TOUCHING_TOOLS.has(tc.function.name)) touchedCode = true;
+      if (tc.function.name === "verify_done") calledVerify = true;
+    }
+  }
+  return touchedCode && !calledVerify;
 }
 
 export interface TurnDeps {
@@ -160,6 +180,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   };
 
   let budgetWarned = false;
+  let verifyReminderShown = false; // L4.5 只提醒一次,防止模型仍不调用时死循环纠缠
   for (let t = 0; t < maxTurns; t++) {
     if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
     // P3-17 预算【可选提醒】:设了 budgetCNY 且累计成本超过它 → 提醒一次(不停);
@@ -203,7 +224,26 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // DeepSeek 会 400「content or tool_calls must be set」直接崩会话。空回合直接结束。
     if (toolCalls.length === 0 && !hasContent) return;
     session.messages.push(assistant);
-    if (toolCalls.length === 0) return; // 纯文本回合(含被打断只剩 content):直接结束
+    if (toolCalls.length === 0) {
+      // L4.5 收尾前锚点:纯文本回合(模型认为已经可以结束了)——但如果本会话碰过代码/命令、
+      // 却从没调用过 verify_done,先提醒一次、给它一轮机会自己决定要不要验证,而不是直接放行。
+      // 只在这一刻检测(不提前),因为提前提醒等于又变回"指望模型记住早先某句话",
+      // 这里是结构性地卡在循环真正要退出的那一点。
+      const hasVerifyDone = tools.some((t) => t.function.name === "verify_done");
+      if (!verifyReminderShown && hasVerifyDone && session.mode !== "plan" && touchedCodeWithoutVerify(session.messages)) {
+        verifyReminderShown = true;
+        session.messages.push({
+          role: "system",
+          content:
+            "[收尾前检查] 本次会话里你调用过写文件/改文件/跑命令这类工具,但从未调用过 verify_done。" +
+            "在正式收尾前:如果这个改动有办法验证,现在就调用 verify_done(或者自己真的把验收路径跑一遍," +
+            "而不是凭读代码/凭记忆判断);如果确实没有可验证的地方,直接说明原因也可以,不必强行调用。",
+        });
+        events.notice("\n[收尾前提醒:未调用 verify_done]\n");
+        continue; // 不 return,消耗一轮预算,让模型对这条提醒做出真实回应
+      }
+      return; // 纯文本回合(含被打断只剩 content):直接结束
+    }
     // 取消发生在记录 assistant(tool_calls) 之后、执行之前(模型已答完、用户随即 ESC):
     // 必须为每个 tool_call 补一条 tool 结果,否则下一轮历史里 assistant(tool_calls) 悬空,
     // DeepSeek 会 400「assistant message with 'tool_calls' must be followed by tool messages」直接崩会话。

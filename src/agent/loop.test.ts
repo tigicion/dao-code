@@ -411,4 +411,74 @@ describe("runTurn", () => {
     const sys = s.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
     expect(sys).not.toContain("[自检·必读]");
   });
+
+  function regWithVerifyDone() {
+    const r = new ToolRegistry();
+    r.register(defineTool({
+      name: "write_file", description: "d", descriptionEn: "d", capability: "write", approval: "auto",
+      schema: z.object({}), handler: async () => "",
+    }));
+    r.register(defineTool({
+      name: "verify_done", description: "d", descriptionEn: "d", capability: "read", approval: "auto",
+      schema: z.object({}), handler: async () => "",
+    }));
+    return r;
+  }
+
+  it("L4.5:碰过代码却从没调用 verify_done → 收尾前注入提醒,不立即结束、再给一轮", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("go");
+    const writeCall: AssistantMessage = {
+      role: "assistant", content: null,
+      tool_calls: [{ id: "c0", type: "function", function: { name: "write_file", arguments: "{}" } }],
+    };
+    const calls = scripted([
+      turn([], writeCall), // 第0轮:写文件
+      turn([{ kind: "content", text: "完成了" }], { role: "assistant", content: "完成了" }), // 第1轮:以为可以收尾了
+      turn([{ kind: "content", text: "好的,我验证过了" }], { role: "assistant", content: "好的,我验证过了" }), // 第2轮:回应提醒后真正收尾
+    ]);
+    let turnsRun = 0;
+    await runTurn({
+      session: s, config, registry: regWithVerifyDone(), ctx, gate: stubGate,
+      streamChat: (() => { turnsRun++; return calls(); }) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "OK" }],
+      write: () => {},
+      maxTurns: 10,
+    });
+    expect(turnsRun).toBe(3); // 第1轮的"完成了"没有直接结束循环,消耗了一轮预算追问
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    expect(sys).toContain("[收尾前检查]");
+    expect(sys).toContain("verify_done");
+  });
+
+  it("L4.5:调用过 verify_done → 不注入收尾前提醒,正常一轮收尾", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("go");
+    const writeCall: AssistantMessage = {
+      role: "assistant", content: null,
+      tool_calls: [{ id: "c0", type: "function", function: { name: "write_file", arguments: "{}" } }],
+    };
+    const verifyCall: AssistantMessage = {
+      role: "assistant", content: null,
+      tool_calls: [{ id: "c1", type: "function", function: { name: "verify_done", arguments: "{}" } }],
+    };
+    const calls = scripted([
+      turn([], writeCall),
+      turn([], verifyCall),
+      turn([{ kind: "content", text: "完成了,已验证" }], { role: "assistant", content: "完成了,已验证" }),
+    ]);
+    let round = 0;
+    await runTurn({
+      session: s, config, registry: regWithVerifyDone(), ctx, gate: stubGate,
+      streamChat: (() => calls()) as any,
+      executeToolCalls: async () => {
+        round++;
+        return [{ role: "tool", tool_call_id: round === 1 ? "c0" : "c1", content: "OK" }];
+      },
+      write: () => {},
+      maxTurns: 10,
+    });
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    expect(sys).not.toContain("[收尾前检查]");
+  });
 });
