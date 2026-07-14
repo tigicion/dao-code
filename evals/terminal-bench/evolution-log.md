@@ -468,3 +468,25 @@ schemelike-metacircular-eval, regex-chess。`-n 2` 并发,单批一次性提交�
 
 无 `exception.txt`,不是 `_handle_sigterm` 外部杀进程、也不是 `AgentTimeoutError`,没有
 需要清理重跑的 infra 事故。剩余 13 题(2 题在跑、11 题排队)继续等待。
+
+---
+
+## iteration 4 切换 provider 的分界点(用户明确要求:未启动的题目改用千帆)
+
+在 `path-tracing` 容器出现的那一刻(harbor 从队列抓了第 5 题,`model-extraction-relu-logits`
+刚跑完释放槽位)立刻用 `TaskStop` 停掉了 `iter4-batch` 这个 job(id `b67x528xf`),防止继续
+用 DeepSeek 抓更多题。停止时刻的完整状态:
+
+**DeepSeek 直连,已拿到真实完整结果(保留,不重跑)**:
+| schemelike-metacircular-eval | ❌ 0 |
+| torch-pipeline-parallelism | ❌ 0 |
+| model-extraction-relu-logits | ✅ 1 |
+
+**被中断、没有真实结果(算作未跑,归入下一批重新提交)**:
+- `regex-chess`:跑了约 27 分钟(3600s 预算,进度可观但被打断,没拿到 reward)
+- `path-tracing`:刚起约 1 分钟就被打断,基本等于没跑
+
+孤儿容器已清理。剩余 12 题(`dev_pool_order[45:60]` 里除掉上面 3 个已出真实结果的)
+改用千帆重新提交:query-optimize, large-scale-text-editing, tune-mjcf,
+winning-avg-corewars, gpt2-codegolf, polyglot-c-py, build-pmars, make-mips-interpreter,
+path-tracing, sam-cell-seg, git-leak-recovery, regex-chess。
