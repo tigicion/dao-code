@@ -536,3 +536,16 @@ regex-chess。
 (`iter4-qianfan-2048`),`sam-cell-seg`(4096MB)单独用 `-n 2` 起(`iter4-qianfan-4096`)。
 `gpt2-codegolf`/`path-tracing`(旧二进制拿到的真实结果,pass/fail不受usage bug影响)
 继续保留计入 iteration 4 最终统计。
+
+### 分桶批次巡检:2048MB桶5/9出结果,-n4确认真实生效
+
+`docker ps` 确认同时5个容器在跑(4个2048MB桶+1个4096MB桶),`-n 4` 真实生效。
+
+| build-pmars | ✅ 1 |
+| git-leak-recovery | ✅ 1 |
+| large-scale-text-editing | ❌ 0 |
+| polyglot-c-py | ✅ 1 |
+| query-optimize | ✅ 1 |
+
+无 `exception.txt`,无需清理重跑。剩余 `make-mips-interpreter`/`regex-chess`/`tune-mjcf`/
+`winning-avg-corewars`(2048MB桶)+ `sam-cell-seg`(4096MB桶)继续跑。
