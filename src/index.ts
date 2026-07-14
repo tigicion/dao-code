@@ -236,12 +236,12 @@ async function main() {
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
   const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task") || rawArgs.includes("--coordinator"); // --task/--coordinator 为旧别名,均进长任务自主模式(已并入)
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
-  // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|...>
+  // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
   const cliApiKey = apiKeyIdx >= 0 ? rawArgs[apiKeyIdx + 1] : undefined;
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
-  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
+  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
   const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--obs"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
