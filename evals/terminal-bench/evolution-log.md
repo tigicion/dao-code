@@ -947,3 +947,20 @@ feal-differential-cryptanalysis, path-tracing-reverse, fix-git, git-multibranch�
 
 两题都是自然超时(89%/93%预算用满),ask-denied 0%,无权限或框架层面异常,真实
 任务难度,不追加改动。
+
+---
+
+## 修正:5题失败其实是docker网络耗尽,不是外部杀进程
+
+`iter5-2048-r2` 5题(chess-best-move, extract-moves-from-video, fix-git,
+git-multibranch, path-tracing-reverse)全部失败,exception签名既不是
+`_handle_sigterm` 也不是 `AgentTimeoutError`——查了实际内容是
+`RuntimeError: Docker compose command failed...all predefined address pools
+have been fully subnetted`,纯粹是长时间连续跑很多批次堆积了28个陈旧 docker
+网络耗尽地址池,不是外部杀进程也不是DAO/评测的bug。`docker network prune -f`
+清理后重跑(`iter5-2048-r3`),已把这条处理方式补进 `terminal-bench-iterate`
+技能的LAUNCH阶段(启动前顺手清网络)和WAIT阶段(识别这个特征签名不要误判)。
+
+**这次不计入"同一类基础设施故障连续复现"的计数**——是纯资源维护问题,清一次后
+预期不会再犯,跟未解之谜的外部杀进程信号是不同性质。`feal-differential-
+cryptanalysis` 在网络耗尽前已经成功起了容器,继续正常跑,没受影响。
