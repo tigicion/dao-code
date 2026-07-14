@@ -256,3 +256,21 @@ qemu-alpine-ssh, compile-compcert, vulnerable-secret
 `-n 3` 时如果这题跟另外两题同时跑很容易顶到内存上限,引入 OOM 这个新的不确定性源,
 保守选 2。已知风险:并发意味着一旦再撞上 harbor 自身被外部信号杀的问题,一次丢的是
 两题而不是一题(参考 iteration 2 那次两个容器同时被杀掉的先例)。
+
+### 并发批次(-n 2)进展核实
+
+第一次巡检看到多个容器 `signal 15→9` 的 kill/die 事件一度以为又撞上之前那个外部杀进程的
+bug,逐题核对 `reward.txt`/`exception.txt` 后发现是虚惊——这批的 kill/die 都发生在
+**已经写出 reward.txt 之后**,是 harbor 收尾时正常 `docker stop` 容器的动作,不是外部信号
+打断(之前那个真 bug 的标志是有 `exception.txt`、带 `_handle_sigterm` 签名,且没有
+reward.txt)。这批到目前为止没有一例出现 `exception.txt`。
+
+| pypi-server | ✅ 1 |
+| filter-js-from-html | ❌ 0(干净的真实失败,非 infra 问题) |
+| vulnerable-secret | ✅ 1 |
+| qemu-alpine-ssh | ❌ 0(干净的真实失败,非 infra 问题) |
+| overfull-hbox | ✅ 1 |
+
+`compile-compcert`(长任务,2400s 预算)仍在跑,`cancel-async-tasks` 排队中,剩余
+`fix-code-vulnerability`/`modernize-scientific-stack`/`crack-7z-hash`/
+`custom-memory-heap-crash` 待 `-n 2` 空出槽位后依次跑。
