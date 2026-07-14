@@ -693,3 +693,34 @@ return;`——模型返回空 content 且无工具调用时,直接静默结束�
 这个机制解决的是"根本没验证"这个问题,但解决不了"验证得不够全"这个更难的问题。
 这条不在本轮追加改动,留给后续观察是否继续复现、以及有没有低风险的可行修法
 (比如提示词里强调"优先跑仓库自带的官方测试脚本,而不是自己现造几个例子")。
+
+---
+
+## 深挖成果:eval/sudo 假阳性 bug 不止影响1题,tune-mjcf 大概率也是同一个根因
+
+用户要求"不能停在标签,要挖到底、其他题也这样查"——系统检查剩余任务的 `perm-trace.jsonl`
+ask-denied 比例,发现 `tune-mjcf` 有 **8/25(32%)** 被拒,比 schemelike-metacircular-eval
+那次还高。查证实锤:`tune-mjcf` 的任务是把 MuJoCo 模型调参调到官方性能评测脚本 `eval.py`
+测出 ≤60% 原始耗时,而 **`eval.py` 这个文件名同样撞上了刚才修的那个假阳性**——原始日志
+里"the user rejected"/"user keeps rejecting"反复出现十几次,模型在**没法真实运行官方
+评测脚本测量自己调参效果**的情况下被迫盲目推理,这很可能就是它最终卡在 0.692(离 0.6
+目标一步之遥)的真正原因,不是单纯的任务难度。
+
+`isDangerousCommand("python eval.py")` 用修复后的正则重新验证,已返回 `null`(不再误判)。
+
+**重新修正 iteration 4 的完整归因**:
+- DAO框架bug(权限误拦,已修 `31bf590`):**2题**(schemelike-metacircular-eval 确认、
+  tune-mjcf 高度怀疑是主因)
+- DAO框架bug(空响应静默丢弃,已修 `c80a3c7`):2题(large-scale-text-editing、
+  winning-avg-corewars)
+- 环境工具缺口:1题(torch-pipeline-parallelism,容器没装Python)
+- 真实任务难度(权限裁决无异常,超时前正常推进到预算耗尽):3题
+  (gpt2-codegolf、path-tracing、regex-chess;make-mips-interpreter 有1次
+  ask-denied,占比很低,不足以解释超时,仍算难度)
+
+**9题里至少4题、可能5题(超一半)不是纯粹的模型能力问题,是可以定位、可以修的
+DAO框架缺陷**——这跟最初"5题各自领域真实难度,不牵强立案"的结论差距很大,说明
+之前"只看收尾几十行、贴标签"的分析方式确实不够,深挖才挖出真问题。
+
+下一步:用带两处修复的二进制复测 schemelike-metacircular-eval 和 tune-mjcf,拿真实
+结果验证这个诊断对不对,不能只停在"我认为这样"。
