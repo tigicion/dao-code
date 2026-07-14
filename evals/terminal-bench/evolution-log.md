@@ -490,3 +490,9 @@ schemelike-metacircular-eval, regex-chess。`-n 2` 并发,单批一次性提交�
 改用千帆重新提交:query-optimize, large-scale-text-editing, tune-mjcf,
 winning-avg-corewars, gpt2-codegolf, polyglot-c-py, build-pmars, make-mips-interpreter,
 path-tracing, sam-cell-seg, git-leak-recovery, regex-chess。
+
+### iter4-qianfan 中途巡检
+
+命令行确认带 `--provider qianfan`(job.log 核实),真实在用千帆。目前 `path-tracing`
+(30min预算,21min进行中)、`regex-chess`(60min预算,21min进行中)在跑,均无结果、无
+`exception.txt`,无 infra 事故。继续等待。
