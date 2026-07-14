@@ -244,3 +244,15 @@ KeyboardInterrupt`),容器本身没被杀、变成孤儿(`docker events` 确认�
 
 | merge-diff-arc-agi-task | ✅ 1(6m28s,干净跑完) |
 | polyglot-rust-c | ✅ 1(7m57s,干净跑完) |
+| mteb-retrieve | ✅ 1(8m52s,干净跑完) |
+
+### 从这里开始改成并发(用户要求"太慢了"):剩余 11 题一次性提交,`-n 2`
+
+pypi-server, fix-code-vulnerability, cancel-async-tasks, modernize-scientific-stack,
+crack-7z-hash, filter-js-from-html, custom-memory-heap-crash, overfull-hbox,
+qemu-alpine-ssh, compile-compcert, vulnerable-secret
+
+选 `-n 2` 不是 `-n 3`:`filter-js-from-html` 单题要 8192MB,Docker VM 总预算约 12.5GB,
+`-n 3` 时如果这题跟另外两题同时跑很容易顶到内存上限,引入 OOM 这个新的不确定性源,
+保守选 2。已知风险:并发意味着一旦再撞上 harbor 自身被外部信号杀的问题,一次丢的是
+两题而不是一题(参考 iteration 2 那次两个容器同时被杀掉的先例)。
