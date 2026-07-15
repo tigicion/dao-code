@@ -2138,3 +2138,16 @@ DaoAgent` 两个必需参数（batch_by_memory.py 脚本输出本就只打印 `-
 
 当前5败2胜，失败题较多，DEBUG阶段需要认真核实是否有共性根因（不能因为"这批题目
 本身杂"就轻描淡写）。continue WAIT。
+
+## Iteration 12 WAIT 阶段中间进度（14/15出结果，异常高败率，需重点核实共性根因）
+
+- ✅ reward=1（4题）：constraints-scheduling, headless-terminal, hf-model-inference, regex-log
+- ❌ reward=0（5题）：build-cython-ext, count-dataset-tokens, gcode-to-text,
+  video-processing, dna-insert
+- ❌ AgentTimeoutError自然超时（5题）：cobol-modernization, db-wal-recovery,
+  largest-eigenval, password-recovery, qemu-startup
+- 仅剩 fix-ocaml-gc 运行中（已跑51min/预算60min，接近收尾）
+
+**4胜10败，败率远高于iteration 11（10/15胜）**。5题自然超时集中在同一批出现，
+需要在DEBUG阶段认真排查是否有共性根因（比如同一provider这个时段响应变慢/不稳定、
+某个基础设施变量而非各题独立难度），不能因为"任务本身杂"就分别贴标签走过场。
