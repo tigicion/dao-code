@@ -2014,3 +2014,25 @@ information`均因此失败)。工具调用35次、跨度154s/预算900s(17%)，
 
 **chess-best-move / write-compressor / feal-linear-cryptanalysis**：三题深挖子代理已
 并行派出，结果待回填。
+
+## chess-best-move 深挖结果：反复推理反模式确认样本第21例
+
+首次拿到**非外部信号打断**的真实结果（此前该题一直被外部kill污染，本轮终于是自然
+AgentTimeoutError）。判断：**主要是反复推理反模式，非纯任务难度**。
+
+量化证据：15次工具调用/907s(占预算101%)，全部是exec_shell跑Python读像素、单次仅
+100-500ms执行，>99%时间在纯文字生成。工具调用间隔逐次拉大（call9→10: 62.9s，
+10→11: 137.2s，12→13: 166.3s，**14→15: 284s对应1433行纯文字、零工具调用**）。全文
+"Wait,"79次、"reconsider"46次、"re-examine/re-read/redo"44次、"orientation"33次、
+"perspective"96次，核心话题反复重推同一事实（棋盘方向/哪边是白方），多处模型自己说
+"I keep going in circles"。harness无进度检测器在5轮/10轮/15轮三次提醒，**每次提醒后
+模型仍原地重启同一套"先确定棋盘方向"推导**。
+
+反例证据（排除纯难度归因）：模型7次口头说"let me install/try python-chess or
+stockfish"，但只在call10真正pip install了一次，此后从未把已推导出的坐标系/FEN写入
+文件复用，每次从原始像素重新猜——本可一次write_file固化坐标系映射即可避免的重复。
+最终无verify_done调用、无答案产出。
+
+任务本身（棋子形状识别）确有真实难度，但吃掉预算的主因是"坐标系方向"这一单点事实被
+重复重推15+次、已装好的工具链被反复口头承诺却不落地。**反复推理反模式确认样本累计
+第21例**（含install-windows-3.11的第20例）。
