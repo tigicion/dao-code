@@ -1904,3 +1904,25 @@ lock"——但检查实际发起的工具调用,**紧接着那条命令是 `dpkg
 (参见feal-differential-cryptanalysis"3次说这就写攻击代码却零次兑现"、
 compile-compcert"opam install只在文字里提过从未真试")。这不是这处代码修复需要
 改的问题,是行为引导类问题的又一个表现,不追加代码改动。
+
+## rstan-to-pystan 重跑:通过,确认OOM是偶发峰值
+
+reward=1。上次exit 137(OOM)是偶发内存峰值,不是这道题系统性超出8192MB内存桶分配——
+不需要调整`task_meta.json`的内存配置,按现有分桶继续即可。
+
+## Iteration 10 完整归因(15题:6过原批 + rstan重跑1过,不含OOM原始记录)
+
+## 本轮 EVOLVE 周期 commit 复测状态清单
+
+本轮(iteration 9+10 DEBUG)无新增代码commit,清单为空,天然满足硬性门槛。
+
+**torch-pipeline-parallelism 的"verify_done提示位置设计缺陷"暂不动手修**:已明确诊断
+(提示只在模型真的调用verify_done时才可见,但恰恰是"提前放弃、没走到这一步"的场景
+提示永远看不到),但修复方案(挪到系统提示词层面,还是挂到exec_shell检测到command
+not found时,还是两处都加)需要更审慎的设计——牵涉改动范围更大的系统提示词层,风险
+层级高于本轮已修的几处工具描述级改动,不适合在批次收尾时仓促决定。记为下一轮候选,
+不是"样本量不够"的搪塞,是"这处改动本身影响面更大、需要专门设计"的具体理由(区别于
+之前被纠正的"样本量不够"这种无效理由)。
+
+进入 NEXT 阶段:距上次 held_out 抽查(第5次)已过 iteration 9、10 两批,够门槛,做一次
+抽查再进 iteration 11。
