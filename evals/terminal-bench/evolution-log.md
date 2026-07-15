@@ -2479,3 +2479,26 @@ reward=0，verifier断言融合蛋白顺序必须是flag-donor-dhfr-acceptor-sna
 iteration 13的胜负统计**，标记为需要重跑的无效数据点（非DAO框架bug，非模型能力
 问题，是provider侧瞬时限流，此前已有1次先例，本次是第2次，暂未到skill定义的
 "≥3次同类基础设施故障"停止阈值，但已经是需要持续关注的次数）。
+
+## caffe-cifar-10 / circuit-fibsqrt 深挖结果：真实任务难度主导（非反复推理反模式）
+
+**caffe-cifar-10**（93次调用/3543s/98%预算，AgentTimeoutError）：call类型分布
+exec_shell 56、read_file 10、todo_write 6、edit_file 5、write_file 1，是真实的
+迭代训练工作（caffe CNN训练+调参），非纯文字空转。80轮LLM调用里completion token
+数全部在50-2176区间（无单一超大回合信号，排除"单超大回合"变体）。tail显示模型
+正在合理地逼近目标——test准确率53.75%（要求≥45%✓），但train-test差距5.89%略超
+5%阈值，正在尝试调整weight_decay重新训练，直到超时前仍在做有意义的调参。**判断为
+真实任务难度**（CNN训练本身需要真实wall-clock时间+环境搭建开销，3600s预算偏紧），
+非反模式。注：调用间存在几个600s左右的大间隔（call#33→34、#42→43、#47→48），
+逐一核对对应turn的completion token数并不大，成因未能完全查清（可能是provider
+响应延迟而非模型文字空转），如实标注为未完全解释的次要疑点，不足以推翻"真实
+难度"的整体判断。
+
+**circuit-fibsqrt**（45次调用/3567s/99%预算，AgentTimeoutError）：write_file 10次、
+edit_file 5次，是活跃的Verilog电路设计迭代（Fibonacci平方根电路的进位逻辑调试）。
+tail显示模型在系统性逐位追踪carry传播逻辑（step 31/32的sub_actual/epoch_carry
+关系），是真实的数字电路调试内容，非无意义重复。**判断为真实任务难度**，非反模式
+——数字电路时序逻辑debug本身就需要这种逐位系统性验证过程。
+
+两题均不计入反复推理反模式确认样本（累计仍为28例，本轮merge-diff-arc-agi-task
+不算入——归为基础设施问题；polyglot-rust-c证据不足未计入）。
