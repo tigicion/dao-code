@@ -2124,3 +2124,17 @@ DaoAgent` 两个必需参数（batch_by_memory.py 脚本输出本就只打印 `-
 - `iter12-4096`(2题,`-n 2`):dna-insert, qemu-startup
 
 千帆provider，容器确认正常起来(dna-insert/regex-log已见Up)。
+
+## Iteration 12 WAIT 阶段中间进度（7/15出结果，4题运行中，4题排队待启动）
+
+- ✅ reward=1（2题）：hf-model-inference, regex-log
+- ❌ reward=0（3题）：build-cython-ext, gcode-to-text, dna-insert
+- ❌ AgentTimeoutError自然超时（2题）：cobol-modernization, qemu-startup
+- 运行中（4题，均未超预算）：db-wal-recovery(10min/900s预算)、
+  password-recovery(14min/900s预算，接近用完)、video-processing(18min/3600s预算)、
+  fix-ocaml-gc(25min/3600s预算)
+- 排队待启动（4题，等-n4桶腾出槽位）：headless-terminal, largest-eigenval,
+  constraints-scheduling, count-dataset-tokens
+
+当前5败2胜，失败题较多，DEBUG阶段需要认真核实是否有共性根因（不能因为"这批题目
+本身杂"就轻描淡写）。continue WAIT。
