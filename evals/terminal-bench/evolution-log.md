@@ -2036,3 +2036,24 @@ stockfish"，但只在call10真正pip install了一次，此后从未把已推�
 任务本身（棋子形状识别）确有真实难度，但吃掉预算的主因是"坐标系方向"这一单点事实被
 重复重推15+次、已装好的工具链被反复口头承诺却不落地。**反复推理反模式确认样本累计
 第21例**（含install-windows-3.11的第20例）。
+
+## feal-linear-cryptanalysis 深挖结果：意图-行动脱节确认样本（与torch-tensor-parallelism同族）
+
+判断：**两者兼有，但"意图-行动脱节"是可避免的主导放大因素**。密码学本身有真实难度、
+推导内容非逐字重复，但全程0次成功代码执行，不解释预算耗尽的主因。
+
+量化证据：7089行/1543s（占预算86%）内仅7次完成的工具调用，全部集中在4个时间点
+（t=0批量read_file、t=750.1s list_dir、t=1063.5s skill:debug、t=1543.3s todo_write
+时任务仍标in_progress）。最后一段纯文字推理从行6519延续到7088（569行、至少257s无
+任何工具调用），直到超时前才发起exec_shell（行7088）但未完成、未记入tool-trace.jsonl。
+
+**"let me just write/let me code this up"类表述出现127次**，全程仅2次真正尝试写/跑
+代码：write_file（行1844）紧接"主模型异常回退deepseek-v4-flash"后中断，模型未重试
+写入而是从头重新推导密码结构；exec_shell（行7088）被超时切断。**全程成功完成的
+写入/执行=0次**。另有18处在文字里画出完整代码块草稿却从未落盘。行4838"Let me write
+the code now."后紧跟的实际动作是调用skill(debug)而非写代码，是意图-行动脱节的直接
+证据。"going in circles/overcomplicating"式自我诊断出现21次，每次后都是同款"let me
+just write X"口号重启，却从未真正执行验证。
+
+归类：**意图-行动脱节确认样本**（与此前torch-tensor-parallelism的dpkg-recovery案例
+同族——说了要做X，下一步却继续推导或做了别的事Y，从未真正落实X）。
