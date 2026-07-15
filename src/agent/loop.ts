@@ -108,6 +108,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const ADVISE_EVERY = Number(process.env.DAO_ADVISE_EVERY) || 5;
   const PROGRESS_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "todo_write"]);
   let noProgress = 0;
+  // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
+  // 动机:蒸馏过 4 道 terminal-bench 超时题(dna-assembly/llm-inference-batching-scheduler/
+  // raman-fitting/rstan-to-pystan)后发现同一个反模式——遇到不确定的点(某个坐标/公式/参数)
+  // 反复用文字重新推导,而不是写一段脚本/跑一条命令直接算出确定答案。首次提醒用通用措辞就够;
+  // 但如果同一次卡住反复触发(提醒过还是没推进),说明通用措辞没起作用,该换成更具体地
+  // 点破"停止文字循环、换成能拿到确定结果的动作"这条,而不是一直重复同一句没用的话。
+  let stuckAdviceCount = 0;
   // 反思层:确定性回合监控状态(跨本 runTurn 的各模型回合累积)。
   let health = initHealth();
   const healthCfg = defaultHealthConfig();
@@ -318,12 +325,19 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // L4.2/L4.3 进度评估:本轮有无"实质推进"(写文件/改文件/推进任务清单)。
     // 连续空转或临近上限 → 下一轮注入一次性 advisor 提醒,促其回看目标/收尾/求助,防长程漂移与空耗。
     const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name));
-    noProgress = progressed ? 0 : noProgress + 1;
+    if (progressed) { noProgress = 0; stuckAdviceCount = 0; } else { noProgress++; }
     // 提醒【追加】进对话(append-only,缓存安全),而非每轮拼到请求尾部又撤(那会反复废缓存)。
     const advisories: string[] = [];
     if (noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
-      advisories.push(`[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。回看 todo 确认方向;若已完成请调用 verify_done 收尾;若卡住请换思路或用 ask_user 向用户求助,不要空转。`);
-      events.notice(`\n[进度提醒:已连续 ${noProgress} 轮无实质推进]\n`);
+      stuckAdviceCount++;
+      // 首次:通用措辞(回看目标/收尾/求助)。第2次起同一次卡住还没缓解 → 说明通用措辞没用,
+      // 换成直接点破"別再文字循环、换成能拿到确定结果的动作"这条更具体的建议。
+      advisories.push(
+        stuckAdviceCount === 1
+          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。回看 todo 确认方向;若已完成请调用 verify_done 收尾;若卡住请换思路或用 ask_user 向用户求助,不要空转。`
+          : `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题。如果确实卡住了,用 ask_user 求助或如实汇报现状。`,
+      );
+      events.notice(`\n[进度提醒${stuckAdviceCount > 1 ? `·第${stuckAdviceCount}次` : ""}:已连续 ${noProgress} 轮无实质推进]\n`);
     }
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
       advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`);

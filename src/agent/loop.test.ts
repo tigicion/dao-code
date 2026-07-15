@@ -203,6 +203,59 @@ describe("runTurn", () => {
     expect(written.join("")).toContain("进度提醒");
   });
 
+  it("同一次卡住连续两次触发进度提醒 → 第2次换成更具体的'停止文字循环、换可验证动作'措辞", async () => {
+    // 根因(蒸馏4道 terminal-bench 超时题后发现的反模式):遇到不确定的点反复用文字重新
+    // 推导,通用措辞"回看todo/不要空转"提醒过一次仍不奏效——同一次卡住第2次触发时,
+    // 不该原样重复同一句没用的话,要换成直接点破"写脚本/跑命令拿确定答案"这条。
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    // 连续 10 个非推进回合:第5轮触发第1次提醒(通用措辞),第10轮触发第2次(应升级措辞)。
+    const turns = [
+      ...Array.from({ length: 10 }, () => readTurn),
+      () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
+    ];
+    let i = 0;
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
+      write: (t) => written.push(t),
+      maxTurns: 15,
+    });
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
+    expect(sys.some((c) => c.includes("[进度提醒]") && !c.includes("第2次"))).toBe(true); // 第1次:通用措辞
+    expect(sys.some((c) => c.includes("[进度提醒·第2次]") && c.includes("换成一个能给出确切答案的动作"))).toBe(true); // 第2次:升级措辞
+    expect(written.join("")).toContain("进度提醒·第2次");
+  });
+
+  it("卡住期间中途真的推进过一次 → 计数清零,后续再卡住重新从通用措辞开始", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write_file", arguments: "{}" } }] })();
+    // 5轮空转(触发第1次提醒)→ 1轮真实推进(清零)→ 再5轮空转(应该又是"第1次",不是"第2次")。
+    const turns = [
+      ...Array.from({ length: 5 }, () => readTurn),
+      writeTurn,
+      ...Array.from({ length: 5 }, () => readTurn),
+      () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
+    ];
+    let i = 0;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async (calls) => calls.map((c) => ({ role: "tool" as const, tool_call_id: c.id, content: "R" })),
+      write: () => {},
+      maxTurns: 15,
+    });
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
+    // 两次触发都应该是"第1次"(通用措辞),因为中途的 write_file 把 stuckAdviceCount 清零了。
+    expect(sys.filter((c) => c.includes("[进度提醒]") && !c.includes("第")).length).toBe(2);
+    expect(sys.some((c) => c.includes("第2次"))).toBe(false);
+  });
+
   it("轮数提醒(接近 maxTurns)触发时同步 events.notice", async () => {
     // 同一处代码块里的另一条 advisory,同一个盲区——一并补上可见提示。
     const s = new Session("SYS", "m");
