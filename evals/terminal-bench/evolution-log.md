@@ -1653,3 +1653,17 @@ mailman3/postfix 这类后台服务继承的 stdout/stderr 管道被释放。59�
 | `3c5d14d` | exec_shell 以 exit 判定完成(防孙进程占管道) | ✅ 已用 mailman 复测确认(reward 0→1,postfix start 从永久卡死变成27秒完成) |
 
 全部commit都有明确的复测状态,没有遗留"尚未复测"的项。可以进入 NEXT 阶段判断。
+
+---
+
+## Iteration 8 启动(dev_pool_order[26:41])
+
+代码基线 `3c5d14d`(含本轮全部5处修复,均已真实复测确认)。二进制已确认对齐。
+docker network prune 已执行。按内存分桶:
+- `iter8-2048`(10题,`-n 4`):bn-fit-modify, multi-source-data-merger, circuit-fibsqrt,
+  polyglot-rust-c, mteb-retrieve, pypi-server, fix-code-vulnerability, cancel-async-tasks,
+  modernize-scientific-stack, custom-memory-heap-crash
+- `iter8-4096`(3题,`-n 2`):train-fasttext, merge-diff-arc-agi-task, crack-7z-hash
+- `iter8-8192`(2题,`-n 1`):caffe-cifar-10, filter-js-from-html
+
+千帆 provider,容器已确认正常起来,等待结果。
