@@ -2502,3 +2502,52 @@ tail显示模型在系统性逐位追踪carry传播逻辑（step 31/32的sub_act
 
 两题均不计入反复推理反模式确认样本（累计仍为28例，本轮merge-diff-arc-agi-task
 不算入——归为基础设施问题；polyglot-rust-c证据不足未计入）。
+
+## EVOLVE：merge-diff-arc-agi-task 的 dpkg 自动恢复加固（commit 5164e3b）
+
+**预测先行**：根因是commit 7e1ebfe的自动恢复正确触发但`dpkg --configure -a`首次
+尝试本身失败（第3次独立复现"apt-get超时损坏dpkg"机制里首次出现"恢复本身也失败"）。
+假设（未完全证实）：被杀的包管理器进程可能还没释放dpkg锁，恢复命令撞了个空。
+
+**改法**：`src/tools/exec_shell.ts`第170-177行，首次恢复失败后等2秒重试一次
+（`dpkg --configure -a`本身幂等安全，重试无副作用），并把失败时恢复命令自己的
+stderr带进输出（此前只说"仍失败"，现在给模型和未来诊断更多信息）。范围窄（固定
+重试1次，不是无限重试），风险可控。
+
+**TDD**：新增测试"dpkg --configure -a首次恢复尝试失败→重试一次，重试成功则不报
+'自动恢复失败'"——造假dpkg用计数文件模拟"第1次失败(dpkg锁)/第2次成功"，断言最终
+输出是"[自动恢复]"而非"[自动恢复失败]"。全量`npx vitest run`(1152测试)+
+`npm run typecheck`均通过，无回归。
+
+**诚实标注**：锁竞争假设未被直接证实（没有捕获到首次失败时dpkg具体报错信息来
+对照，这是新增stderr捕获想解决的问题——下次真实撞见时可以用这个信息验证假设是否
+成立）。已重编（commit 5164e3b）并对merge-diff-arc-agi-task发起独立复测
+（job-name: evolve-dpkg-retry-verify），但复测能否命中同一条件（模型是否会再次
+选择运行会超时的apt-get命令）本身有不确定性，不是必然复现路径，结果待回填。
+
+## train-fasttext 重跑（不计入iter13批次统计）
+
+已发起独立重跑（job-name: iter13-fasttext-rerun），排除千帆429限流崩溃的干扰，
+结果作为独立数据点记录，待回填。
+
+## Iteration 13 最终收尾
+
+**统计口径（train-fasttext因429限流不计入）：14题有效样本，9胜5败(64.3%)**：
+- ✅ reward=1（9题）：bn-fit-modify, cancel-async-tasks, fix-code-vulnerability,
+  mteb-retrieve, multi-source-data-merger, pypi-server, reshard-c4-data,
+  sqlite-with-gcov, financial-document-processor
+- ❌ reward=0（5题）：merge-diff-arc-agi-task(apt-get超时损坏dpkg第3次复现+自动
+  恢复失败，已EVOLVE)、polyglot-rust-c(疑似反模式证据不足未计入)、
+  protein-assembly(模型顺序错误真实精度差距)、caffe-cifar-10/circuit-fibsqrt
+  (均真实任务难度，非反模式)
+- 无效（1题，重跑中）：train-fasttext(千帆429限流崩溃)
+
+**反复推理反模式族本轮无新增确认样本**（累计仍28例）——本轮首次出现"深挖后判定
+非反模式"占多数的批次（5个失败里只有1个疑似、0个确认新增），是"无surface label
+纪律不等于逢败必贴反模式标签"的又一次验证（呼应本session更早对overfull-hbox等
+真实难度题的判断）。
+
+**本轮EVOLVE：1个代码改动**（dpkg自动恢复重试加固，commit 5164e3b），已走完
+预测先行→TDD→commit→重编流程，真实复测已发起待回填。
+
+进入NEXT：距上次held_out抽查（第7次）为0批，回LAUNCH取iteration 14下一批15题。
