@@ -1538,3 +1538,10 @@ DAO 代码、任务难度都无关——本轮多批次长时间连续跑,大概
   所有用到子代理的会话的正确性问题,不是单纯的效率浪费。
 
 **需要重跑(不算真实结果)**:`financial-document-processor`(verifier 自身网络超时,不是模型问题)。
+
+## financial-document-processor 重跑结果:真实失败(自然超时),不是又一次infra问题
+
+重跑(job iter7-fin-rerun)这次拿到了真实结果:`AgentTimeoutError`,1200s 预算耗尽,
+verifier 显示 `/app/documents/` 目录还有17个文件没被移走、summary.csv 也没生成——
+跟第一次(网络超时导致 verifier 自己没跑起来,模型那边其实已经给出完整汇总)不是
+同一种情况,这次是模型自己没在预算内完成文件搬移这一步。计入本批真实失败结果。
