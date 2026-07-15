@@ -16,8 +16,10 @@
   的真实设计缺口(收到任意字节就重置,不管有没有真实delta),已修复(`1acc4b5`)。
   **但"这是不是 mailman 那次的确切根因"仍是未100%证实的假设**(无 state.json 可 replay)——
   下次撞见同类静默超时,应确认新看门狗有没有正确触发来验证这个假设。
-- [ ] **`db-wal-recovery`/`gcode-to-text` 疑似"反复推理反模式"**(iteration 7):已派子代理
-  精读量化确认中,结果待回填。
+- [x] **`db-wal-recovery`/`gcode-to-text` 疑似"反复推理反模式"**(iteration 7)——2026-07-15
+  补查:两题均派子代理精读量化确认,证据强度达标(具体可计数、跟已确认样本同型),已确认
+  为反模式第6、7个样本,详见下方正文。db-wal-recovery 还额外发现一个复合因素(探索性
+  sqlite3 查询意外触发 checkpoint、不可逆清掉了原始 WAL 证据),记了待后续判断是否单独立案。
 - [x] **`password-recovery` 通用拒答模板异常**(iteration 7)——2026-07-15 补查:replay-with-probe
   直接复现,`finish_reason=content_filter`,确认是千帆服务端内容过滤拦截(非DAO问题、非路由
   异常、非随机抖动)。已加检测(`2efc010`),结论清楚,已闭环。
