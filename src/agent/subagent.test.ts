@@ -46,6 +46,48 @@ describe("runSubagent", () => {
     expect(written.join("")).toContain("子代理完成");
   });
 
+  it("并发多个子代理时,各自的流式输出不会交织成乱码——每个子代理整段一次性 flush", async () => {
+    // 根因(真实撞见:protein-assembly 任务并发派发4个子代理):runTurn 内部会话
+    // 每来一个 content/reasoning delta 就调一次 write(),多个子代理并发跑时如果直接
+    // 共享同一个父级 write() 通道,delta 会逐个交织写入,把两段不相关的文本拼成乱码
+    // (真实案例里一段蛋白质序列跟另一段搜索策略描述逐词交错在了一起)。
+    // 这里模拟两个并发子代理,runTurn 里各自异步地调多次 write(不同 tick),断言合并后
+    // 的输出流里,子代理A的所有 delta 是连续一段、子代理B的所有 delta 也是连续一段,
+    // 不会一片A一片B地交替出现。
+    const written: string[] = [];
+    const sharedWrite = (s: string) => written.push(s);
+    const microtask = () => new Promise<void>((r) => queueMicrotask(r));
+
+    await Promise.all([
+      runSubagent(baseDeps({
+        write: sharedWrite,
+        runTurn: async (deps) => {
+          for (const d of ["一", "二", "三", "四"]) {
+            await microtask(); // 交替让出控制权,模拟真实并发流式的时序交错
+            deps.write(`A:${d} `);
+          }
+          deps.session.messages.push({ role: "assistant", content: "A结果" });
+        },
+      })),
+      runSubagent(baseDeps({
+        write: sharedWrite,
+        runTurn: async (deps) => {
+          for (const d of ["壹", "贰", "叁", "肆"]) {
+            await microtask();
+            deps.write(`B:${d} `);
+          }
+          deps.session.messages.push({ role: "assistant", content: "B结果" });
+        },
+      })),
+    ]);
+
+    const flat = written.join("");
+    // 断言:A 的四个 delta 在输出里是连续粘在一起的一段(中间没有插入 B 的内容),B 同理。
+    // 用正则抓 "A:一 A:二 A:三 A:四 " 这种连续块是否作为一个整体出现在输出里。
+    expect(flat).toContain("A:一 A:二 A:三 A:四 ");
+    expect(flat).toContain("B:壹 B:贰 B:叁 B:肆 ");
+  });
+
   it("increments subagentDepth in the sub-ctx passed to runTurn", async () => {
     let seenDepth: number | undefined;
     await runSubagent(
