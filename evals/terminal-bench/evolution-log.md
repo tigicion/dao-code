@@ -1991,3 +1991,26 @@ feal-linear-cryptanalysis(反复推理反模式已确认样本)、sanitize-git-r
 可比较的数据，待DEBUG查是不是任务本身太难还是有反模式成分。write-compressor 再次
 自然超时，待DEBUG确认是否再现此前确认的反复推理反模式。mailman/feal-linear-
 cryptanalysis 等其跑完再一并判断。
+
+## Iteration 11 DEBUG 阶段（15/15全部就绪：10通过/5失败）
+
+**mailman 修复稳定复现（reward=1）**——exec_shell exit/close 修复(commit 3c5d14d)连续
+第2批验证通过，未再复现旧问题。
+
+**kv-store-grpc（reward=0，非反模式，模型判断失误）**：proto 字段命名为 `val`，隐藏验收
+测试期望 `value`（`test_grpc_protocol_handshake`/`test_grpc_server_functionality` 均因
+`Protocol message SetValRequest has no "value" field` 失败）。工具调用仅15次、跨度60s/
+预算900s(7%)——模型很快完成、自测通过(手动SetVal/GetVal验证)、正常收尾，**不是反复推理
+反模式**，是"自测覆盖不到隐藏验收标准"的具体命名分歧，模型没有理由能提前得知期望字段名。
+
+**sanitize-git-repo（reward=0，非反模式，模型判断失误）**：`exp_data/datasets/tokenized/
+rw_v2_...json` 文件里第二个 HuggingFace token(`hf_ocffijsv...`)未被清理。模型自己在
+dao_stdout.txt 明确写"All exp_data/ files — matches were diff contents stored as data,
+not actual credentials"——主动判断该目录下的匹配是"数据不是密钥"而跳过，这个判断是错的
+(隐藏测试`test_removal_of_secret_information`/`test_correct_replacement_of_secret_
+information`均因此失败)。工具调用35次、跨度154s/预算900s(17%)，非反复推理反模式，是
+"过早下判断排除某类文件、没有对每个字面匹配都同等验证"的具体决策失误，与此前该任务被
+标记的"自测覆盖问题"一脉相承。
+
+**chess-best-move / write-compressor / feal-linear-cryptanalysis**：三题深挖子代理已
+并行派出，结果待回填。
