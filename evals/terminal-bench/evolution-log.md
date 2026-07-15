@@ -2424,3 +2424,22 @@ merge-diff-arc-agi-task自身的iteration 7首次撞见），且是这个具体�
 第3次复现，够格立刻判断是否要动手强化（不是"样本量不够"的搪塞——机制已被反复
 机制性证实）。**列为本轮强EVOLVE候选**，範圍明确（只改`exec_shell.ts`的恢复重试
 逻辑），风险可控，等这批其余题目出完一并评估是否本轮动手。
+
+## polyglot-rust-c 深挖结果：疑似"单一超大回合"变体（末轮未落盘，未确认为反模式，需更多证据）
+
+亲自核实cache.jsonl：4轮LLM调用，turn0=38101 completion tokens（较大但不及gpt2-
+codegolf/adaptive-rejection-sampler的44-46K），turn1-3依次6871/3434/2103 tokens，
+共50509 tokens。8次工具调用全部快速完成（40-433ms）且全部集中在跨度234s内
+（900s预算的26%），此后cache.jsonl再无新记录——**结合exception=AgentTimeoutError
+和diagnose_failure显示的"跨度远小于预算"，推断存在一个未被完整记录（生成中途被
+超时打断、未及时落盘到cache.jsonl）的第5轮，很可能就是dao_stdout.txt尾部看到的
+那大段关于C/Rust polyglot技巧（trigraph/digraph/属性语法重叠）的文字探索，一直
+持续到超时**。
+
+内容本身**是合理的技术探索**（写一份代码同时是合法Rust和合法C的多语言谜题，
+确实需要枚举语法重叠点），不是空洞的重复论证——但最终没有一次write_file把任何
+方案写入文件验证，全部停留在思维推演。证据强度弱于adaptive-rejection-sampler
+（没有直接测到最后一轮的完整token数，是推断而非实测），**暂不计入反复推理反模式
+确认样本计数**，如实标注为"疑似但证据不够扎实"，留作观察项——如果同类"exec_shell
+调用早早停止、后续大段文字直到超时"的模式在后续批次再次出现且能拿到完整轮次数据，
+再正式计入。
