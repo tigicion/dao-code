@@ -2393,3 +2393,34 @@ network无残留、无需prune。harbor命令已带-d terminal-bench/terminal-be
 - `iter13-8192`(1题,`-n 1`)：caffe-cifar-10
 
 千帆provider，容器确认正常起来(pypi-server/merge-diff-arc-agi-task已见Up)。
+
+## merge-diff-arc-agi-task 深挖结果：apt-get超时→dpkg损坏第3次独立复现，本次自动恢复本身失败（重要，纯基础设施，非新代码bug）
+
+亲自核实（state.json message 32，非dao_stdout.txt——该题渲染模式不显示工具调用参数/
+结果原文，只显示"→ exec_shell"箭头标记，需要读state.json拿完整对话）：agent自己跑了
+`which python || apt-get install -y -qq python3`（30000ms超时），确实超时(durationMs
+30082ms)，**commit 7e1ebfe的自动恢复机制确实正确触发**（检测到包管理器命令超时→
+自动跑`dpkg --configure -a`），但**这次恢复尝试本身失败**："[自动恢复失败] 检测到
+包管理器命令被超时打断,尝试`dpkg --configure -a`修复但仍失败"。
+
+**agent自己完美应对**：收到恢复失败提示后，立刻在下一步（message 34）改用已存在的
+`/usr/bin/python3.12`绕过（并非真的需要apt-get装python3——环境里其实已有python3.12
+只是PATH里没有`python`/`python3`别名），成功完成算法（message 36三个examples全部
+验证通过），无任何反复推理，是"及时止损、找替代路径"的正面样本。
+
+**但verifier仍判负**：dpkg残留的interrupted状态在agent会话结束后仍未修复，verifier
+自己跑`apt update`装curl/uv时撞上同一个损坏（`E: dpkg was interrupted...`），curl/
+uvx全部装不上，pytest从未运行，reward=0——**agent的工作本身是对的，纯粹是环境层面
+的连带损失**。
+
+**这是"apt-get被超时打断损坏dpkg"机制的第3次独立复现**（前2次：regex-log、
+merge-diff-arc-agi-task自身的iteration 7首次撞见），且是这个具体任务的第2次撞见。
+不同于前两次——**这次自动恢复机制的检测逻辑正确触发了，但恢复命令本身没修好**，
+不是"提示没被注意到"（db-wal-recovery那种），是"补救动作执行了但没达到效果"。
+
+判断：**不属于反复推理反模式**（agent反应迅速、无重复推理），是纯粹的**基础设施
+残留问题**——`dpkg --configure -a`单次尝试对某些损坏程度不够，需要更强的恢复手段
+（比如重试、或`apt-get install -f`补充、或诊断具体卡在哪个包）。这已经是同一机制
+第3次复现，够格立刻判断是否要动手强化（不是"样本量不够"的搪塞——机制已被反复
+机制性证实）。**列为本轮强EVOLVE候选**，範圍明确（只改`exec_shell.ts`的恢复重试
+逻辑），风险可控，等这批其余题目出完一并评估是否本轮动手。
