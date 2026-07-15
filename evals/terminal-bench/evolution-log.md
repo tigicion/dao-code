@@ -2347,3 +2347,34 @@ launch时遇到一个小插曲：job-name本想用`heldout-check-5`，发现该�
 留下的空壳，只有config.json+空job.log、无实际task子目录，判断是未完成的旧尝试，无
 真实数据丢失风险），为避免歧义改用`heldout-check7`重新启动，容器已确认正常运行。
 代码基线仍为7e1ebfe（与iteration 12相同，本轮DEBUG无代码改动无需重编）。
+
+## adaptive-rejection-sampler 深挖结果：反复推理反模式确认样本第28例——"单一超大回合+零次落地写入"（gpt2-codegolf同族第2例）
+
+亲自核实（cache.jsonl直接读取，不经子代理）：**turn 0 单回合completion=44711 tokens**
+（prompt仅26462），turn 1仅121 tokens。整个900s会话**全程只有2次工具调用**（均为
+exec_shell环境检测：`which R`/`dpkg -l r-base`，第一次因apt-get被阻塞跑了120.172s），
+**write_file调用次数=0**。dao_stdout.txt（4073行）里有**83处代码围栏标记（约41个
+```r代码块）**，说明模型在推理文本里反复起草、重写ARS算法的R实现（Module 1-4:
+工具函数/upper hull构造与采样/lower hull/upper hull求值），但没有一次真正调用
+write_file把任何一版代码持久化到磁盘——最后30行原文仍停在"Let me finalize and write
+the code. Here's my plan for the file"，一直到900s超时都还在"计划写"的状态。
+
+**这是gpt2-codegolf"单一超大回合"变体的第2例确认样本**（首例44711 vs gpt2-codegolf
+的46496，规模高度相似），且新增了一个更极端的子特征：**全程0次write_file**，比此前
+largest-eigenval/write-compressor"部分尝试后放弃验证"更彻底——本例是"连尝试持久化
+都没有"，41个代码块全部停留在思维草稿层面。
+
+反复推理反模式确认样本累计**第28例**。
+
+## Held_out 第7次抽查完整结果
+
+`openssl-selfsigned-cert` ✅ 1、`adaptive-rejection-sampler` ❌ 0（反复推理反模式第28
+例，单一超大回合44711 tokens+零次write_file）。1/2通过。
+
+**历次held_out通过率汇总**：第4次(prove-plus-comm、break-filter-js-from-html，
+均通过)、第5次(make-doom-for-mips❌反模式、code-from-image✅，1/2)、第6次
+(distribution-search✅、install-windows-3.11❌真实难度+反模式放大，1/2)、第7次
+(openssl-selfsigned-cert✅、adaptive-rejection-sampler❌反模式，1/2)。iteration
+11、12两批均无代码改动，held_out本轮结果（1/2）与前两次抽查（均1/2）持平，**没有
+观察到"改动导致held_out题变差"的迹象**（本就没有改动可言，理论上held_out水平应
+与基线一致，此次结果符合预期，未发现异常）。
