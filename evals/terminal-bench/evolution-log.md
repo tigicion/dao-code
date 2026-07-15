@@ -1886,3 +1886,21 @@ feal-differential-cryptanalysis(第18个,7次"直接暴力破解key[5]"却从未
 
 **真实难度为主的题**:extract-moves-from-video(80次调用几乎全是真实OCR管线动作,
 末段~350s轻度换策略但核心瓶颈是转录质量/工作量,不构成反模式主导)。
+
+## torch-tensor-parallelism dpkg 复现追根溯源:不是修复失效,是意图-行动脱节
+
+深入核对 `torch-tensor-parallelism` 这次的完整调用序列:`apt-get install python3
+python3-pip` 确实超时(dur=60064ms,timeout=60000ms),**自动恢复机制正确触发**
+(消息20:"[自动恢复失败] 检测到包管理器命令被超时打断...建议手动确认dpkg状态")。
+模型在推理里也确实说了"Actually, let me try: dpkg --configure -a to fix the dpkg
+lock"——但检查实际发起的工具调用,**紧接着那条命令是 `dpkg -l | grep -i ...`
+(一条查询命令),不是真正的 `dpkg --configure -a` 修复命令**。模型说了要做却没有
+真的做,后续也没有再补上这个修复动作,靠pip绕过了apt-get成功装上了torch、自测
+14项全过,但dpkg本身留在半修复状态,verifier后续自己的apt-get/curl安装因此失败。
+
+**结论:不是exec_shell自动恢复机制本身失效**——机制correctly检测到超时、正确
+提示了模型该做什么,是模型自己的follow-through没有兑现,跟本轮反复出现的
+"说了要做某个动作却实际去做了别的事"这个更广泛的意图-行动脱节模式同源
+(参见feal-differential-cryptanalysis"3次说这就写攻击代码却零次兑现"、
+compile-compcert"opam install只在文字里提过从未真试")。这不是这处代码修复需要
+改的问题,是行为引导类问题的又一个表现,不追加代码改动。
