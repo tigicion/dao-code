@@ -1930,3 +1930,26 @@ not found时,还是两处都加)需要更审慎的设计——牵涉改动范围
 ## Held_out 抽查(第6次)启动
 
 `distribution-search`、`install-windows-3.11`(均从未进过dev batch,均3600s预算)。
+
+## Held_out 抽查(第6次)完整结果
+
+`distribution-search` ✅ 1、`install-windows-3.11` ❌ 0(自然超时,已派子代理深挖)。
+1/2通过,子代理结果待回填。
+
+---
+
+## Iteration 11 启动(dev_pool_order[71:79]+[0:7] 环回)
+
+代码基线 `7e1ebfe`(与iteration 9/10相同)。docker network prune已执行。这批含多个
+之前已确认修复生效的题目,值得关注是否稳定复现修复效果:mailman(exec_shell exit/close
+修复)、nginx-request-logging(yolo /etc/写操作策略修复)、write-compressor/
+feal-linear-cryptanalysis(反复推理反模式已确认样本)、sanitize-git-repo(自测覆盖
+问题)、chess-best-move(之前是外部信号打断,这次应该拿到真实结果)。
+- `iter11-2048`(13题,`-n 4`):chess-best-move, build-pov-ray, nginx-request-logging,
+  pytorch-model-cli, configure-git-webserver, extract-elf, sanitize-git-repo,
+  pytorch-model-recovery, write-compressor, sparql-university, feal-linear-cryptanalysis,
+  mailman, kv-store-grpc
+- `iter11-4096`(1题,`-n 2`):portfolio-optimization
+- `iter11-8192`(1题,`-n 1`):mteb-leaderboard
+
+千帆provider,容器确认正常起来。
