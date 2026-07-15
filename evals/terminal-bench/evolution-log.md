@@ -1953,3 +1953,24 @@ feal-linear-cryptanalysis(反复推理反模式已确认样本)、sanitize-git-r
 - `iter11-8192`(1题,`-n 1`):mteb-leaderboard
 
 千帆provider,容器确认正常起来。
+
+## Held_out 第6次抽查：install-windows-3.11 深挖结果（补回）
+
+子代理用 tool-trace.jsonl（101条：exec_shell 98、read 2、write 1）+ dao_stdout.txt（3095
+行）交叉核对（无 state.json）。结论：**(c) 真实难度 + 反模式放大，两者都有，非单一归因**。
+
+- **真实难度成分**：QEMU 8.2.2 装好、websockify/nginx/noVNC 配好，`-nographic` 下确认
+  镜像能引导到 MS-DOS（"Now I can see the boot process! It boots fine to DOS"），但全程
+  未确认过 Windows GUI/桌面出现；VGA 驱动（cirrus/std）与 headless VNC 首帧空白确属老
+  系统+新版 QEMU 的版本错配复杂场景。
+- **反模式放大成分**：核心不确定点"截图黑屏/仅18个非黑像素"被反复纯文字猜测、没有系统性
+  收敛实验——line 482→502→536→583→604→646→680→693→750 连续多轮重复"Let me think about
+  what could cause this"列3-4个假设，而非隔离变量做定向对照实验。系统注入了16次"连续N轮
+  无实质推进"提醒（至60轮），line 603 收到第6次提醒后下一句仍是同一句话式重猜。VGA驱动
+  选择在文字里反复横跳（cirrus↔std↔cirrus）而非一次性对照验证。3090s自然超时（预算3600s）。
+
+归类：**反复推理反模式确认样本第20例**（此前19例基础上+1），但明确标注为"真实难度基座
+上的反模式放大"子类，不是纯反模式案例——延续本轮"gpt2-codegolf误诊后纠正"确立的严谨
+区分标准，不因为任务本身难就放弃深挖是否有反模式成分，也不因为有反模式成分就抹杀真实
+难度。held_out第6次抽查最终计:1/2通过（distribution-search✅，install-windows-3.11❌
+真实结果，非外部信号打断）。
