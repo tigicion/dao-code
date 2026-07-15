@@ -1629,3 +1629,27 @@ gcode文件不同偏移量,**全程0次write_file**,最后7次 exec_shell 把坐
 | **mailman** | 0(仍失败) | 空闲看门狗只在真实delta时重置(假设诱因是流式卡住) | **假设被证伪,但顺着这次复测挖到了真正的根因**:跨度只有184秒,tool-trace最后一次成功调用是`postfix start`,之后模型紧接着又发起一次exec_shell(启动mailman3),但这次调用完全没出现在tool-trace里——说明卡在exec_shell自己的进程执行层,不是卡在等模型响应。根因是Node的`child.on("close")`要等stdio流全部EOF才触发,mailman3这类后台服务如果没重定向stdout/stderr、继承了父进程管道,只要服务还活着就一直卡住close事件,即便120s前台超时正确发了SIGTERM。已用`node -e`直接实测验证这个exit/close时序差,修复(commit `3c5d14d`)已提交但**这个新修复本身还没有拿mailman真实复测过**,按纪律记入待闭环 |
 
 **待闭环**:exec_shell 的 exit/close 修复(`3c5d14d`)需要单独再复测一次 mailman 才能确认解决,不能因为"根因分析很有说服力"就跳过复测这一步。gcode-to-text 现有的机制对它没用,需要另想办法(比如更强制地要求"提出要存图片就必须在同一轮真的调用",而不只是文字提醒)——记为下一轮候选,不在本轮继续深挖以免无限拖延。
+
+## mailman 复测(验证 exec_shell exit/close 修复,commit 3c5d14d)——确认解决
+
+**reward: 0→1**。关键证据:`postfix start` 这次耗时 **26961ms(约27秒)**完成——对比
+修复前这个动作会永久卡死(前一次复测里超过1500秒直到外层harbor 1800s硬超时才被杀,
+从未看到完成),这次用 exit 事件(不再等 close)正确判定命令完成,没有卡在等待
+mailman3/postfix 这类后台服务继承的 stdout/stderr 管道被释放。59次调用、396秒
+(22%预算)干净收尾,无异常。**这次不是"运气好没触发问题",是同一个曾经必现卡死的
+具体动作(postfix start)这次在27秒内正常完成,直接证明了修复的机制生效**,不是
+巧合翻盘。
+
+待闭环事项这条勾除。
+
+## 本轮 EVOLVE 周期 commit 复测状态清单(进 iteration 8 前的强制自查)
+
+| commit | 内容 | 复测状态 |
+|---|---|---|
+| `d82df8e` | 子代理输出交织,整段flush | ✅ 已用 protein-assembly 复测确认(reward 0→1,无乱码交织) |
+| `2efc010` | content_filter 检测 | ✅ 已用 replay-with-probe 确认根因清楚(服务端策略拦截,非DAO可控),不需要/不能进一步验证"修复效果"——这类观测性改动的验证标准是"能不能看见",不是"能不能让任务通过" |
+| `1acc4b5` | 空闲看门狗只在真实delta重置 | ⚠️ **假设被 mailman 复测证伪**(mailman那次静默卡死的真正原因不在这层,在exec_shell的exit/close),但代码改动本身是独立、正确、有TDD覆盖的设计缺口修复,不因为"没解释mailman"就要revert——如实标注"修复的是一个真实但不同的缺口,不是mailman那次的确切诱因" |
+| `c122b8a` | exec_shell 备份提示(SQLite checkpoint) | ✅ 已用 db-wal-recovery 复测确认(reward 0→1,trace里直接看到先只读打开+备份再写) |
+| `3c5d14d` | exec_shell 以 exit 判定完成(防孙进程占管道) | ✅ 已用 mailman 复测确认(reward 0→1,postfix start 从永久卡死变成27秒完成) |
+
+全部commit都有明确的复测状态,没有遗留"尚未复测"的项。可以进入 NEXT 阶段判断。
