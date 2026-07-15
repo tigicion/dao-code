@@ -90,7 +90,11 @@ export const execShellTool = defineTool({
     "查文件内容用 grep_files、查文件名/路径用 file_search、读文件用 read_file——不要用本工具拼 grep/rg/find/cat/head/tail," +
     "专用工具有护栏(大小限制、二进制探测)且不占审批。\n" +
     "高风险命令(rm -rf /、curl|sh 直接执行远程脚本、提权、写裸盘设备等)即便审批规则整体放宽了,也会被强制要求" +
-    "确认一次,绕不过去;命令里混了同形字符/零宽字符伪装成正常样子也会被拦下强制确认。",
+    "确认一次,绕不过去;命令里混了同形字符/零宽字符伪装成正常样子也会被拦下强制确认。\n" +
+    "在还没搞清楚一份数据/文件的状态就去探查它时要留神:某些'看起来是只读查询'的命令其实有副作用" +
+    "(比如对 SQLite 数据库跑查询可能触发 WAL checkpoint、直接消耗掉本该保留的 WAL 文件;某些工具打开文件" +
+    "时会自动修复/重写它)。任务是要恢复/修复某份可能损坏的原始数据时,先复制一份再动手探查,不要直接在" +
+    "唯一的原始文件上试——探查途中不可逆地毁掉本来能验证假设的原始证据,比多花一步复制的成本高得多。",
   descriptionEn:
     "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution waits for completion and returns stdout/stderr " +
     "plus exit code / timeout / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) — use " +
@@ -105,7 +109,11 @@ export const execShellTool = defineTool({
     "Use grep_files for content search, file_search for filename/path search, read_file for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated " +
     "tools have guardrails (size limits, binary detection) and skip approval.\n" +
     "High-risk commands (rm -rf /, piping curl straight into a shell, privilege escalation, writing raw disk devices, etc.) force a confirmation even if approval rules " +
-    "are otherwise relaxed — there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.",
+    "are otherwise relaxed — there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.\n" +
+    "Be careful when probing a file/dataset whose state you don't fully understand yet: some commands that look read-only actually have side effects " +
+    "(e.g. querying a SQLite database can trigger a WAL checkpoint that consumes the very WAL file you needed to preserve; some tools auto-repair/rewrite " +
+    "a file just by opening it). When the task is to recover/repair a possibly-corrupted original file, copy it first before probing — irreversibly " +
+    "destroying the original evidence mid-investigation costs far more than the one extra copy step.",
   capability: "exec",
   approval: "required",
   schema: z.object({
