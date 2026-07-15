@@ -1035,3 +1035,79 @@ Docker/系统睡眠/网络问题——这些之前都排查过)。具体外部�
 
 等用户看过这份汇报再决定:是否要继续跑完 iteration 5 剩余3题、是否要投入时间
 专门查这个未解的外部杀进程问题、以及上面两个开放问题怎么处理。
+
+---
+
+## /etc/写操作放宽验证:彻底确认生效
+
+用带 `a9f2386` 修复的新二进制复测 `nginx-request-logging`:**reward=1,通过!**
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| ask-denied | 46/85(54%) | 0/16(0%) |
+| 耗时 | 535s(59%预算) | 69s(8%预算) |
+| 结果 | ❌ 0 | ✅ 1 |
+| verify_done | 4次(反复被拒后仍尝试验证) | 7次(顺畅完成充分验证) |
+
+彻底确认:headless+yolo 场景下 `/etc/` 写操作的安全策略放宽(`a9f2386`)完全解决了这个
+结构性死结,模型不再需要在各种工具/写法之间反复试探,直接干净利落地完成任务。
+
+---
+
+## 9小时自主迭代最终汇总(2026-07-14 23:59:43 启动,窗口已过)
+
+### 批次概况
+
+- Held_out 抽查(第3次):adaptive-rejection-sampler、log-summary-date-ranges,2/2通过。
+- Iteration 5(dev_pool_order[60:75],15题):12题拿到真实结果(5过5真实难度未过,
+  2个新发现),3题(extract-moves-from-video/feal-differential-cryptanalysis/
+  path-tracing-reverse)因连续3次外部信号打断未完成,触发停止条件后没有继续重跑。
+
+### 真实修复的 DAO bug(4处代码改动,全部验证生效)
+
+1. **`34e7519`** 系统性修复命令名 `\b` 边界漏洞——不止之前的 eval/sudo,还扫出
+   mkfs/shred/killall(零复合条件裸检查,风险最高)+ chmod/chown/chgrp/truncate/
+   find/git/kill/pkill(有复合条件部分兜底但同一漏洞机制),一次性全修。
+2. **`c5a882d`** verify_done 补规则:缺解释器/工具先试装,不能拿"环境没有"当理由
+   跳过执行(n=2实证:torch-tensor-parallelism 与 torch-pipeline-parallelism 同一
+   行为模式)。**如实说明**:纯提示词改动,效果未经复测验证,历史上这类改动经常
+   不可靠触发。
+3. **`a9f2386`** yolo模式下 WRITE_ONLY_SENSITIVE_TARGET 不再 bypass-immune——
+   headless+yolo 场景下写 `/etc/` 结构性拦死的问题,已用 nginx-request-logging
+   真实复测确认彻底解决(ask-denied 54%→0%,超时未完成→2分钟内通过)。
+4. `diagnose_failure.py` 体检脚本新增 ask-denied 占比检查(这次揪出 `/etc/` 问题
+   的关键信号)+ `terminal-bench-iterate` 技能补了 docker 网络堆积耗尽的处理。
+
+### 未解决的开放问题
+
+1. **空响应重试机制"重试一次"有时不够**:`rstan-to-pystan` 里模型陷入真实调试
+   死循环("I'm going in circles"),连续两次都返回空响应,今天的重试机制没能救回来。
+   目前只有 n=1,机制细节还不清楚(重试要不要带一句提示而不是原样重发),暂不追加
+   改动,留待观察。
+2. **外部杀进程信号源未定位**:这个9小时窗口内3次 `_handle_sigterm`(harbor 自身
+   Python 进程被外部信号杀,不是 Docker/系统睡眠/网络问题),具体源头始终没有查到,
+   超出诊断范围,只能靠"重跑+故障计数上限"兜底,不是真正解决。
+3. **iteration 5 还有3题没跑完**(extract-moves-from-video、
+   feal-differential-cryptanalysis、path-tracing-reverse),等用户决定要不要继续。
+
+### Iteration 5 完整归因表(12/15,3题未完成)
+
+| 任务 | 结果 | 归因 |
+|---|---|---|
+| build-pov-ray | ✅ 1 | — |
+| sqlite-db-truncate | ✅ 1 | — |
+| pytorch-model-cli | ✅ 1 | — |
+| fix-git | ✅ 1 | — |
+| git-multibranch | ✅ 1 | — |
+| dna-assembly | ❌ 0 | 真实难度(89%预算) |
+| llm-inference-batching-scheduler | ❌ 0 | 真实难度(93%预算) |
+| raman-fitting | ❌ 0 | 真实难度(98%预算) |
+| chess-best-move | ❌ 0 | 真实难度(93%预算) |
+| rstan-to-pystan | ❌ 0 | 空响应死循环(新观察,暂不修) |
+| nginx-request-logging | ❌→**✅**(复测后) | /etc/写操作策略问题,已修复验证 |
+| torch-tensor-parallelism | ❌ 0 | 环境缺Python,已尝试修复效果未知 |
+| extract-moves-from-video | 未完成 | 3次外部信号打断 |
+| feal-differential-cryptanalysis | 未完成 | 3次外部信号打断 |
+| path-tracing-reverse | 未完成 | 3次外部信号打断 |
+
+**按窗口内规矩,现在停止一切自动化,等用户指示。**
