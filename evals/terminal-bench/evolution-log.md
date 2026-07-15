@@ -1245,3 +1245,56 @@ src/ 改动 a9f2386,之后只有 docs commit,无需重编)。docker network prun
 
 千帆 provider,`--agent-timeout-multiplier 1`,三条 harbor run 均已确认容器正常起来
 (dna-insert/kv-store-grpc/regex-log 等已在跑),等待结果。
+
+## 深挖3:"真实难度"标签被质疑——两道 torch 题的"环境缺Python"不是借口,是可修的真 bug
+
+用户指出之前把 `torch-tensor-parallelism`/`torch-pipeline-parallelism` 标成"环境缺Python,
+非模型能力问题"太轻率,要求真正查 trace + 查 DAO 源码挖根因。查证如下:
+
+**读任务定义源码,排除"环境本身就没法装"的可能**:两题的 `task.toml` 都明确写了
+`allow_internet = true`,`torch-tensor-parallelism` 还指定了预构建镜像
+`alexgshaw/torch-tensor-parallelism:20251031`(trial.log 确认真的用了这个镜像,不是本地
+Dockerfile 兜底)。也就是说环境**允许联网装东西**,不存在"网络被墙、装不了"的客观限制——
+"缺Python"是这个镜像本身故意设计成的起点(tags 里有"system",意图就是要求 agent 自己
+把环境配起来),不是一个不可逾越的障碍。
+
+**用"拿着上下文重新请求"的方法直接验证模型是否知道该怎么做**:把 `torch-tensor-parallelism`
+失败会话里"发现没有python"那一刻的完整上下文重放,额外加一句"你刚才为什么没试着装
+python",模型立刻回答"你说得对,环境有 apt,我应该直接装"并生成了正确的
+`apt-get install -y -qq python3` 调用。**说明这不是模型能力问题,是没有被有效提示去做
+这件事**——已有的 `verify.ts` 里"没装就先试着装"这条描述性提示没有可靠触发,跟之前
+怀疑的一致(该提示是纯文字 nudge,没有强制机制)。
+
+**两题的验收失败原因也确认是真实的实现 bug,不是"没法验证"这个借口的托词**:
+- `torch-tensor-parallelism`:9/13 测试过,`ColumnParallelLinear` 在 world_size=2/4 时全挂
+  (`RowParallelLinear` 全过)——具体是 gather 操作的反向传播没有正确实现自定义
+  autograd Function,只用了朴素 all_gather,没处理梯度切片。这类问题跑一次真实测试就能
+  当场发现,如果模型装了 Python 并跑了官方测试,大概率能自己抓到并修。
+- `torch-pipeline-parallelism`:`TypeError: cannot unpack non-iterable NoneType object`,
+  卡在 `cos, sin = position_embeddings`——手动逐层调用 LlamaDecoderLayer 时忘记计算/透传
+  旋转位置编码(rotary position embeddings)。同样是一次真实运行就能立刻暴露的具体 bug。
+
+**结论(改判)**:这两题不是"任务难度"或"环境限制",是**两个具体、narrow 的实现
+bug + 一次可避免的验证缺失**共同导致的失败——本该有网络、有权限去装 Python 验证,
+但模型把"没装"当成了终点而不是待办事项。这本质上是"该做但没做"的验证纪律问题,
+跟 `verify.ts` 现有的文字提示不够强绑定这一点一致。
+
+## 深挖3附带发现:DSML 工具调用标记解析失败——第二次独立复现,不是孤立事件
+
+上面"拿着上下文重新请求"验证时,意外**再次**复现了 rstan-to-pystan 深挖1里发现的同一个
+问题:模型的回复里 `tool_calls` 字段是 `null`,但 `content` 字段里能看到完整的原始
+`<｜DSML｜tool_calls><｜DSML｜invoke name="exec_shell">...` 标记语法未被解析——这次是在
+一个完全不同的任务、完全不同的对话内容下独立触发的。**两次独立复现(不同任务、不同
+上下文)说明这不是 rstan-to-pystan 那次的偶然巧合,是一个会反复出现的、真实存在的
+工具调用解析缺陷**,可能是 DAO 历史上很多"模型看起来什么都没做/没有工具调用"的
+失败案例背后的隐藏共因,值得列为高优先级候选项:检测"回复为空/无tool_calls但
+content或reasoning_content里有DSML标记残留"这个特征信号,命中时不能当普通空响应
+重试,应该识别为"工具调用被截断/未解析",可以尝试直接从原始文本里正则抽取出结构化
+调用重新执行,或者更明确地提示模型"你的工具调用没有被正确识别,请重新以标准格式发起"。
+本次未实现代码修复,记为下轮 EVOLVE 优先候选。
+
+## chess-best-move 改判:不是"真实难度",是外部信号打断(diagnose_failure.py 复核纠正)
+
+之前的表格把这题标成"真实难度(93%预算)"是错的——用 `diagnose_failure.py` 复核,
+exception 签名是 `_handle_sigterm`,工具调用跨度只有 125s/900s(14%),不是超时。
+按纪律不算真实结果,已确认无孤儿容器残留,需要在后续批次重跑才能拿到真实结果。
