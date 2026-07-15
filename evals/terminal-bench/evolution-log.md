@@ -1486,3 +1486,29 @@ held_out 题变差"的迹象——本轮新增的改动(进度提醒可见性、
 过拟合到 dev 题的观察成立。
 
 进入下一轮 LAUNCH(iteration 7)。
+
+## iteration 7 WAIT 阶段:发现 fix-ocaml-gc 撞上千帆 API 限流(429),清理孤儿容器,需重跑
+
+`fix-ocaml-gc__8QXFPN9` exception 签名是 `NonZeroAgentExitCodeError`(dao 进程本身
+以 exit 1 退出,不是 `_handle_sigterm` 也不是 `AgentTimeoutError`)。查 dao_stdout.txt
+发现:模型在耐心 poll 一个真实的长耗时 OCaml 编译器 bootstrap 构建(`exec_shell_poll`
+连续 25 轮,期间"进度提醒"从第1次一路升级到第5次——**这个场景下模型的反应是合理
+的、不是反模式**:原文"progress reminders are telling me to keep moving forward -
+I need to let the build finish"——正确理解了提醒的意图但判断当前不需要换策略,
+继续耐心等构建完成,没有被提醒误导去打断一个正常进行中的长耗时任务)。第5次提醒后,
+主模型请求失败触发了 fallback 到 flash,但 flash 也失败:
+`API error 429...token_plan_person_rate_limit_exceeded`——流式重试2次+非流式兜底
+均失败,DAO 正确地把这个不可恢复错误上抛(没有静默吞掉、没有死循环重试),
+`dao --yolo` 进程以 exit 1 结束,但 harbor 的 docker 容器本身没有被清理(孤儿容器
+"Up 40 min钟"),已手动 `docker stop/rm` 清理。
+
+**归因**:纯粹的账号级 API 限流问题(千帆 Token Plan Person 请求频率超限),跟
+DAO 代码、任务难度都无关——本轮多批次长时间连续跑,大概率是账号整体请求频率
+撞了限速窗口,不是这道题本身有问题。**不算真实结果,需要重跑**。全批次只有
+这一题命中(其余11题的 dao_stdout.txt 里搜不到 429/rate_limit 字样),不是
+系统性问题,大概率是瞬时峰值,直接重跑预期能过。
+
+**附带观察**:这是第一次在真实场景里看到"进度提醒"连续升级到第5次而模型
+【正确地】没有被牵着走去打断合理的长耗时等待——说明目前的升级测辞虽然是
+为"反复文字推导"这个反模式设计的,但没有对"耐心等待长耗时后台任务"这种
+合理场景造成误导性的行为改变,是个好信号(没有引入新的误伤模式)。
