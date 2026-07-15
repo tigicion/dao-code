@@ -1850,3 +1850,39 @@ raman-fitting/rstan-to-pystan 正是最早发现"反复推理反模式"的4个�
 生效与否值得重点关注;torch-pipeline-parallelism/torch-tensor-parallelism 是之前发现
 "环境缺Python但从未尝试安装"的两道题,exec_shell描述已补充相关提示,也值得关注这次
 有没有改善。
+
+## Iteration 10 DEBUG:重要复测结果(反模式原始样本+torch环境提示)
+
+**反复推理反模式修复效果复测(dna-assembly、raman-fitting——最早的原始样本)**:
+
+- **dna-assembly**:有可辨认的行为改善,仍未通过。这次真的写并跑了脚本(4次write_file,
+  第一次是0次),进度提醒升级到"第2次"时触发了真实策略切换("换个方式,写脚本文件跑
+  而不是shell里转义"),完成了序列比对分析。但最终仍陷入overhang约定的分析瘫痪,预算
+  耗尽前没能写出primers.fasta。
+- **raman-fitting**:**原来的反模式这次完全没有复现**——全程用代码验证,find_peaks/
+  curve_fit迭代6次,正常写出并读回results.json。但依然失败,换成了全新的失败原因:
+  对"x轴代表什么"这个前提过快用代码锁定却从未回头验证(拟合出的峰值位置比例1.73,
+  真值1.69,说明峰找对了、绝对标度错了)。**这是个值得记录的现象**:修复消除了"该验证
+  时空转"的老问题,但没覆盖"过快锁定错误前提、不再回头质疑"这个新风险——某种程度上
+  是同一枚硬币的另一面(反模式是"过度怀疑不敢动手",这个新模式是"动手了但不再怀疑该
+  怀疑的地方")。
+
+**verify_done"先试装"提示(commit c5a882d)复测——发现设计缺陷**:
+
+- **torch-pipeline-parallelism**:模型检测到python3缺失后完全没有尝试安装,直接以
+  "没有运行时"为由跳过真实验证——提示没有起效。**根因追到位置问题**:这条提示写在
+  `verify_done` 工具描述里,但这次模型压根没调用过verify_done就放弃了。提示只有模型
+  真的调用verify_done时才可见,但恰恰是"提前放弃、不走到verify_done这一步"的场景,
+  这条提示永远没有机会被看到——设计上就不该指望这类场景生效。
+- **torch-tensor-parallelism**:这次模型真的尝试安装了(apt-get失败后转pip、自己修了
+  TLS证书问题),torch装成功、14项自测全过。但verifier自己的环境搭建又失败了
+  ("dpkg was interrupted"、"curl not found")——第3次独立撞见同一个dpkg损坏模式
+  (之前regex-log、merge-diff-arc-agi-task各一次),这次运行的二进制已包含自动恢复
+  修复(7e1ebfe),需要专门核实这次自动恢复为什么没能保护到verifier阶段,是待查项。
+
+**新增反模式样本**:regex-chess(第17个,十几次"让我写文件"从未兑现)、
+feal-differential-cryptanalysis(第18个,7次"直接暴力破解key[5]"却从未写这个循环,
+跟已确认的feal-linear-cryptanalysis同型)。
+
+**真实难度为主的题**:extract-moves-from-video(80次调用几乎全是真实OCR管线动作,
+末段~350s轻度换策略但核心瓶颈是转录质量/工作量,不构成反模式主导)。
