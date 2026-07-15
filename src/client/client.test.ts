@@ -446,6 +446,49 @@ describe("streamChat", () => {
       ),
     ).rejects.toThrow(/空闲超时/);
   }, 2000);
+
+  it("字节持续到达但从不含可解析 delta(比如纯 keep-alive 空 payload)→ 仍判定为空闲超时,不能被原始字节骗过", async () => {
+    // 根因假设(真实怀疑撞见:terminal-bench mailman 任务,工具调用成功返回后约1380秒
+    // 完全无输出,既没触发空响应重试也没触发idle超时)——旧写法只要 reader.read() 收到
+    // 任何字节就重置看门狗,不管这些字节里有没有真实 delta。如果服务端/代理在生成卡住时
+    // 仍周期性发送不含内容的 keep-alive 帧(这里用空 choices 数组模拟),旧逻辑会让看门狗
+    // 永远重置、连接"技术上活着"但真实卡死,idle 超时永远不触发。
+    const enc = new TextEncoder();
+    // 每次 fetch 调用都要拿到一条全新的流(真实 fetch 每次请求 body 都是新的);
+    // maxRetries:0 确保只打一次,idledOut+未产出 deltta 时不会因为重试而复用/新建第二条流。
+    const makeBody = () => {
+      let pulls = 0;
+      let fetchSignal: AbortSignal | undefined;
+      return { fetchSignal: (s: AbortSignal) => { fetchSignal = s; }, stream: new ReadableStream<Uint8Array>({
+        pull(c) {
+          pulls++;
+          if (pulls > 20) { c.close(); return; } // 保险丝:万一看门狗没生效,别让测试真的卡死
+          c.enqueue(enc.encode('data: {"choices":[]}\n\n')); // 有字节但没有可解析 delta 的 keep-alive
+          return new Promise<void>((resolve, reject) => {
+            const t = setTimeout(resolve, 10); // 持续吐字节,但间隔小于 idleTimeoutMs
+            fetchSignal?.addEventListener("abort", () => { clearTimeout(t); const e = new Error("aborted"); e.name = "AbortError"; reject(e); });
+          });
+        },
+      }) };
+    };
+    const keepAliveFetch = (async (_url: string, init: any) => {
+      const b = makeBody();
+      b.fetchSignal(init.signal);
+      return new Response(b.stream, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      run(
+        streamChat({
+          ...base,
+          messages: [{ role: "user", content: "hi" }],
+          fetchImpl: keepAliveFetch,
+          idleTimeoutMs: 50,
+          maxRetries: 0,
+        }),
+      ),
+    ).rejects.toThrow(/空闲超时/);
+  }, 2000);
 });
 
 describe("isCredentialError", () => {

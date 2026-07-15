@@ -239,11 +239,17 @@ export async function* streamChat(
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        armIdle(); // 收到数据 → 重置看门狗
         buffer += decoder.decode(value, { stream: true });
         const { payloads, rest } = parseSSEChunk(buffer);
         buffer = rest;
-        for (const payload of payloads) for (const d of processPayload(payload)) { yieldedAny = true; yield d; }
+        // 看门狗只在真正解析出内容时重置(不是任何原始字节到达就重置)——如果服务端/代理在
+        // 生成卡住时仍周期性发送 keep-alive 字节(空行、SSE 注释、chunked 分帧)但从不产出真实
+        // delta,旧写法(收到数据就重置)会让这类"连接技术上活着、但没有真实进展"的卡死永远
+        // 不触发 120s 空闲超时——真实怀疑撞见过(terminal-bench mailman 任务,工具调用成功
+        // 返回后约1380秒完全无输出,既没触发空响应重试也没触发idle超时,机制当时没查清)。
+        let sawDelta = false;
+        for (const payload of payloads) for (const d of processPayload(payload)) { yieldedAny = true; sawDelta = true; yield d; }
+        if (sawDelta) armIdle(); // 只有真实产出才算"活着",纯字节到达不算
       }
       // 流末 flush:处理未以 \n\n 收尾的最后一个事件。
       buffer += decoder.decode();
