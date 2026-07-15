@@ -2106,3 +2106,21 @@ nginx-request-logging修复本批稳定复现。
 
 进入NEXT：距上次held_out抽查（第6次，iteration 11启动前）仅过1批，未达2批门槛，
 下一轮跑常规dev batch（iteration 12）。
+
+## Iteration 12 启动(dev_pool_order[7:22])
+
+代码基线仍为 `7e1ebfe`(与iteration 9/10/11相同,本轮DEBUG无代码改动，无需重编）。
+docker network 无需 prune（上批无残留）。首次启动命中一个操作失误：漏了 `-d
+terminal-bench/terminal-bench-2-1` 和 `--agent-import-path agent.harbor_dao_agent:
+DaoAgent` 两个必需参数（batch_by_memory.py 脚本输出本就只打印 `-i`/`-n` 片段，需要
+自己拼上 README 里的完整命令头，这次拼漏了），两个桶各报错一次
+`ValueError: Cannot specify --registry-url...without also specifying --dataset,
+--task, or --path`，均未产生容器、未污染数据，补全参数后重新启动即正常。
+
+- `iter12-2048`(13题,`-n 4`):headless-terminal, regex-log, build-cython-ext,
+  gcode-to-text, fix-ocaml-gc, db-wal-recovery, cobol-modernization, largest-eigenval,
+  password-recovery, constraints-scheduling, video-processing, count-dataset-tokens,
+  hf-model-inference
+- `iter12-4096`(2题,`-n 2`):dna-insert, qemu-startup
+
+千帆provider，容器确认正常起来(dna-insert/regex-log已见Up)。
