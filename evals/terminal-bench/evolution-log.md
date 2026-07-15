@@ -2378,3 +2378,18 @@ largest-eigenval/write-compressor"部分尝试后放弃验证"更彻底——本
 11、12两批均无代码改动，held_out本轮结果（1/2）与前两次抽查（均1/2）持平，**没有
 观察到"改动导致held_out题变差"的迹象**（本就没有改动可言，理论上held_out水平应
 与基线一致，此次结果符合预期，未发现异常）。
+
+## Iteration 13 启动(dev_pool_order[22:37])
+
+代码基线仍为7e1ebfe(与iteration 11/12/held_out第7次相同，DEBUG均无代码改动)。docker
+network无残留、无需prune。harbor命令已带-d terminal-bench/terminal-bench-2-1和
+--agent-import-path agent.harbor_dao_agent:DaoAgent(iteration 12教训已应用)。
+
+- `iter13-2048`(10题,`-n 4`)：sqlite-with-gcov, reshard-c4-data, bn-fit-modify,
+  multi-source-data-merger, circuit-fibsqrt, polyglot-rust-c, mteb-retrieve,
+  pypi-server, fix-code-vulnerability, cancel-async-tasks
+- `iter13-4096`(4题,`-n 2`)：financial-document-processor, protein-assembly,
+  train-fasttext, merge-diff-arc-agi-task
+- `iter13-8192`(1题,`-n 1`)：caffe-cifar-10
+
+千帆provider，容器确认正常起来(pypi-server/merge-diff-arc-agi-task已见Up)。
