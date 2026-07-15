@@ -1698,3 +1698,38 @@ docker network prune 已执行。按内存分桶:
 (crack-7z-hash)一样,记为反模式的关联变体,不强行并入纯样本统计。
 
 **当前不确定的题**:无——10道题全部有明确归因结论,没有"存疑待查"的遗留项。
+
+## merge-diff-arc-agi-task 复测(验证 exec_shell apt-get 自动恢复,commit 7e1ebfe)——确认生效
+
+**reward: 0→1**。这次真实复现了同样的环境问题:`which python python3 2>&1 || apt-get
+install -y python3`(timeout=60000)跑了60079ms,被超时打断——完整因果链在trace里
+清晰可见:
+
+1. 命令超时,触发新加的检测逻辑,返回消息里带 `[自动恢复失败]`(第一次自动跑
+   `dpkg --configure -a` 没能立刻修复)
+2. 消息明确提示"继续前建议手动确认 dpkg 状态"
+3. 模型**直接照做**:紧接着又跑了一次 `apt-get install -y python3`(83ms 快速失败,
+   符合预期——dpkg 当时还没修好),然后**自己主动跑了 `dpkg --configure -a`**(1360ms,
+   这次成功)
+4. 之后 python3 恢复可用("Good, python3 is now installed"),任务继续,最终通过
+
+**结论**:修复完整生效,但过程比预想的更细致——第一次自动尝试没能100%解决问题
+(dpkg可能需要在apt-get彻底停止后才能被正确configure,存在时序问题),但消息本身
+成功地把模型引导到了正确的自我恢复路径上,没有像原来那样让dpkg损坏的状态悄悄
+拖垮整个后续会话。跟单纯"自动修好、什么都不用管"比,这是一个更真实、更值得记录的
+生效方式——观测性+引导的价值不亚于自动化本身。
+
+待闭环事项这条勾除。
+
+## Iteration 8 EVOLVE 周期 commit 复测状态清单
+
+| commit | 内容 | 复测状态 |
+|---|---|---|
+| `7e1ebfe` | exec_shell apt-get超时自动恢复dpkg | ✅ 已用 merge-diff-arc-agi-task 复测确认(reward 0→1,完整因果链可见) |
+
+无遗留"尚未复测"的项。
+
+## NEXT 阶段判断
+
+距上次 held_out 抽查(第4次)已经过了 iteration 7、8 两批,够门槛,这一轮该做一次
+held_out 抽查,而不是直接进 iteration 9。
