@@ -1360,3 +1360,38 @@ rstan-to-pystan 深挖出的模式完全一致,现在有 4 个独立、不同任
 | feal-linear-cryptanalysis | AgentTimeoutError | 1704/1800(95%) | 0 | 线性密码分析的代数推导(R_1/R_2 一致性约束),数学密集型任务合理开销,推理内容有实质推进(不是同一表达式反复重写),倾向真实难度 |
 | **mailman** | AgentTimeoutError | 420/1800(**仅23%**) | 0 | ⚠**新发现的异常模式**:tool-trace 只有 36 次调用、跨度 420s,但 exception 显示确实等满了 1800s 才超时——即最后一次 `exec_shell`(启动 mailman3 服务,52ms 内正常返回)之后,dao_stdout.txt **戛然而止,后续约 1380 秒完全没有任何输出**,既没有"[模型返回空响应,重试一次…]"标记,也没有 idle 超时报错("模型流空闲超时"从未出现)。说明卡住的不是工具执行本身,是工具结果返回后的下一轮模型请求——可能是一次异常漫长、从未产出可见 delta 的流式生成,没有触发任何一层已知的兜底机制。**未能完全钉死机制**(跟 rstan-to-pystan 的空响应死循环、torch-tensor-parallelism 复现的 DSML 解析失败可能是同一大类问题的第三种表现形式,但证据链还不完整),记为高优先级候选,下次遇到同类空白式超时应优先排查 |
 | **dna-insert** | 无(干净完成) | 1538/1800(85%) | 5 | **真实bug,非难度**:model 反复调用 verify_done(5次)、自称"约束全部满足"并给出完整引物表格,但从未验证最基本的一条——拼接后的引物是否真的包含要插入的 DNA 片段。验收测试 `insert_start != -1` 直接失败(-1)。自测检查了 Tm/长度/格式这些"看起来重要"的约束,唯独漏了任务最核心的正确性要求 |
+
+## 深挖4附带的 EVOLVE:进度提醒机制"哑掉"——不是逻辑没触发,是压根没接可见输出
+
+深挖 dna-assembly/llm-inference-batching-scheduler/raman-fitting 时,想确认"既有的
+`[进度提醒]`(连续5轮无实质推进即提醒)安全网到底有没有生效",用 grep 查了三份
+`dao_stdout.txt` 全文,结果三份都是 **0 次**"进度提醒"字样——一度怀疑是触发条件本身
+有 bug(比如 skill 调用意外重置了计数器、或者子代理/headless 模式下这条提醒被抑制)。
+
+**逐一排除后定位到真根因**:读 `src/agent/loop.ts` 发现 `noProgress`/`ADVISE_EVERY`
+的判定逻辑本身完全正确(独立核对 tool-trace.jsonl 确认 dna-assembly 23 轮里真的一次
+`write_file`/`edit_file`/`todo_write` 都没调用过,理论上第 5、10、15、20 轮都该触发)。
+但**这条 advisory 只有 `session.messages.push(...)` 把提醒内容悄悄塞进对话历史(模型
+下一轮请求确实能看到),从头到尾没有配一个 `events.notice(...)` 调用**——而 `events.notice`
+才是唯一会被写进 `dao_stdout.txt`/终端输出的路径(`plainEvents(write)` 就是 eval/headless
+模式下的适配器)。也就是说:**机制大概率一直在正常触发、模型也确实在上下文里看到了
+这条提醒,只是人类/诊断脚本从 transcript 上完全看不出来发生过**——这也是为什么之前
+反复用"grep dao_stdout.txt 找进度提醒"的方式一直查不出个所以然。
+
+**同一代码块里的姊妹 advisory(`[轮数提醒]`,接近 maxTurns 时提醒一次)有一模一样的
+缺口**,一并修了(Evolve 步骤0:先扫同类实例)。反思层的挑战者/纠偏者提醒(同一函数
+里)本身就有独立的 `events.notice` 调用,不受影响,不需要动。
+
+**改动**:`src/agent/loop.ts` 在这两处 `advisories.push(...)` 旁各加一行
+`events.notice(...)`,纯打印补充,不改变 `session.messages` 内容、不改变任何裁决逻辑,
+零行为风险。TDD:`loop.test.ts` 新增两个用例直接断言 `write()` 回调收到的文本包含
+"进度提醒"/"轮数提醒"(此前只有断言 session.messages 里有这条内容的旧测试,没人测过
+它是否可见)。`bun test` 全量跑(本机 node 系统级损坏——`libsimdjson.29.dylib` 缺失,
+`vitest`/`tsc` 走 node 路径全挂,改用 `bun test` + `bun x tsc` 验证,与本次改动无关,
+另记一笔环境问题)。
+
+**意义**:这不直接修复"文字反复推导替代代码验证"那个反模式本身(那个需要更谨慎的
+提示词/结构性改动,风险更高,留到下一步),但修复了让这个反模式在 3 道真实题目里
+"整个安全网哑火却没人发现"的可观测性缺口——下次同类会话再复现这个模式时,
+`dao_stdout.txt`/`diagnose_failure.py` 终于能直接确认这条提醒到底有没有触发过,
+不用再靠"大概率触发了但没法证实"这种猜测。

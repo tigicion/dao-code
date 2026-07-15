@@ -182,6 +182,46 @@ describe("runTurn", () => {
     expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("进度提醒"))).toBe(true);
   });
 
+  it("进度提醒触发时同步 events.notice,而不是只悄悄进 session.messages(无用户可见痕迹)", async () => {
+    // 根因:之前这条 advisory 只 push 进 session.messages,没有对应的 events.notice 调用——
+    // 模型能在下一轮请求里看到提醒,但 dao_stdout.txt/transcript 里完全没有任何痕迹,导致
+    // eval 复盘时无法确认这条安全网到底有没有触发过(真实撞见:terminal-bench 3 道题连续
+    // 空转 20+ 轮,但 dao_stdout.txt 里一次"进度提醒"都搜不到,一度误判成机制没生效)。
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    const turns = [readTurn, readTurn, readTurn, readTurn, readTurn, () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })()];
+    let i = 0;
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
+      write: (t) => written.push(t),
+      maxTurns: 10,
+    });
+    expect(written.join("")).toContain("进度提醒");
+  });
+
+  it("轮数提醒(接近 maxTurns)触发时同步 events.notice", async () => {
+    // 同一处代码块里的另一条 advisory,同一个盲区——一并补上可见提示。
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    // maxTurns=6 → t===1 时命中 t===maxTurns-5,用推进型工具调用避免同时触发进度提醒混淆断言。
+    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write_file", arguments: "{}" } }] })();
+    const turns = [writeTurn, writeTurn, writeTurn, writeTurn, writeTurn, () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })()];
+    let i = 0;
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "w", content: "W" }],
+      write: (t) => written.push(t),
+      maxTurns: 6,
+    });
+    expect(written.join("")).toContain("轮数提醒");
+  });
+
   it("drainAdvisories:回合边界把结论注入为 system 消息 + 发审视者介入提示", async () => {
     const s = new Session("SYS", "m");
     s.addUser("go");

@@ -323,9 +323,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     const advisories: string[] = [];
     if (noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
       advisories.push(`[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。回看 todo 确认方向;若已完成请调用 verify_done 收尾;若卡住请换思路或用 ask_user 向用户求助,不要空转。`);
+      events.notice(`\n[进度提醒:已连续 ${noProgress} 轮无实质推进]\n`);
     }
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
       advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`);
+      events.notice(`\n[轮数提醒:接近最大轮数 ${t + 1}/${maxTurns}]\n`);
     }
     // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者。检测(廉价纯函数)与应对(贵的 LLM)解耦:
     //   · 主回合(有 reflect)→ 起一个 fork 独立复核,结论作 advisory(命中热缓存)。
