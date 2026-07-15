@@ -61,16 +61,33 @@ function runForeground(
       if (signal.aborted) onAbort();
       else signal.addEventListener("abort", onAbort, { once: true });
     }
+    let exitGraceTimer: ReturnType<typeof setTimeout> | undefined;
     const finish = (code: number) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      if (exitGraceTimer) clearTimeout(exitGraceTimer);
       if (signal) signal.removeEventListener("abort", onAbort);
       if (capped) stderr += "\n[输出超过 10MB 上限被截断,请用更精确的命令或重定向到文件后再 grep/read_file]";
       resolve({ stdout, stderr, code, timedOut, aborted });
     };
+    // "close" 要等 stdio 流全部看到 EOF 才触发——如果命令拉起了一个没把 stdout/stderr 重定向
+    // 走(继承了父进程管道)的后台服务(比如 init 脚本式的 `xxx start`),服务只要还活着就一直
+    // 占着管道不放,"close" 就永远不会来,即便超时/SIGTERM 已经正确杀掉了能杀到的那部分进程组,
+    // Promise 也会永久卡住、超时机制形同虚设。真实撞见过(terminal-bench mailman 任务,启动
+    // postfix/mailman3 服务后 exec_shell 卡死超过1500秒,直到外层 harbor 硬超时才被杀)。
+    // 用 Node 实测验证过:同一个子进程,"exit"(进程自己退出)几乎立刻触发,"close"(stdio 流
+    // 关闭)要等占着管道的孤儿进程自己退出才触发,如果那个孤儿进程是长期运行的服务,永远等不到。
+    // 修法:改成以"exit"为准——它代表命令本身真的跑完了,不该被"某个继承了 fd 的孙进程还活着"
+    // 卡住;"exit"后短暂等一小段时间(处理数据事件的正常异步延迟),等不到"close"就用已攒到的
+    // 输出收尾,不再无限等。
+    let exitCode: number | null = null;
     child.on("error", (e) => { stderr += String((e as Error).message ?? e); finish(1); });
-    child.on("close", (code) => finish(typeof code === "number" ? code : 1));
+    child.on("close", (code) => finish(typeof code === "number" ? code : (exitCode ?? 1)));
+    child.on("exit", (code) => {
+      exitCode = typeof code === "number" ? code : 1;
+      exitGraceTimer = setTimeout(() => finish(exitCode!), 300);
+    });
   });
 }
 
