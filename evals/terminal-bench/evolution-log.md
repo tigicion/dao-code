@@ -1754,3 +1754,36 @@ dev题过拟合")上被独立确认——证实这不是对某几道具体dev题
 没有观察到"改动导致held_out题变差"的迹象。
 
 按用户指示,本轮到此为止,不启动 iteration 9,转向生成8轮迭代综合报告。
+
+---
+
+## Iteration 9 启动(dev_pool_order[41:56])+ 10小时自主迭代窗口开始
+
+代码基线 `7e1ebfe`(含全部8轮累计的15处修复,均已真实复测确认)。docker network/container
+prune已执行(启动前干净,无堆积)。按内存分桶:
+- `iter9-2048`(10题,`-n 4`):vulnerable-secret, query-optimize, large-scale-text-editing,
+  tune-mjcf, winning-avg-corewars, model-extraction-relu-logits, polyglot-c-py, build-pmars,
+  make-mips-interpreter, path-tracing
+- `iter9-4096`(4题,`-n 2`):overfull-hbox, qemu-alpine-ssh, compile-compcert, sam-cell-seg
+- `iter9-8192`(1题,`-n 1`):gpt2-codegolf
+
+千帆provider,三个harbor进程确认存活(部分题目docker镜像还在构建/拉取中,正常现象)。
+
+**用户授权:持续自主迭代10小时,明确要求"注意看看如何避免昨天晚上迭代的问题"。**
+昨晚(9小时窗口,2026-07-14 23:59:43启动)的具体问题及本次应对:
+
+1. **3次外部SIGTERM打断harbor进程**——已根因定位(Claude Code本会话自身每30分钟一次
+   caffeinate续期动作的副作用),不是DAO/Docker/网络层面问题,**不在这个仓库的可修复
+   范围内**。应对策略不变:清理孤儿容器+重跑,不算真实结果;3次复现触发停止条件汇报,
+   不能无限重跑掩盖过去。
+2. **Docker网络地址池耗尽**——已固化为LAUNCH阶段标准步骤(`docker network prune -f`),
+   本轮启动前已执行,后续每次LAUNCH都会重复执行,不应该再复现。
+3. **待闭环事项被搁置**(mailman/db-wal-recovery等疑似发现记录后没有真正走完debug→evolve
+   流程就进了下一批)——已建立结构性机制(evolution-log.md顶部常驻清单+"提议进下一阶段
+   前必须列出复测状态"硬性门槛),这10小时里每次提议进下一批前都要过一遍这个门槛。
+4. **对"看起来就是难"的题放松深挖标准**——已建立硬性门槛(不管第一印象是可疑还是像真的难,
+   都要走同一套子代理深挖流程),这10小时里延续执行,不因为"这题看起来正常"就跳过。
+5. **千帆API限流(429)撞见过1次**(iteration 7的fix-ocaml-gc)——单次瞬时峰值,不是系统性
+   问题,遇到时清理孤儿容器直接重跑即可,不需要额外应对机制。
+
+窗口截止时间另行计算,排WAIT阶段wakeup时按此贯彻。
