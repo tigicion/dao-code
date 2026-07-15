@@ -1163,3 +1163,67 @@ dao-code/harbor/Docker 的代码范围内**,没法从这边直接修代码解决
 具体某道题或某次harbor调用相关)——如果要缓解,更短的单次 `run_in_background`
 任务(或者接受每~30分钟可能撞上一次、按现有的清理重跑策略兜底)是目前唯一现实
 的应对方式,不是能在 DAO 代码层面根治的问题。
+
+## 深挖1 续:rstan-to-pystan 空响应——用真实 provider(千帆)直接复现,钉死了根因
+
+用户要求"拿着上下文,再请求下ds看看效果",于是拿 turn 26 失败时刻的完整 62 条
+`state.json` 消息历史,直接重放请求。分两步排除法:
+
+**第一步排除:`client.ts` 剥离 reasoningContent 的设计不是原因。** 先怀疑是
+`client.ts:52-58`("发给 API 的消息绝不带 reasoningContent")这条设计跟 DeepSeek
+"thinking mode" 有冲突——直接打 `api.deepseek.com`(用 `DEEPSEEK_API_KEY`)复现,
+确实 100% 稳定触发 `invalid_request_error: The reasoning_content in the thinking
+mode must be passed back to the API.`,不管是单条消息、控制组消息、加不加
+`reasoning_effort`,只要历史里有 assistant+tool_calls 消息缺 reasoning_content
+就必现。**但这是 DeepSeek 原生端点独有的强校验,不是这次故障的真实原因**——
+一查 evolution-log 才发现 iter5-8192 这批实际走的是**千帆代理**,不是原生端点。
+拿一模一样的 62 条消息(reasoningContent 全部剥离)直接打千帆代理的
+`/chat/completions`,**完全不报错,干净通过**,包括完整 62 条历史那次请求——
+证明千帆代理不做这条校验,`client.ts` 的剥离行为对这次故障没有责任。这是一个
+真实存在但目前只影响"deepseek 原生 provider"的独立发现(见下方新增条目),跟
+这次故障是两回事。
+
+**第二步:去掉人为的 max_tokens 上限,原样重放完整 62 条历史给千帆——直接复现出
+了一模一样的症状。** 返回 `finish_reason: "stop"`(模型自认为已完成)、`content`
+为空字符串、`tool_calls` 为 `null`——跟原始故障的空响应表现完全一致。但
+`reasoning_content` 字段里能看到模型其实是**想**调用 `exec_shell` 的:结尾直接是
+`<｜DSML｜tool_calls><｜DSML｜invoke name="exec_shell">...`这样的原始工具调用标记
+语法,内容是一段诊断用的 numpy 脚本——语义上模型已经决定了要执行的动作,也把动作
+写出来了,但这段工具调用标记**卡在了 reasoning_content 里,没有被正确解析提取成
+结构化的 `tool_calls` 字段**,于是 API 返回的就是一个"看起来什么都没做"的空回合。
+
+**结论(这次是机制性证实,不是排除法后的猜测)**:根因是 DeepSeek/千帆服务端在
+"思考→行动"这个阶段转换时偶发的解析失败——模型的推理流没有干净地把工具调用部分
+从 reasoning_content 里切出来提升成结构化 tool_calls,导致返回内容从 API 消费者
+视角看是空的。**这不是 DAO 代码(`client.ts`/`loop.ts`)的 bug,是上游模型/服务端
+的工具调用抽取管线在这次生成里出了偏差**,不是本项目能直接修的东西。
+
+**对现有"空响应重试一次"机制(`c80a3c7`)的重新评估**:之前的假设是"随机瞬时故障,
+重试大概率能救回来";现在看更准确的描述是"推理→工具调用转换失败",本质上是
+一种特定的生成模式故障,不一定是纯随机的——如果模型当时已经陷入了很长的连续
+调试推理(这道题原始轨迹里确实如此),这类转换失败的概率可能会升高。重试机制
+本身不算错,但可以更精准:**如果空响应但 `reasoning_content` 非空且能匹配出
+类似工具调用标记的模式(比如正则抓 `<｜DSML｜tool_calls>` 或类似结构化标记残留),
+下一轮 retry 时可以显式提示"你上一轮的工具调用没有被正确发出,请重新以标准格式
+调用工具",而不是用原样的历史盲目重试一次**——这是一个有具体证据支撑、值得作为
+后续 EVOLVE 候选项的改进方向,本次会话未实现(优先级:先记录、下轮评估是否要做,
+牵涉 `loop.ts` 空响应处理逻辑,需要 TDD)。
+
+## 新发现(独立于本次故障):`deepseek` 原生 provider 与"思考模式"强校验冲突
+
+上面复现过程中意外确认:`client.ts` 无条件剥离历史 assistant 消息 reasoningContent
+的设计,对**原生 `api.deepseek.com` 端点**(`provider: "deepseek"`)会导致任何
+包含 assistant+tool_calls 历史消息的多轮对话必现 400 `invalid_request_error`
+(信息:"The reasoning_content in the thinking mode must be passed back to the
+API.")。四组独立测试(单条消息隔离、加/不加 `reasoning_effort`、加占位符
+reasoning_content 都无法绕过)确认这是原生端点的确定性强校验,不是偶发的。
+
+**影响面判断**:本项目目前所有真实评测批次实际都走 `qianfan`/`volcengine` 代理,
+代理不做这条校验,所以从未被这个问题绊住过——但如果有人真的用 `--ak
+provider=deepseek`(原生)跑任何超过 1 轮工具调用的真实对话,理论上应该立刻
+100%必现失败。这个 provider 路径目前处于"配置里存在、但可能从未被多轮工具调用
+场景真实验证过"的状态,值得后续单独起一轮小规模验证(不需要占用本轮 dev batch
+名额,几个 exec_shell 多轮对话就能确认),如果坐实,需要在 `client.ts` 里把
+"剥离 reasoningContent"这条行为改成按 provider 区分(deepseek 原生端点要把最后
+一轮的 reasoning_content 原样带回,qianfan/volcengine 保持现状剥离以省 token)。
+本次未直接改代码,记录为下一轮候选项。
