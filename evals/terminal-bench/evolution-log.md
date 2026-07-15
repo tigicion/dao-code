@@ -2456,3 +2456,26 @@ codegolf/adaptive-rejection-sampler的44-46K），turn1-3依次6871/3434/2103 to
 - 运行中（4题，均未超预算）：protein-assembly(3min/1800s)、
   caffe-cifar-10(23min/3600s)、train-fasttext(28min/3600s)、
   circuit-fibsqrt(28min/3600s)
+
+## protein-assembly 深挖结果：模型输出顺序错误（真实精度差距，非反模式非框架bug）
+
+reward=0，verifier断言融合蛋白顺序必须是flag-donor-dhfr-acceptor-snap
+（`flag_idx < donor_idx < dhfr_idx < acceptor_idx < snap_idx`），实际
+`0 < -1`（donor_aa序列在gblock里没找到/顺序错误）。模型自己verify_done调用6次、
+给出详尽的自查表格，主观认为全部满足，但融合蛋白的组分排列顺序有误——是模型对
+任务顺序要求的理解/执行偏差，工具调用58次/1242s(69%预算)节奏合理，非反复推理
+反模式，非框架bug，真实的模型输出精度差距。
+
+## train-fasttext 深挖结果：千帆API限流(429)崩溃，非真实失败，需重跑（不计入本批统计）
+
+`exception.txt`显示`NonZeroAgentExitCodeError: Command failed (exit 1)`。dao_stdout.txt
+尾部显示模型在1910s时正处于合理的超参数调优过程中(P@1=0.558需要达到≥0.62，正在
+尝试autotune/调整epoch等)，随后命中`[主模型异常,本回合临时回退deepseek-v4-flash…]`，
+流式重试2次+非流式兜底均失败："API error 429...token_plan_person_rate_limit_exceeded"
+——千帆API限流导致DAO自身进程崩溃退出(exit 1)，中断了一个原本进展正常的会话。
+
+**这是本session第2次撞见千帆429限流崩溃**（第1次是iteration 7的fix-ocaml-gc，当时
+处理方式是"清理孤儿容器+重跑，不计入真实结果"）。按同样纪律处理：**此结果不计入
+iteration 13的胜负统计**，标记为需要重跑的无效数据点（非DAO框架bug，非模型能力
+问题，是provider侧瞬时限流，此前已有1次先例，本次是第2次，暂未到skill定义的
+"≥3次同类基础设施故障"停止阈值，但已经是需要持续关注的次数）。
