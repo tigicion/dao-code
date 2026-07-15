@@ -25,19 +25,30 @@ describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默
 });
 
 describe("decide — CC 1g:安全敏感目标", () => {
-  it("bypass(yolo)下写/执行敏感目标 → 仍 ask(S3.1 bypass-immune,对标 CC)", () => {
+  it("bypass(yolo)下 SECRET_TARGET(真实泄密风险)仍 ask,即便只是写也一样(S3.1 bypass-immune,对标 CC)", () => {
     expect(decide({ toolName: "write_file", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
-    expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
   });
-  it("纯读写只写才危险的目标(/etc、.git、shell 启动脚本)→ 放行,不再一律拦(粒度太粗,曾反复拦住 sysadmin 类任务里无害的 cat/ls 探查)", () => {
+  it("bypass(yolo)下 WRITE_ONLY_SENSITIVE_TARGET(/etc、.git、shell启动脚本)不再 bypass-immune——用户已经显式yolo,读写都放行", () => {
+    // 真实撞见的案例:nginx-request-logging 这类 sysadmin 任务要写 /etc/nginx/nginx.conf,
+    // headless+yolo 场景下没有人能应答确认,旧的 bypass-immune 设计让这整类任务结构性地做不完。
+    // WRITE_ONLY_SENSITIVE_TARGET 本身不是秘密(不同于 SECRET_TARGET),yolo 语义就是
+    // "已经决定不要为动作类风险弹确认",不该跟真实泄密风险用同一条免疫规则。
+    expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
     expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
     expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat /etc/postfix/main.cf"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
     expect(decide({ toolName: "exec_shell", argsJson: '{"command":"ls /etc/systemd/system/"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("allow");
+    expect(decide({ toolName: "write_file", argsJson: '{"path":"/etc/hosts"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
   });
-  it("写/改动这类目标仍要确认——只放行读,不放行写", () => {
+  it("yolo 下 shell 重定向截断(echo x > /etc/foo)仍要确认——这是独立的 S2.1 危险命令检测,不是 WRITE_ONLY_SENSITIVE_TARGET,不受这次放宽影响", () => {
+    // `>` 重定向本身风险更高(shell 元字符面更大),跟"用 write_file/edit_file 工具结构化地
+    // 改 /etc/ 下的文件"是不同风险等级,这条保护没有被这次改动动到。
     expect(decide({ toolName: "exec_shell", argsJson: '{"command":"echo x > ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
     expect(decide({ toolName: "exec_shell", argsJson: '{"command":"echo x > /etc/postfix/main.cf"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
-    expect(decide({ toolName: "write_file", argsJson: '{"path":"/etc/hosts"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
+  });
+  it("非 yolo 模式下 WRITE_ONLY_SENSITIVE_TARGET 依然要确认,行为不变——放宽只针对显式 --yolo", () => {
+    expect(decide({ toolName: "write_file", argsJson: '{"path":"/etc/hosts"}', capability: "write", mode: "default", ...base })).toBe("ask");
+    expect(decide({ toolName: "edit_file", argsJson: '{"path":".git/config"}', capability: "write", mode: "acceptEdits", ...base })).toBe("ask");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat /etc/postfix/main.cf > /tmp/x"}', capability: "exec", mode: "auto", ...base })).toBe("ask");
   });
   it("凭据/密钥类(SECRET_TARGET)读也泄漏,不管读写、不管走哪个工具,一律确认", () => {
     expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");

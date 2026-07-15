@@ -46,19 +46,22 @@ export function isDangerousCall(toolName: string, argsJson: string): boolean {
   catch { return false; }
 }
 
-// S3.1 must-confirm:触及敏感目标的写/执行,或危险 shell 命令。任何模式(含 yolo)都强制人工确认,
-// 除非有显式 allow 规则 opt-in。配合 gate auto 路径:此类调用跳过分类器、直接走人工。
+// S3.1 must-confirm:触及敏感目标的写/执行,或危险 shell 命令。配合 gate auto 路径:
+// 此类调用跳过分类器、直接走人工——除非显式 allow 规则 opt-in,或落在下面 yolo 例外里。
 function mustConfirm(p: DecideParams): boolean {
   const id = toCcIdentity(p.toolName, p.argsJson);
   if (!id?.value) return isDangerousCall(p.toolName, p.argsJson);
-  // 凭据/密钥类:读也泄漏,不管 capability、不管是不是纯读命令,一律强制确认。
+  // 凭据/密钥类:读也泄漏,不管 capability、不管是不是纯读命令、也不管模式(含 yolo)一律
+  // 强制确认——这类是真实的数据泄露/凭据失窃风险,yolo 也不该绕过。
   if (SECRET_TARGET.test(id.value)) return true;
-  // 只写才危险的目标(/etc、.git、shell 启动脚本):capability 得是 write/exec 才可能构成风险;
-  // 如果是 exec_shell 且整条命令能确认是纯只读(cat/ls/grep 这类,isReadOnlyShellCommand 已经
-  // 排除了重定向/命令替换/危险命令等),读一眼不算风险,放行——之前不分读写一律拦,是
-  // sysadmin 类任务(改 /etc/postfix、/etc/mailman3 这种)反复被同一条规则拦、且往往拦的是
-  // 无害的 cat/ls 探查步骤,才发现这个粒度太粗。
-  if ((p.capability === "write" || p.capability === "exec") && WRITE_ONLY_SENSITIVE_TARGET.test(id.value)) {
+  // 只写才危险的目标(/etc、.git、shell 启动脚本):yolo(bypassPermissions)下不再 bypass-immune——
+  // 用户已经显式 --yolo 表示要完全自动化,这类目标本身不是秘密(泄不泄漏无所谓),危险的只是
+  // "被意外改写"这个动作,而 yolo 的语义就是"我已经决定不要为动作类风险弹确认了"。真实撞见的
+  // 案例:sysadmin 类任务(配置 nginx、mailman、postfix 这些)大量需要写 /etc/ 下的文件,
+  // headless+yolo 场景下没有人能应答确认,S3.1 的 bypass-immune 设计让这整类任务结构性地
+  // 做不完——跟 SECRET_TARGET(真实泄密风险)不是同一个风险等级,不该用同一条免疫规则。
+  // 非 yolo 模式(default/acceptEdits/auto)下这类目标依然要确认,行为不变。
+  if (p.mode !== "bypassPermissions" && (p.capability === "write" || p.capability === "exec") && WRITE_ONLY_SENSITIVE_TARGET.test(id.value)) {
     const isReadOnlyExec = p.toolName === "exec_shell" && isReadOnlyShellCommand(extractCommand(p.argsJson));
     if (!isReadOnlyExec) return true;
   }
