@@ -1747,3 +1747,10 @@ efficient")却一次都没做,317处"Actually/But wait/let me reconsider"类自�
 dev题过拟合")上被独立确认——证实这不是对某几道具体dev题的过拟合观察,是真实、可
 泛化的模型行为模式,进一步支撑了"反复推理反模式"作为下一轮EVOLVE高优先级候选的
 证据强度。
+
+## Held_out 抽查(第5次)完整结果
+
+`code-from-image` ✅ 1、`make-doom-for-mips` ❌ 0(反模式,详见上条)。1/2通过。
+没有观察到"改动导致held_out题变差"的迹象。
+
+按用户指示,本轮到此为止,不启动 iteration 9,转向生成8轮迭代综合报告。
