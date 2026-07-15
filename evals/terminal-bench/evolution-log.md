@@ -1974,3 +1974,20 @@ feal-linear-cryptanalysis(反复推理反模式已确认样本)、sanitize-git-r
 区分标准，不因为任务本身难就放弃深挖是否有反模式成分，也不因为有反模式成分就抹杀真实
 难度。held_out第6次抽查最终计:1/2通过（distribution-search✅，install-windows-3.11❌
 真实结果，非外部信号打断）。
+
+## Iteration 11 WAIT 阶段中间进度（13/15出结果）
+
+- ✅ reward=1（9题）：build-pov-ray, configure-git-webserver, extract-elf,
+  nginx-request-logging, pytorch-model-cli, pytorch-model-recovery, sparql-university,
+  portfolio-optimization, mteb-leaderboard
+- ❌ reward=0（4题）：chess-best-move(AgentTimeoutError自然超时)、
+  write-compressor(AgentTimeoutError自然超时)、kv-store-grpc(无exception，待查)、
+  sanitize-git-repo(无exception，待查)
+- 待出结果（2题，容器仍在跑，均未超预算）：mailman(已跑10min/预算1800s)、
+  feal-linear-cryptanalysis(已跑19min/预算1800s)
+
+关注点初步反馈：nginx-request-logging 修复**稳定复现**（reward=1）。chess-best-move
+这次是**自然超时**（AgentTimeoutError），不是外部信号打断，是真实结果——终于拿到了
+可比较的数据，待DEBUG查是不是任务本身太难还是有反模式成分。write-compressor 再次
+自然超时，待DEBUG确认是否再现此前确认的反复推理反模式。mailman/feal-linear-
+cryptanalysis 等其跑完再一并判断。
