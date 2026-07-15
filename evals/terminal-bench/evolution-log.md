@@ -1833,3 +1833,20 @@ C代码,极限压缩约束)上生成了异常庞大的单轮内容——反复�
 **记为新的可观测信号**:`diagnose_failure.py` 目前只统计工具调用次数/跨度/verify_done
 次数,没有统计单轮 completion token 数——这个案例说明"单轮生成规模异常大"本身就是
 一个值得体检的独立信号,可以考虑加进下一轮的诊断脚本改进候选(本次未实现)。
+
+---
+
+## Iteration 10 启动(dev_pool_order[56:71])
+
+代码基线 `7e1ebfe`(与iteration 9相同,本轮DEBUG无新commit)。docker network prune已执行。
+- `iter10-2048`(12题,`-n 4`):git-leak-recovery, schemelike-metacircular-eval, regex-chess,
+  path-tracing-reverse, sqlite-db-truncate, llm-inference-batching-scheduler, dna-assembly,
+  feal-differential-cryptanalysis, raman-fitting, extract-moves-from-video, fix-git,
+  git-multibranch
+- `iter10-8192`(3题,`-n 1`):torch-pipeline-parallelism, rstan-to-pystan, torch-tensor-parallelism
+
+千帆provider,容器确认正常起来。这批里 llm-inference-batching-scheduler/dna-assembly/
+raman-fitting/rstan-to-pystan 正是最早发现"反复推理反模式"的4个原始样本,升级提醒机制
+生效与否值得重点关注;torch-pipeline-parallelism/torch-tensor-parallelism 是之前发现
+"环境缺Python但从未尝试安装"的两道题,exec_shell描述已补充相关提示,也值得关注这次
+有没有改善。
