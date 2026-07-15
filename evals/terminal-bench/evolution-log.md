@@ -2298,3 +2298,39 @@ exec_shell 32次、**write_file仅1次**（且写的是`eigen_core.c`，不是�
 
 反复推理反模式确认样本累计**第27例**，新增子特征："已得出正确结论/诊断，却反复
 用实跑验证代替一次write_file落地提交"。
+
+## fix-ocaml-gc 结果：reward=1（agent预算内正常收尾，verifier编译耗时长非异常）
+
+agent自身在53分钟(预算60分钟内)调用verify_done并给出完整bug诊断（shared_heap.c的
+pool_sweep函数指针推进逻辑错误，两处off-by-wh的边界计算bug，诊断准确、修复到位）。
+之后verifier阶段跑OCaml编译器bootstrap+testsuite耗时约35分钟（对这类任务是正常
+编译时间，不是DAO或agent的异常卡死）。**reward=1，无需深挖**。
+
+## Iteration 12 最终收尾：DEBUG完整 + EVOLVE(无代码改动) + NEXT
+
+**最终战绩：6/15通过(40%)**（此前中途统计有过一次口径错误已更正——exception.txt
+存在不等于reward=0，需两个文件都查）：
+- ✅ reward=1（6题）：constraints-scheduling, headless-terminal, hf-model-inference,
+  regex-log, cobol-modernization(超时但产出恰好通过), fix-ocaml-gc
+- ❌ reward=0（9题）：build-cython-ext/count-dataset-tokens/gcode-to-text/
+  video-processing/dna-insert(均模型精度差距非反模式)、db-wal-recovery/
+  largest-eigenval/password-recovery/qemu-startup/cobol-modernization过程中(均反复
+  推理反模式确认样本，cobol-modernization虽最终reward=1但过程仍计入反模式证据库)
+
+**全部9个失败题(加cobol-modernization过程分析共10个深挖)均完成同等深度调查**，
+未因"这批题目杂"跳过任何一题的共性根因排查——最终结论：**没有单一共性根因**，
+这批异常高的初始败率（WAIT阶段中途一度4胜10败/统计误差后5胜9败）主要是巧合性地
+集中了多道"模型解题精度不足"+"反复推理反模式"样本，不是同一个基础设施/provider
+问题（工具调用间隔分析未发现异常巨大的单次gap，权限裁决无假阳性，无_handle_sigterm
+外部杀进程信号）。
+
+**反复推理反模式族本轮新增5例确认样本（第23-27例）+ 1项重要诚实记录**：
+db-wal-recovery复现了commit c122b8a（提示词层修复"探查可能损坏数据前先备份"）
+诊断过的机制，是该修复落地后的首次真实任务复测，结果显示**未能防止复发**——如实
+记录，不夸大也不回避，列为下一轮EVOLVE候选（需要设计"更主动检测危险探查动作"的
+方案，不是简单加字符串特判）。
+
+**EVOLVE：本轮无代码改动**。所有失败根因均不指向"可以立刻低风险修复"的框架缺陷。
+
+进入NEXT：距上次held_out抽查（第6次，iteration 11启动前）已过iteration 11、12
+两批，达到"≥2批"门槛，本轮做held_out抽查。
