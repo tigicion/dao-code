@@ -1926,3 +1926,7 @@ not found时,还是两处都加)需要更审慎的设计——牵涉改动范围
 
 进入 NEXT 阶段:距上次 held_out 抽查(第5次)已过 iteration 9、10 两批,够门槛,做一次
 抽查再进 iteration 11。
+
+## Held_out 抽查(第6次)启动
+
+`distribution-search`、`install-windows-3.11`(均从未进过dev batch,均3600s预算)。
