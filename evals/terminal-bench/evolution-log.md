@@ -2057,3 +2057,52 @@ just write X"口号重启，却从未真正执行验证。
 
 归类：**意图-行动脱节确认样本**（与此前torch-tensor-parallelism的dpkg-recovery案例
 同族——说了要做X，下一步却继续推导或做了别的事Y，从未真正落实X）。
+
+## write-compressor 深挖结果：反复推理反模式再次复现（同一模式，非新失败原因）
+
+判断：**与背景描述的反模式完全吻合，同一模式再次复现**，补充一个更具体的新证据子类型。
+
+量化证据：886s跨度内8次工具调用，两段纯文字推导共758s（占86%总跨度），全部工具调用净
+耗时不到3s（除末尾apt-get）。全文"Wait"51次、"Actually"99次、"Hmm"30次、"Let me
+trace"14次、"Let me think"29次；138个markdown代码围栏均为手算伪代码演算，**零个被实际
+执行**。
+
+**新证据子类型（此前样本未见）**：两次明确提议用已具备的oracle二进制(`/app/decomp`，
+tool#4已编译成功)做实证验证，却都在下一句自我否决退回纯手算——行1482"Let me write a
+simple test...see what it outputs. But I don't have compressed input..." → 放弃；行
+2651-2748"let me just write a test harness...compare." → 紧接"Hmm, but we don't have
+a compressor yet" → 又放弃。全程**0次执行`./decomp`**，包括对自己发现的关键疑点("buf
+数组未初始化")也放弃验证。
+
+需要澄清的一点：末尾"没Python想装python3"**不是意图-行动脱节**——apt-get确实被发起
+（900s预算仅剩7s时），只是前758s纯文字推导耗尽预算后行动来得太晚，被外层超时杀死，
+这是"预算耗尽"而非"说了不做"。
+
+结论：反复推理反模式确认样本累计**第22例**（write-compressor第2次复现同一模式），
+补充新证据点："明确提议用已具备的验证工具却自我否决、退回纯手算"可作为该反模式家族
+的一个具体子特征记入日后诊断参考。
+
+## Iteration 11 收尾：DEBUG完整 + EVOLVE(无代码改动) + NEXT
+
+**5道失败题全部完成同等深度深挖**（无一因"像任务难度"被跳过）：
+- kv-store-grpc、sanitize-git-repo：模型自身判断失误（字段命名分歧/过早排除文件类型），
+  非反模式、非框架bug
+- chess-best-move：反复推理反模式第21例（坐标系方向被重推15+次）
+- feal-linear-cryptanalysis：意图-行动脱节样本（127次口号，0次落地执行）
+- write-compressor：反复推理反模式第22例（同一模式再复现，新增"有oracle却自我否决
+  验证"子证据）
+
+**反复推理反模式族当前累计：22例确认样本**（含install-windows-3.11第20例、
+chess-best-move第21例、write-compressor第22例）+ 独立命名的"意图-行动脱节"变体
+（torch-tensor-parallelism、feal-linear-cryptanalysis两例）。
+
+**EVOLVE：本轮无代码改动**。5个失败根因均不指向DAO框架缺陷——2例是模型对隐藏验收
+标准的判断分歧（非框架可修复项），3例是已被充分记录的推理行为模式（非新发现，是
+既有模式的量化补充证据）。commit reverify状态清单：本轮EVOLVE阶段零新增commit，
+门槛天然满足（无待复测项）。
+
+**Iteration 11 最终战绩：10/15通过(66.7%)**。mailman修复连续第2批稳定复现，
+nginx-request-logging修复本批稳定复现。
+
+进入NEXT：距上次held_out抽查（第6次，iteration 11启动前）仅过1批，未达2批门槛，
+下一轮跑常规dev batch（iteration 12）。
