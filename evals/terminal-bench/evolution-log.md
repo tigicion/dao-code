@@ -1227,3 +1227,21 @@ provider=deepseek`(原生)跑任何超过 1 轮工具调用的真实对话,理�
 "剥离 reasoningContent"这条行为改成按 provider 区分(deepseek 原生端点要把最后
 一轮的 reasoning_content 原样带回,qianfan/volcengine 保持现状剥离以省 token)。
 本次未直接改代码,记录为下一轮候选项。
+
+---
+
+## Iteration 6 启动(dev_pool_order[75:79] + [0:11] 环回,15题)
+
+代码基线 `a9f2386`(距上次 held_out 抽查刚过 1 批,还没到 ≥2 批的阈值,这轮正常
+LAUNCH,不抽 held_out)。二进制已确认(build-binaries.sh 09:24 编译,晚于最后一次
+src/ 改动 a9f2386,之后只有 docs commit,无需重编)。docker network prune 已执行。
+
+按内存分桶:
+- `iter6-2048`(12题,`-n 4`):configure-git-webserver, extract-elf, sanitize-git-repo,
+  pytorch-model-recovery, write-compressor, sparql-university, feal-linear-cryptanalysis,
+  mailman, kv-store-grpc, headless-terminal, regex-log, build-cython-ext
+- `iter6-4096`(2题,`-n 2`):portfolio-optimization, dna-insert
+- `iter6-8192`(1题,`-n 1`):mteb-leaderboard
+
+千帆 provider,`--agent-timeout-multiplier 1`,三条 harbor run 均已确认容器正常起来
+(dna-insert/kv-store-grpc/regex-log 等已在跑),等待结果。
