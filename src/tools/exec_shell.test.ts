@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { execShellTool } from "./exec_shell.js";
 import { processManager } from "./process_manager.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 afterEach(() => processManager.reset());
 const ctx = { workspaceRoot: process.cwd() };
@@ -55,6 +58,32 @@ describe("exec_shell tool", () => {
     expect(out).toContain("shell-done");
     expect(out).toContain("[exit 0]");
     expect(elapsed).toBeLessThan(3000); // 远小于孙进程的 30s 存活时间,证明没有卡在等 close
+  });
+
+  it("apt-get 类命令被超时打断 → 自动尝试 dpkg --configure -a 修复,并在输出里说明", async () => {
+    // 根因(真实撞见:terminal-bench merge-diff-arc-agi-task 任务,算法本身完全正确,纯因为
+    // 早先一次 apt-get 被 120s 超时强杀在事务中途、dpkg 卡在 interrupted 态,导致 verifier
+    // 自己装 curl/uv 也失败、pytest 从未跑起来,判了 0 分——这是"apt-get被超时打断损坏dpkg"
+    // 这个具体机制的第2次独立复现,不是孤立事件)。造一个名字叫 apt-get、实际会跑超过
+    // timeout 的假可执行文件、塞进 PATH 最前面,来触发这条路径,不依赖真实 apt-get/dpkg
+    // 是否装在测试机上——断言只关心"检测到超时+命令名匹配 → 触发了自动恢复尝试并在输出
+    // 里说明",不关心 dpkg 命令本身在这台机器上成不成功。
+    const fakeBin = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+    writeFileSync(path.join(fakeBin, "apt-get"), "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
+    const out = await execShellTool.handler(
+      { command: `PATH="${fakeBin}:$PATH" apt-get install foo`, timeout: 100 },
+      ctx,
+    );
+    expect(out).toContain("[超时,已终止]");
+    expect(out).toMatch(/\[自动恢复(失败)?\]/);
+    expect(out).toContain("dpkg --configure -a");
+  });
+
+  it("非包管理器命令超时 → 不触发 dpkg 自动恢复", async () => {
+    const out = await execShellTool.handler({ command: "sleep 5", timeout: 100 }, ctx);
+    expect(out).toContain("[超时,已终止]");
+    expect(out).not.toContain("自动恢复");
+    expect(out).not.toContain("dpkg");
   });
 
   it("declares exec capability and required approval", () => {

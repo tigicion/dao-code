@@ -17,6 +17,9 @@ interface ForegroundResult {
 }
 
 const OUT_CAP = 10 * 1024 * 1024; // 内存中累积输出上限,超出截断(防 OOM)
+// 包管理器命令的粗粒度识别:命令名前后是空白/分隔符/行首,不匹配文件名里带这几个词的情况
+// (跟 permissions/bash_safety.ts 里 cmdRe() 的边界判断同一个思路,避免 \b 的同形字/文件名假阳性)。
+const PKG_MGR_TIMEOUT_RE = /(?:^|[\s;&|])(apt-get|apt|dpkg|aptitude)(?=\s|$|;|&|\|)/;
 
 function runForeground(
   command: string,
@@ -157,6 +160,21 @@ export const execShellTool = defineTool({
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
     parts.push(r.aborted ? `[已中断]` : r.timedOut ? `[超时,已终止]` : `[exit ${r.code}]`);
+    // 包管理器命令(apt-get/apt/dpkg)被超时打断,可能把 dpkg 事务留在半途(interrupted 态)——
+    // 不自动恢复的话,这个损坏会悄悄传染到本次会话之后所有包管理操作,甚至连累到别处
+    // (真实撞见:merge-diff-arc-agi-task 任务,算法本身完全正确,纯因为早先一次 apt-get
+    // 被 120s 超时强杀在事务中途、dpkg 卡在 interrupted 态,导致 verifier 自己装 curl/uv 也
+    // 失败、pytest 从未跑起来,判了 0 分——这是第2次独立复现同一个具体机制,不是孤立事件)。
+    // 只在"我们自己的超时"打断时才自动修(不含用户主动 abort,那种不该附加额外动作);
+    // 用 dpkg --configure -a 这个幂等、安全的标准恢复命令,失败也不影响本次调用正常返回。
+    if (r.timedOut && PKG_MGR_TIMEOUT_RE.test(args.command)) {
+      const fix = await runForeground("dpkg --configure -a", ctx.workspaceRoot, 30000);
+      parts.push(
+        fix.code === 0
+          ? "[自动恢复] 检测到包管理器命令被超时打断,已跑 `dpkg --configure -a` 修复 dpkg 状态,可以重试。"
+          : "[自动恢复失败] 检测到包管理器命令被超时打断,尝试 `dpkg --configure -a` 修复但仍失败——继续前建议手动确认 dpkg 状态。",
+      );
+    }
     return spillOutput(parts.join("\n"), ctx.workspaceRoot);
   },
 });
