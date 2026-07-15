@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { execShellTool } from "./exec_shell.js";
 import { processManager } from "./process_manager.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -77,6 +77,41 @@ describe("exec_shell tool", () => {
     expect(out).toContain("[超时,已终止]");
     expect(out).toMatch(/\[自动恢复(失败)?\]/);
     expect(out).toContain("dpkg --configure -a");
+  });
+
+  it("dpkg --configure -a 首次恢复尝试失败 → 重试一次,重试成功则不报'自动恢复失败'", async () => {
+    // 根因(真实撞见:merge-diff-arc-agi-task 复测时,第一次自动恢复尝试就失败了——
+    // 猜测是刚被杀掉的包管理器进程还没释放 dpkg 锁,恢复命令撞了个空、白白放过一次本可
+    // 恢复的场景)。造一个假 dpkg,用计数文件模拟"第一次调用失败(锁还没释放)、
+    // 第二次调用成功(锁已释放)",断言重试后最终拿到的是"[自动恢复]"而不是
+    // "[自动恢复失败]"——证明重试逻辑真的在补救首次失败。
+    const fakeBin = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+    const counterFile = path.join(fakeBin, "dpkg.count");
+    writeFileSync(path.join(fakeBin, "apt-get"), "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
+    writeFileSync(
+      path.join(fakeBin, "dpkg"),
+      `#!/bin/sh\n` +
+        `n=$(cat "${counterFile}" 2>/dev/null || echo 0)\n` +
+        `n=$((n + 1))\n` +
+        `echo "$n" > "${counterFile}"\n` +
+        `if [ "$n" -eq 1 ]; then echo "dpkg: error: dpkg status database is locked" >&2; exit 1; fi\n` +
+        `exit 0\n`,
+      { mode: 0o755 },
+    );
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}:${originalPath}`;
+    try {
+      const out = await execShellTool.handler(
+        { command: "apt-get install foo", timeout: 100 },
+        ctx,
+      );
+      expect(out).toContain("[自动恢复]");
+      expect(out).not.toContain("[自动恢复失败]");
+      // 计数文件应该是 2:第一次失败 + 重试一次成功。
+      expect(readFileSync(counterFile, "utf8").trim()).toBe("2");
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   it("非包管理器命令超时 → 不触发 dpkg 自动恢复", async () => {
