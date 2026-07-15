@@ -161,6 +161,16 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
               ...(deps.auditId?.agent === "main" ? { msgs: JSON.stringify(sent) } : {}),
             });
           },
+          // finish_reason=content_filter:服务端内容过滤拦截,返回一句通用拒答文案("作为一个
+          // 人工智能语言模型，我还没学习如何回答这个问题...")——语义上是"被拦截了",不是"模型
+          // 真的不知道怎么答",混在正常回合里完全看不出区别。真实撞见过 terminal-bench
+          // password-recovery/protein-assembly 两个任务命中,当时毫无痕迹,只能靠事后手工
+          // replay 复现才查出真相(见 evolution-log.md)。这里加一条明确可见的提示,不改变
+          // 任何裁决/重试逻辑——这类拦截是服务端策略决定的,同样的输入原样重发也是同样结果
+          // (已用 replay 验证过是确定性的,不是偶发抖动),重试没有意义,只做可观测性。
+          onFinishReason: (r) => {
+            if (r === "content_filter") events.notice("\n[⚠ 本轮回复被服务端内容过滤拦截(finish_reason=content_filter),不是模型真实的回答]\n");
+          },
           signal,
           background: deps.background, // 背景查询 529 不重试
         });

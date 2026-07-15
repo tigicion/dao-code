@@ -275,6 +275,26 @@ describe("runTurn", () => {
     expect(written.join("")).toContain("轮数提醒");
   });
 
+  it("finish_reason=content_filter 时明确提示,不当成普通完成悄悄放过", async () => {
+    // 根因(真实撞见):terminal-bench password-recovery/protein-assembly 两个任务命中过
+    // 服务端内容过滤拦截——回复被替换成一句通用拒答文案,混在正常回合里完全看不出区别,
+    // 当时只能靠事后手工 replay 复现才查出真相。client.ts 已经把 finish_reason 通过
+    // onFinishReason 回调透传出来,这里断言 loop.ts 真的接住了并给出可见提示。
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: ((opts: StreamChatOptions) => {
+        opts.onFinishReason?.("content_filter");
+        return turn([{ kind: "content", text: "作为一个人工智能语言模型..." }], { role: "assistant", content: "作为一个人工智能语言模型..." })();
+      }) as any,
+      executeToolCalls: async () => [],
+      write: (t) => written.push(t),
+    });
+    expect(written.join("")).toContain("content_filter");
+  });
+
   it("drainAdvisories:回合边界把结论注入为 system 消息 + 发审视者介入提示", async () => {
     const s = new Session("SYS", "m");
     s.addUser("go");

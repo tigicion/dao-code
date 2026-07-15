@@ -137,6 +137,27 @@ describe("streamChat", () => {
     expect(seen).toMatchObject({ prompt_tokens: 1000, prompt_cache_hit_tokens: 900, prompt_cache_miss_tokens: 100 });
   });
 
+  it("finish_reason 通过 onFinishReason 回调透传(用于检测 content_filter 拦截)", async () => {
+    // 根因(真实撞见):terminal-bench password-recovery/protein-assembly 两个任务命中过
+    // finish_reason=content_filter——服务端内容过滤拦截,返回一句通用拒答文案,混在正常回合
+    // 里完全看不出区别,当时只能靠事后手工 replay 复现才查出真相。加这个回调让 loop.ts 能
+    // 检测并明确提示,不再是毫无痕迹。
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"作为一个人工智能语言模型..."},"finish_reason":"content_filter"}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    let seen: string | undefined;
+    await run(
+      streamChat({
+        ...base,
+        messages: [{ role: "user", content: "hi" }],
+        onFinishReason: (r) => { seen = r; },
+        fetchImpl: fakeFetch(chunks),
+      }),
+    );
+    expect(seen).toBe("content_filter");
+  });
+
   it("千帆等走 OpenAI 形状 usage(prompt_tokens_details.cached_tokens,无原生 hit/miss 字段)→ 归一化补齐 hit/miss", async () => {
     // 实测千帆代理层不返回 prompt_cache_hit_tokens/prompt_cache_miss_tokens 这两个 DeepSeek 原生扁平字段,
     // 只在 prompt_tokens_details.cached_tokens 里给真实缓存命中数——之前 DAO 一直把这类响应的 hit 读成 0。

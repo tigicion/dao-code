@@ -65,6 +65,11 @@ export interface StreamChatOptions {
   extra?: Record<string, unknown>;
   // 流式 usage 回调:收到 [DONE] 前那个 usage chunk 时调用(cache 命中率埋点用)。
   onUsage?: (usage: Usage) => void;
+  // finish_reason 回调:每次拿到本轮最终 finish_reason 时调用(如 stop/length/content_filter)。
+  // 用途:检测 content_filter(服务端内容过滤拦截,返回一句风格不像模型本身的通用拒答文案,
+  // 语义上跟"模型不知道怎么答"完全不同,不该被当成普通完成——真实撞见过 password-recovery/
+  // protein-assembly 两个任务命中,当时毫无痕迹,只能靠事后手工 replay 复现才查出真相)。
+  onFinishReason?: (reason: string) => void;
   // 中途取消信号(ESC/超时):abort 后 fetch 与流读取被中断,生成器返回已累积的部分消息而非抛错。
   signal?: AbortSignal;
   // 流空闲看门狗:超过这么多毫秒没收到任何数据(连接挂起/模型停滞)→ 中断本次流并抛清晰错误,

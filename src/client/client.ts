@@ -106,6 +106,7 @@ export async function* streamChat(
     }
     const data: any = await res.json();
     if (data?.usage) opts.onUsage?.(normalizeUsage(data.usage as Usage));
+    if (typeof data?.choices?.[0]?.finish_reason === "string") opts.onFinishReason?.(data.choices[0].finish_reason);
     const msg = data?.choices?.[0]?.message ?? {};
     const tc: ToolCall[] = Array.isArray(msg.tool_calls)
       ? msg.tool_calls.filter((t: any) => t?.function?.name).map((t: any) => ({ id: t.id ?? "", type: "function" as const, function: { name: t.function.name, arguments: t.function.arguments ?? "" } }))
@@ -137,6 +138,7 @@ export async function* streamChat(
     const data: any = await res.json();
     if (data?.usage) opts.onUsage?.(normalizeUsage(data.usage as Usage));
     const c = data?.choices?.[0];
+    if (typeof c?.finish_reason === "string") opts.onFinishReason?.(c.finish_reason);
     return { text: typeof c?.message?.content === "string" ? c.message.content : "", finish: typeof c?.finish_reason === "string" ? c.finish_reason : undefined };
   }
 
@@ -158,7 +160,11 @@ export async function* streamChat(
     }
     // usage chunk(choices 常为空)在 [DONE] 前到达——先抓它再判 delta。
     if (parsed?.usage) opts.onUsage?.(normalizeUsage(parsed.usage as Usage));
-    if (typeof parsed?.choices?.[0]?.finish_reason === "string") finishReason = parsed.choices[0].finish_reason; // 截断检测
+    const fr = parsed?.choices?.[0]?.finish_reason;
+    if (typeof fr === "string") {
+      finishReason = fr; // 截断检测
+      opts.onFinishReason?.(fr);
+    }
     const delta = parsed?.choices?.[0]?.delta;
     if (!delta) return [];
     const out: StreamDelta[] = [];
