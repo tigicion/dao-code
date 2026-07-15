@@ -2551,3 +2551,20 @@ stderr带进输出（此前只说"仍失败"，现在给模型和未来诊断更
 预测先行→TDD→commit→重编流程，真实复测已发起待回填。
 
 进入NEXT：距上次held_out抽查（第7次）为0批，回LAUNCH取iteration 14下一批15题。
+
+## Iteration 14 启动(dev_pool_order[37:52])
+
+代码基线更新为**5164e3b**（本轮唯一改动：dpkg自动恢复重试加固）。docker network
+无残留。harbor命令带-d和--agent-import-path。这批含此前样本：gpt2-codegolf（单
+超大回合反模式确认样本，观察是否稳定复现或有变化）、overfull-hbox（此前确认真实
+难度，非反模式）、qemu-alpine-ssh（此前提到部分真实难度）。
+
+- `iter14-2048`(9题,`-n 4`)：modernize-scientific-stack, custom-memory-heap-crash,
+  vulnerable-secret, query-optimize, large-scale-text-editing, tune-mjcf,
+  winning-avg-corewars, model-extraction-relu-logits, polyglot-c-py
+- `iter14-4096`(4题,`-n 2`)：crack-7z-hash, overfull-hbox, qemu-alpine-ssh,
+  compile-compcert
+- `iter14-8192`(2题,`-n 1`)：filter-js-from-html, gpt2-codegolf
+
+千帆provider，容器确认正常起来。并行运行中：merge-diff-arc-agi-task dpkg修复
+复测(evolve-dpkg-retry-verify)、train-fasttext重跑(iter13-fasttext-rerun)。
