@@ -2443,3 +2443,16 @@ codegolf/adaptive-rejection-sampler的44-46K），turn1-3依次6871/3434/2103 to
 确认样本计数**，如实标注为"疑似但证据不够扎实"，留作观察项——如果同类"exec_shell
 调用早早停止、后续大段文字直到超时"的模式在后续批次再次出现且能拿到完整轮次数据，
 再正式计入。
+
+## Iteration 13 WAIT 阶段中间进度（11/15出结果，9胜2败，4题运行中均未超预算）
+
+- ✅ reward=1（9题）：bn-fit-modify, cancel-async-tasks, fix-code-vulnerability,
+  mteb-retrieve, multi-source-data-merger, pypi-server, reshard-c4-data,
+  sqlite-with-gcov, financial-document-processor（sqlite-with-gcov顺利通过，未见
+  SQLite副作用问题）
+- ❌ reward=0（2题）：merge-diff-arc-agi-task（apt-get超时损坏dpkg第3次复现，自动
+  恢复触发但修复失败，纯基础设施非新bug，强EVOLVE候选）、polyglot-rust-c（疑似
+  单一超大回合变体，证据不够扎实未计入正式样本）
+- 运行中（4题，均未超预算）：protein-assembly(3min/1800s)、
+  caffe-cifar-10(23min/3600s)、train-fasttext(28min/3600s)、
+  circuit-fibsqrt(28min/3600s)
