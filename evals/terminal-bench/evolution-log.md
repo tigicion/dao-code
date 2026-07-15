@@ -2334,3 +2334,16 @@ db-wal-recovery复现了commit c122b8a（提示词层修复"探查可能损坏�
 
 进入NEXT：距上次held_out抽查（第6次，iteration 11启动前）已过iteration 11、12
 两批，达到"≥2批"门槛，本轮做held_out抽查。
+
+## Held_out 抽查（第7次）启动
+
+`openssl-selfsigned-cert`、`adaptive-rejection-sampler`（均从未进过dev batch，均900s
+预算，2048MB）。已核实之前6次抽查覆盖过：prove-plus-comm、break-filter-js-from-html、
+make-doom-for-mips、code-from-image、distribution-search、install-windows-3.11（6/10）。
+剩余未抽查：openssl-selfsigned-cert、adaptive-rejection-sampler（本次覆盖）、
+log-summary-date-ranges、mcmc-sampling-stan（留待下次）。
+
+launch时遇到一个小插曲：job-name本想用`heldout-check-5`，发现该目录已存在（此前某次
+留下的空壳，只有config.json+空job.log、无实际task子目录，判断是未完成的旧尝试，无
+真实数据丢失风险），为避免歧义改用`heldout-check7`重新启动，容器已确认正常运行。
+代码基线仍为7e1ebfe（与iteration 12相同，本轮DEBUG无代码改动无需重编）。
