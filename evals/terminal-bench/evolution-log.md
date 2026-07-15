@@ -1733,3 +1733,17 @@ install -y python3`(timeout=60000)跑了60079ms,被超时打断——完整因�
 
 距上次 held_out 抽查(第4次)已经过了 iteration 7、8 两批,够门槛,这一轮该做一次
 held_out 抽查,而不是直接进 iteration 9。
+
+## Held_out 抽查(第5次)make-doom-for-mips 深挖:反模式在 held_out 题上同样复现
+
+`make-doom-for-mips`(held_out,从未进过dev batch)失败,派子代理深挖确认为"反复推理
+反模式"的又一个样本,而且证据极强:36次调用里write_file仅1次(半成品头文件,不是
+真正的解释器代码),6次exec_shell没有一次是编译或跑测试,**全程从未编译过一次**。
+888秒总耗时里工具执行仅16.3秒,其余~872秒(98%)全是模型纯思考。最有力证据:模型
+至少8次明说"直接编译看报错更快"("just try compiling and see what breaks... most
+efficient")却一次都没做,317处"Actually/But wait/let me reconsider"类自我否定标记。
+
+**这次复现的意义**:这是反模式第一次在 held_out 题(从未进过dev batch,不可能被"针对
+dev题过拟合")上被独立确认——证实这不是对某几道具体dev题的过拟合观察,是真实、可
+泛化的模型行为模式,进一步支撑了"反复推理反模式"作为下一轮EVOLVE高优先级候选的
+证据强度。
