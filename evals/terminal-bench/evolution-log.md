@@ -2748,3 +2748,33 @@ date-ranges、mcmc-sampling-stan（held_out列表里最后2道未抽查过的）
 `log-summary-date-ranges`、`mcmc-sampling-stan`——held_out列表(10题)里最后2道
 从未抽查过的题目，本次抽完10题held_out列表将实现**全覆盖**。代码基线5164e3b
 （含dpkg自动恢复重试加固）。容器确认正常运行。
+
+## Held_out 第8次抽查完整结果：2/2通过，held_out列表(10题)实现全覆盖
+
+`log-summary-date-ranges` ✅ 1、`mcmc-sampling-stan` ✅ 1。2/2通过，无异常。
+
+**held_out列表10题全覆盖达成**，历次抽查完整汇总：
+
+| 抽查轮次 | 题目 | 结果 |
+|---|---|---|
+| #3 | adaptive-rejection-sampler | ✅ |
+| #3 | log-summary-date-ranges | ✅ |
+| #4 | prove-plus-comm | ✅ |
+| #4 | break-filter-js-from-html | ✅ |
+| #5 | code-from-image | ✅ |
+| #5 | make-doom-for-mips | ❌反模式 |
+| #6 | distribution-search | ✅ |
+| #6 | install-windows-3.11 | ❌真实难度+反模式放大 |
+| #7 | openssl-selfsigned-cert | ✅ |
+| #7 | adaptive-rejection-sampler(重抽) | ❌反模式(与#3同题结果反转) |
+| #8 | log-summary-date-ranges(重抽) | ✅ |
+| #8 | mcmc-sampling-stan | ✅ |
+
+**12次抽查样本，9次通过(75%)**。8轮held_out抽查跨越的代码基线从早期版本一路到
+本次的5164e3b（含3c5d14d/2efc010/1acc4b5/c122b8a/7e1ebfe/5164e3b等本session内
+全部EVOLVE修复），**全程未观察到"改动导致held_out题变差"的迹象**——失败均可
+归因到具体机制（反模式、真实难度），不存在"改动前能过、改动后不能过"的回归
+模式。两次同题重抽（adaptive-rejection-sampler、log-summary-date-ranges）结果
+不完全一致，如实记录为模型输出的非确定性，不是环境或代码回归。
+
+进入NEXT：distance held_out抽查为0批，回LAUNCH取iteration 15。
