@@ -266,6 +266,55 @@ describe("App", () => {
     expect(removed).toBe("aaa");
   });
 
+  it("/model 无参:弹选择器,↓ + ⏎ 选中 → 复用 runCommand 落地", async () => {
+    let ran = "";
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listModels: () => [
+          { model: "deepseek-v4-pro", active: true },
+          { model: "deepseek-v4-flash", active: false },
+        ],
+        runCommand: (line) => {
+          ran = line;
+          return { handled: true, output: `已切换模型:${line.split(" ")[1]}` };
+        },
+      })} />,
+    );
+    for (const ch of "/model") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 开选择器
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("deepseek-v4-pro");
+    expect(f).toContain("deepseek-v4-flash");
+    stdin.write("\x1b[B"); // ↓ 到 flash
+    await delay();
+    stdin.write("\r"); // ⏎ 选中
+    await delay();
+    expect(ran).toBe("/model deepseek-v4-flash");
+    expect(lastFrame()!).toContain("已切换模型:deepseek-v4-flash");
+  });
+
+  it("/model 选择器:Esc 取消不触发 runCommand", async () => {
+    let called = false;
+    const { stdin } = render(
+      <App {...makeDeps({
+        listModels: () => [
+          { model: "deepseek-v4-pro", active: true },
+          { model: "deepseek-v4-flash", active: false },
+        ],
+        runCommand: (line) => { if (line.startsWith("/model ")) called = true; return { handled: true, output: "未知" }; },
+      })} />,
+    );
+    for (const ch of "/model") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    stdin.write("\x1b"); // Esc
+    await delay();
+    expect(called).toBe(false);
+  });
+
   it("/skills 无参:默认只列第三方,⏎ 切换选中;按 t 显示内置", async () => {
     let toggled: [string, boolean] | null = null;
     const { lastFrame, stdin } = render(

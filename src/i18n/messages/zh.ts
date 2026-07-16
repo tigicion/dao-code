@@ -206,6 +206,8 @@ export const zh: Record<string, string> = {
   "ui.skill.thirdWord": "第三方",
   "ui.skill.help1": "↑↓ 移动 · ⏎ 开/关选中 · t 显/隐内置 · Esc 退出(改动重启生效)",
   "ui.skill.help2": "批量:按字母=开,按 Shift+字母=关 —— a 全部 · b 内置 · i 已安装",
+  "ui.model.none": "当前 provider 无可选模型。",
+  "ui.model.pickerTitle": "模型:↑↓ 选 · ⏎ 切换 · Esc 取消",
   // 结构化选择(ask_user options)
   "ui.choice.done": "✓ 完成(提交所选)",
   "ui.choice.fill": "其他(自己输入)",

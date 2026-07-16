@@ -206,6 +206,8 @@ export const en: Record<string, string> = {
   "ui.skill.thirdWord": "third-party ",
   "ui.skill.help1": "↑↓ move · ⏎ toggle selected · t show/hide built-in · Esc exit (changes apply on restart)",
   "ui.skill.help2": "Batch: letter=on, Shift+letter=off — a all · b built-in · i installed",
+  "ui.model.none": "No selectable models for the current provider.",
+  "ui.model.pickerTitle": "Model: ↑↓ select · ⏎ switch · Esc cancel",
   // Structured choice (ask_user options)
   "ui.choice.done": "✓ Done (submit selection)",
   "ui.choice.fill": "Other (type your own)",

@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
-import { DEFAULTS, type Provider, type ResolvedCredential } from "./config/profiles.js";
+import { DEFAULTS, MODELS_BY_PROVIDER, type Provider, type ResolvedCredential } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
@@ -419,6 +419,9 @@ async function main() {
       const p = profilesCfg.profiles[n]!;
       return { name: n, active: n === profilesCfg.activeProfile, detail: `${p.provider}/${p.model} · ${p.keyRef ? "钥匙串" : "文件"}` };
     });
+  // /model 无参选择器:只列当前 provider 下已知的模型串,和 /model 文本命令的校验范围一致。
+  const listModels = () =>
+    (MODELS_BY_PROVIDER[cfg.provider] ?? MODELS_BY_PROVIDER.deepseek).map((m) => ({ model: m, active: m === session.model }));
   // 切换:钥匙串读取是异步的,后台解析并更新 cfg(下一回合 streamChat 读 cfg.apiKey)。
   const switchAccount = (name: string): boolean => {
     if (!profilesCfg.profiles[name]) return false;
@@ -1838,6 +1841,7 @@ async function main() {
         listSkills,
         setSkillEnabled,
         batchSkills,
+        listModels,
       });
       taskManager.cancelAll(); // 退出时中止所有后台任务
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子

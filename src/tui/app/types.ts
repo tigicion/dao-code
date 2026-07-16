@@ -76,4 +76,6 @@ export interface AppDeps {
   listSkills?: () => { name: string; on: boolean; source: string; detail: string }[];
   setSkillEnabled?: (name: string, on: boolean) => void; // 开/关单个技能(写禁用集,重启生效)
   batchSkills?: (scope: "bundled" | "installed" | "all", on: boolean) => void; // 批量开关(内置/第三方/全部)
+  // 模型交互:/model 无参弹选择器(当前 profile provider 下的可选模型)。省略则退回文本循环命令。
+  listModels?: () => { model: string; active: boolean }[];
 }

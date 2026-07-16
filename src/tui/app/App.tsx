@@ -178,6 +178,7 @@ export function App(deps: AppDeps) {
   // /account 账户选择器:switch 模式列出账户 + ➕添加 + 🗑删除;delete 模式只列账户,选中即删。
   const [accountPick, setAccountPick] = useState<{ items: { name: string; active: boolean; detail: string }[]; idx: number; mode: "switch" | "delete" } | null>(null);
   const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number; showBundled: boolean } | null>(null);
+  const [modelPick, setModelPick] = useState<{ items: { model: string; active: boolean }[]; idx: number } | null>(null);
   const CHOICE_DONE = t("ui.choice.done"); // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = t("ui.choice.fill");
   const CHOICE_DISCUSS = t("ui.choice.discuss");
@@ -377,6 +378,8 @@ export function App(deps: AppDeps) {
       if (name === "login" && !text.trim().split(/\s+/)[1]) { await runAddAccount(); return; }
       // /skills 无参 → 弹技能选择器(逐个开关 + 批量);带参(off/on/bundled…)落到 runCommand 文本路径。
       if (name === "skills" && !text.trim().split(/\s+/)[1] && deps.listSkills) { openSkillPicker(); return; }
+      // /model 无参 → 弹模型选择器(当前 provider 下可选模型);带参(如 /model deepseek-v4-flash)落到 runCommand 文本路径。
+      if (name === "model" && !text.trim().split(/\s+/)[1] && deps.listModels) { openModelPicker(); return; }
       const res = deps.runCommand(full);
       if (res.exit) { exit(); return; }
       if (res.compact) { await deps.compact(); pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.compacted") }); setStatus(deps.getStatus()); return; }
@@ -491,6 +494,12 @@ export function App(deps: AppDeps) {
     if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: t("ui.skill.none") }); return; }
     setSkillPick({ items: list, idx: 0, showBundled: false });
   };
+  const openModelPicker = () => {
+    const list = deps.listModels?.() ?? [];
+    if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: t("ui.model.none") }); return; }
+    const idx = Math.max(0, list.findIndex((m) => m.active));
+    setModelPick({ items: list, idx });
+  };
 
   useInput((ch, key) => {
     if (accountPick) {
@@ -534,6 +543,23 @@ export function App(deps: AppDeps) {
         const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : skillPick.idx;
         if (i < 0 || i >= nV) return;
         const s = visible[i]!; deps.setSkillEnabled?.(s.name, !s.on); refresh(); // 翻转选中
+        return;
+      }
+      return;
+    }
+    if (modelPick) {
+      const items = modelPick.items, n = items.length;
+      if (key.escape) { setModelPick(null); return; }
+      if (key.upArrow) { setModelPick((p) => p && { ...p, idx: Math.max(0, p.idx - 1) }); return; }
+      if (key.downArrow) { setModelPick((p) => p && { ...p, idx: Math.min(n - 1, p.idx + 1) }); return; }
+      if (key.return || (ch && /[1-9]/.test(ch))) {
+        const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : modelPick.idx;
+        if (i < 0 || i >= n) return;
+        const m = items[i]!.model;
+        setModelPick(null);
+        const res = deps.runCommand("/model " + m);
+        if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
+        setStatus(deps.getStatus());
         return;
       }
       return;
@@ -913,6 +939,23 @@ export function App(deps: AppDeps) {
         );
       })()}
 
+      {modelPick && (() => {
+        const rows = modelPick.items.map((m) => `${m.active ? "● " : "○ "}${m.model}`);
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>{t("ui.model.pickerTitle")}</Text>
+            {rows.map((label, i) => {
+              const focused = i === modelPick.idx;
+              return (
+                <Text key={i} color={focused ? c("jade") : c("ink")}>
+                  {focused ? "❯ " : "  "}{label}
+                </Text>
+              );
+            })}
+          </Box>
+        );
+      })()}
+
       {choice && (() => {
         const nOpt = choice.options.length;
         const extras = choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS];
@@ -976,7 +1019,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && (
+      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -1027,7 +1070,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick ? (
+      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick ? (
         <Text color={c("jade")}>{"  "}{t("ui.modeHint")} {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>{t("ui.bgRunning", bgRunning)}</Text> : null}
