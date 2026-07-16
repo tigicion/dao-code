@@ -2582,3 +2582,16 @@ stderr带进输出（此前只说"仍失败"，现在给模型和未来诊断更
 ——诚实的结论是：加固后的复测显示同一条件下这次恢复成功了，是正面信号，但严格
 意义上"重试机制本身被直接验证起作用"仍需要一次"首次失败+重试救回"都留痕可查的
 样本（这是一个可以在未来加一行区分性日志的小改进，本轮不追加）。
+
+## Iteration 14 WAIT 阶段中间进度（6/15出结果）
+
+- ✅ reward=1（3题）：large-scale-text-editing, polyglot-c-py(过程中有exception但
+  最终reward=1，与cobol-modernization同类模式)、vulnerable-secret
+- ❌ reward=0（3题）：model-extraction-relu-logits、
+  qemu-alpine-ssh(过程中有exception)、gpt2-codegolf(观察样本，此前反模式确认样本)
+- 运行中：custom-memory-heap-crash、query-optimize、winning-avg-corewars、
+  compile-compcert、overfull-hbox、filter-js-from-html、train-fasttext重跑
+- 待启动（队列中，-n4桶腾槽位后启动）：modernize-scientific-stack、tune-mjcf
+- 待启动（-n2桶腾槽位后启动）：crack-7z-hash
+
+继续WAIT，等更多结果出来再统一深挖。
