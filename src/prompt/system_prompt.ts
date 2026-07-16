@@ -272,6 +272,7 @@ const BODY = `# 你是谁
 
 - 你的工作目录(workspace 根):{cwd}
 - 平台:{platform}
+{env_snapshot}
 
 文件工具(read_file / edit_file / grep_files / list_dir 等)的路径都相对这个根、或用根下的绝对路径;
 不要访问根以外的路径(会被沙箱拒绝)。开工前若不确定布局,先 list_dir 看一眼,别凭空猜一个绝对路径。
@@ -577,6 +578,7 @@ Maintenance matters more than creation: mark each step completed as you finish i
 
 - Your working directory (workspace root): {cwd}
 - Platform: {platform}
+{env_snapshot}
 
 Paths for file tools (read_file / edit_file / grep_files / list_dir etc.) are relative to this root, or use absolute paths under it.
 Don't access paths outside the root (will be rejected by sandbox). If unsure of the layout before starting, list_dir first; don't guess an absolute path out of thin air.
@@ -621,13 +623,14 @@ export interface SystemPromptOptions {
   memories?: string; // 多行 "- fact";空则注入 (暂无)
   cwd?: string; // 工作区根(沙箱根);省略则注入 (未知)
   platform?: string; // 运行平台,如 darwin/linux
+  envSnapshot?: string; // 语言运行时/git 分支预热探测(已按语言格式化好的多行 "- ..." 文本);空则不渲染该行
   lang?: Lang; // 语言;默认 zh
 }
 
 // ⚠️ 缓存纪律(prefix cache 的 #1 静默杀手):系统 prompt 进固定前缀,必须字节稳定。
 // 绝不要往这里插入易变 token——当前时间/日期、session-id、随机问候、每轮变化的状态。
 // 需要当前时间的让模型用工具拿(见正文「行动纪律」)。易变内容只能作为尾部消息追加,不进前缀。
-// 占位符里:{memory} 放在 BODY 末尾(最易变的放最后,变了只失效尾部);{model_id}/{cwd}/{platform}/{tools}
+// 占位符里:{memory} 放在 BODY 末尾(最易变的放最后,变了只失效尾部);{model_id}/{cwd}/{platform}/{env_snapshot}/{tools}
 // 启动时定一次、整会话固定。改这里前先想清楚会不会让前缀逐请求变化。
 // 长任务自主模式指令。作为尾部 system 消息按需追加(不进固定前缀,不破坏 prefix cache)。
 export const LONG_TASK_DIRECTIVE = `[长任务自主模式已开启]
@@ -680,5 +683,6 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
     .replaceAll("{tools}", opts.toolSummaries)
     .replaceAll("{cwd}", opts.cwd && opts.cwd.trim() ? opts.cwd : unknown)
     .replaceAll("{platform}", opts.platform && opts.platform.trim() ? opts.platform : unknown)
+    .replaceAll("{env_snapshot}", opts.envSnapshot?.trim() ? opts.envSnapshot : "")
     .replaceAll("{memory}", opts.memories && opts.memories.trim() ? opts.memories : noneYet);
 }
