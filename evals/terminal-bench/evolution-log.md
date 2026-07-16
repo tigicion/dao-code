@@ -33,6 +33,20 @@
   且观察到从"空"状态真实恢复内容的案例(盲重发1/3、收敛提示重发1/3)——**"100%失败→
   有概率恢复"这一核心效果已用真实数据确认**;收敛提示相对盲重发的具体边际增益因样本量
   小(各n=3)未达统计显著,留待未来自然积累更多样本再评估,不影响保留这个改动的判断。
+- [ ] **`make-mips-interpreter` "大文件单次write_file导致qianfan流失败"**(iteration 15
+  新发现)——2026-07-16:全新失败模式,与已知的mailman看门狗缺口、reasoning耗尽预算
+  两个问题都不同源。三次write_file(写千行级vm.js)全部失败:前两次让主模型抛异常、
+  熔断回退flash;第三次120s零delta被空闲看门狗终结,无重试直接终止整个episode。表面
+  像反复推理反模式(`Now I have a complete picture`出现3次),实为大文件写入反复失败
+  逼得模型重启分析。**本轮未动手修**,记为下一轮EVOLVE候选,方向:①空闲超时/主模型
+  异常后episode级重试(带backoff)而非直接终止;②引导模型分块写大文件;③排查qianfan
+  流式端点对超大tool-call参数的服务端上限。
+- [ ] **`build-pmars` "verify_done零参数不锚定任务原文验收点"**(iteration 15新发现)
+  ——2026-07-16:个案手滑(`cp -a`拷构建产物时漏了debian补丁的兄弟目录,debian/未落进
+  /app)+框架结构性空子叠加——`verify_done`调用参数是空`{}`,不强制模型对照任务原文
+  验收点逐条自检,模型于是自造了一套跑得通就行的验证标准,完全没检查任务原文明写的
+  "源码需从Debian包获取"这一条。**本轮未动手修**,记为下一轮EVOLVE候选(让verify_done
+  要求模型逐条列出任务验收点及自检证据)。
 
 ---
 
@@ -3091,3 +3105,52 @@ multi_edit/notebook_edit/todo_write之一。本例17次调用里write_file/edit_
 列为下一轮可以低成本改进的候选（比如把判据从"该轮是否调用写工具"改成"该轮
 content长度是否超过阈值仍应计入无实质推进"，属于窄范围的口径调整，不是新增
 能力）。
+
+## feal-differential-cryptanalysis 深挖结果：意图-行动脱节确认样本（与feal-linear-cryptanalysis同族，程度更轻）
+
+判断：**(c)两者兼有，以"意图-行动脱节"为主导，与feal-linear-cryptanalysis同族，
+严重程度更轻**。10次工具调用（1次read_file+9次exec_shell，6成功3失败），
+**write_file全程0次**，跨度1821s/预算1800s(101.2%)自然超时。"let me write/
+implement/start coding"类宣告命中**18次**，但仅2-3次紧随真实exec_shell调用，
+其余10余次宣告后又转回口头推导（行754-1102扎堆出现12处宣告却无一落地）。
+
+数学推导前段确有实质产出——exec_shell验证出确定性差分0x80800000→0x02000000
+（概率1）；但此后FEAL轮函数关系式被重复手推20+次（变量命名反复混淆重来）。
+**harness自身停滞检测器两次自动介入**（行3043"连续5轮无实质推进"、行6726
+"连续10轮无实质推进"），是独立于人工判断的机制性证据。文件在行6874戛然而止
+于半句公式，无key猜测、无attack.py、无任何交付物。
+
+对比feal-linear-cryptanalysis（127次口号/0次写入），本题口号密度（18次/6874行）
+和工具调用绝对数都更低，且早期有一次被验证的真实密码学产出，判定为**同族问题
+但严重程度更轻**——不是纯粹"说了不做"，是"做了一点有效的，之后陷入意图-行动
+脱节+推理原地打转的混合态"。
+
+## Iteration 15 部分批次最终收尾（13/15已跑，2题未跑，本轮补记完成）
+
+**统计口径**：13题实际跑完，扣除1题provider侧infra事件（make-mips-interpreter
+流式空闲超时崩溃，不计入统计）后，**12题有效样本，4胜8败(33.3%)**。torch-
+pipeline-parallelism、rstan-to-pystan 2题未跑（8桶未launch）。
+
+- ✅ reward=1（4题）：git-leak-recovery, llm-inference-batching-scheduler,
+  sqlite-db-truncate, sam-cell-seg
+- ❌ reward=0，反复推理反模式确认（6题，第29-34例）：dna-assembly(29)、
+  schemelike-metacircular-eval(30)、regex-chess(31,再复现)、path-tracing(32)、
+  path-tracing-reverse(33)、raman-fitting(34,含检测盲区新发现)
+- ❌ reward=0，意图-行动脱节确认（1题）：feal-differential-cryptanalysis
+  （与feal-linear-cryptanalysis同族，程度更轻）
+- ❌ reward=0，自测未覆盖真实验收路径（1题）：build-pmars
+- 无效，provider infra事件（1题）：make-mips-interpreter（流式空闲120s超时
+  崩溃，非DAO bug非模型问题，需重跑）
+
+**全部9个失败题+ 1个provider事件均完成同等深度调查**，无一因用户中途暂停而
+潦草处理。反复推理反模式族本批次**新增6例（29-34），累计34例**——这是单批
+新增样本数最多的一批，主要因为这批任务本身以算法/密码学/物理拟合类居多，天然
+容易撞上"反复推导数学/机制细节"这个陷阱。
+
+**本批意外收获**：raman-fitting深挖出一个此前未记录的**进度提醒机制检测盲区**
+——现有逻辑只看"该轮是否调用了写类工具"来判定有无进展，但反模式可以压缩进
+"少数轮次+巨型单轮文本块，穿插刚好足够频繁的write_file调用清零计数器"这种
+形态而完全规避检测。已列为低成本候选（口径调整，非新增能力），留给下一轮。
+
+**未进入EVOLVE**：本轮全部为诊断/记录性发现，无仓促代码改动。torch-pipeline-
+parallelism、rstan-to-pystan、make-mips-interpreter（重跑）留给下一轮补跑。
