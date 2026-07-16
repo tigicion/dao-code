@@ -2949,3 +2949,23 @@ launch，未中途杀掉，任其自然跑完。
   regex-chess, schemelike-metacircular-eval
 
 **4/13通过(30.8%)**，本批未完成2题(torch-pipeline-parallelism, rstan-to-pystan)。
+
+## Iteration 15 DEBUG：build-pmars / make-mips-interpreter 根因确认（均非反模式）
+
+**build-pmars（reward=0，自测未覆盖真实验收路径）**：模型自认为"全部完成"（详尽
+verify_done总结：下载Debian源码包、应用4个patch、编译成功、测试通过），verifier
+确认**3/4测试通过**（pmars能跑、无X11依赖、从源码编译）——唯独`test_debian_source_
+used`失败：`/app/pmars-0.9.4/debian`目录不存在，说明虽然patch确实应用了，但
+最终留在`/app`下的源码树没有保留debian/目录结构本身（可能提取/复制时只保留了
+打过patch的文件而非完整Debian源码包结构）。72次调用/364s(40%预算)，非反复推理
+反模式，是具体的"验收标准要求的证据链条比模型自认为的更严格"这一类真实精度
+差距。
+
+**make-mips-interpreter（NonZeroAgentExitCodeError exit 1，非AgentTimeoutError）**：
+dao_stdout.txt末尾显示`模型流空闲超时(120s 未收到数据),已停止本回合`——这是
+commit 1acc4b5修的流式空闲看门狗正确检测到provider连续120秒无任何数据后终止了
+该回合，但这次终止直接导致整个agent进程崩溃退出(exit 1)，而不是优雅重试/继续。
+这是provider侧的连接/流式响应停滞事件，不是模型推理问题，不是DAO逻辑bug（看门狗
+按设计正确工作了）。按本session已有先例（train-fasttext两次撞见千帆429限流的
+处理方式）：**这类provider侧基础设施事件不计入正式统计，需要重跑才能拿到真实
+结果**。
