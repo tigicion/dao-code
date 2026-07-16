@@ -239,14 +239,40 @@ describe("runTurn", () => {
     expect(written.join("")).toContain("进度提醒");
   });
 
-  it("同一次卡住连续两次触发进度提醒 → 第2次换成更具体的'停止文字循环、换可验证动作'措辞", async () => {
-    // 根因(蒸馏4道 terminal-bench 超时题后发现的反模式):遇到不确定的点反复用文字重新
-    // 推导,通用措辞"回看todo/不要空转"提醒过一次仍不奏效——同一次卡住第2次触发时,
-    // 不该原样重复同一句没用的话,要换成直接点破"写脚本/跑命令拿确定答案"这条。
+  it("第1次进度提醒就要带具体动作指令,不能等第2次才给——只陈述状态的提醒拦不住已经在惯性里的模型", async () => {
+    // 根因(内省复盘 schemelike-metacircular-eval 反模式#30 时发现):旧版第1次提醒只是
+    // "回看todo/不要空转"这种陈述状态的通用措辞,没给具体下一步动作;这道题只触发过1次
+    // 提醒就被模型无视、继续空转了几千行才真正动笔——等第2次升级措辞根本没等到,同一次
+    // 卡住的窗口已经浪费了。第1次就要直接给"写脚本/跑命令/哪怕写不完整版本也要落地"这条。
     const s = new Session("SYS", "m");
     s.addUser("go");
     const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
-    // 连续 10 个非推进回合:第5轮触发第1次提醒(通用措辞),第10轮触发第2次(应升级措辞)。
+    const turns = [
+      ...Array.from({ length: 5 }, () => readTurn),
+      () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
+    ];
+    let i = 0;
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
+      write: (t) => written.push(t),
+      maxTurns: 15,
+    });
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
+    const first = sys.find((c) => c.includes("[进度提醒]") && !c.includes("第2次"));
+    expect(first).toBeDefined();
+    expect(first).toContain("写脚本算出来、跑命令查、或读文档确认"); // 具体动作,不是泛泛的"回看todo"
+    expect(first).toContain("哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地"); // 对症内省发现的"写比想更安全"这条
+    expect(written.join("")).toContain("进度提醒");
+  });
+
+  it("同一次卡住连续两次触发进度提醒 → 第2次强调'已经提醒过仍没推进',同样带具体动作", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    // 连续 10 个非推进回合:第5轮触发第1次提醒,第10轮触发第2次(应升级措辞)。
     const turns = [
       ...Array.from({ length: 10 }, () => readTurn),
       () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
@@ -261,8 +287,8 @@ describe("runTurn", () => {
       maxTurns: 15,
     });
     const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
-    expect(sys.some((c) => c.includes("[进度提醒]") && !c.includes("第2次"))).toBe(true); // 第1次:通用措辞
-    expect(sys.some((c) => c.includes("[进度提醒·第2次]") && c.includes("换成一个能给出确切答案的动作"))).toBe(true); // 第2次:升级措辞
+    expect(sys.some((c) => c.includes("[进度提醒]") && !c.includes("第2次"))).toBe(true); // 第1次
+    expect(sys.some((c) => c.includes("[进度提醒·第2次]") && c.includes("前面提醒过") && c.includes("写脚本算出来"))).toBe(true); // 第2次:强调已提醒过
     expect(written.join("")).toContain("进度提醒·第2次");
   });
 
