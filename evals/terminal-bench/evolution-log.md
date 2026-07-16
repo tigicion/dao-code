@@ -2645,3 +2645,43 @@ loop.ts判定'连续两次空响应'直接终止整个session"——工具调用
 小改动，风险层级高于本轮已修的dpkg重试加固——列为**下一轮高优先级EVOLVE候选**
 （不是"样本量不够"的搪塞，是"改动本身需要新增诊断通道设计，值得专门对待"，与
 此前torch-pipeline-parallelism/db-wal-recovery两个被延后项同一类理由）。
+
+## query-optimize 深挖结果：正确但性能未达标（真实精度差距，非反模式非框架bug）
+
+verify_done调用4次，模型自己验证了正确性（原始vs优化查询在子集上diff完全一致），
+verifier确认：**5/6测试通过**（正确性、格式、无DB修改全部通过），唯独运行时性能
+不达标——solution中位数2.61s vs golden 2.00s（要求≤1.05倍即2.10s，实际1.30倍）。
+28次调用/822s(91%预算)，节奏合理，是真实的SQL查询优化能力差距（CTE写法正确但
+执行计划不够优），非反复推理反模式。
+
+## custom-memory-heap-crash / compile-compcert / overfull-hbox / qemu-alpine-ssh 深挖结果
+
+**custom-memory-heap-crash**（37次调用/1857s/103%预算，AgentTimeoutError）：tail显示
+模型在做真实、具体的C++ STL内部机制追踪（locale facet分配/析构与自定义堆
+g_custom_heap生命周期交叉的时序问题），内容专业且有推进（不是同一句话重复），
+**真实任务难度**（底层内存管理bug排查本身就需要这种细致的时序追踪），预算偏紧，
+非反模式。
+
+**compile-compcert**（59次调用/1906s/79%预算，AgentTimeoutError）：CompCert是
+Coq形式化验证编译器，全量构建本身极耗时（业内公认）。tail显示模型已定位并确认
+修复生效（"Bracket.v fix worked"），但完整rebuild反复因耗时过长被打断，中途收到
+1次进度提醒但下一句紧接着就是真实推进("修复生效，开始完整rebuild")而非原地反复。
+**真实任务难度+构建耗时约束**，非反模式。
+
+**overfull-hbox**（50次调用/454s/61%预算，verify_done 3次）：3/4测试通过（编译
+成功、无overfull hbox、synonyms未改动），仅`test_input_file_matches`失败（具体
+断言内容被截断未展开细查，但reward=0已确认非全对）。真实的LaTeX修改精确度差距，
+非反模式——与此前"overfull-hbox此前确认真实难度"的结论一致。
+
+**qemu-alpine-ssh**（47次调用/863s/96%预算，AgentTimeoutError）：再次撞见"syscall
+282"这个Rosetta/Apple Silicon Docker环境下QEMU x86_64的已知缺陷（此前qemu-startup
+深挖也见过同一具体环境问题）。有一段时间在猜测syscall 282具体是什么，但**关键是
+模型最终做出了正确的适应性决策**——"QEMU x86_64在这台host上根本跑不起来，让我换
+个思路：直接解压Alpine根文件系统跑sshd"，是主动止损、切换策略的正面行为，不是
+死循环。判断为**真实环境难度主导**（Rosetta/QEMU syscall不兼容是这台评测机的
+已知限制，跨多题反复出现——qemu-startup、install-windows-3.11、qemu-alpine-ssh
+三题共享同一底层环境缺陷，值得作为"环境限制"单独归类，不计入模型能力反模式）。
+
+**本轮反复推理反模式族最终计数：累计仍为28例**（本批次iteration 14无新增确认
+样本——8个失败题里6个是真实难度/精度差距，2个是新发现的"8000-token截断+续写
+返空"机制问题，均不属于反复推理反模式范畴）。
