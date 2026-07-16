@@ -3154,3 +3154,65 @@ pipeline-parallelism、rstan-to-pystan 2题未跑（8桶未launch）。
 
 **未进入EVOLVE**：本轮全部为诊断/记录性发现，无仓促代码改动。torch-pipeline-
 parallelism、rstan-to-pystan、make-mips-interpreter（重跑）留给下一轮补跑。
+
+## EVOLVE：反复推理反模式根因修复——内省复盘法首次应用（假设DAO框架没引导好模型，而非模型不行）
+
+用户提出关键方法论质疑：之前把"反复推理反模式"当成根因记录，本质是给症状贴标签，
+没有真正回答"为什么"，而且默认假设隐含"是模型的问题"。用户要求反过来假设：模型能力
+没问题，是DAO框架（提示词/工具/提醒机制）没有正确引导——并提出具体排查手段：把真实
+上下文用DAO实际调用方式重新发给同一个模型，追加"当时为什么没做XXX"的内省问题，结合
+DAO代码交叉验证。
+
+**内省复盘实验**（`schemelike-metacircular-eval`，反模式#30）：一次性脚本（不进代码库）
+直接调`streamChat`，组装`[真实系统提示词(从同批次build-pmars的state.json取)、真实
+任务原文(从trial.log取)、真实推理片段节选(dao_stdout.txt摘取"第一次环境设计定稿→
+进度提醒→第二次几乎重复设计"三段，中间省略标注)、内省问题]`发给deepseek-v4-pro。
+模型回答定位到两处具体机制，均已用`grep`核实引用的系统提示词原文真实存在（非编造）：
+
+1. **系统提示词"Action Discipline"整节被限定在"only when the user actually wants
+   you to make changes"前提下**，且"converge on action"的措辞只针对"change A to B
+   at line N"这种局部小改动（`src/prompt/system_prompt.ts`原401行），没有覆盖"先
+   设计后实现"类构建任务——导致模型处理"写元循环求值器"这类任务时迟迟不认为自己已
+   进入"该动手"阶段，规则从未触发。模型原话："这条规则的位置决定了它的生效范围——
+   我还没进入'该写代码了'的心智状态"。
+2. **loop.ts进度提醒第1次只给"回看todo/不要空转"这种陈述状态的通用措辞**，直到同一次
+   卡住连续第2次才换成"写脚本/跑命令拿确定答案"这条真正对症的具体建议（原363-366行）。
+   `schemelike-metacircular-eval`只触发过1次提醒就被无视，从未等到第2次——好建议被
+   延迟到了一个经常等不到的时间点。模型原话："提示被无视了...它只说了一个状态事实，
+   没有给出具体的行为指令"。
+
+**改在哪层**（提示词层+agent循环层，非hooks/权限规则）：
+- `src/prompt/system_prompt.ts`：`Converge on action`扩展到适用于较大规模构建任务
+  （设计决策定稿后立即写骨架，不要在文字里继续打磨）；`pre-action idle loops`清单
+  新增一条"重新推导/重述已经得出的结论"作为最明确的收敛信号；明确"局部小改动"只是
+  这条原则最简单的特例，原则本身适用于任何规模。
+- `src/agent/loop.ts`：第1次进度提醒直接包含"写脚本算出来、跑命令查、或读文档确认"
+  +"哪怕设计还没想清楚也先写不完整版本落地"这条具体指令，不再等第2次才给。
+
+**预计能救哪几题**：理论上任何"先设计/理解后实现"类且撞上反复推理反模式的任务都可能
+受益（本session已确认样本：dna-assembly、schemelike-metacircular-eval、regex-chess、
+path-tracing、path-tracing-reverse、raman-fitting、feal-differential-cryptanalysis
+等7+例）；不改变"局部小改动"场景下Action Discipline原有行为（新增内容是扩展适用范围，
+不是替换）。
+
+**可能连带弄坏的场景**：系统提示词新增的措辞是在已有"Action Discipline"框架内做扩展
+和强化，不改变其他章节；进度提醒改动只是把第2次的建议内容提前到第1次出现，不改变
+触发条件/计数逻辑本身，风险低。唯一不确定的是：提前给出的"写不完整版本"建议会不会
+在某些真正需要先想清楚接口设计的场景下，诱导模型过早写出需要大改的骨架，反而增加
+返工——这是效果问题，需要真实复测判断，不能只看逻辑分支正确。
+
+**第0步扫描**：检查了`system_prompt.ts`里其他"only when..."类似的条件性适用范围
+表述，`Action Discipline`是唯一一处把"收敛动作"原则限定在小改动场景的地方，没有
+发现结构相同的其它实例。
+
+**TDD**：`loop.test.ts`更新"同一次卡住连续两次触发进度提醒"用例反映第2次措辞变化，
+新增用例验证第1次提醒就包含具体动作指令。`system_prompt.test.ts`无需改动（未做
+snapshot断言）。全量`npx vitest run`1171/1171通过，`npm run typecheck`通过。
+
+**commit**：`8794c99`(代码)+`eb50212`(内省复盘方法论沉淀进
+`terminal-bench-debug-evolve` skill)。二进制已用`build-binaries.sh`按`eb50212`
+重新编译。
+
+**真实复测**：提交`fix-promptaction-scheme`(`terminal-bench/schemelike-metacircular-eval`)、
+`fix-promptaction-dna`(`terminal-bench/dna-assembly`)两个独立job，`--agent-timeout-multiplier 4`。
+结果待补。
