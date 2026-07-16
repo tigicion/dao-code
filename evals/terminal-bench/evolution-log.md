@@ -23,6 +23,18 @@
 - [x] **`password-recovery` 通用拒答模板异常**(iteration 7)——2026-07-15 补查:replay-with-probe
   直接复现,`finish_reason=content_filter`,确认是千帆服务端内容过滤拦截(非DAO问题、非路由
   异常、非随机抖动)。已加检测(`2efc010`),结论清楚,已闭环。
+- [ ] **`gpt2-codegolf`/`model-extraction-relu-logits` "reasoning耗尽预算→空响应终止"**
+  (iteration 14 高优先级EVOLVE候选)——2026-07-16 深挖:原先记录的"疑似诊断缺口"
+  (`client.ts:137`的`continueOutput`里`!res.ok`吞掉HTTP失败原因)被字节级证据推翻,真正
+  根因是reasoning_content耗尽整个输出预算、content全程为空,续写循环靠`&&content`判断
+  天然跳过。已修(`b918b55`,新增`onEmptyTruncation`回调+loop.ts收敛提示注入),二进制已
+  按新commit重编,TDD单测(`client.test.ts`+`loop.test.ts`)确定性验证了触发条件和收敛
+  提示注入逻辑本身正确。**真实复测结果不确定**:两次复测(`fix-emptytrunc-relu`
+  reward=1、`fix-emptytrunc-gpt2`reward=0)均未复现原始触发条件(cache.jsonl确认两次都
+  没有命中8000-token截断/空响应路径,是完全不同的运行轨迹——推理模型的非确定性,同一题目
+  不保证每次都把预算耗在思考阶段)——**逻辑已验证,真实场景效果因触发条件本轮未复现而
+  待定,不算已闭环,留到下次自然撞见同一签名时观察是否真的救回**,不强行为复现随机条件
+  烧更多真实评测预算。
 
 ---
 
@@ -2812,3 +2824,85 @@ turn 0单轮completion=46496 token，占该session总token的92.1%（46496/50482
 下一轮design候选，优先级参考本轮"续写恢复吞掉HTTP失败原因"（同属"单次生成
 内部不可观测"这一类问题），预算浪费程度是本轮已知反模式变体里最严重的之一
 （两个样本预算利用率都接近0%产出）。
+
+## EVOLVE:gpt2-codegolf/model-extraction-relu-logits"reasoning耗尽预算"根因修正+修复
+
+用户点名要求深挖这两题的高优先级EVOLVE候选。重新审查代码逻辑时发现原先记录的
+"疑似诊断缺口"站不住脚：即使`continueOutput`因`!res.ok`返回空文本，`content`变量
+在续写触发前已经累积了截断前的原始内容（8000 token 真实文本），不会被清空，
+`message.content`理应非空——这跟"连续两次空响应"的症状矛盾。
+
+**用真实会话原始数据重新查根因**（不满足于代码推理，去读两个session的
+`cache.jsonl`+`state.json`+`dao_stdout.txt`原始字节）：
+- `model-extraction-relu-logits`(`iter14-2048/model-extraction-relu-logits__SmKyv9J`)：
+  `cache.jsonl`显示turn2 completion=8000（命中截断），但`state.json`的messages数组
+  在tool结果之后没有对应的assistant消息——说明这一轮返回给loop.ts的assistant message
+  确实content为空。
+- 两题的`dao_stdout.txt`用`\x1b[90m`(reasoning固定用这个ANSI灰色包裹，见`tui/render.ts`
+  `plainEvents`实现)搜索：**从某个offset起直到"[连续两次空响应,结束本轮]"前一行，
+  reasoning色块全程未闭合、中途从无一次content chunk**——确认整个8000-token输出预算
+  100%花在了reasoning_content上，content字面量从头到尾是空字符串。
+
+**真正根因**：`client.ts`的续写恢复循环
+`while (finishReason === "length" && tool_calls.length === 0 && content && ...)`
+里的`&& content`判断，是为了给`continueOutput`提供"soFar"上下文而设的必要条件——但
+这个条件同时意味着：如果模型把整个输出预算耗在reasoning阶段、content从未产出，这个
+条件天然为false，续写循环整个被跳过。于是这一整轮真实的思考被直接丢弃，返回
+`content=null, tool_calls=[]`的空assistant消息。`loop.ts`原有的空响应处理（重试一次，
+连续两次空才终止）把这种情况和"模型主动给出空回复"混同，原样重发完全相同的
+`session.messages`——如果模型在同一段推理上再次耗尽预算（确定性行为，不是随机
+抖动，两个session都是单次调用即耗尽），连续两次都空，直接终止整个session，
+900s+的预算只用了几秒钟。
+
+**改在哪层**（工具实现层+agent循环层，非hooks/权限规则，不存在过拟合特定字符串的风险）：
+- `src/client/types.ts`+`src/client/client.ts`：新增`onEmptyTruncation`回调，在检测到
+  `finishReason==="length" && !content && tool_calls.length===0`时触发（这个检测点在
+  续写循环判断之后，不影响续写循环本身的行为，纯增量分支）。
+- `src/agent/loop.ts`：空响应重试路径里，命中这个回调标记时，重试前往
+  `session.messages`追加一条system提示（"上一轮思考耗尽输出预算，请更快收敛"），
+  再重试；未命中时保留原有的盲目原样重发行为不变。
+
+**预计能救哪几题**：gpt2-codegolf、model-extraction-relu-logits这两个已确认命中同一
+签名的题；理论上未来任何撞上"reasoning耗尽预算"这一具体模式的推理密集型任务都可能
+受益，不限于这两题。
+
+**可能连带弄坏的场景**：改动只在此前完全没有处理路径的空白地带（content为空但
+finishReason=length）生效，不改变"正常空响应"（reasoning也为空，比如被打断）和
+"正常续写"（content非空）的既有行为——纯新增分支，无干扰现有路径的风险。唯一
+不确定的是注入的提示措辞能否真的引导模型收敛（这是效果问题，不是逻辑正确性问题，
+需要真实复测验证，不能只看单测断言分支被触发）。
+
+**第0步扫描结果**：检查了client.ts里所有`finishReason`/`content`相关判断，只有这一处
+续写恢复逻辑用了这个模式，没有发现结构相同的其它实例需要一并修。
+
+**TDD**：`client.test.ts`新增用例验证`finish_reason=length`+`content`全程为空时
+`onEmptyTruncation`被调用且不触发非流式续写；`loop.test.ts`新增用例验证命中该回调时
+重试前注入的system提示文本、且最终使用重试拿到的真实结果。全量`npx vitest run`
+1154/1154通过，`npm run typecheck`通过。
+
+**commit**：`b918b55`。二进制已用`build-binaries.sh`按这个commit重新编译
+（重编前确认过`git rev-parse --short HEAD`与旧二进制编译时的commit不同，避免测到
+旧二进制）。
+
+**真实复测**：提交`fix-emptytrunc-relu`(`terminal-bench/model-extraction-relu-logits`)、
+`fix-emptytrunc-gpt2`(`terminal-bench/gpt2-codegolf`)两个独立job，`--agent-timeout-multiplier 4`。
+
+- `fix-emptytrunc-relu`（`model-extraction-relu-logits__arbq8Vc`）：**reward=1**。但检查
+  `cache.jsonl`（20轮，completion峰值11353，从未命中8000-token截断）+ `dao_stdout.txt`
+  （无"思考耗尽输出预算"提示）——**这次根本没有触发原始的空响应路径**，是一次完全正常、
+  全程真实推进的通过。跟这次修复无关，是推理模型非确定性的正面数据点（证明任务本身可解），
+  不能算作修复效果的验证。
+- `fix-emptytrunc-gpt2`（`gpt2-codegolf__drabLVy`）：**reward=0**。`cache.jsonl`（25轮，
+  turn0 completion=60105，同样未命中8000截断）+ `verifier/test-stdout.txt`——程序真实
+  编译运行，输出`" IS IS IS..."`而不是期望的延续文本，是GPT-2前向传播/BPE编码本身的
+  实现bug（真实能力差距），**同样完全没有触发截断/空响应路径**，是一个和原始诊断完全不同
+  的失败原因。
+
+**结论**：两次真实复测都没能复现"reasoning耗尽预算"这个具体触发条件——这是DeepSeek
+推理模型本身的非确定性（同一题目不保证每次都把预算耗在思考阶段上），不是修复无效的证据，
+但也确实意味着**这轮真实复测没能验证修复在实际撞见该条件时是否真的有效**。逻辑正确性
+已由TDD单测确定性验证（直接构造`finish_reason=length`+`content`为空的场景，验证
+`onEmptyTruncation`触发和loop.ts的收敛提示注入），风险分析（纯增量分支，不改变现有
+"正常空响应"/"正常续写"路径）站得住脚，代码予以保留；但**不标记为已闭环**——待闭环
+清单里保留这一项，留到下次自然撞见同一签名（下一批iteration或held_out抽查）时观察
+是否真的救回，不为强行复现这个随机条件继续烧真实评测预算。
