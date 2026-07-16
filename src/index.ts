@@ -28,6 +28,7 @@ import { scheduleTool } from "./tools/schedule_tool.js";
 import { skillInstallTool } from "./tools/skill_install.js";
 import { loadPlugins, installPlugin, removePlugin, pluginsRoot, pluginComponentDirs } from "./plugins.js";
 import { loadProjectInstructions } from "./project_doc.js";
+import { gatherEnvSnapshotData, formatEnvSnapshot } from "./env_snapshot.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
@@ -227,6 +228,8 @@ async function main() {
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
   const workspaceRoot = process.cwd();
+  // 尽早起、晚点等:与下面 onboarding/凭证解析等慢流程重叠执行,常见路径下不额外拖启动时延。
+  const envSnapshotPromise = gatherEnvSnapshotData(workspaceRoot).catch(() => null);
   // 语言先于迁移提示解析:readUserLang 读 ~/.dao/settings.json(缺失→undefined,容错),
   // resolveLang 再回退 env/locale/en;迁移读写 .codeds→.dao 与语言无关,故安全前置。
   setLang(resolveLang(process.env, await readUserLang()));
@@ -628,6 +631,7 @@ async function main() {
         skillsHeader + skillCatalogLines(skills)
       : "";
 
+  const envSnapshot = formatEnvSnapshot(await envSnapshotPromise, lang === "en");
   const systemPrompt =
     buildSystemPrompt({
       modelId: cfg.model,
@@ -635,6 +639,7 @@ async function main() {
       memories: memoryText,
       cwd: workspaceRoot,
       platform: process.platform,
+      envSnapshot,
       projectInstructions: loadProjectInstructions(workspaceRoot), // DAO.md/AGENTS.md/CLAUDE.md + 用户级
       lang,
     }) + agentTypesSection + skillsSection;

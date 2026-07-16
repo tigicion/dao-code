@@ -58,6 +58,21 @@ describe("buildSystemPrompt (zh)", () => {
     const p = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b" });
     expect(p).toContain("(暂无)");
   });
+
+  it("injects env snapshot when provided", () => {
+    const p = buildSystemPrompt({
+      modelId: "m",
+      toolSummaries: "- a:b",
+      envSnapshot: "- 可用语言/工具: node v20.0.0\n- Git 分支: master (干净)",
+    });
+    expect(p).toContain("可用语言/工具: node v20.0.0");
+    expect(p).toContain("Git 分支: master (干净)");
+  });
+
+  it("renders no stray placeholder text when env snapshot is omitted", () => {
+    const p = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b" });
+    expect(p).not.toContain("{env_snapshot}");
+  });
 });
 
 describe("buildSystemPrompt (en)", () => {
