@@ -171,6 +171,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           onFinishReason: (r) => {
             if (r === "content_filter") events.notice("\n[⚠ 本轮回复被服务端内容过滤拦截(finish_reason=content_filter),不是模型真实的回答]\n");
           },
+          onEmptyTruncation: () => { emptyTruncation = true; },
           signal,
           background: deps.background, // 背景查询 529 不重试
         });
@@ -198,6 +199,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
   let budgetWarned = false;
   let verifyReminderShown = false; // L4.5 只提醒一次,防止模型仍不调用时死循环纠缠
+  let emptyTruncation = false; // 本次 requestAssistant 是否命中"reasoning 耗尽预算、content 全程为空"
   for (let t = 0; t < maxTurns; t++) {
     if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
     // P3-17 预算【可选提醒】:设了 budgetCNY 且累计成本超过它 → 提醒一次(不停);
@@ -234,6 +236,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       }
     }
     const tools = apiToolsForMode(deps.registry, session.mode, getLang());
+    emptyTruncation = false;
     let assistant = await requestAssistant(tools, t);
     let toolCalls = assistant.tool_calls ?? [];
     let hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
@@ -247,7 +250,22 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // 干净失败,掩盖了真实问题。改成重试一次(不入库这次的空响应,原样重发相同的
     // session.messages);仍是空的才真正结束,但留一条可见提示,不再无声无息消失。
     if (toolCalls.length === 0 && !hasContent) {
-      events.notice("\n[模型返回空响应,重试一次…]\n");
+      // reasoning 耗尽整个输出预算(client.ts 的 onEmptyTruncation)是空响应的一个具体子类:
+      // 原样重发大概率再次把预算耗在同一段思考上(真实撞见过 gpt2-codegolf/
+      // model-extraction-relu-logits 两题,均连续两轮如此、直接终止 session)。这种情况下
+      // 注入一条收敛提示再重试,而不是盲目原样重发。
+      const wasEmptyTruncation = emptyTruncation;
+      if (wasEmptyTruncation) {
+        events.notice("\n[思考耗尽输出预算,提示收敛后重试…]\n");
+        session.messages.push({
+          role: "system",
+          content: "[提示] 上一轮的思考过程用尽了输出预算,还没有给出最终回答或工具调用就被截断。" +
+            "这一轮请更快收敛:如果方向已经想清楚,直接给出结论、代码或调用工具,不要重新从头展开完整推导。",
+        });
+      } else {
+        events.notice("\n[模型返回空响应,重试一次…]\n");
+      }
+      emptyTruncation = false;
       assistant = await requestAssistant(tools, t);
       toolCalls = assistant.tool_calls ?? [];
       hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;

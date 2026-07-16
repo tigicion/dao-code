@@ -91,6 +91,42 @@ describe("runTurn", () => {
     ]); // 空响应被丢弃(不入库),重试拿到的真实内容才入库
   });
 
+  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试前注入收敛提示,而非盲目原样重发", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      if (call === 1) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        yield { kind: "content", text: "收敛后的结论" };
+        return { role: "assistant", content: "收敛后的结论" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(call).toBe(2);
+    expect(s.messages).toEqual([
+      { role: "system", content: "SYS" },
+      { role: "user", content: "hi" },
+      {
+        role: "system",
+        content: "[提示] 上一轮的思考过程用尽了输出预算,还没有给出最终回答或工具调用就被截断。" +
+          "这一轮请更快收敛:如果方向已经想清楚,直接给出结论、代码或调用工具,不要重新从头展开完整推导。",
+      },
+      { role: "assistant", content: "收敛后的结论" },
+    ]);
+  });
+
   it("sends session.model and runs tools then loops", async () => {
     const s = new Session("SYS", "deepseek-v4-flash");
     s.addUser("go");

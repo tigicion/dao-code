@@ -319,6 +319,10 @@ export async function* streamChat(
     finishReason = more.finish;
   }
 
+  // 推理耗尽预算:content 从未产出(above 续写循环靠 `&& content` 判断,天然跳过这种情况),
+  // 但确实是被 max_tokens 截断(而非模型主动给出空回答)——不是一般的空响应,通知上层。
+  if (finishReason === "length" && !content && tool_calls.length === 0) opts.onEmptyTruncation?.();
+
   const message: AssistantMessage = {
     role: "assistant",
     content: content || null,

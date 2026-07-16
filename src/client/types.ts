@@ -70,6 +70,12 @@ export interface StreamChatOptions {
   // 语义上跟"模型不知道怎么答"完全不同,不该被当成普通完成——真实撞见过 password-recovery/
   // protein-assembly 两个任务命中,当时毫无痕迹,只能靠事后手工 replay 复现才查出真相)。
   onFinishReason?: (reason: string) => void;
+  // 推理耗尽预算回调:finish_reason=length 但 content 全程为空(整个输出预算被 reasoning_content
+  // 吃光,还没开始写最终回答/工具调用就被截断)。这种情况下 content 为空,现有续写恢复机制
+  // (要求 content 非空才触发)无法处理,这一轮真实的思考会被直接丢弃——真实撞见过 terminal-bench
+  // gpt2-codegolf/model-extraction-relu-logits 两题,均以"连续两次空响应,结束本轮"告终,900s+
+  // 预算只用了几秒钟。上层(loop.ts)据此在重试前注入收敛提示,而不是盲目原样重发。
+  onEmptyTruncation?: () => void;
   // 中途取消信号(ESC/超时):abort 后 fetch 与流读取被中断,生成器返回已累积的部分消息而非抛错。
   signal?: AbortSignal;
   // 流空闲看门狗:超过这么多毫秒没收到任何数据(连接挂起/模型停滞)→ 中断本次流并抛清晰错误,

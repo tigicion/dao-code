@@ -368,6 +368,31 @@ describe("streamChat", () => {
     expect(deltas).toContainEqual({ kind: "content", text: "后半" });
   });
 
+  it("reasoning 耗尽预算(finish_reason=length 但 content 全程为空)→ 不触发续写,onEmptyTruncation 通知调用方", async () => {
+    let streamCalls = 0;
+    const fetchImpl = (async () => {
+      streamCalls++;
+      return new Response(sseStream([
+        'data: {"choices":[{"delta":{"reasoning_content":"想了很多但还没写结论"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+        "data: [DONE]\n\n",
+      ]), { status: 200 });
+    }) as unknown as typeof fetch;
+    let notified = 0;
+    const { message } = await run(
+      streamChat({
+        ...base,
+        messages: [{ role: "user", content: "分析" }],
+        fetchImpl,
+        onEmptyTruncation: () => { notified++; },
+      }),
+    );
+    expect(streamCalls).toBe(1); // 没有触发非流式续写(content 为空,续写条件天然不满足)
+    expect(message.content).toBeNull();
+    expect(message.reasoningContent).toBe("想了很多但还没写结论");
+    expect(notified).toBe(1); // 上层被明确告知:这是"推理耗尽预算",不是普通空响应
+  });
+
   it("背景查询遇 529 → 立即上抛,不重试/不兜底", async () => {
     let calls = 0;
     const fetchImpl = (async () => { calls++; return new Response("overloaded", { status: 529 }); }) as unknown as typeof fetch;
