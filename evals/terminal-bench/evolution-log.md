@@ -2704,3 +2704,41 @@ Python3.13/调整bucket参数），是真实的、有实质内容递进的优化
 迭代次数2^19、salt长度0、IV/CRC字段逐一拆解，CTF式推理）。105次工具调用是这批
 最高频次之一，说明是高强度动作型任务（多次尝试不同字典/参数组合+结构分析），
 非反复推理反模式——是真实的密码学CTF题在有限计算预算下的固有难度。
+
+## Iteration 14 最终收尾
+
+**最终战绩：6/15通过(40%)**：
+- ✅ reward=1（6题）：large-scale-text-editing, modernize-scientific-stack,
+  polyglot-c-py, vulnerable-secret, filter-js-from-html, winning-avg-corewars
+- ❌ reward=0（9题）：custom-memory-heap-crash/query-optimize/tune-mjcf/
+  compile-compcert/overfull-hbox/qemu-alpine-ssh/crack-7z-hash（均真实任务难度或
+  精度差距，非反模式）、model-extraction-relu-logits/gpt2-codegolf（"8000-token
+  截断+续写两次返空"机制问题，同一签名在本批次内独立复现2次）
+
+**并行运行的2个独立数据点（不计入iter14统计）**：
+- train-fasttext重跑：真实自然超时（非429限流），记录为真实困难
+- merge-diff-arc-agi-task dpkg修复复测：确认命中同一apt-get超时条件且这次恢复
+  成功（reward=1），是本session第一个真正走完"预测→TDD→commit→重编→真实复测"
+  全流程且复测拿到正面结果的EVOLVE案例
+
+**全部9个失败题均完成同等深度调查**，无一因"看起来像任务难度"被跳过。**反复
+推理反模式族本轮无新增确认样本，累计仍28例**——这是continuous 2轮(iteration
+13、14)都没有新增反模式样本的批次，从"平均每批2-3例"的历史节奏看是一次明显
+放缓，可能提示：(a)运气/样本随机性，(b)dpkg修复减少了一类容易诱发反复推理的
+连锁故障场景，(c)这两批任务本身的性质（数据库/密码学/环境类居多）恰好不容易
+触发这个模式。如实记录三种可能，不强行下结论。
+
+**本轮发现2个新EVOLVE候选，按优先级排序**：
+1. **高优先级**："8000-token截断+续写恢复两次返空"机制问题——本批次内独立复现
+   2次(gpt2-codegolf、model-extraction-relu-logits)，同一数值签名(8000)、同一
+   终止消息、同样零工具调用+预算几乎完全浪费，代价极高。已定位诊断缺口
+   （`client.ts`第137行`continueOutput`的`!res.ok`分支吞掉HTTP失败原因），
+   但修复需要跨`client.ts`→`loop.ts`模块新增诊断通道，范围比本轮已做的dpkg
+   重试加固大，留给下一轮专门设计实现。
+2. 已知但未新增证据：Rosetta/Apple Silicon Docker下QEMU x86_64的syscall
+   不兼容（qemu-startup、install-windows-3.11、qemu-alpine-ssh三题共享同一
+   环境缺陷），这是评测环境本身的限制，非DAO可修复项。
+
+进入NEXT：距上次held_out抽查（第7次）已过iteration 13、14两批（EVOLVE定向复测
+不计入批次计数），达到"≥2批"门槛，下一轮做held_out抽查——选log-summary-
+date-ranges、mcmc-sampling-stan（held_out列表里最后2道未抽查过的）。
