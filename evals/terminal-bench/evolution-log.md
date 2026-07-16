@@ -2742,3 +2742,9 @@ Python3.13/调整bucket参数），是真实的、有实质内容递进的优化
 进入NEXT：距上次held_out抽查（第7次）已过iteration 13、14两批（EVOLVE定向复测
 不计入批次计数），达到"≥2批"门槛，下一轮做held_out抽查——选log-summary-
 date-ranges、mcmc-sampling-stan（held_out列表里最后2道未抽查过的）。
+
+## Held_out 抽查（第8次）启动
+
+`log-summary-date-ranges`、`mcmc-sampling-stan`——held_out列表(10题)里最后2道
+从未抽查过的题目，本次抽完10题held_out列表将实现**全覆盖**。代码基线5164e3b
+（含dpkg自动恢复重试加固）。容器确认正常运行。
