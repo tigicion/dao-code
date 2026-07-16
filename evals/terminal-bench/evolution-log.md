@@ -2685,3 +2685,13 @@ Coq形式化验证编译器，全量构建本身极耗时（业内公认）。ta
 **本轮反复推理反模式族最终计数：累计仍为28例**（本批次iteration 14无新增确认
 样本——8个失败题里6个是真实难度/精度差距，2个是新发现的"8000-token截断+续写
 返空"机制问题，均不属于反复推理反模式范畴）。
+
+## train-fasttext 重跑结果：真实自然超时（非429限流，独立数据点，不计入iter13/14统计）
+
+重跑（job-name: iter13-fasttext-rerun）这次是**真实的AgentTimeoutError**（无429
+限流），26次调用/2196s(61%预算)，verify_done 0次，reward.txt不存在（agent自身
+超时,verifier未运行）。tail显示模型在做合理的fastText模型压缩数学推导（vocab*dim
+vs bucket*dim的内存占比计算、多种压缩策略权衡：autotune/编译新版fasttext支持
+Python3.13/调整bucket参数），是真实的、有实质内容递进的优化工作，不是空转重复。
+**独立数据点记录为：真实困难，未达标（150MB体积约束下精度不够，或反之），非
+反复推理反模式**。此结果不计入iteration 13/14的胜负统计。
