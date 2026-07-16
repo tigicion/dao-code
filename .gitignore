@@ -1,4 +1,5 @@
 node_modules/
+refs/
 dist/
 dist-bin/
 .worktrees/
