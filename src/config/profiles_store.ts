@@ -41,7 +41,9 @@ export async function saveProfiles(file: string, cfg: ProfilesConfig): Promise<v
 
 // 以下为纯函数:返回新对象,便于测试与可预测的状态更新。
 
+// 一账户一 key:同名已存在则拒绝,不做原地覆盖。想换 key 只能先 removeProfile 再新建。
 export function addProfile(cfg: ProfilesConfig, name: string, profile: Profile): ProfilesConfig {
+  if (cfg.profiles[name]) throw new Error(`账户已存在:${name}(先 /account rm ${name} 再新建)`);
   return {
     ...cfg,
     activeProfile: name, // 新增即激活

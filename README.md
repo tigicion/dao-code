@@ -276,7 +276,7 @@ EVAL_RUNS=1 node evals/run.mjs # smoke test
 
 | Variable | Description | Default |
 |---|---|---|
-| — | API key: run `dao` interactively to set via onboarding, or `/login` to change | — |
+| — | API key: run `dao` interactively to set via onboarding, or `/account` to manage | — |
 | `DEEPSEEK_MODEL` | Default model (deprecated) | `deepseek-v4-pro` |
 | `DAO_THEME` | Force terminal background `light` / `dark` | detected from `COLORFGBG` / OSC 11, else `dark` |
 | `DAO_REASONING_EFFORT` | Reasoning effort | `max` |

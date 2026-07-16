@@ -43,7 +43,7 @@ npm run typecheck && npm run lint && npm test
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DEEPSEEK_MODEL` | 默认模型 | `deepseek-v4-pro` |
-| `--api-key` | headless 模式传 key(交互模式 /login 管理) | — |
+| `--api-key` | headless 模式传 key(交互模式 /account 管理) | — |
 | `--provider` | headless 模式指定 provider | — |
 | `DAO_MAX_TURNS` | 每轮最大工具回合 | `50` |
 | `DAO_THEME` | 终端主题 `light`/`dark` | 自动检测 |

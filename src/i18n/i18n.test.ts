@@ -66,11 +66,11 @@ describe("t / setLang", () => {
   });
   it("运行时通知/工具标签 ui.* 抽样 zh/en", () => {
     setLang("zh");
-    expect(t("ui.account.pastePrompt")).toBe("粘贴新账户的 DeepSeek key(留空取消):");
+    expect(t("ui.account.pastePrompt", "DeepSeek 官方")).toBe("粘贴 DeepSeek 官方 的 key(留空取消):");
     expect(t("ui.notice.error", "boom")).toBe("出错:boom");
     expect(t("ui.detail.lines", 3)).toBe("3 行");
     setLang("en");
-    expect(t("ui.account.pastePrompt")).toContain("Paste the new account");
+    expect(t("ui.account.pastePrompt", "DeepSeek official")).toContain("Paste the DeepSeek official key");
     expect(t("ui.notice.error", "boom")).toBe("Error: boom");
     expect(t("ui.detail.lines", 3)).toBe("3 lines");
   });

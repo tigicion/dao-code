@@ -357,7 +357,9 @@ async function main() {
         detectedLang: getLang(),       // setLang(resolveLang(...)) 已在前(B 接线)
         validate: (c) => validateCredential(c),
         persist: async (provider, meta, key) => {
-          const { cfg } = await persistKey(profilesCfg, "default", { provider, ...meta }, key, kc, { preferKeychain: keychainAvailable() });
+          // 一账户一 key:default 若已存在(如钥匙串项被外部删除导致 resolved 为空触发重新引导)先删旧再建新,不原地覆盖。
+          const base = profilesCfg.profiles.default ? removeProfile(profilesCfg, "default") : profilesCfg;
+          const { cfg } = await persistKey(base, "default", { provider, ...meta }, key, kc, { preferKeychain: keychainAvailable() });
           profilesCfg = { ...cfg, onboardingComplete: true };
           await saveProfiles(keyFile, profilesCfg);
           return { resolved: { key, provider, baseUrl: meta.baseUrl, model: meta.model, source: "profile:default" } };
@@ -413,7 +415,7 @@ async function main() {
   }
   if (firstRun) write(`\n${t("onboard.done")}\n`);
 
-  // ---- 账户(profile)操作:供 /account 选择器与 /login /logout 共用(单一实现,UI 只是壳)----
+  // ---- 账户(profile)操作:供 /account 选择器与文本子命令共用(单一实现,UI 只是壳)----
   const listAccounts = () =>
     Object.keys(profilesCfg.profiles).map((n) => {
       const p = profilesCfg.profiles[n]!;
@@ -446,13 +448,11 @@ async function main() {
     if (!profilesCfg.profiles.default) return "default";
     for (let i = 2; ; i++) if (!profilesCfg.profiles[`account-${i}`]) return `account-${i}`;
   };
-  // 添加:校验 → 持久化(钥匙串优先)→ 激活并即时生效。失败返回原因,不落盘。
+  // 添加:一账户一 key,同名已存在直接拒绝(想换 key 先 /account rm 再新建)→ 校验 → 持久化(钥匙串优先)→ 激活并即时生效。
   const addAccount = async (key: string, name?: string, provider: Provider = "deepseek"): Promise<{ ok: boolean; name?: string; reason?: string }> => {
     const targetName = name?.trim() || nextAccountName();
-    const cur = profilesCfg.profiles[targetName];
-    const meta = cur
-      ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model }
-      : { provider, ...DEFAULTS[provider] };
+    if (profilesCfg.profiles[targetName]) return { ok: false, reason: `账户已存在:${targetName}(先 /account rm ${targetName} 再新建)` };
+    const meta = { provider, ...DEFAULTS[provider] };
     const v = await validateCredential({ baseUrl: meta.baseUrl, key, provider: meta.provider });
     if (!v.ok) return { ok: false, reason: v.reason };
     const { cfg: nc } = await persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() });
@@ -462,6 +462,11 @@ async function main() {
     session.setModel(meta.model);
     return { ok: true, name: targetName };
   };
+  const accountReasonText = (reason?: string): string =>
+    reason === "invalid" ? "key 无效(401/403)"
+      : reason === "unreachable" ? "网络不通,连不上 provider"
+      : reason === "http" ? "provider 返回非 2xx"
+      : reason ?? "未知原因";
 
   const registry = new ToolRegistry();
   for (const t of [
@@ -1667,9 +1672,23 @@ async function main() {
             session.messages.push({ role: "system", content: `[用户备注] ${note}` });
             return { handled: true, output: "已记入上下文(下次回复时模型会看到)。" };
           }
-          // /account /login 的无参交互(选择器 / 粘贴引导)由 App 拦截;这里只处理带参的"高手快捷"文本路径。
+          // /account 无参的选择器交互由 App 拦截;这里处理带参的文本路径(add/rm/切换/列表)。
           if (name === "account" || name === "accounts") {
             const [target, ...restA] = line.trim().split(/\s+/).slice(1);
+            if (target === "add") {
+              const key = restA[0];
+              if (!key) return { handled: true, output: "用法:/account add <key> [provider] [name](provider 缺省 deepseek,name 缺省自动起名;Ink 下直接 /account 弹➕引导)" };
+              const knownProviders = Object.keys(DEFAULTS) as Provider[];
+              const providerArg = restA[1] as Provider | undefined;
+              if (providerArg && !knownProviders.includes(providerArg)) {
+                return { handled: true, output: `未知 provider:${providerArg}(可选:${knownProviders.join(" / ")})` };
+              }
+              const nameArg = restA[2];
+              addAccount(key, nameArg, providerArg ?? "deepseek")
+                .then((r) => write(r.ok ? `\n✓ 已添加并切到账户「${r.name}」。\n` : `\n✗ /account add 失败:${accountReasonText(r.reason)}\n`))
+                .catch((e) => write(`\n✗ /account add 出错:${e instanceof Error ? e.message : String(e)}\n`));
+              return { handled: true, output: "校验中,请稍候…(结果稍后打印)" };
+            }
             if (target === "rm" && restA[0]) {
               if (!profilesCfg.profiles[restA[0]]) return { handled: true, output: `无此账户:${restA[0]}` };
               removeAccount(restA[0]);
@@ -1683,25 +1702,8 @@ async function main() {
             }
             // 无参且无选择器(非 Ink/退化):退回文本列表
             const rows = listAccounts();
-            const list = rows.length ? rows.map((r) => `${r.active ? "● " : "  "}${r.name} · ${r.detail}`).join("\n") : "  (无,/login 添加)";
-            return { handled: true, output: `账户 · 当前来源 ${keySource}\n${list}\n(Ink 下直接 /account 弹选择器;/account <名> 切换 · /account rm <名> 删除)` };
-          }
-          if (name === "login") {
-            const key = line.trim().split(/\s+/).slice(1).join(" ").trim();
-            if (!key) return { handled: true, output: "用法:直接 /login 走粘贴引导;/login <key> 给当前账户换 key;/logout 清除。" };
-            cfg.apiKey = key; // 即时生效(非阻塞);完整校验在 /login 引导或启动 wizard
-            const targetName = profilesCfg.profiles[profilesCfg.activeProfile] ? profilesCfg.activeProfile : "default";
-            const cur = profilesCfg.profiles[targetName];
-            const meta = cur ? { provider: cur.provider, baseUrl: cur.baseUrl, model: cur.model } : { provider: "deepseek" as const, ...DEFAULTS.deepseek };
-            persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() })
-              .then((res) => { profilesCfg = { ...res.cfg, onboardingComplete: true }; keySource = `profile:${targetName}`; return saveProfiles(keyFile, profilesCfg); })
-              .catch(() => {});
-            return { handled: true, output: `✓ 已给账户「${targetName}」换 key,下一回合生效。` };
-          }
-          if (name === "logout") {
-            const active = profilesCfg.activeProfile;
-            removeAccount(active);
-            return { handled: true, output: `✓ 已删除账户「${active}」(整个 profile:provider/baseUrl/model/key 一起删)。本会话仍用当前凭证;重启后需 /login 或切到其它账户。` };
+            const list = rows.length ? rows.map((r) => `${r.active ? "● " : "  "}${r.name} · ${r.detail}`).join("\n") : "  (无,/account add <key> 添加)";
+            return { handled: true, output: `账户 · 当前来源 ${keySource}\n${list}\n(Ink 下直接 /account 弹选择器;/account add <key> [provider] [name] 添加 · /account <名> 切换 · /account rm <名> 删除)` };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
             // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。

@@ -181,7 +181,7 @@ describe("App", () => {
     expect(lastFrame()!).toContain("已切到账户「work」");
   });
 
-  it("/account 无账户:直接进入粘贴引导", async () => {
+  it("/account 无账户:直接进入添加引导,先问 provider", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ listAccounts: () => [], addAccount: async () => ({ ok: true, name: "default" }) })} />,
     );
@@ -189,12 +189,12 @@ describe("App", () => {
     await delay();
     stdin.write("\r");
     await delay();
-    expect(lastFrame()!).toContain("粘贴新账户");
+    expect(lastFrame()!).toContain("哪个 provider");
   });
 
-  it("/account 添加账户:key → provider → name,provider 透传给 addAccount", async () => {
+  it("/account 添加账户:provider 选择器(数字键选)→ key → name,provider 透传给 addAccount 且粘贴提示带上 provider 标签", async () => {
     let seenProvider: string | undefined;
-    const { stdin } = render(
+    const { lastFrame, stdin } = render(
       <App {...makeDeps({
         listAccounts: () => [],
         addAccount: async (key, name, provider) => { seenProvider = provider; return { ok: true, name: name ?? "default" }; },
@@ -204,20 +204,20 @@ describe("App", () => {
     await delay();
     stdin.write("\r"); // 无账户,直接进添加
     await delay();
+    expect(lastFrame()!).toContain("千帆 token plan"); // 选择器里列出候选,不用打字
+    stdin.write("2"); // 数字键直接选第 2 项:qianfan
+    await delay();
+    expect(lastFrame()!).toContain("千帆 token plan"); // 粘贴提示报出选中的 provider,不再写死 DeepSeek
     for (const ch of "qf-key") stdin.write(ch);
     await delay();
     stdin.write("\r"); // 粘贴 key
-    await delay();
-    for (const ch of "qianfan") stdin.write(ch);
-    await delay();
-    stdin.write("\r"); // 选 provider
     await delay();
     stdin.write("\r"); // 起名(留空用默认)
     await delay();
     expect(seenProvider).toBe("qianfan");
   });
 
-  it("/account 添加账户:provider 打错字 → 静默回退 deepseek", async () => {
+  it("/account 添加账户:↓↓ + ⏎ 选到 volcengine(排最后)", async () => {
     let seenProvider: string | undefined;
     const { stdin } = render(
       <App {...makeDeps({
@@ -229,17 +229,37 @@ describe("App", () => {
     await delay();
     stdin.write("\r");
     await delay();
-    for (const ch of "qf-key") stdin.write(ch);
+    stdin.write("\x1b[B"); // ↓ 到 qianfan
+    await delay();
+    stdin.write("\x1b[B"); // ↓ 到 volcengine
+    await delay();
+    stdin.write("\r"); // ⏎ 确认
+    await delay();
+    for (const ch of "vk-key") stdin.write(ch);
     await delay();
     stdin.write("\r");
     await delay();
-    for (const ch of "not-a-provider") stdin.write(ch);
+    stdin.write("\r");
+    await delay();
+    expect(seenProvider).toBe("volcengine");
+  });
+
+  it("/account 添加账户:provider 选择器按 Esc → 取消,不调用 addAccount", async () => {
+    let called = false;
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listAccounts: () => [],
+        addAccount: async (key, name, provider) => { called = true; return { ok: true, name: name ?? "default" }; },
+      })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
     await delay();
     stdin.write("\r");
     await delay();
-    stdin.write("\r");
+    stdin.write("\x1b"); // Esc
     await delay();
-    expect(seenProvider).toBe("deepseek");
+    expect(called).toBe(false);
+    expect(lastFrame()!).toContain("已取消");
   });
 
   it("/account → 🗑 删除 → 选中账户删除", async () => {
@@ -785,7 +805,7 @@ describe("App", () => {
     expect(f).not.toContain("长任务");
   });
 
-  it("i18n:账户粘贴引导跟随 locale(en)", async () => {
+  it("i18n:账户添加引导跟随 locale(en)", async () => {
     setLang("en");
     const { lastFrame, stdin } = render(
       <App {...makeDeps({ listAccounts: () => [], addAccount: async () => ({ ok: true, name: "default" }) })} />,
@@ -794,9 +814,12 @@ describe("App", () => {
     await delay();
     stdin.write("\r");
     await delay();
+    expect(lastFrame()!).toContain("Which provider");
+    stdin.write("\r"); // 回车默认 deepseek
+    await delay();
     const f = lastFrame()!;
-    expect(f).toContain("Paste the new account");
-    expect(f).not.toContain("粘贴新账户");
+    expect(f).toContain("Paste the DeepSeek official key");
+    expect(f).not.toContain("粘贴");
   });
 
   it("i18n:主题切换通知跟随 locale(en)", async () => {

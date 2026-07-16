@@ -278,7 +278,7 @@ EVAL_RUNS=1 node evals/run.mjs # 冒烟
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| — | API key:运行 `dao` 交互进入首次引导设置,或 `/login` 更换 | — |
+| — | API key:运行 `dao` 交互进入首次引导设置,或 `/account` 管理 | — |
 | `DEEPSEEK_MODEL` | 默认模型(已弃用) | `deepseek-v4-pro` |
 | `DAO_THEME` | `light` / `dark` 强制终端背景 | 据 `COLORFGBG` / OSC 11 探测,否则 `dark` |
 | `DAO_REASONING_EFFORT` | 思考强度 | `max` |

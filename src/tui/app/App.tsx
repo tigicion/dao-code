@@ -28,7 +28,7 @@ const COMMAND_META: ReadonlyArray<string> = [
   "model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor",
   "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume",
   "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin",
-  "account", "login", "logout", "simplify", "remember", "debug-session", "skillify", "batch",
+  "account", "simplify", "remember", "debug-session", "skillify", "batch",
   "loop", "theme", "bypass", "goal", "dod", "restore", "clear", "compact", "cost", "session",
   "audit", "help", "exit",
 ];
@@ -179,6 +179,8 @@ export function App(deps: AppDeps) {
   const [accountPick, setAccountPick] = useState<{ items: { name: string; active: boolean; detail: string }[]; idx: number; mode: "switch" | "delete" } | null>(null);
   const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number; showBundled: boolean } | null>(null);
   const [modelPick, setModelPick] = useState<{ items: { model: string; active: boolean }[]; idx: number } | null>(null);
+  // 添加账户流程里的 provider 选择器(↑↓选/⏎确认/Esc取消),resolve(null) 表示取消。
+  const [providerPick, setProviderPick] = useState<{ items: { provider: Provider; label: string }[]; idx: number; resolve: (p: Provider | null) => void } | null>(null);
   const CHOICE_DONE = t("ui.choice.done"); // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = t("ui.choice.fill");
   const CHOICE_DISCUSS = t("ui.choice.discuss");
@@ -373,9 +375,8 @@ export function App(deps: AppDeps) {
         loadResume(rid);
         return;
       }
-      // /account 无参 → 弹账户选择器;/login 无参 → 走粘贴引导(带参数则落到 runCommand 文本路径)。
+      // /account 无参 → 弹账户选择器(空列表直接走粘贴引导);带参数(add/rm/切换)落到 runCommand 文本路径。
       if (name === "account" && !text.trim().split(/\s+/)[1]) { openAccountPicker(); return; }
-      if (name === "login" && !text.trim().split(/\s+/)[1]) { await runAddAccount(); return; }
       // /skills 无参 → 弹技能选择器(逐个开关 + 批量);带参(off/on/bundled…)落到 runCommand 文本路径。
       if (name === "skills" && !text.trim().split(/\s+/)[1] && deps.listSkills) { openSkillPicker(); return; }
       // /model 无参 → 弹模型选择器(当前 provider 下可选模型);带参(如 /model deepseek-v4-flash)落到 runCommand 文本路径。
@@ -470,12 +471,23 @@ export function App(deps: AppDeps) {
   // 单行输入(复用 ask 覆盖层):粘贴 key / 起名都走它;回车提交,空 = 取消。
   const askLine = (q: string) => new Promise<string>((resolve) => setAsk({ question: q, resolve }));
   const reasonText = (r?: string) => (r === "invalid" ? t("ui.reason.invalid") : r === "unreachable" ? t("ui.reason.unreachable") : r === "http" ? t("ui.reason.http") : t("ui.reason.unknown"));
-  // 添加账户:粘贴 → 校验 → 持久化 → 激活。/login 无参与选择器"➕"共用。
+  const askProvider = () => new Promise<Provider | null>((resolve) => setProviderPick({
+    items: [
+      { provider: "deepseek", label: t("ui.account.providerLabel.deepseek") },
+      { provider: "qianfan", label: t("ui.account.providerLabel.qianfan") },
+      { provider: "volcengine", label: t("ui.account.providerLabel.volcengine") },
+    ],
+    idx: 0,
+    resolve,
+  }));
+  // 添加账户:先弹选择器选 provider(deepseek/千帆 token plan/火山 coding plan,↑↓选,不是打字)→
+  // 再粘贴对应 key(提示会报出选中的 provider,不再写死 DeepSeek)→ 起名 → 校验 → 持久化 → 激活。
+  // 空账户列表兜底与选择器"➕"共用同一实现。
   const runAddAccount = async () => {
-    const key = (await askLine(t("ui.account.pastePrompt"))).trim();
+    const provider = await askProvider();
+    if (!provider) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+    const key = (await askLine(t("ui.account.pastePrompt", t(`ui.account.providerLabel.${provider}`)))).trim();
     if (!key) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
-    const providerInput = (await askLine(t("ui.account.providerPrompt"))).trim().toLowerCase();
-    const provider = (["deepseek", "volcengine", "qianfan"].includes(providerInput) ? providerInput : "deepseek") as Provider;
     const name = (await askLine(t("ui.account.namePrompt"))).trim();
     pushItem({ id: nextId(), kind: "notice", text: t("ui.account.validating") });
     const r = await deps.addAccount?.(key, name || undefined, provider);
@@ -560,6 +572,21 @@ export function App(deps: AppDeps) {
         const res = deps.runCommand("/model " + m);
         if (res.output) pushItem({ id: nextId(), kind: "notice", text: res.output });
         setStatus(deps.getStatus());
+        return;
+      }
+      return;
+    }
+    if (providerPick) {
+      const items = providerPick.items, n = items.length;
+      if (key.escape) { providerPick.resolve(null); setProviderPick(null); return; }
+      if (key.upArrow) { setProviderPick((p) => p && { ...p, idx: Math.max(0, p.idx - 1) }); return; }
+      if (key.downArrow) { setProviderPick((p) => p && { ...p, idx: Math.min(n - 1, p.idx + 1) }); return; }
+      if (key.return || (ch && /[1-9]/.test(ch))) {
+        const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : providerPick.idx;
+        if (i < 0 || i >= n) return;
+        const chosen = items[i]!.provider;
+        providerPick.resolve(chosen);
+        setProviderPick(null);
         return;
       }
       return;
@@ -956,6 +983,23 @@ export function App(deps: AppDeps) {
         );
       })()}
 
+      {providerPick && (() => {
+        const rows = providerPick.items.map((p) => p.label);
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>{t("ui.account.providerPickerTitle")}</Text>
+            {rows.map((label, i) => {
+              const focused = i === providerPick.idx;
+              return (
+                <Text key={i} color={focused ? c("jade") : c("ink")}>
+                  {focused ? "❯ " : "  "}{label}
+                </Text>
+              );
+            })}
+          </Box>
+        );
+      })()}
+
       {choice && (() => {
         const nOpt = choice.options.length;
         const extras = choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS];
@@ -1019,7 +1063,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && (
+      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && !providerPick && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -1070,7 +1114,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick ? (
+      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && !providerPick ? (
         <Text color={c("jade")}>{"  "}{t("ui.modeHint")} {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>{t("ui.bgRunning", bgRunning)}</Text> : null}

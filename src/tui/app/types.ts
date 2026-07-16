@@ -67,7 +67,7 @@ export interface AppDeps {
   subscribeTasks?: (cb: () => void) => void;
   // 当前运行中的后台任务数(状态栏展示)。
   runningTasks?: () => number;
-  // 账户(profile)交互:/account 无参弹选择器(切换/增/删),/login 无参走粘贴引导。省略则退回文本命令。
+  // 账户(profile)交互:/account 无参弹选择器(切换/增/删,空列表直接走粘贴引导)。省略则退回文本命令。
   listAccounts?: () => { name: string; active: boolean; detail: string }[];
   switchAccount?: (name: string) => void; // 切换激活账户(异步解析+生效,下一回合读 cfg)
   removeAccount?: (name: string) => void; // 删除账户(连带清钥匙串)

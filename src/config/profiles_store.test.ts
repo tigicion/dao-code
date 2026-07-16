@@ -77,4 +77,10 @@ describe("profile mutations", () => {
     expect(cfg.profiles.b).toBeUndefined();
     expect(cfg.activeProfile).toBe("a");
   });
+
+  it("addProfile rejects a name that already exists (one account, one key)", () => {
+    const cfg = addProfile(base, "work", { provider: "deepseek", baseUrl: "b", model: "m", key: "old" });
+    expect(() => addProfile(cfg, "work", { provider: "deepseek", baseUrl: "b", model: "m", key: "new" })).toThrow();
+    expect(cfg.profiles.work!.key).toBe("old"); // 拒绝后原 key 不变
+  });
 });
