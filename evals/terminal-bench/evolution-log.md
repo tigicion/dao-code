@@ -2926,3 +2926,26 @@ finishReason=length）生效，不改变"正常空响应"（reasoning也为空�
 数据确认；"提示措辞能带来多大额外增益"这个更精细的问题留有不确定性，不影响是否保留
 这个改动的判断——保留代码，标记为**已验证机制正确、已知有真实恢复案例，措辞层面的
 边际效果留待未来更大样本自然积累时再评估**（不再是完全空白的"待定"）。
+
+## Iteration 15 启动(dev_pool_order[52:67])——部分批次，用户中途叫停
+
+代码基线5164e3b。启动时只发出了2048MB桶(12题,-n4)和4096MB桶(1题,-n2)共13题，
+第3个桶(8192MB,torch-pipeline-parallelism、rstan-to-pystan)还没来得及launch就
+收到用户指令"先不要进新的迭代了"，随即停止——**这2题本轮未跑**，dev_pool_order
+[52:67]里torch-pipeline-parallelism、rstan-to-pystan视为未覆盖，留给下一轮。
+
+已launch的13题：build-pmars, make-mips-interpreter, path-tracing, git-leak-recovery,
+schemelike-metacircular-eval, regex-chess, path-tracing-reverse, sqlite-db-truncate,
+llm-inference-batching-scheduler, dna-assembly, feal-differential-cryptanalysis,
+raman-fitting(以上2048桶) + sam-cell-seg(4096桶)。这13题在用户暂停指令发出前已经
+launch，未中途杀掉，任其自然跑完。
+
+## Iteration 15 WAIT 结果(13/13已出，2题未跑)
+
+- ✅ reward=1（4题）：git-leak-recovery, llm-inference-batching-scheduler,
+  sqlite-db-truncate, sam-cell-seg
+- ❌ reward=0（9题）：build-pmars, dna-assembly, feal-differential-cryptanalysis,
+  make-mips-interpreter, path-tracing, path-tracing-reverse, raman-fitting,
+  regex-chess, schemelike-metacircular-eval
+
+**4/13通过(30.8%)**，本批未完成2题(torch-pipeline-parallelism, rstan-to-pystan)。
