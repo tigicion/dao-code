@@ -3215,4 +3215,31 @@ snapshot断言）。全量`npx vitest run`1171/1171通过，`npm run typecheck`�
 
 **真实复测**：提交`fix-promptaction-scheme`(`terminal-bench/schemelike-metacircular-eval`)、
 `fix-promptaction-dna`(`terminal-bench/dna-assembly`)两个独立job，`--agent-timeout-multiplier 4`。
-结果待补。
+
+- `fix-promptaction-scheme`（`schemelike-metacircular-eval__8vSMggH`）：**reward=1，通过**。
+  对比原样本（反模式#30）：环境表示设计这次在L209-231约20多行内快速收敛到最终设计
+  （`(bindings . parent)`），不再是跨6000+行完整重新设计5次；单轮巨型生成从原样本的
+  4次（每次20K-53K token）降到这次1次（38899 token）；真实调用`verify_done`并附上
+  三条规范命令+全部测试文件+自举验证的具体证据；总行数从8870压缩到3236。**核心机制
+  性改善明确**：不再是"零交付物的纯文字循环"。
+- `fix-promptaction-dna`（`dna-assembly__gFPSjR5`）：**reward=0，但失败性质彻底改变**。
+  原样本（反模式#29）是0次write_file、"Wait/reconsider"类措辞74次、primers.fasta
+  不存在的纯空转；这次工具轨迹为23次exec_shell+1次edit_file+1次verify_done，
+  "Wait/reconsider"类措辞降到18次，primers.fasta**确实生成**，verifier真正跑到了
+  具体数值断言，只差在正反引物退火温度差**5.0023°C，超出≤5°C门槛仅0.002°C**——
+  从"完全没有交付物"变成"接近达标的真实精度问题"，是根本不同类型的失败。
+
+**结论**：2/2真实复测都观察到明确的正向变化——一个从反模式失败转为完全通过，另一个
+从"零交付物纯空转"转为"仅差0.002°C的真实精度问题"，均不再表现出原有的"同一结论
+反复重新推导、长期不产出"特征。这是本session对反复推理反模式做的第一次真正的根因级
+修复（此前的记录都停留在"确认样本"，这次是"定位到框架层具体机制并验证修复有效"）。
+
+**复测过程中的新发现（下一轮候选，本轮未动手）**：两次复测都观察到进度提醒（"已连续N轮
+无实质推进"）在模型明明在做真实工作（跑exec_shell执行脚本、验证不同测试文件）时仍然
+触发——根因是`loop.ts`的`PROGRESS_TOOLS`集合只认`write_file`/`edit_file`/`multi_edit`/
+`notebook_edit`/`todo_write`这几种"写"类工具，完全不认`exec_shell`。对于很多脚本生成型
+任务（写一个脚本、跑它产出真实交付物、根据结果迭代脚本），实际工作大量发生在
+exec_shell里，导致提醒机制对合法的验证/迭代阶段产生大量误触发。两次复测里模型都正确
+无视了这些误触发的提醒（因为确实在做该做的事），没有造成负面影响，但这是一个值得下一轮
+处理的口径问题：应该把"该轮 exec_shell 是否产生了新的文件/修改了已有文件"也计入
+"有实质推进"的判据，而不是只看四类写文件工具。
