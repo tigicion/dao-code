@@ -42,6 +42,15 @@ function sanitizeForHistory(assistant: AssistantMessage): AssistantMessage {
   };
 }
 
+// 同一道防线,用于【续写/恢复】场景:这条防线只清洗"本进程接下来新生成"的消息,不覆盖
+// "续写时从磁盘加载进来的旧历史"——真实撞见过:一个跑着旧代码(无清洗逻辑)、迟迟没重启的
+// 进程最终把半截 JSON 的消息存进了 state.json,之后用修复后的新版 dao 续写这个会话,
+// 等于把这条已经写死在磁盘上的坏消息重新加载了回来,清洗对它完全不生效。索引/导出给
+// index.ts 在 resume(--continue/-c 与 /resume <id>)时对整份历史也过一遍。
+export function sanitizeHistoryForResume(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => (m.role === "assistant" ? sanitizeForHistory(m) : m));
+}
+
 // L4.5 收尾锚点:本会话是否碰过代码/命令(写文件/改文件/跑 shell)却从没调用过 verify_done。
 // 纯文字提示(工具描述里的话术、todo_write 全勾提醒)有个共同盲区——都得指望模型"恰好用到某个
 // 特定工具"才有机会触发,像 protein-assembly、filter-js-from-html 这类会话里模型全程没用过

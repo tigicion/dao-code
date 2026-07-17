@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runTurn } from "./loop.js";
+import { runTurn, sanitizeHistoryForResume } from "./loop.js";
 import { Session } from "../session/session.js";
 import { ToolRegistry } from "../tools/registry.js";
 import { defineTool } from "../tools/types.js";
@@ -1014,5 +1014,34 @@ describe("runTurn", () => {
     });
     const sys = s.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
     expect(sys).not.toContain("[收尾前检查]");
+  });
+});
+
+describe("sanitizeHistoryForResume", () => {
+  it("清洗续写时从磁盘加载的历史里,半截/非法 JSON 的 tool_call", () => {
+    // 根因(真实撞见:20260717-143212-b8wt):一个跑着旧代码(无清洗逻辑)、迟迟没重启的
+    // 进程把这类坏消息存进了 state.json;之后用修复后的新版 dao 续写,原样加载回来又会
+    // 撞上同一个 400 Invalid request body——sanitizeForHistory 只清洗"本进程新生成"的
+    // 消息,不覆盖"续写时加载进来的旧历史",所以续写路径需要单独再过一遍。
+    const badToolCall = { id: "c0", type: "function" as const, function: { name: "write_file", arguments: '{"content": "半截没写完' } };
+    const messages = [
+      { role: "system" as const, content: "SYS" },
+      { role: "user" as const, content: "hi" },
+      { role: "assistant" as const, content: null, tool_calls: [badToolCall] },
+      { role: "tool" as const, tool_call_id: "c0", content: "Error: invalid JSON arguments for write_file" },
+    ];
+    const cleaned = sanitizeHistoryForResume(messages);
+    const assistant = cleaned.find((m) => m.role === "assistant") as AssistantMessage;
+    expect(assistant.tool_calls![0]!.function.arguments).toBe("{}");
+    // 其它角色的消息原样保留,不受影响
+    expect(cleaned.filter((m) => m.role !== "assistant")).toEqual(messages.filter((m) => m.role !== "assistant"));
+  });
+
+  it("合法 JSON 的历史原样返回,不做无谓改写", () => {
+    const goodToolCall = { id: "c0", type: "function" as const, function: { name: "read_file", arguments: '{"path": "a.ts"}' } };
+    const messages = [
+      { role: "assistant" as const, content: null, tool_calls: [goodToolCall] },
+    ];
+    expect(sanitizeHistoryForResume(messages)).toEqual(messages);
   });
 });

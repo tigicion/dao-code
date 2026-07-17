@@ -12,7 +12,7 @@ import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
 import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat as streamChatRaw } from "./client/client.js";
-import { runTurn as runTurnRaw } from "./agent/loop.js";
+import { runTurn as runTurnRaw, sanitizeHistoryForResume } from "./agent/loop.js";
 import { executeToolCalls as executeToolCallsRaw } from "./tools/execute.js";
 import { initObs, wrapStreamChat, wrapRunTurn, wrapToolExec, flushObs, setObsSession, setObsMeta, obsStatus } from "./obs/index.js";
 import { applyDotenv } from "./config/env_file.js";
@@ -1339,7 +1339,10 @@ async function main() {
         // 给了明确 id(dao -c <id>)就精确续写那一个会话文件;没给才退回"最近一个可续写的会话"。
         const prev = cliResumeId ? loadState(sessionsDir, cliResumeId) : findResumable(sessionsDir, workspaceRoot);
         if (prev) {
-          session.messages = prev.messages;
+          // 清洗一遍再装载:防止磁盘上的旧历史里混进过半截/非法 JSON 的 tool_call(真实撞见过——
+          // 一个跑着旧代码、迟迟没重启的进程把这类坏消息存进了 state.json,续写时原样加载回来,
+          // 下一轮请求又会撞上同一个 400 Invalid request body)。
+          session.messages = sanitizeHistoryForResume(prev.messages);
           session.setModel(prev.model);
           session.mode = prev.mode;
           session.usage.promptTokens += prev.usage.promptTokens;
@@ -1584,7 +1587,9 @@ async function main() {
             if (!id) return { handled: true, output: `历史会话(${metas.length}):\n` + metas.slice(0, 15).map((m) => `  ${m.id}${m.title ? ` — ${m.title}` : ""}${m.done ? "" : " ·未完成"}`).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
             const st = loadState(sessionsDir, id);
             if (!st) return { handled: true, output: `未找到会话:${id}(/resume 看列表)` };
-            session.messages = st.messages; // 整盘载入上下文(继续写入当前会话文件,不动原文件)
+            // 整盘载入上下文(继续写入当前会话文件,不动原文件);先清洗一遍,防止磁盘上的旧历史
+            // 混进过半截/非法 JSON 的 tool_call(同 --continue/-c 启动时的续写防线)。
+            session.messages = sanitizeHistoryForResume(st.messages);
             session.setModel(st.model);
             // 重放末段对话作回顾,让用户一眼看到"上次做到哪"(只取文本 user/assistant,末 6 条)。
             const recap = transcriptFromMessages(st.messages);
@@ -1900,7 +1905,10 @@ async function main() {
       if (continueFlag) {
         const prev = cliResumeId ? loadState(sessionsDir, cliResumeId) : findResumable(sessionsDir, workspaceRoot);
         if (prev) {
-          session.messages = prev.messages;
+          // 清洗一遍再装载:防止磁盘上的旧历史里混进过半截/非法 JSON 的 tool_call(真实撞见过——
+          // 一个跑着旧代码、迟迟没重启的进程把这类坏消息存进了 state.json,续写时原样加载回来,
+          // 下一轮请求又会撞上同一个 400 Invalid request body)。
+          session.messages = sanitizeHistoryForResume(prev.messages);
           session.setModel(prev.model);
           session.mode = prev.mode;
           session.usage.promptTokens += prev.usage.promptTokens;
