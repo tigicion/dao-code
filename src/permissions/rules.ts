@@ -2,6 +2,13 @@
 // specifier 语义随工具:Bash=命令前缀/精确,Read/Edit/Write/LS/Glob/Grep=gitignore-glob 路径,
 // WebFetch=domain:<host>,其余=精确/glob。
 
+import {
+  stripSafeWrappers,
+  stripAllLeadingEnvVars,
+  extractOutputRedirections,
+  isCompoundCommand,
+} from "./bash_preprocess.js";
+
 export type Decision = "allow" | "ask" | "deny";
 
 export interface ParsedRule {
@@ -60,10 +67,22 @@ function matchPath(specifier: string, value: string): boolean {
   return false;
 }
 
+// 检查命令是否以指定前缀开头(词边界:前缀后必须是空白或命令结尾)。
+// 防止 Bash(ls:*) 匹配 "lsof" 或 "lsattr"——前缀后必须跟空格或到串尾。
+function startsWithWordBoundary(prefix: string, cmd: string): boolean {
+  if (cmd === prefix) return true;
+  if (cmd.startsWith(prefix + " ")) return true;
+  // xargs 透传:裸 xargs(无 flag)后跟的命令也检查——Bash(grep:*) 应匹配 "xargs grep pattern"。
+  const xargsPrefix = "xargs " + prefix;
+  if (cmd === xargsPrefix) return true;
+  if (cmd.startsWith(xargsPrefix + " ")) return true;
+  return false;
+}
+
 function matchBash(specifier: string, command: string): boolean {
   const cmd = command.trim();
   if (specifier === "*") return true;
-  if (specifier.endsWith(":*")) return cmd.startsWith(specifier.slice(0, -2));
+  if (specifier.endsWith(":*")) return startsWithWordBoundary(specifier.slice(0, -2), cmd);
   if (specifier.includes("*")) return globToRegExp(specifier).test(cmd);
   return cmd === specifier.trim();
 }
@@ -101,24 +120,104 @@ export function splitBashCommands(cmd: string): string[] {
     .filter(Boolean);
 }
 
+// 为 Bash 命令生成匹配候选列表——对原始命令做各种预处理剥离,收集所有可能的匹配形式。
+// 对标 CC filterRulesByContentsMatchingInput 的候选生成策略:
+//   - 原始命令(保留引号用于精确匹配)
+//   - 去输出重定向后的命令(使 Bash(python:*))匹配 "python script.py > output.txt")
+//   - 对每个候选再剥离安全包装器(使 Bash(npm install:*))匹配 "timeout 10 npm install foo")
+//
+// deny/ask 规则还需额外尝试剥离所有环境变量前缀(更激进,防 FOO=bar rm 绕过)。
+// allow 规则只剥离安全环境变量(防 DOCKER_HOST=evil docker ps 匹配)。
+function bashCandidates(command: string, stripAllEnv: boolean): string[] {
+  const cmd = command.trim()
+  // 去重定向 + 不去重定向两种形式
+  const cmdNoRedirect = extractOutputRedirections(cmd)
+  const base = cmdNoRedirect !== cmd ? [cmd, cmdNoRedirect] : [cmd]
+
+  const candidates: string[] = []
+  const seen = new Set<string>()
+
+  const add = (c: string) => {
+    const t = c.trim()
+    if (t && !seen.has(t)) { seen.add(t); candidates.push(t) }
+  }
+
+  for (const c of base) {
+    add(c)
+    // 剥离安全包装器(allow 规则路径)
+    add(stripSafeWrappers(c))
+    // deny/ask 规则:还要尝试剥离所有环境变量
+    if (stripAllEnv) {
+      // 迭代到不动点:交替剥离 env vars 和 safe wrappers,处理 nohup FOO=bar timeout 5 cmd 这种交错
+      let current = c
+      let prev = ""
+      while (current !== prev) {
+        prev = current
+        current = stripAllLeadingEnvVars(current)
+        current = stripSafeWrappers(current)
+      }
+      add(current)
+    }
+  }
+  return candidates
+}
+
+// 检查一组 Bash 规则是否匹配命令(考虑预处理剥离)。
+// 对标 CC filterRulesByContentsMatchingInput。
+function bashRulesMatch(
+  rules: string[],
+  command: string,
+  opts: { stripAllEnv?: boolean; checkCompound?: boolean } = {},
+): boolean {
+  const { stripAllEnv = false, checkCompound = true } = opts
+  const parsed = rules.map(parseRule)
+  // 前缀/通配符规则不应匹配复合命令——防 cd /x && rm -rf / 整串匹配 Bash(cd:*)。
+  // 但精确匹配可以匹配整条复合命令(用户可能写了精确的复合命令规则)。
+  const compound = checkCompound && isCompoundCommand(command)
+
+  for (const rule of parsed) {
+    if (rule.tool !== "Bash") continue
+    if (rule.specifier === undefined) return true // 裸 "Bash" 匹配所有
+    const candidates = bashCandidates(command, stripAllEnv)
+    for (const cand of candidates) {
+      if (compound) {
+        // 复合命令:只允许精确匹配(非前缀/非通配符)
+        const spec = rule.specifier
+        if (spec === "*") continue // 通配符不匹配复合命令
+        if (spec.endsWith(":*")) continue // 前缀不匹配复合命令
+        if (spec.includes("*")) continue // glob 不匹配复合命令
+        if (cand === spec.trim()) return true
+      } else {
+        if (matchBash(rule.specifier, cand)) return true
+      }
+    }
+  }
+  return false
+}
+
 // 优先级:deny > ask > allow > 未匹配(返回 null,交由模式/能力默认决定)。
 // Bash:逐子命令检查——任一 deny→deny;否则任一 ask→ask;否则有未覆盖段→null;全 allow→allow。
 export function evaluate(rules: RuleSets, id: CallIdentity): Decision | null {
   if (id.ccTool === "Bash") {
-    const parts = splitBashCommands(id.value);
-    const hitAny = (list: string[], value: string) =>
-      list.some((r) => ruleMatches(parseRule(r), { ccTool: "Bash", value }));
-    if (parts.some((p) => hitAny(rules.deny, p))) return "deny";
-    let sawAsk = false;
-    let sawUnmatched = false;
-    for (const p of parts) {
-      if (hitAny(rules.ask, p)) sawAsk = true;
-      else if (!hitAny(rules.allow, p)) sawUnmatched = true;
+    const parts = splitBashCommands(id.value)
+    // deny:逐子命令检查,每个子命令用更激进的剥离(stripAllEnv=true)
+    if (parts.some(p => bashRulesMatch(rules.deny, p, { stripAllEnv: true, checkCompound: false }))) {
+      return "deny"
     }
-    if (sawAsk) return "ask";
-    if (sawUnmatched) return null;
-    return "allow";
+    let sawAsk = false
+    let sawUnmatched = false
+    for (const p of parts) {
+      if (bashRulesMatch(rules.ask, p, { stripAllEnv: true, checkCompound: false })) {
+        sawAsk = true
+      } else if (!bashRulesMatch(rules.allow, p, { stripAllEnv: false, checkCompound: false })) {
+        sawUnmatched = true
+      }
+    }
+    if (sawAsk) return "ask"
+    if (sawUnmatched) return null
+    return "allow"
   }
+  // 非 Bash 工具:原逻辑
   const hit = (list: string[]) => list.some((r) => ruleMatches(parseRule(r), id));
   if (hit(rules.deny)) return "deny";
   if (hit(rules.ask)) return "ask";

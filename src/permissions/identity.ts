@@ -1,4 +1,5 @@
 import type { CallIdentity } from "./rules.js";
+import { stripSafeWrappers } from "./bash_preprocess.js";
 
 // DAO 工具名 → CC 工具名 + 取哪个参数作匹配值。让 CC settings.json 的规则原样适用于 DAO 工具。
 // 返回 null = 该工具无 CC 对应(memory/todo/agent 等),退回 DAO 能力默认放行逻辑。
@@ -52,13 +53,16 @@ export function rememberRule(toolName: string, argsJson: string): string | null 
   return `${id.ccTool}(${id.value})`;
 }
 
-// 提炼放宽前缀:复合(管道/重定向/链接/替换)、含换行(heredoc)、或超长(>200)→ 返回 null(不持久化);
+// 提炼放宽前缀(对标 CC getSimpleCommandPrefix + stripSafeWrappers):
+// 先剥离安全包装器(timeout/time/nice/nohup)和安全环境变量,再取 "程序 + 首个非 flag 子命令"。
+// 复合(管道/重定向/链接/替换)、含换行(heredoc)、或超长(>200)→ 返回 null(不持久化);
 // 否则 程序 + 首个非 flag 子命令 + ":*"。
 function bashPrefix(command: string): string | null {
-  const cmd = command.trim();
-  if (cmd.length > 200 || /[|&;<>`\n]|\$\(/.test(cmd)) return null;
-  const toks = cmd.split(/\s+/);
+  const stripped = stripSafeWrappers(command);
+  if (!stripped || stripped.length > 200 || /[|&;<>`\n]|\$\(/.test(stripped)) return null;
+  const toks = stripped.split(/\s+/);
   const prog = toks[0] ?? "";
+  if (!prog) return null;
   const sub = toks[1] && !toks[1].startsWith("-") ? ` ${toks[1]}` : "";
   return `${prog}${sub}:*`;
 }

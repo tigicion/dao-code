@@ -99,3 +99,120 @@ describe("evaluate — Bash 复合命令逐段检查(CC 行为)", () => {
     expect(evaluate({ allow: ["Bash(npm:*)"], ask: ["Bash(deploy)"], deny: [] }, id)).toBe("ask");
   });
 });
+
+// ============================================================================
+// 安全机制测试:环境变量剥离、安全包装器剥离、词边界、复合命令前缀免疫、重定向剥离
+// ============================================================================
+
+describe("ruleMatches — Bash 词边界(ls:* 不匹配 lsof)", () => {
+  const m = (rule: string, value: string) => ruleMatches(parseRule(rule), { ccTool: "Bash", value });
+  it("前缀后必须跟空白或到串尾", () => {
+    expect(m("Bash(ls:*)", "ls -la")).toBe(true);
+    expect(m("Bash(ls:*)", "ls")).toBe(true);
+    expect(m("Bash(ls:*)", "lsof")).toBe(false);
+    expect(m("Bash(ls:*)", "lsattr")).toBe(false);
+  });
+  it("git commit 前缀不匹配 git config", () => {
+    expect(m("Bash(git commit:*)", "git commit -m fix")).toBe(true);
+    expect(m("Bash(git commit:*)", "git config user.name")).toBe(false);
+  });
+});
+
+describe("ruleMatches — Bash xargs 透传", () => {
+  const m = (rule: string, value: string) => ruleMatches(parseRule(rule), { ccTool: "Bash", value });
+  it("裸 xargs 后跟的命令也匹配前缀规则", () => {
+    expect(m("Bash(grep:*)", "xargs grep pattern")).toBe(true);
+    expect(m("Bash(grep:*)", "xargs grep -r pattern")).toBe(true);
+  });
+  it("xargs 带 flag 不匹配(flag 存在说明不是裸透传)", () => {
+    expect(m("Bash(grep:*)", "xargs -n1 grep pattern")).toBe(false);
+  });
+  it("deny 规则也通过 xargs 透传", () => {
+    expect(m("Bash(rm:*)", "xargs rm file")).toBe(true);
+  });
+});
+
+describe("evaluate — 安全包装器剥离(对标 CC stripSafeWrappers)", () => {
+  it("deny 规则穿透 timeout 包装器", () => {
+    const id = { ccTool: "Bash", value: "timeout 10 rm -rf /tmp" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+  it("deny 规则穿透 nohup 包装器", () => {
+    const id = { ccTool: "Bash", value: "nohup rm -rf /tmp" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+  it("deny 规则穿透 nice 包装器", () => {
+    const id = { ccTool: "Bash", value: "nice -n 5 rm -rf /tmp" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+  it("deny 规则穿透 time 包装器", () => {
+    const id = { ccTool: "Bash", value: "time rm -rf /tmp" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+  it("allow 规则穿透 stdbuf 包装器", () => {
+    const id = { ccTool: "Bash", value: "stdbuf -o0 npm test" };
+    expect(evaluate({ allow: ["Bash(npm:*)"], ask: [], deny: [] }, id)).toBe("allow");
+  });
+  it("交替包装器:nohup + timeout 都剥离", () => {
+    const id = { ccTool: "Bash", value: "nohup timeout 10 npm test" };
+    expect(evaluate({ allow: ["Bash(npm:*)"], ask: [], deny: [] }, id)).toBe("allow");
+  });
+});
+
+describe("evaluate — 环境变量非对称剥离(对标 CC)", () => {
+  it("deny 规则剥离所有环境变量(防绕过)", () => {
+    const id = { ccTool: "Bash", value: "FOO=bar rm -rf /tmp" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+  it("deny 规则剥离 DOCKER_HOST 等不安全变量", () => {
+    const id = { ccTool: "Bash", value: "DOCKER_HOST=tcp://evil docker ps" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(docker:*)"] }, id)).toBe("deny");
+  });
+  it("ask 规则也剥离所有环境变量", () => {
+    const id = { ccTool: "Bash", value: "FOO=bar deploy prod" };
+    expect(evaluate({ allow: [], ask: ["Bash(deploy:*)"], deny: [] }, id)).toBe("ask");
+  });
+  it("allow 规则只剥离安全环境变量(NODE_ENV)", () => {
+    const id = { ccTool: "Bash", value: "NODE_ENV=prod npm test" };
+    expect(evaluate({ allow: ["Bash(npm:*)"], ask: [], deny: [] }, id)).toBe("allow");
+  });
+  it("allow 规则不剥离不安全环境变量(防 DOCKER_HOST 绕过)", () => {
+    // DOCKER_HOST 不是安全变量——allow 规则不应匹配,因为这可能改变 docker 通信目标
+    const id = { ccTool: "Bash", value: "DOCKER_HOST=tcp://evil docker ps" };
+    expect(evaluate({ allow: ["Bash(docker:*)"], ask: [], deny: [] }, id)).toBeNull();
+  });
+  it("交替剥离:env + wrapper 迭代到不动点", () => {
+    const id = { ccTool: "Bash", value: "FOO=bar nohup timeout 5 rm -rf /tmp" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+});
+
+describe("evaluate — 复合命令前缀免疫(对标 CC)", () => {
+  it("前缀规则不匹配复合命令(防 cd /x && rm -rf / 整串匹配 Bash(cd:*))", () => {
+    // 注意:splitBashCommands 会先拆分,每段单独检查——这里测试的是"如果某段没被拆开"的场景
+    // 实际上 evaluate 先 split 再逐段查,所以复合命令的每段都是单命令,前缀规则可以匹配
+    // 这里的测试验证 splitBashCommands 正常工作 + 每段前缀匹配
+    const id = { ccTool: "Bash", value: "cd /tmp && rm -rf x" };
+    // cd 段被 allow,rm 段无规则 → null(不自动放行)
+    expect(evaluate({ allow: ["Bash(cd:*)"], ask: [], deny: [] }, id)).toBeNull();
+  });
+  it("复合命令中 rm 段命中 deny", () => {
+    const id = { ccTool: "Bash", value: "echo hello && rm -rf /" };
+    expect(evaluate({ allow: ["Bash(echo:*)"], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+});
+
+describe("evaluate — 输出重定向剥离(对标 CC)", () => {
+  it("allow 规则匹配带重定向的命令", () => {
+    const id = { ccTool: "Bash", value: "python script.py > /tmp/out" };
+    expect(evaluate({ allow: ["Bash(python:*)"], ask: [], deny: [] }, id)).toBe("allow");
+  });
+  it("deny 规则穿透重定向匹配实际命令", () => {
+    const id = { ccTool: "Bash", value: "rm -rf /tmp > /dev/null" };
+    expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+  it("2>&1 重定向也剥离", () => {
+    const id = { ccTool: "Bash", value: "npm test 2>&1" };
+    expect(evaluate({ allow: ["Bash(npm:*)"], ask: [], deny: [] }, id)).toBe("allow");
+  });
+});
