@@ -22,6 +22,7 @@ agent/
 ├── agent_memory.ts      # Agent 持久记忆(user/project/local scope)
 ├── agent_summary.ts     # 后台 agent 定期摘要(对标 CC agentSummary.ts)
 ├── agent_hooks.ts       # Agent 生命周期 hooks(SubagentStart/SubagentStop)
+├── agent_mcp.ts         # Agent 专属 MCP 服务器(对标 CC initializeAgentMcpServers)
 ├── tasks.ts             # 后台任务管理器(扩展现有,加进度追踪)
 ├── worktree.ts          # git worktree 隔离(现有,基本不动)
 ├── loop.ts              # 回合循环(现有,对接 generator 模式)
@@ -720,6 +721,14 @@ export const FORK_AGENT: BuiltInAgentDef = {
 
 fork 子在 worktree 里运行时注入路径翻译提示(翻译父 cwd 路径到 worktree 路径,编辑前重读文件)。
 
+### Fork 与同步/异步路径
+
+fork 可以前台或后台运行:
+- **前台 fork**:走同步路径,race(generator vs backgroundSignal)。fork 的 generator 从父消息前缀开始 yield,前台消费。
+- **后台 fork**(`background: true` + `fork: true`):走异步路径,runAsyncAgentLifecycle 消费 generator,立即返回 async_launched。
+
+两种路径下 fork 的内部机制相同(useExactTools + 父 system prompt + forkContextMessages),区别仅在上层消费方式。
+
 ## 14. 一次性 Agent 优化
 
 ### 一次性 Agent 集合
@@ -769,7 +778,11 @@ export const agentTool = defineTool({
     mode: z.enum(["normal", "plan"]).optional(),
   }),
   handler: async (args, ctx) => {
-    // 1. 嵌套深度检查(2 层上限)
+    // 1. 嵌套深度检查(防御性:agent 工具已在 ALL_AGENT_DISALLOWED_TOOLS 中禁用,
+    //    子代理拿不到 agent 工具,此检查是第二道防线,正常不会触发)
+    if ((ctx.subagentDepth ?? 0) >= 1) {
+      return "子代理内不能再派子代理。";
+    }
     // 2. agent_type 校验 + 查找 AgentDef
     // 3. fork 路由(fork=true -> FORK_AGENT,与 agent_type/model/mode 互斥)
     // 4. resolveAgentTools(工具过滤)
