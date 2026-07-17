@@ -27,7 +27,12 @@ export const verifyDoneTool = defineTool({
     "对每一条说出你验证过的具体证据,不要凭记忆挑几条你觉得重要的就当验证完整了。最容易漏的是那些" +
     "不影响'能不能跑通/测试过不过'、但任务原文明确提到的结构性/格式性要求(比如某个目录或文件是否" +
     "按要求保留、某种来源/格式是否满足)——这类要求不会被'跑测试'自然覆盖,必须专门回去对照原文检查," +
-    "不能因为你确信自己做对了就跳过这个物证核对的动作。",
+    "不能因为你确信自己做对了就跳过这个物证核对的动作。还有一种更隐蔽的情况:调查途中自己" +
+    "已经发现了某条具体的、指向'可能没做对'的线索(比如读到一份配置文件暗示某个目录结构跟" +
+    "你实际做的不一样),但当下觉得'这个大概不重要/不是我们要测的东西',于是没有查到底就转头" +
+    "写一份自己重新定义的总结清单收尾——这不是意外遗漏,是明知有疑点却没有查完就合理化掉了。" +
+    "发现这类具体疑点时,不能凭感觉判断'重不重要',要把它查到有确定结论为止;查完之后,收尾前" +
+    "必须再调用一次本工具重新核实,不能让'自己写的总结表格'代替最后一次真实调用。",
   descriptionEn:
     "Determines whether a task is truly complete. If an acceptance command is configured (via /dod or DAO_VERIFY_CMD), actually runs it (300s timeout, output truncated), " +
     "exit 0=pass, non-zero=not done yet, keep fixing; if none is configured, it won't quietly let you self-approve — instead it reminds you to judge based on [actual evidence]: " +
@@ -46,7 +51,12 @@ export const verifyDoneTool = defineTool({
     "don't just pick the few you remember as important. The ones most often missed are structural/format requirements the task explicitly stated but that don't affect " +
     "whether it \"runs\"/\"tests pass\" (e.g. whether a specific directory/file was kept as required, whether a source/format requirement is satisfied) — running tests " +
     "won't naturally cover these, you have to go back and check them against the original text specifically; being confident you did it right isn't a substitute for " +
-    "that check.",
+    "that check. There's also a subtler case: mid-investigation you already noticed a specific clue pointing at " +
+    "\"this might not be right\" (e.g. a config file implying a directory layout different from what you actually did), but at the " +
+    "time thought \"that's probably not important / not what we're being tested on\" and moved on to write your own redefined summary " +
+    "checklist instead of chasing it to a conclusion — that's not an oversight, it's rationalizing away a doubt you already had. " +
+    "When you notice a concrete clue like that, don't judge its importance by feel — chase it to a definite conclusion; then, before " +
+    "wrapping up, call this tool again to re-verify — don't let a self-written summary table stand in for that final real call.",
   capability: "read",
   approval: "auto",
   schema: z.object({}),
@@ -56,10 +66,14 @@ export const verifyDoneTool = defineTool({
       return msg(
         "(未配置可执行验收命令)据【实际证据】自判,别自我合理化:读≠验证——真把它跑起来 / 读回改动 / 看输出。别用\"代码看起来对、大概没问题、我的测试过了\"代替验证;独立验一遍,再说明完成依据。" +
           "方法对了还不够,范围也要对:现在回去把用户任务原文的每一条具体要求过一遍,对每一条说出你的证据——" +
-          "尤其是那些不影响\"跑不跑得通\"、但原文明确提到的结构性/格式性要求,这类要求不会被你已经做过的测试自然覆盖。",
+          "尤其是那些不影响\"跑不跑得通\"、但原文明确提到的结构性/格式性要求,这类要求不会被你已经做过的测试自然覆盖。" +
+          "如果调查途中已经注意到某条具体线索指向'可能没做对',不要凭感觉觉得'大概不重要'就跳过——查到有确定" +
+          "结论为止,查完后再调用一次本工具重新核实,不能用自己写的总结表格代替这最后一次真实调用。",
         "(No executable acceptance command configured) Self-judge based on [actual evidence]; don't self-rationalize: reading ≠ verification — actually run it / read back changes / check output. Don't substitute \"code looks right\", \"should be fine\", or \"my tests passed\" for verification; independently verify, then state the basis for completion. " +
           "Getting the method right isn't enough — the scope has to be right too: go back through every specific requirement in the user's original task text and state your evidence for each — " +
-          "especially structural/format requirements the task explicitly stated that don't affect whether it \"runs\", which won't be naturally covered by tests you've already run.",
+          "especially structural/format requirements the task explicitly stated that don't affect whether it \"runs\", which won't be naturally covered by tests you've already run. " +
+          "If you already noticed a concrete clue during investigation pointing at \"this might not be right\", don't skip it just because it feels unimportant — chase it to a " +
+          "definite conclusion, then call this tool again to re-verify; don't let a self-written summary table stand in for that final real call.",
       );
     }
     return await new Promise<string>((resolve) => {

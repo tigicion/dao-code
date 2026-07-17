@@ -18,6 +18,15 @@ describe("verify_done(DoD)", () => {
     expect(out).toContain("范围也要对");
     expect(out).toContain("结构性/格式性要求");
   });
+  it("未配置验收命令 → 提示'发现可疑线索不能自行合理化跳过,要查到底再重新调用本工具核实'", async () => {
+    // 根因(build-pmars复测第二轮发现):模型这次确实响应了'范围也要对'的提示、去调查了
+    // debian/src目录结构,已经推理到了正确答案边缘(定位到debian/rules里的sourcedir提示),
+    // 但说了一句"that doesn't matter for our purposes"就自己合理化掉了这条线索,写了个
+    // 不包含这条要求的总结表格收尾,全程只调用过1次verify_done、没有在发现疑点后二次核实。
+    const out = await verifyDoneTool.handler({}, ctx());
+    expect(out).toContain("可能没做对");
+    expect(out).toContain("再调用一次本工具重新核实");
+  });
   it("验收命令 exit 0 → 通过", async () => {
     const out = await verifyDoneTool.handler({}, ctx({ verifyCommand: "exit 0" }));
     expect(out).toContain("验收通过");
