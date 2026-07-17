@@ -3573,4 +3573,56 @@ session之前任何一次改动引入的，是并发工作里新加的交互式�
 它们哪种ctx）。二进制已重新编译。
 
 **真实复测**：提交`fix-askchoice-batch4`(`terminal-bench/path-tracing-reverse`+
-`terminal-bench/regex-chess`，qianfan)，`--agent-timeout-multiplier 4`。结果待补。
+`terminal-bench/regex-chess`，qianfan)，`--agent-timeout-multiplier 4`。
+
+- `regex-chess`：reward=0。`diagnose_failure.py`标出关键异常：仅7次工具调用、跨度
+  仅占预算29%(1037s/3600s)、无exception——"疑似静默提前结束"。核实：这次是
+  `onEmptyTruncation`修复真实生效的场景——`cache.jsonl`显示多轮completion精确卡在
+  今天（`1275aec`）新设的`DAO_MAX_OUTPUT_TOKENS`默认值16000（此前DAO从未显式设置
+  这个字段，完全依赖provider隐式默认值）。dao_stdout.txt里"[思考耗尽输出预算，提示
+  收敛后重试…]"触发过2次（第2191、5807行）——**第一次真的救回了这一轮**（nudge后
+  继续产出内容），**第二次nudge后重试仍为空**，触发"连续两次空响应，结束本轮"
+  （第6838行）。这不是修复失效或倒退——是修复按设计工作（把100%失败变成有概率
+  恢复），这次撞上了"没能恢复"的概率分支。
+- `path-tracing-reverse`：详见下方专门的askChoice修复章节，本任务本身还在跑（后台
+  已用真实工具调用推进，含派子代理深入分析），过程中未再出现askChoice误判中止。
+
+**深挖regex-chess尾部原文**：发现真正值得关注的是**为什么反复撞上"思考耗尽预算"**——
+dao_stdout.txt显示模型在**反复手动推导棋盘64字符下标偏移**（"King at index 5...
+move to e2 (index 12)...offset is +7...Wait...Hmm...让我重新算"），这是本session
+第三次独立撞见"有确定答案的东西却在用心算反复推导"（前两次：schemelike-metacircular-
+eval的环境设计、make-mips-interpreter的printf字节调试）。
+
+## EVOLVE：regex-chess棋盘下标反复心算——第三次内省复盘,定位"当场推导≠记忆回忆"的规则盲区
+
+**内省复盘**：把真实系统提示词+真实任务+真实推理片段（首次定义下标方案→车的偏移
+重算→王的偏移反复推翻）原样发回同一个模型。模型的回答精确定位到与make-mips-
+interpreter那次**结构相同但更具体**的根因：
+
+1. 模型把"算正则捕获组边界"归类进了"写正则表达式"这个文本任务里，而不是"可以写成
+   可调用函数的计算"——"我在做的是手工推导每个棋子的每个走法，而不是设计一个
+   参数化的生成器"。
+2. **关键新发现**：现有规则"error-prone to guess from memory or mental math"在
+   模型的认知里被**限定成了"从记忆里猜"**这一种情况——"棋盘坐标换算是我当场推导的，
+   而不是从记忆里猜的，所以这条规则在心理上被bypass了"。这跟make-mips-interpreter
+   那次的"规则缺少触发检查点"是同一个根因的更精确版本：不是规则没有触发检查点，
+   是规则的**适用范围本身在模型认知里被窄化**了——"当场推导"被排除在"error-prone to
+   guess"之外。
+3. 模型自己提议的具体规则，与make-mips-interpreter那次内省高度一致（两次独立
+   session、不同任务，收敛到几乎相同的方案）："如果为同一类固定规则做3次以上类似
+   算术推导，先写一个极小脚本输出中间结果，然后复制"。共同特征：都是"重复出现的
+   同类计算"+"嵌入在另一个非计算的工作流里"（写正则/解析字节）+"每次单独试错成本低
+   但加总成本极高"。
+
+**改在哪层**：`src/prompt/system_prompt.ts`——给"error-prone to guess from memory
+or mental math"这条规则补充一句：明确"当场推导"同样适用（不是只有"从记忆里猜"才算），
+并给出具体重复阈值（2-3次）作为触发信号：同一类算术/位置计算反复重新推导2-3次
+（哪怕嵌在写正则/解析二进制/设计数据结构这类非计算任务里），就该停下写一个一次性
+算清楚的小脚本。
+
+**commit**：`317b130`。全量`npx vitest run`1281/1281通过，`npm run typecheck`
+通过（纯提示词文本增量）。二进制已重新编译。
+
+**真实复测**：提交`fix-mentalmath-regexchess`(`terminal-bench/regex-chess`，
+qianfan)，`--agent-timeout-multiplier 4`。regex-chess原生预算3600s，可能要跑到
+接近4小时。结果待补。
