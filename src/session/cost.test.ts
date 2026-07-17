@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { estimateCostCNY, loadPrices, formatCNY } from "./cost.js";
+import { estimateCostCNY, loadPrices, formatCNY, pricesFor } from "./cost.js";
 
 describe("人民币计费", () => {
   it("按命中/未命中/输出分别计价", () => {
@@ -22,5 +22,24 @@ describe("人民币计费", () => {
   it("formatCNY 小额显示更多小数", () => {
     expect(formatCNY(0.004)).toContain("0.0040");
     expect(formatCNY(12.3)).toBe("￥12.30");
+  });
+
+  it("已知非 DeepSeek 模型走各自实价,而非 pro/flash 启发式", () => {
+    expect(pricesFor("doubao-seed-2.0-pro")).toEqual({ inputHit: 0.64, inputMiss: 3.2, output: 16 });
+    expect(pricesFor("glm-5.2")).toEqual({ inputHit: 2, inputMiss: 8, output: 28 });
+    expect(pricesFor("kimi-k2.6")).toEqual({ inputHit: 1.1, inputMiss: 6.5, output: 27 });
+    expect(pricesFor("ernie-5.1")).toEqual({ inputHit: 1.6, inputMiss: 4, output: 18 });
+  });
+
+  it("美元计价模型按汇率折算为￥,env 可覆盖汇率", () => {
+    const p = pricesFor("claude-opus-4-8", { DAO_USD_CNY_RATE: "7" } as any);
+    expect(p).toEqual({ inputHit: 3.5, inputMiss: 35, output: 175 });
+    const def = pricesFor("gpt-5");
+    expect(def.inputMiss).toBeCloseTo(1.25 * 6.8, 5);
+  });
+
+  it("未知模型名仍退化到 pro/flash 启发式,不报错", () => {
+    expect(pricesFor("some-new-flash-model").inputMiss).toBe(1);
+    expect(pricesFor("some-new-model").inputMiss).toBe(3);
   });
 });
