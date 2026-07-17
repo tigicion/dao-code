@@ -53,6 +53,7 @@ export const en: Record<string, string> = {
   "mode.plan": "◇ Plan (read-only)",
   "mode.bypassPermissions": "※ All permissions (no approval)",
   "ui.hint.running": "Running — keep typing, Enter to queue",
+  "ui.hint.ctrlcExit": "Press Ctrl+C again to exit",
   "ui.modeHint": "permission mode →",
   "ui.bgRunning": "∞ {0} background task(s) running…",
   "ui.status.longTask": "∞ Long task · ",

@@ -53,6 +53,7 @@ export const zh: Record<string, string> = {
   "mode.plan": "◇ 规划(只读)",
   "mode.bypassPermissions": "※ 全部权限(免审批)",
   "ui.hint.running": "运行中——可继续输入,回车排队执行",
+  "ui.hint.ctrlcExit": "再按一次 Ctrl+C 退出",
   "ui.modeHint": "权限模式 →",
   "ui.bgRunning": "∞ {0} 个后台任务运行中…",
   "ui.status.longTask": "∞ 长任务 · ",

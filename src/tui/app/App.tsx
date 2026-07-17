@@ -173,6 +173,10 @@ export function App(deps: AppDeps) {
   // Shift+Tab 切权限模式后,在输入框下方短暂提示(不进 transcript scrollback);约 2.5s 后淡出。
   const [modeHint, setModeHint] = useState<string | null>(null);
   const modeHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ctrl+C 退出需连按两次(防误触):首次按下只提示+计时,2s 内再按一次才真退出;超时则回到未武装态。
+  const [exitArmed, setExitArmed] = useState(false);
+  const exitArmedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (exitArmedTimer.current) clearTimeout(exitArmedTimer.current); }, []);
   // 结构化选择(ask_user 带 options):单选用 数字/↑↓ + Enter;多选用 checkbox(空格/数字切换 + Enter)。
   // 自动附"其他(自己输入)"(进 askInput 子模式)与"先讨论一下"两项。
   const [choice, setChoice] = useState<{ question: string; options: string[]; multi: boolean; resolve: (s: string) => void } | null>(null);
@@ -719,7 +723,13 @@ export function App(deps: AppDeps) {
       if (!input.trim() && lastSubmitRef.current) setField({ text: lastSubmitRef.current, cursor: lastSubmitRef.current.length });
       return;
     }
-    if (key.ctrl && ch === "c") { exit(); return; }
+    if (key.ctrl && ch === "c") {
+      if (exitArmed) { exit(); return; }
+      setExitArmed(true);
+      if (exitArmedTimer.current) clearTimeout(exitArmedTimer.current);
+      exitArmedTimer.current = setTimeout(() => setExitArmed(false), 2000);
+      return;
+    }
     // Shift+Tab:循环权限模式(default→auto→plan),随时可用。acceptEdits/bypass 不在循环里。
     if (key.tab && key.shift && deps.cycleMode) {
       const m = deps.cycleMode();
@@ -1112,14 +1122,16 @@ export function App(deps: AppDeps) {
               <Text color={c("dim")}>{"  "}{matches.slice(0, 6).join("  ")}  <Text color={c("jade")}>{t("ui.complete.tab")}</Text></Text>
             ) : null;
           })()}
-          {/* 底部提示(CC 风格,克制的暗色一行,无 emoji):运行中=可排队;空闲=轮换一条 tip。 */}
-          <Text color={c("dim")}>
+          {/* 底部提示(CC 风格,克制的暗色一行,无 emoji):Ctrl+C 武装态优先;运行中=可排队;空闲=轮换一条 tip。 */}
+          <Text color={exitArmed ? c("gold") : c("dim")}>
             {"  "}
-            {busy
-              ? t("ui.hint.running")
-              : input
-                ? ""
-                : tips()[Math.floor(tick / 110) % tips().length]}
+            {exitArmed
+              ? t("ui.hint.ctrlcExit")
+              : busy
+                ? t("ui.hint.running")
+                : input
+                  ? ""
+                  : tips()[Math.floor(tick / 110) % tips().length]}
           </Text>
         </Box>
       )}

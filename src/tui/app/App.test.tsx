@@ -626,6 +626,31 @@ describe("App", () => {
     expect(r2.get("b")).toBe("once");
   });
 
+  it("Ctrl+C 首次按下不退出,提示再按一次", async () => {
+    const { lastFrame, stdin } = render(<App {...makeDeps()} />);
+    await delay();
+    stdin.write("\x03"); // Ctrl+C
+    await delay();
+    expect(lastFrame()).toContain("再按一次 Ctrl+C 退出");
+    // 应用仍存活、仍响应输入(没有因为单次 Ctrl+C 就退出)。
+    stdin.write("h");
+    await delay();
+    expect(lastFrame()).toContain("h");
+  });
+
+  it("Ctrl+C 两连按(2s 内)才真正退出", async () => {
+    const { lastFrame, stdin } = render(<App {...makeDeps()} />);
+    await delay();
+    stdin.write("\x03");
+    await delay();
+    expect(lastFrame()).toContain("再按一次 Ctrl+C 退出"); // 武装态确认建立
+    stdin.write("\x03");
+    await delay();
+    // Ink 的 exit() 触发真实 unmount,输出被清空成近乎空白帧——跟"仍在正常渲染"截然不同,
+    // 不是巧合的文案消失(比如只是提示超时了)。
+    expect(lastFrame()!.trim().length).toBeLessThan(5);
+  });
+
   it("审批模态弹出时触发桌面通知,让切走的用户知道 dao 在等确认", async () => {
     let ap: ApprovalPrompt | null = null;
     const notified: [string, string][] = [];
