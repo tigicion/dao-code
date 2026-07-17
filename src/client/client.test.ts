@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { streamChat, isContextLengthError, isCredentialError } from "./client.js";
+import { streamChat, isContextLengthError, isCredentialError, isRateLimitError } from "./client.js";
 import type { StreamDelta, AssistantMessage } from "./types.js";
 
 function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
@@ -415,6 +415,36 @@ describe("streamChat", () => {
     );
     expect(message.content).toBe("ok"); // retry-after:0 → 立即重试,没卡 5s
   }, 2000);
+
+  it("429 无 Retry-After(账号级限流/配额耗尽) → 立即上抛,不重试/不兜底", async () => {
+    // 真实场景:千帆 Token Plan Personal 触发 token_plan_person_rate_limit_exceeded,
+    // 没有 Retry-After header——换模型/退避重试都救不了同账号限流,应直接上抛给 loop.ts
+    // 走"限流:等待或换账号"的用户决策路径,而不是在这里白白多打几发请求。
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({ error: { code: "token_plan_person_rate_limit_exceeded", message: "rate limit exceeded", type: "quota_exceeded" } }),
+        { status: 429 },
+      );
+    }) as unknown as typeof fetch;
+    const err = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 0 }),
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/429/);
+    expect((err as { status?: number }).status).toBe(429);
+    expect(calls).toBe(1); // 无重试、无非流式兜底
+  });
+
+  it("isRateLimitError 识别 429/限流关键词,不误伤其它错误", () => {
+    expect(isRateLimitError(Object.assign(new Error("boom"), { status: 429 }))).toBe(true);
+    expect(isRateLimitError(new Error("API error 429 from x: quota_exceeded"))).toBe(true);
+    expect(isRateLimitError(new Error("rate_limit_exceeded"))).toBe(true);
+    expect(isRateLimitError(new Error("请求频率超限"))).toBe(true);
+    expect(isRateLimitError(Object.assign(new Error("boom"), { status: 500 }))).toBe(false);
+    expect(isRateLimitError(new Error("ECONNRESET"))).toBe(false);
+  });
 
   it("isContextLengthError 识别上下文溢出消息", () => {
     expect(isContextLengthError(new Error("maximum context length is 65536 tokens"))).toBe(true);

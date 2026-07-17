@@ -14,7 +14,7 @@ import type { Session } from "../session/session.js";
 import { getLang } from "../i18n/i18n.js";
 import { apiToolsForMode } from "../tools/tools_for_mode.js";
 import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
-import { isContextLengthError } from "../client/client.js";
+import { isContextLengthError, isRateLimitError } from "../client/client.js";
 import { looksFailed } from "../tools/execute.js";
 import { assessTurn, initHealth, errSignature, defaultHealthConfig } from "./turn_health.js";
 import { SELF_CHALLENGE_NUDGE } from "./reflect_prompts.js";
@@ -125,6 +125,8 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
     let usedFallback = false;
     let hardRetries = 0; // 主模型+回退模型都遇到同类网络/超时错误后,退避重试整轮的次数上限
+    let rateLimitRetries = 0; // 限流后"等待重试"选了几次(非交互场景下也当退避上限用)
+    const rateLimitMaxRetries = Number(process.env.DAO_RATE_LIMIT_MAX_RETRIES) || 5;
     for (;;) {
       // 【缓存纪律】绝不在请求尾部追加每轮变化的内容(发现提示/进度提醒等)。原因:这些是 role:"system"
       // 消息,被当作前置指令块——尾部一变就把其后【整段对话】的前缀缓存全废掉(实测命中率从 95% 塌到 ~14%)。
@@ -185,6 +187,33 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           events.notice("\n[上下文超限,自动压缩后重试…]\n");
           await deps.compact();
           continue;
+        }
+        // 限流(429/配额耗尽):通常是账号级限流,换模型/换端点没用——不降级,原样把限流信息报给
+        // 用户,由用户决定"等待重试"还是自己去 /account 换账号。子代理(background)没有交互能力,
+        // 直接上抛(同其余分支对 background 的处理)。非交互场景(无 askChoice,如 headless/eval)
+        // 退化为"自动等待、退避重试若干次后放弃",不无限等待、也不换模型。
+        if (!deps.background && isRateLimitError(e)) {
+          const msg = e instanceof Error ? e.message : String(e);
+          events.notice(`\n[⚠ 触发限流] ${msg}\n`);
+          let shouldWait: boolean;
+          if (deps.ctx.askChoice) {
+            const choice = await deps.ctx.askChoice(
+              "当前账号触发限流(请求频率/配额超限)。是等待后用当前账号重试,还是中止本轮自行切换账号?",
+              ["等待后重试", "中止本轮(稍后可用 /account 切换账号)"],
+            );
+            shouldWait = choice.startsWith("等待");
+          } else {
+            shouldWait = rateLimitRetries < rateLimitMaxRetries;
+          }
+          if (shouldWait) {
+            rateLimitRetries++;
+            const rateLimitBaseWaitMs = Number(process.env.DAO_RATE_LIMIT_WAIT_MS) || 5000;
+            const waitMs = Math.min(rateLimitBaseWaitMs * rateLimitRetries, 30000);
+            events.notice(`\n[等待 ${Math.round(waitMs / 1000)}s 后重试(仍用当前模型,不降级)…]\n`);
+            await new Promise((r) => setTimeout(r, waitMs));
+            continue;
+          }
+          throw new Error(`已中止:当前账号触发限流(请求频率/配额超限)。可运行 /account 切换到其它账号后重新发送消息。\n原始错误:${msg}`);
         }
         // L1.3 模型回退:过载/5xx/网络类异常 → 本回合临时换 fallback 模型再试一次。
         // 背景查询(子代理)不回退,直接上抛 → 防并行子代理在过载时各自再打一发 flash 放大级联。

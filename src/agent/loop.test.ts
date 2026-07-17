@@ -166,6 +166,72 @@ describe("runTurn", () => {
     ]);
   });
 
+  it("限流(429):不换模型,原样等待重试(有 fallbackModel 也不降级)", async () => {
+    process.env.DAO_RATE_LIMIT_WAIT_MS = "1"; // 测试里不等真实退避
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const modelsUsed: string[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      modelsUsed.push(opts.model);
+      if (call === 1) {
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          throw Object.assign(new Error("API error 429: token_plan_person_rate_limit_exceeded"), { status: 429 });
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        yield { kind: "content", text: "限流解除后成功" };
+        return { role: "assistant", content: "限流解除后成功" };
+      })();
+    }) as any;
+    // ctx 没有 askChoice(非交互场景)→ 自动等待重试,不问用户
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      fallbackModel: "deepseek-v4-flash",
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    delete process.env.DAO_RATE_LIMIT_WAIT_MS;
+    expect(call).toBe(2);
+    expect(modelsUsed).toEqual(["deepseek-v4-pro", "deepseek-v4-pro"]); // 全程主模型,没换成 flash
+    expect(s.messages.at(-1)).toEqual({ role: "assistant", content: "限流解除后成功" });
+  });
+
+  it("限流(429):交互场景问用户,选\"中止\"则不重试、报明确错误(不降级)", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    let askedQuestion = "";
+    let askedOptions: string[] = [];
+    const streamChatMock = (() => {
+      call++;
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        throw Object.assign(new Error("API error 429: rate_limit_exceeded"), { status: 429 });
+      })();
+    }) as any;
+    const interactiveCtx = {
+      ...ctx,
+      askChoice: async (q: string, opts: string[]) => {
+        askedQuestion = q; askedOptions = opts;
+        return opts[1]!; // 选"中止"
+      },
+    };
+    await expect(
+      runTurn({
+        session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
+        streamChat: streamChatMock,
+        fallbackModel: "deepseek-v4-flash",
+        executeToolCalls: async () => [],
+        write: () => {},
+      }),
+    ).rejects.toThrow(/限流|429/);
+    expect(call).toBe(1); // 没有换模型重试,只问了一次就中止
+    expect(askedQuestion).toMatch(/限流/);
+    expect(askedOptions.length).toBe(2);
+  });
+
   it("sends session.model and runs tools then loops", async () => {
     const s = new Session("SYS", "deepseek-v4-flash");
     s.addUser("go");

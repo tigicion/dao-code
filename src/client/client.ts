@@ -7,13 +7,25 @@ import type {
   Usage,
 } from "./types.js";
 
-// 可重试的 HTTP 状态(过载/网关/限流);其余 4xx(400/401/403)视为致命,不重试。
+// 可重试的 HTTP 状态(过载/网关/限流);429 是否真走这条路径见下方 !res.ok 分支——
+// 服务端给了明确 Retry-After(如网关级瞬时限流)才按其指示重试,否则(通常是账号级
+// 配额/频率限流,退多久都没用)在那里直接上抛,不进入这里的重试/非流式兜底。
 const RETRYABLE_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504, 529]);
 
 // 上下文超限类错误:重试/非流式都救不了,需上层做反应式压缩后重试。导出给 loop 判定。
 export function isContextLengthError(e: unknown): boolean {
   const m = e instanceof Error ? e.message : String(e);
   return /context length|maximum context|too many tokens|reduce the length|context_length_exceeded|prompt is too long|exceeds? the maximum|input is too long/i.test(m);
+}
+
+// 判断是否为限流/配额耗尽错误(429,或消息里带 rate limit/quota_exceeded/限流 关键词)。
+// 这类错误通常是账号级的(同账号同端点,换模型没用),不该走模型回退或短退避重试——
+// 导出给 loop.ts,原样报给用户,由用户决定等待还是自行切换账号。
+export function isRateLimitError(e: unknown): boolean {
+  const status = (e as { status?: number }).status;
+  if (status === 429) return true;
+  const m = e instanceof Error ? e.message : String(e);
+  return /\b429\b|rate[_ -]?limit|quota_exceeded|限流|请求频率/i.test(m);
 }
 
 // 判断是否为凭证/认证类错误(401/403 + 含订阅关键词的 400)——这类错误换模型没用,需换凭证。
@@ -227,10 +239,15 @@ export async function* streamChat(
         clearTimeout(idleTimer);
         const text = await res.text().catch(() => "");
         const e = Object.assign(new Error(`API error ${res.status} from ${apiLabel(opts)}: ${text}`), { status: res.status }) as Error & { retryableStatus?: boolean; status?: number; retryAfterMs?: number };
-        if (RETRYABLE_STATUS.has(res.status)) e.retryableStatus = true; // 过载/限流/网关 → 可重试 + 兜底
         // Retry-After honoring:429/503 时服务端给的等待时长优先于指数退避(秒数;HTTP-date 容错跳过)。
         const ra = res.headers.get("retry-after");
         if (ra) { const s = Number(ra); if (Number.isFinite(s) && s >= 0) e.retryAfterMs = Math.min(s * 1000, 120_000); }
+        // 429 且没给 Retry-After:多半是账号级配额/频率限流(如千帆 Token Plan 限流),退多久都没用——
+        // 不设 retryableStatus,不进入下面的重试/非流式兜底,直接上抛给 loop.ts 走"限流:等待或换账号"
+        // 的用户决策路径(isRateLimitError)。429 且给了 Retry-After(网关/CDN 级瞬时限流)才按其指示
+        // 走正常重试路径。
+        if (res.status === 429 && e.retryAfterMs === undefined) throw e;
+        if (RETRYABLE_STATUS.has(res.status)) e.retryableStatus = true; // 过载/限流/网关 → 可重试 + 兜底
         throw e; // 其余(400 含上下文超限/401/403)致命:原样上抛,交给上层
       }
       if (!res.body) throw new Error("DeepSeek API returned an empty body");
@@ -288,7 +305,13 @@ export async function* streamChat(
           return msg;
         } catch (e2) {
           if (isContextLengthError(e2)) throw e2; // 兜底时撞上下文超限 → 交给上层压缩
-          throw new Error(idledOut ? idleErrMsg : `连接 ${apiLabel(opts)} 失败(流式重试 ${maxRetries} 次 + 非流式兜底均失败:${(e2 as Error).message})`);
+          // 保留 status(如兜底时也撞了 429):loop.ts 的 isRateLimitError 优先看 status,
+          // 不必只靠正则扒这句拼接消息里的原始错误文本。
+          const status = (e2 as { status?: number }).status;
+          throw Object.assign(
+            new Error(idledOut ? idleErrMsg : `连接 ${apiLabel(opts)} 失败(流式重试 ${maxRetries} 次 + 非流式兜底均失败:${(e2 as Error).message})`),
+            status !== undefined ? { status } : {},
+          );
         }
       }
       throw err; // 非可重试错误(致命),原样上抛
