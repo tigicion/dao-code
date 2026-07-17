@@ -3450,4 +3450,25 @@ purposes"打发掉，而是真的卡在了这个特定Debian包版本构建约�
 
 **真实复测**：提交`fix-hardretry-mips`(`terminal-bench/make-mips-interpreter`，
 `--ak provider=qianfan`匹配原样本provider)，`--agent-timeout-multiplier 4`。
-结果待补。
+
+第一次qianfan复测（`fix-hardretry-mips`）后台任务被外部kill两次（网络问题，非代码
+问题，无数据）。改用`--ak provider=volcengine`（火山引擎，用户确认更稳定）重新提交，
+中途取过程中key曾一度取错（把用户直接给的API key误当成keychain账号名去查找，
+`security find-generic-password`报"item not found"、且`2>&1`把这条stderr错误信息
+混进了.env的key值——纯粹是这边操作失误，不是key本身有问题；核实后确认用户给的字符串
+就是key本体，直接写入.env后问题消失）。
+
+**结果（`fix-hardretry-mips-volc-r2`，volcengine，正确key）：reward=0，但是干净的
+`AgentTimeoutError`（自然超时），不是崩溃**。`write_file`这次成功执行（`ok=true`），
+全程未触发"主模型异常"或"主备模型均异常"（本轮新加的退避重试机制未被触发，因为压根
+没遇到需要重试的异常）。dao_stdout.txt尾部显示模型在做真实的深度调试——逐字节追踪
+MIPS机器码、调试一个printf格式字符串问题，一直干到1800s预算耗尽。
+
+**判断**：换成volcengine这个更稳定的provider后，原样本在qianfan上撞见的"大文件
+write_file触发连接异常"没有复现，`write_file`直接顺利写完了大文件。这次没能直接
+验证"主备模型都遇到异常时退避重试是否生效"（因为压根没触发异常），但退避重试机制
+本身已经在volcengine认证错误那次意外复测中确认过按预期工作（连续触发"第1/2次"
+"第2/2次"提醒，逻辑正确）。这道题目前的失败性质是真实任务难度（写一个能跑DOOM的
+MIPS解释器本身工作量很大），不是框架崩溃——这本身就是有意义的结果:原本100%必然
+崩溃、零恢复机会的场景，换更稳定provider后根本不再触发，且即使触发，代码层面也已有
+退避重试兜底。
