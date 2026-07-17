@@ -100,7 +100,11 @@ export async function* streamChat(
   };
 
   // 空闲看门狗:连接挂起/模型停滞导致长时间收不到任何数据时,自动中断本次流并抛清晰错误。
-  const idleMs = opts.idleTimeoutMs ?? (Number(process.env.DAO_STREAM_IDLE_MS) || 120000);
+  // 默认 240s(原 120s 余量太小):实测撞见过(20260717-143212-b8wt 复现)单次生成一个
+  // 4~5 万字符的大文件真实耗时 ~125s——不是网络抖动,是这类重负载任务本身就逼近旧阈值,
+  // 只要某一次数据块间隔恰好越过 120s 就会被误判成"卡死"。240s 给这类任务翻倍余量,
+  // 真正卡死的连接(间隔以分钟计)依然会被正常捕获,只是发现得稍慢一点。
+  const idleMs = opts.idleTimeoutMs ?? (Number(process.env.DAO_STREAM_IDLE_MS) || 240000);
   const idleErrMsg = `模型流空闲超时(${Math.round(idleMs / 1000)}s 未收到数据),已停止本回合`;
   const maxRetries = opts.maxRetries ?? 2;
   const retryDelayMs = opts.retryDelayMs ?? 600;
