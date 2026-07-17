@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, Static, useApp, useInput, usePaste } from "ink";
 import { highlight } from "cli-highlight";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
@@ -14,6 +16,7 @@ import type { Provider } from "../../config/profiles.js";
 import type { ContentPart } from "../../client/types.js";
 import { supportsVision, VISION_MODELS } from "../../config/profiles.js";
 import { getImageFromClipboard } from "../imagePaste.js";
+import { classifyPath, isImagePath } from "../../tools/paths.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 // 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
@@ -48,6 +51,15 @@ function commonPrefix(strs: string[]): string {
   let p = strs[0]!;
   for (const s of strs) while (!s.startsWith(p)) p = p.slice(0, -1);
   return p;
+}
+
+// 从输入文本中提取 @图片路径(@path/to/image.png 等)。
+function findImagePaths(text: string): string[] {
+  const re = /@(\S+\.(?:png|jpe?g|gif|webp))/gi;
+  const paths: string[] = [];
+  let m;
+  while ((m = re.exec(text)) !== null) paths.push(m[1]!);
+  return paths;
 }
 
 // 空闲时底部轮换的轻提示(CC 风格:克制暗色一行,无 emoji)。运行中的"可排队"提示单独硬编码。
@@ -443,7 +455,35 @@ export function App(deps: AppDeps) {
       return;
     }
     pushItem({ id: nextId(), kind: "user", text: pastePreview(text) });
-    // 图片内容:检查当前模型是否支持图片;不支持则只发文字部分并提示用户。
+    // @图片路径检测:输入文本中 @path/to/image.png → 读文件转 base64 → ContentPart[]
+    if (typeof full === "string") {
+      const imagePaths = findImagePaths(full);
+      if (imagePaths.length > 0) {
+        const currentModel = deps.getStatus().model;
+        if (!supportsVision(currentModel)) {
+          pushItem({ id: nextId(), kind: "notice", text: `⚠ 当前模型 ${currentModel} 不支持图片输入,图片已忽略。可用: ${[...VISION_MODELS].join(", ")}` });
+          await runAgentTurn(full);
+          return;
+        }
+        const parts: ContentPart[] = [{ type: "text", text: full }];
+        const root = process.cwd();
+        let loaded = 0;
+        for (const imgPath of imagePaths) {
+          try {
+            const { abs, external } = classifyPath(root, imgPath);
+            if (external) { pushItem({ id: nextId(), kind: "notice", text: `⚠ 图片 ${imgPath} 在工作区外,已跳过。` }); continue; }
+            const buf = await fs.readFile(abs);
+            if (buf.length > 5 * 1024 * 1024) { pushItem({ id: nextId(), kind: "notice", text: `⚠ 图片 ${imgPath} 超过 5MB,已跳过。` }); continue; }
+            const ext = path.extname(abs).toLowerCase().slice(1);
+            const mediaType = ext === "jpg" ? "image/jpeg" : ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : ext === "webp" ? "image/webp" : "image/png";
+            parts.push({ type: "image_url", image_url: { url: `data:${mediaType};base64,${buf.toString("base64")}` } });
+            loaded++;
+          } catch { continue; }
+        }
+        if (loaded > 0) { await runAgentTurn(parts); return; }
+      }
+    }
+    // 图片粘贴内容:检查当前模型是否支持图片;不支持则只发文字部分并提示用户。
     if (Array.isArray(full)) {
       const currentModel = deps.getStatus().model;
       if (!supportsVision(currentModel)) {

@@ -52,3 +52,10 @@ export function resolveInWorkspace(workspaceRoot: string, p: string): string {
 export function resolveWritePath(workspaceRoot: string, p: string): string {
   return classifyPath(workspaceRoot, p).abs;
 }
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+
+/** 判断路径是否指向支持的图片文件（按扩展名）。 */
+export function isImagePath(p: string): boolean {
+  return IMAGE_EXTENSIONS.has(path.extname(p).toLowerCase());
+}
