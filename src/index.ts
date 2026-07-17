@@ -818,23 +818,35 @@ async function main() {
   // default/acceptEdits 由 getMode 读 loadedPerms.defaultMode 处理,无需在此设置。
   if (loadedPerms.defaultMode === "plan") session.mode = "plan";
   else if (loadedPerms.defaultMode === "bypassPermissions") yolo = true;
+  // 真正的交互式会话:有 TTY 且不是一次性 --goal 调用——跟 740 行 makeApprovalPrompt 用同一个
+  // 判据。之前 askChoice 无条件构造,headless/一次性调用(harbor/terminal-bench 这类没有真实
+  // stdin 可交互的场景)里也会拿到这个函数,退回走 ask() 读 stdin——但那里的 stdin 不是真终端,
+  // 读到的是空/EOF,不匹配任何选项前缀,会被 loop.ts 里"过载/超时/网络异常"的恢复逻辑误判成
+  // "用户选择了中止本轮",直接抛错终止整个 episode,把 loop.ts 自己那套"非交互场景保留原有
+  // 自动恢复"的设计完全绕过了。真实撞见:terminal-bench path-tracing-reverse 复测,一次
+  // 120s 空闲超时被这样直接判成中止,而不是走后面的限流重试/模型回退/退避重试。
+  const interactiveSession = process.stdin.isTTY === true && !argvPrompt;
   const ctx: ToolContext = {
     workspaceRoot,
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
-    askChoice: async (q: string, opts: string[], multi?: boolean) => {
-      if (inkAskChoice) return inkAskChoice(q, opts, multi);
-      const hint = multi ? "(回逗号分隔的多个序号,或直接作答)" : "(回序号选择,或直接作答)";
-      const raw = (await ask(`\n${q}\n${opts.map((o, i) => `  ${i + 1}. ${o}`).join("\n")}\n${hint}\n> `)).trim();
-      const pick = (s: string) => { const n = Number(s.trim()); return Number.isInteger(n) && n >= 1 && n <= opts.length ? opts[n - 1]! : null; };
-      if (multi && /[,，]/.test(raw)) {
-        const picked = raw.split(/[,，]/).map(pick).filter((x): x is string => x !== null);
-        return picked.length ? picked.join(", ") : raw;
-      }
-      return pick(raw) ?? raw;
-    },
+    // 只在真正交互式会话里提供——非交互场景不给这个函数,让 ask_user 工具退回 ctx.ask()(已有
+    // 优雅降级:读到空就回"(用户未回答)"),loop.ts 的异常恢复逻辑也据此正确落到 headless 分支。
+    ...(interactiveSession ? {
+      askChoice: async (q: string, opts: string[], multi?: boolean) => {
+        if (inkAskChoice) return inkAskChoice(q, opts, multi);
+        const hint = multi ? "(回逗号分隔的多个序号,或直接作答)" : "(回序号选择,或直接作答)";
+        const raw = (await ask(`\n${q}\n${opts.map((o, i) => `  ${i + 1}. ${o}`).join("\n")}\n${hint}\n> `)).trim();
+        const pick = (s: string) => { const n = Number(s.trim()); return Number.isInteger(n) && n >= 1 && n <= opts.length ? opts[n - 1]! : null; };
+        if (multi && /[,，]/.test(raw)) {
+          const picked = raw.split(/[,，]/).map(pick).filter((x): x is string => x !== null);
+          return picked.length ? picked.join(", ") : raw;
+        }
+        return pick(raw) ?? raw;
+      },
+    } : {}),
     fetchImpl: fetch,
     today,
     notifyUser: (m: string) => notify("dao", m), // notify_user 用;主会话与子代理均可(复用现成的桌面通知)
