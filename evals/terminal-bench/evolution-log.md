@@ -3545,3 +3545,32 @@ typecheck`通过。
 MIPS内存布局设计（讨论SP/GP寄存器初始化），不是反模式复发的迹象，但会话被强制截断，
 无法判断"进度提醒会话级计数"修复本轮是否真的改变了后续行为——**这次不能用来评判
 修复效果，需等配额重置或换账号/provider重新复测**。
+
+## EVOLVE：askChoice在headless模式下误判"用户选择中止"——新发现的框架bug(非本session此前改动引入)
+
+补regex-chess/path-tracing-reverse干净数据时（qianfan，`fix-cleanretest-batch3`）
+发现一个更大范围的问题：`path-tracing-reverse`遇到120s空闲超时后，输出显示一段
+交互式选择提示（"1.等待后重试 2.换成备用模型 3.中止本轮"），随后"已按你的选择
+中止本轮"——但这是headless/一次性`--goal`调用，根本没有真实用户在回答。
+
+**根因**：`src/index.ts`第821行`ctx.askChoice`此前无条件构造，headless模式下也会
+拿到这个函数、退回走`ask()`读stdin——但harbor驱动的容器化调用里stdin不是真终端，
+读到空/EOF，不匹配"等待重试"/"换成备用模型"任何一个选项前缀，被`loop.ts`里"过载/
+超时/网络异常"的恢复逻辑误判成"用户选择了中止"，直接抛错终止整个episode——完全
+绕过了`loop.ts`自己注释里写明的"非交互场景(headless/--goal/eval,无ctx.askChoice)
+保留原有自动恢复"这套设计（限流自动重试/模型回退/退避重试全部失效）。这不是本
+session之前任何一次改动引入的，是并发工作里新加的交互式选择机制本身有这个逻辑漏洞。
+
+**改在哪层**：`src/index.ts`——新增`interactiveSession`判据（与740行
+`makeApprovalPrompt`同一套：真实TTY且非一次性`--goal`调用），`askChoice`只在这个
+条件下才加进ctx。非交互场景ctx里干脆没有这个字段，`ask_user`工具据此正确退回
+`ctx.ask()`（已有优雅降级），`loop.ts`的异常恢复逻辑也据此正确落到headless自动
+恢复分支。
+
+**commit**：`9b2d2b1`。全量`npx vitest run`1279/1279通过，`npm run typecheck`
+通过。未新增单测（index.ts是CLI入口历来无直接单测；loop.ts/ask_user.ts两侧在
+"ctx有/无askChoice"两种输入下的行为已有既有测试覆盖，本次只改变index.ts实际传给
+它们哪种ctx）。二进制已重新编译。
+
+**真实复测**：提交`fix-askchoice-batch4`(`terminal-bench/path-tracing-reverse`+
+`terminal-bench/regex-chess`，qianfan)，`--agent-timeout-multiplier 4`。结果待补。
