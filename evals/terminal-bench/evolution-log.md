@@ -3385,5 +3385,27 @@ TDD：`verify.test.ts`新增用例验证新增文案存在（"可能没做对"+"
 核实"）。全量`npx vitest run`1179/1179通过（此前另一并发会话的`profiles.test.ts`
 失败已消失，与本轮改动无关），`npm run typecheck`通过。二进制已按`c1070f5`重新编译。
 
-**真实复测**：提交`fix-verifydone-pmars-r2`(`terminal-bench/build-pmars`)，
-`--agent-timeout-multiplier 4`。结果待补。
+**真实复测**：提交`fix-verifydone-pmars-r2`(`terminal-bench/build-pmars__kmWDYvF`)，
+`--agent-timeout-multiplier 4`。
+
+**结果：reward=0，但真实、可衡量的进步——3/4测试通过（上一轮是2/4）。**
+`test_debian_source_used`这次**转为通过**：模型在调用`verify_done`前专门做了一次
+"Now let me check that the Debian source was used. I should verify the source comes
+from Debian by checking for the debian/ directory"的真实检查（不再是凭记忆），
+`debian/`目录这次确认存在。调用`verify_done`后，模型逐条列出任务原文全部10条要求
+做交叉核对（而不是上一轮那个刻意跳过关键项的5项自定义清单）——这正是本轮修复想要
+的效果。
+
+`test_built_from_source`（`src/`子目录）仍未通过，但性质也变了：往前翻dao_stdout.txt
+显示模型这次对`src/`疑点做了大量真实调查（查`debian/rules`、找quilt patches目录、
+考虑Salsa仓库怎么组织源码），不是像上一轮那样一句"that doesn't matter for our
+purposes"打发掉，而是真的卡在了这个特定Debian包版本构建约定本身的不直观之处，调查
+未果后继续往下走，不再是刻意的自我合理化。
+
+**判断**：三轮修复下来，这道题的失败性质完整走了一圈：iteration15原样本"完全没
+意识到验收要求存在" → 第一轮修复后"意识到了、调查对了方向、但自我合理化跳过、未
+二次核实" → 第二轮修复后"意识到、真实核实并解决了debian/这一条，`src/`那条是遇到
+真实技术难点未能解决"。3/4测试通过，比最初有实质进步。`src/`这条继续追下去大概率是
+在啃真实任务难度（这个特定包版本的构建约定本身不直观），本轮到此为止，不再为这一道
+题继续加码，`verify_done`"验证范围+发现疑点不能自我合理化"这两条修复视为对这类框架
+性空子的验证已完成。
