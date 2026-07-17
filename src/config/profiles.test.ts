@@ -100,8 +100,21 @@ describe("MODELS_BY_PROVIDER", () => {
       "ernie-5.1",
     ]);
   });
-  it("deepseek 与 volcengine 只有共享的 pro/flash 两档", () => {
+  it("deepseek 只有 pro/flash 两档", () => {
     expect(MODELS_BY_PROVIDER.deepseek).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
-    expect(MODELS_BY_PROVIDER.volcengine).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
+  });
+  it("volcengine coding plan 额外支持 doubao/glm/kimi/minimax 系列(与 pro/flash 并列)", () => {
+    expect(MODELS_BY_PROVIDER.volcengine).toEqual([
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "doubao-seed-2.0-pro",
+      "doubao-seed-2.0-lite",
+      "doubao-seed-2.0-code",
+      "glm-5.2",
+      "kimi-k2.6",
+      "kimi-k2.7-code",
+      "minimax-m2.7",
+      "minimax-m3",
+    ]);
   });
 });

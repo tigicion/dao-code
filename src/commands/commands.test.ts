@@ -66,6 +66,44 @@ describe("dispatchCommand", () => {
     expect(s.model).toBe("glm-5.1");
   });
 
+  it("/model 无参在 volcengine 下按完整 10 档循环回到 pro", () => {
+    const s = sess(); // 初始 deepseek-v4-pro
+    const order = [
+      "deepseek-v4-flash",
+      "doubao-seed-2.0-pro",
+      "doubao-seed-2.0-lite",
+      "doubao-seed-2.0-code",
+      "glm-5.2",
+      "kimi-k2.6",
+      "kimi-k2.7-code",
+      "minimax-m2.7",
+      "minimax-m3",
+      "deepseek-v4-pro",
+    ];
+    for (const expected of order) {
+      dispatchCommand("/model", s, "volcengine");
+      expect(s.model).toBe(expected);
+    }
+  });
+
+  it("/model doubao-seed-2.0-pro 和 minimax-m3 对 volcengine 合法", () => {
+    const s = sess();
+    const r1 = dispatchCommand("/model doubao-seed-2.0-pro", s, "volcengine");
+    expect(r1.handled).toBe(true);
+    expect(s.model).toBe("doubao-seed-2.0-pro");
+    const r2 = dispatchCommand("/model minimax-m3", s, "volcengine");
+    expect(r2.handled).toBe(true);
+    expect(s.model).toBe("minimax-m3");
+  });
+
+  it("/model doubao-seed-2.0-code 对 deepseek 非法,给出可选列表且不改动当前模型", () => {
+    const s = sess();
+    const r = dispatchCommand("/model doubao-seed-2.0-code", s, "deepseek");
+    expect(s.model).toBe("deepseek-v4-pro");
+    expect(r.output).toContain("deepseek-v4-pro");
+    expect(r.output).toContain("deepseek-v4-flash");
+  });
+
   it("/model glm-5.2 对 deepseek 非法,给出可选列表且不改动当前模型", () => {
     const s = sess();
     const r = dispatchCommand("/model glm-5.2", s, "deepseek");

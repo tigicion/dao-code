@@ -27,11 +27,25 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
 };
 
-// 每个 provider 已知可用的模型串(/model 命令用来做校验+循环);deepseek/volcengine 只有 pro/flash 两档,
-// qianfan 额外支持 glm-5.2/glm-5.1/kimi-k2.6/ernie-5.1(用户明确要求)。
+// 每个 provider 已知可用的模型串(/model 命令用来做校验+循环);deepseek 只有 pro/flash 两档,
+// volcengine coding plan 额外支持 doubao/glm/kimi/minimax 系列——控制台列出但实测 coding plan
+// 接口返回 UnsupportedModel 的串(如 doubao-seed-code,无 2.0 后缀的旧版)不收录,
+// 每条都用真实 key 打过 /chat/completions 拿到 200 才收进来(2026-07-17)。
+// qianfan 额外支持 glm-5.2/glm-5.1/kimi-k2.6/ernie-5.1(均为用户明确要求)。
 export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
   deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
-  volcengine: ["deepseek-v4-pro", "deepseek-v4-flash"],
+  volcengine: [
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "doubao-seed-2.0-pro",
+    "doubao-seed-2.0-lite",
+    "doubao-seed-2.0-code",
+    "glm-5.2",
+    "kimi-k2.6",
+    "kimi-k2.7-code",
+    "minimax-m2.7",
+    "minimax-m3",
+  ],
   qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "ernie-5.1"],
   anthropic: [DEFAULTS.anthropic.model],
   openai: [DEFAULTS.openai.model],
