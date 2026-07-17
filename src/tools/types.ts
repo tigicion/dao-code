@@ -72,6 +72,10 @@ export interface ToolContext {
   adaptSkill?: (body: string) => Promise<string>;
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
+  // 当前会话模型名(read_file 读图片时检查是否支持多模态)。
+  sessionModel?: string;
+  // 暂存工具返回的图片数据,由 execute.ts 在构建 ToolMessage 时读取并清空。
+  currentImageData?: { base64: string; mediaType: string };
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
   today?: string;
   // 用户主目录(用户级记忆 ~/.dao 的根);默认 os.homedir()。注入便于测试隔离真实主目录。

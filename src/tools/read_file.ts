@@ -1,14 +1,26 @@
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { classifyPath } from "./paths.js";
+import { classifyPath, isImagePath } from "./paths.js";
 import { msg } from "./lang.js";
+import { supportsVision } from "../config/profiles.js";
+
+// 按 magic bytes 探测图片真实格式(不信任扩展名)。
+function detectImageFormat(buf: Buffer): string | null {
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "image/gif";
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return "image/webp";
+  return null;
+}
 
 export const readFileTool = defineTool({
   name: "read_file",
   description:
     "读取工作区内的文本文件,返回带行号(1-based,制表符分隔)的内容。可用 offset 指定起始行、limit 指定读取行数。" +
     "读文件优先用本工具,不要用 exec_shell 拼 cat/head/tail——那样拿不到行号,也绕不开下面这些护栏。\n" +
+    "支持文本和图片文件(png/jpg/gif/webp);图片以 base64 内联返回供多模态模型查看(仅 kimi-k2.6 等支持视觉的模型可用)。\n" +
     "边界:只读文本,遇二进制(含 NUL 字节)或超大文件(>5MB 且未给 offset/limit)会报错,不会返回乱码;" +
     "单行超 2000 字符会截断(防压缩过的代码/内联 base64 sourcemap 撑爆上下文);" +
     "不给 limit 时默认只读前 2000 行,截断处会提示续读的 offset,别误以为已经读完整个文件——" +
@@ -18,6 +30,7 @@ export const readFileTool = defineTool({
     "'编辑前是否读过'和'磁盘内容是否被外部改过'(改文件前必须先读它,就是为了建立这个基线)。",
   descriptionEn:
     "Reads a text file in the workspace, returning content with 1-based line numbers (tab-separated). Use offset for the starting line and limit to control lines read. " +
+    "Supports text and image files (png/jpg/gif/webp); images are returned as inline base64 for multimodal models (only vision-capable models like kimi-k2.6). " +
     "Prefer this over shelling out to cat/head/tail via exec_shell — those give no line numbers and bypass the guardrails below.\n" +
     "Boundaries: text only — errors (not garbage output) on binary (NUL bytes) or oversized files (>5MB without offset/limit); " +
     "lines over 2000 chars get truncated (protects against minified code or inline base64 sourcemaps blowing up context); " +
@@ -48,6 +61,32 @@ export const readFileTool = defineTool({
       return msg(
         `Error: 文件过大(${(st.size / 1024 / 1024).toFixed(1)}MB > 5MB)。请用 offset/limit 分段读,或用 grep_files 精确定位。`,
         `Error: File too large (${(st.size / 1024 / 1024).toFixed(1)}MB > 5MB). Use offset/limit to read in sections, or grep_files for targeted search.`,
+      );
+    }
+    // 图片文件:读原始 buffer → magic bytes 探测格式 → base64 暂存到 ctx(execute.ts 构造 ContentPart[])
+    if (isImagePath(args.path)) {
+      const buf = await fs.readFile(abs);
+      if (buf.length > MAX_BYTES) {
+        return msg(
+          `Error: 图片过大(${(buf.length / 1024 / 1024).toFixed(1)}MB > 5MB)。`,
+          `Error: Image too large (${(buf.length / 1024 / 1024).toFixed(1)}MB > 5MB).`,
+        );
+      }
+      const mediaType = detectImageFormat(buf);
+      if (!mediaType) {
+        return msg(
+          `Error: 无法识别图片格式,支持 png/jpg/gif/webp。`,
+          `Error: Unrecognized image format. Supported: png/jpg/gif/webp.`,
+        );
+      }
+      // 不支持多模态的模型:拒绝读图片
+      if (ctx.sessionModel && !supportsVision(ctx.sessionModel)) {
+        return `Error: 当前模型 ${ctx.sessionModel} 不支持图片输入,无法读取图片文件。`;
+      }
+      ctx.currentImageData = { base64: buf.toString("base64"), mediaType };
+      return msg(
+        `[已读取图片: ${path.basename(args.path)} (${buf.length} bytes, ${mediaType})]`,
+        `[Image loaded: ${path.basename(args.path)} (${buf.length} bytes, ${mediaType})]`,
       );
     }
     const raw = await fs.readFile(abs, "utf8");

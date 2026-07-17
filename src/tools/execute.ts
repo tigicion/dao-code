@@ -70,7 +70,19 @@ async function dispatchOne(
     let content = await registry.dispatch(name, finalArgs, ctx);
     if (h?.additionalContext) content = `${content}\n[hook 提示] ${h.additionalContext}`; // 附到工具结果让模型看见
     if (ctx.postToolHook) await ctx.postToolHook(name, finalArgs, content); // PostToolUse(副作用,如自动格式化)
+    // 工具返回了图片数据 → 构造 ContentPart[](文字描述 + image_url),清空暂存
+    const imgData = ctx.currentImageData;
+    ctx.currentImageData = undefined;
     audit(content);
+    if (imgData) {
+      return {
+        role: "tool", tool_call_id: tc.id,
+        content: [
+          { type: "text", text: content },
+          { type: "image_url", image_url: { url: `data:${imgData.mediaType};base64,${imgData.base64}` } },
+        ],
+      };
+    }
     return { role: "tool", tool_call_id: tc.id, content };
   } catch (err) {
     const errMsg = `Error: ${(err as Error).message}`;
