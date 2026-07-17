@@ -115,6 +115,14 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 但如果同一次卡住反复触发(提醒过还是没推进),说明通用措辞没起作用,该换成更具体地
   // 点破"停止文字循环、换成能拿到确定结果的动作"这条,而不是一直重复同一句没用的话。
   let stuckAdviceCount = 0;
+  // 全会话累计"通用档提醒"触发次数,不随 progressed 清零(与 stuckAdviceCount 的区别就在这里)。
+  // 动机(真实撞见:terminal-bench make-mips-interpreter,反复推理反模式):模型卡在同一个
+  // printf/内存字节问题上反复假设了两个多小时,期间进度提醒确实触发过 3 次,但每次都恰好被
+  // 穿插的零星 edit_file 调用清零了 stuckAdviceCount,导致每次都只拿到"第1次"的通用措辞,
+  // 从未真正升级——跟 raman-fitting 那次发现的检测盲区同一个根因("该轮是否调用过写类工具"
+  // 不代表核心问题真的被解决了)。这个计数器不看"当前这次卡住连续了几次",看"这整个会话
+  // 里已经卡住又被复位过几次",复位掩盖不了这个累计数字。
+  let totalStuckEvents = 0;
   // 反思层:确定性回合监控状态(跨本 runTurn 的各模型回合累积)。
   let health = initHealth();
   const healthCfg = defaultHealthConfig();
@@ -438,14 +446,21 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     const advisories: string[] = [];
     if (noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
       stuckAdviceCount++;
-      // 首次:通用措辞(回看目标/收尾/求助)。第2次起同一次卡住还没缓解 → 说明通用措辞没用,
-      // 换成直接点破"別再文字循环、换成能拿到确定结果的动作"这条更具体的建议。
+      totalStuckEvents++;
+      // 首次(且本会话此前也没反复卡住过):通用措辞。第2次起同一次卡住还没缓解,或者
+      // 虽然这次是"第1次"但本会话已经因零星编辑被清零过好几回(totalStuckEvents 够高)
+      // → 说明通用措辞没用或者一直在被规避检测,换成直接点破"別再文字循环、换成能拿到
+      // 确定结果的动作"这条更具体的建议。
+      const escalate = stuckAdviceCount > 1 || totalStuckEvents >= 3;
       advisories.push(
-        stuckAdviceCount === 1
+        !escalate
           ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请调用 verify_done 收尾;如果确实卡住了,用 ask_user 向用户求助,不要空转。`
-          : `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,用 ask_user 求助或如实汇报现状。`,
+          : stuckAdviceCount > 1
+            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,用 ask_user 求助或如实汇报现状。`
+            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,用 ask_user 求助或如实汇报现状。`,
       );
-      events.notice(`\n[进度提醒${stuckAdviceCount > 1 ? `·第${stuckAdviceCount}次` : ""}:已连续 ${noProgress} 轮无实质推进]\n`);
+      const label = stuckAdviceCount > 1 ? `·第${stuckAdviceCount}次` : escalate ? `·本会话第${totalStuckEvents}次卡住` : "";
+      events.notice(`\n[进度提醒${label}:已连续 ${noProgress} 轮无实质推进]\n`);
     }
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
       advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`);

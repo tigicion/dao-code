@@ -575,6 +575,37 @@ describe("runTurn", () => {
     expect(sys.some((c) => c.includes("第2次"))).toBe(false);
   });
 
+  it("同一会话反复卡住又被零星编辑清零 → 第3次即使是'新的一次卡住'也要升级措辞,不能无限靠清零规避", async () => {
+    // 根因(内省复盘 make-mips-interpreter 时发现):模型卡在同一个printf/内存字节问题上
+    // 反复假设了两个多小时,期间进度提醒确实触发过3次,但每次都被穿插的零星edit_file清零了
+    // stuckAdviceCount,导致每次都只拿到"第1次"的通用措辞,从未真正升级——跟raman-fitting
+    // 那次发现的检测盲区同一个根因。totalStuckEvents不受清零影响,累计到3次就该升级,
+    // 不管当前这次"卡住"是不是刚重新开始计数的。
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write_file", arguments: "{}" } }] })();
+    // 3轮"5轮空转+1轮零星编辑清零"循环,第3次卡住触发时 totalStuckEvents 应达到3、需要升级。
+    const cycle = [...Array.from({ length: 5 }, () => readTurn), writeTurn];
+    const turns = [
+      ...cycle, ...cycle, ...cycle,
+      () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
+    ];
+    let i = 0;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async (calls) => calls.map((c) => ({ role: "tool" as const, tool_call_id: c.id, content: "R" })),
+      write: () => {},
+      maxTurns: 25,
+    });
+    const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
+    // 第1、2次仍是通用措辞(totalStuckEvents=1,2,不够3);第3次即使stuckAdviceCount又是1,
+    // 也应该因totalStuckEvents=3而升级,带具体的"写脚本/加调试打印"动作指令。
+    expect(sys.filter((c) => c.includes("[进度提醒]") && !c.includes("第")).length).toBe(2);
+    expect(sys.some((c) => c.includes("本会话第3次卡住") && c.includes("最小验证脚本或加一行调试打印"))).toBe(true);
+  });
+
   it("轮数提醒(接近 maxTurns)触发时同步 events.notice", async () => {
     // 同一处代码块里的另一条 advisory,同一个盲区——一并补上可见提示。
     const s = new Session("SYS", "m");
