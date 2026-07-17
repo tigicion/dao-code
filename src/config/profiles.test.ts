@@ -90,8 +90,15 @@ describe("DEFAULTS.qianfan", () => {
 });
 
 describe("MODELS_BY_PROVIDER", () => {
-  it("qianfan 额外支持 glm-5.2(与 pro/flash 并列)", () => {
-    expect(MODELS_BY_PROVIDER.qianfan).toEqual(["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2"]);
+  it("qianfan 额外支持 glm-5.2/glm-5.1/kimi-k2.6/ernie-5.1(与 pro/flash 并列)", () => {
+    expect(MODELS_BY_PROVIDER.qianfan).toEqual([
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "glm-5.2",
+      "glm-5.1",
+      "kimi-k2.6",
+      "ernie-5.1",
+    ]);
   });
   it("deepseek 与 volcengine 只有共享的 pro/flash 两档", () => {
     expect(MODELS_BY_PROVIDER.deepseek).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);

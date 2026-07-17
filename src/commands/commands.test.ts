@@ -26,12 +26,18 @@ describe("dispatchCommand", () => {
     expect(s.model).toBe("deepseek-v4-flash");
   });
 
-  it("/model 无参在 qianfan 下按 pro→flash→glm→pro 循环", () => {
+  it("/model 无参在 qianfan 下按 pro→flash→glm-5.2→glm-5.1→kimi→ernie→pro 循环", () => {
     const s = sess(); // 初始 deepseek-v4-pro
     dispatchCommand("/model", s, "qianfan");
     expect(s.model).toBe("deepseek-v4-flash");
     dispatchCommand("/model", s, "qianfan");
     expect(s.model).toBe("glm-5.2");
+    dispatchCommand("/model", s, "qianfan");
+    expect(s.model).toBe("glm-5.1");
+    dispatchCommand("/model", s, "qianfan");
+    expect(s.model).toBe("kimi-k2.6");
+    dispatchCommand("/model", s, "qianfan");
+    expect(s.model).toBe("ernie-5.1");
     dispatchCommand("/model", s, "qianfan");
     expect(s.model).toBe("deepseek-v4-pro");
   });
@@ -41,6 +47,23 @@ describe("dispatchCommand", () => {
     const r = dispatchCommand("/model glm-5.2", s, "qianfan");
     expect(r.handled).toBe(true);
     expect(s.model).toBe("glm-5.2");
+  });
+
+  it("/model kimi-k2.6 和 ernie-5.1 对 qianfan 合法", () => {
+    const s = sess();
+    const r1 = dispatchCommand("/model kimi-k2.6", s, "qianfan");
+    expect(r1.handled).toBe(true);
+    expect(s.model).toBe("kimi-k2.6");
+    const r2 = dispatchCommand("/model ernie-5.1", s, "qianfan");
+    expect(r2.handled).toBe(true);
+    expect(s.model).toBe("ernie-5.1");
+  });
+
+  it("/model glm-5.1 对 qianfan 合法", () => {
+    const s = sess();
+    const r = dispatchCommand("/model glm-5.1", s, "qianfan");
+    expect(r.handled).toBe(true);
+    expect(s.model).toBe("glm-5.1");
   });
 
   it("/model glm-5.2 对 deepseek 非法,给出可选列表且不改动当前模型", () => {

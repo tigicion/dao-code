@@ -28,11 +28,11 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
 };
 
 // 每个 provider 已知可用的模型串(/model 命令用来做校验+循环);deepseek/volcengine 只有 pro/flash 两档,
-// qianfan 额外支持 glm-5.2(用户明确要求;kimi/ernie 等仍不支持,见 spec §8)。
+// qianfan 额外支持 glm-5.2/glm-5.1/kimi-k2.6/ernie-5.1(用户明确要求)。
 export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
   deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
   volcengine: ["deepseek-v4-pro", "deepseek-v4-flash"],
-  qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2"],
+  qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "ernie-5.1"],
   anthropic: [DEFAULTS.anthropic.model],
   openai: [DEFAULTS.openai.model],
 };
