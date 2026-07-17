@@ -3243,3 +3243,30 @@ exec_shell里，导致提醒机制对合法的验证/迭代阶段产生大量误
 无视了这些误触发的提醒（因为确实在做该做的事），没有造成负面影响，但这是一个值得下一轮
 处理的口径问题：应该把"该轮 exec_shell 是否产生了新的文件/修改了已有文件"也计入
 "有实质推进"的判据，而不是只看四类写文件工具。
+
+## 复测扩大范围：regex-chess/path-tracing/path-tracing-reverse/raman-fitting/feal-differential-cryptanalysis（batch2，-n4并发）——数据被基础设施噪声污染
+
+用户要求把同样的方法应用到本批次其余已确认反模式的题目上。5题-n4并发提交
+（`fix-promptaction-batch2`），全部reward=0，但逐题核实收尾方式后发现**4/5的数据
+无效**，不能当作"修复没起效"的证据：
+
+- **path-tracing、path-tracing-reverse、regex-chess（3题）**：全部以"模型流空闲
+  超时(120s未收到数据)"收尾——`path-tracing-reverse`恰好是模型刚说完"Let me just
+  start writing the program"（正要开始动手，判断是对的）后被截断，不是反模式复发，
+  是外部信号打断了本来在收敛的会话。
+- **feal-differential-cryptanalysis**：verifier自身环境搭建失败（`curl:
+  SSL_ERROR_SYSCALL`连不上astral.sh、`uvx: command not found`），跟模型解答质量
+  无关，是测试基础设施问题。
+
+5题共用`-n 4`并发对同一批全部命中同一种失败签名，怀疑是并发对DeepSeek API造成压力
+引发连锁流式空闲超时——与`基础设施事故(2026-07-14)`记录的"iteration 2并发过高导致
+容器被杀"同属一类不稳定，只是这次表现在API层而非容器层。
+
+**唯一干净跑完、可信的样本**：`raman-fitting`（4次write_file+8次edit_file+1次
+verify_done）：3项测试1项通过（`test_result_file_exists`），G峰/2D峰数值未达标——
+从原样本"反复推理反模式#34、循环措辞15+次"变成"真实产出分析脚本+部分正确的数值
+结果"，是第3个观察到明确正向变化的样本（reward仍0，但同样是从框架级空转变成真实
+精度差距）。
+
+**应对**：4题无效数据已用`-n 1`（串行、无并发争抢）重新提交
+（`fix-promptaction-batch2-rerun`），结果待补，不能用本轮`-n4`的数据下结论。
