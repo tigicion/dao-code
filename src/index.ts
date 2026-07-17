@@ -1894,8 +1894,15 @@ async function main() {
         write("\n> ");
         return nextLine();
       };
+      // 修盲区②:这条路径此前建了 store(供 cache/tool/perm 审计 sink),却从没调用过
+      // store.saveState()——跟一次性 argvPrompt 路径(补过"state.json 全量 messages"那个
+      // 盲区)不一样,这里连一次完整快照都没有,/resume 也找不到东西续。补上:每个工具轮
+      // 落一次盘(同交互态/一次性路径的 onCheckpoint 机制),干净退出前再存一次兜底。
+      const persistRepl = () =>
+        store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } });
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: runOneTurn, write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), getProvider: () => cfg.provider });
+      await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), getProvider: () => cfg.provider });
+      persistRepl(); // 干净退出前再存一次(覆盖最后一轮是"纯文本收尾早退"、没触发过 onCheckpoint 的情形)
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();
       lspManager.disposeAll();
