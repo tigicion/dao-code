@@ -439,6 +439,30 @@ describe("runTurn", () => {
     expect(s.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "assistant"]);
   });
 
+  it("onCheckpoint:每个工具轮结束都调用一次(不等整个回合跑完才存档)", async () => {
+    const s = new Session("SYS", "deepseek-v4-flash");
+    s.addUser("go");
+    const assistantWithTool: AssistantMessage = {
+      role: "assistant", content: null,
+      tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+    };
+    const calls = scripted([
+      turn([], assistantWithTool), // 第1轮:调工具
+      turn([], assistantWithTool), // 第2轮:再调一次工具
+      turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }), // 第3轮:收尾
+    ]);
+    let checkpoints = 0;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => calls()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "R" }],
+      write: () => {},
+      onCheckpoint: () => { checkpoints++; },
+    });
+    // 两次工具轮都落盘;最后纯文本收尾那轮走的是"直接 return"早退路径(没有新工具结果要保护),
+    // 不额外触发——回合末外层的 persist() 已经会存一次完整最终状态,不依赖这里补。
+    expect(checkpoints).toBe(2);
+  });
 
   it("§4 轮内主动压缩:shouldCompact=true 时在工具轮之间调 compact(不等回合末)", async () => {
     const s = new Session("SYS", "m");

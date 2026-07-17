@@ -1121,7 +1121,9 @@ async function main() {
     }
   };
 
-  const runOneTurn = async () => {
+  // onCheckpoint(可选):一次性/--goal 长任务(argvPrompt)整个用户回合可能含大量工具轮,
+  // 中途异常上抛会丢掉此前已成功的所有步骤——传入时每个工具轮结束后落一次盘(与交互态同一层修复)。
+  const runOneTurn = async (onCheckpoint?: () => void) => {
     await withPresence(() => runTurn({
       session,
       config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
@@ -1141,6 +1143,7 @@ async function main() {
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
       drainNotifications: () => taskManager.drainNotifications(), // 后台子代理完成结果:回合边界回灌(一次性/--goal 与交互同等,修复 headless 丢失)
+      onCheckpoint,
     }));
     // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
     if (!argvPrompt) {
@@ -1294,7 +1297,9 @@ async function main() {
       if (up.blocked) { write(`[提交被 hook 阻止] ${up.reason || ""}\n`); return; }
       session.addUser(argvPrompt);
       if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
-      await runOneTurn();
+      await runOneTurn(() =>
+        store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } }),
+      );
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(CC 对等:一次性运行也触发)
       store.saveState({
         cwd: workspaceRoot, model: session.model, mode: session.mode,
@@ -1406,6 +1411,7 @@ async function main() {
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
+            onCheckpoint: persist, // 每个工具轮落一次盘,回合中途异常上抛也不连带丢掉此前已成功的步骤
           }));
           store.append({ t: "turn_end" });
           // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。

@@ -109,6 +109,11 @@ export interface TurnDeps {
   // 子代理自挑战:子代理不传 reflect(不另起 fork,避免嵌套加深/翻倍成本/废前缀缓存),
   // 但仍跑廉价的确定性卡住检测——卡住时注入一段静态自省 nudge,让子代理在自己下一轮里反省。
   selfChallenge?: boolean;
+  // 每个工具轮结束后调用一次(存档用):此前只在【整个用户回合】跑完才落盘一次(index.ts 的
+  // persist()),回合中途崩溃(如触发了某个未预料的 API 错误)会连带丢掉这一整个回合里此前
+  // 已经成功的所有工具调用——哪怕只有最后一步真正出了问题。省略=不额外存档(子代理/一次性
+  // 运行没有独立会话文件,不需要这层)。
+  onCheckpoint?: () => void;
 }
 
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
@@ -506,6 +511,10 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       }
     }
     if (advisories.length) session.messages.push({ role: "system", content: advisories.join(" ") });
+    // 每个工具轮落一次盘:即便下一轮请求异常上抛(如触发了未预料的 API 错误)导致整个回合
+    // 没能跑完,这一轮及之前已经成功的工具调用也不会连带作废——回合末的 persist() 只是
+    // 再确认一次最终状态,不是唯一一次存档。
+    deps.onCheckpoint?.();
   }
   events.notice("\n[已达最大轮数,停止]\n");
 }
