@@ -213,8 +213,9 @@ export function App(deps: AppDeps) {
     let out = s;
     for (const [ph, full] of pasteRef.current) {
       if (!out.includes(ph)) continue;
-      const lines = full.replace(/\n+$/, "").split("\n");
-      const head = lines[0]!.slice(0, 100);
+      const normalized = full.replace(/\r\n/g, "\n").replace(/\n+$/, "");
+      const lines = normalized ? normalized.split("\n") : [];
+      const head = lines[0]?.slice(0, 100) ?? "";
       out = out.split(ph).join(t("ui.paste.preview", lines.length, head, head.length >= 100 || lines.length > 1 ? "…" : ""));
     }
     return out;
@@ -845,7 +846,9 @@ export function App(deps: AppDeps) {
     if (ask) { setAskInput((s) => s + text); return; }
     // 大段粘贴(>280 字符或 >6 行)折叠成占位符,全文存 pasteRef,提交时展开;小段照常内联。
     let ins = text;
-    const lineCount = text.replace(/\n+$/, "").split("\n").length; // 去掉末尾换行,避免多算一行
+    // 规范化换行:\r\n → \n,去末尾换行(避免多算一行);空串算 0 行。
+    const normalized = text.replace(/\r\n/g, "\n").replace(/\n+$/, "");
+    const lineCount = normalized ? normalized.split("\n").length : 0;
     if (text.length > 280 || lineCount > 6) {
       const id = ++pasteSeqRef.current;
       ins = t("ui.paste.placeholder", id, lineCount);
