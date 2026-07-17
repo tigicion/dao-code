@@ -243,6 +243,9 @@ async function main() {
   const continueArgRaw = continueFlagIdx >= 0 ? rawArgs[continueFlagIdx + 1] : undefined;
   const cliResumeId = continueArgRaw && !continueArgRaw.startsWith("-") ? continueArgRaw : undefined;
   const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task") || rawArgs.includes("--coordinator"); // --task/--coordinator 为旧别名,均进长任务自主模式(已并入)
+  // 回合末"统一反思器"(反思进展 + 抽/改记忆)默认关闭,--reflect-memory 启动时显式开启才跑。
+  // 启动时定一次、会话全程不变——中途切换会让系统提示词字节变化,废掉整段对话的前缀缓存。
+  const reflectMemoryFlag = rawArgs.includes("--reflect-memory");
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
@@ -250,7 +253,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -705,6 +708,7 @@ async function main() {
       envSnapshot,
       projectInstructions: loadProjectInstructions(workspaceRoot), // DAO.md/AGENTS.md/CLAUDE.md + 用户级
       lang,
+      reflectMemoryEnabled: reflectMemoryFlag,
     }) + agentTypesSection + skillsSection;
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
@@ -1251,7 +1255,7 @@ async function main() {
   // 回合末入口:deepseek 官方 key 不限流,每轮都跑(仅 reflectBusy 防并发);
   // 其它 provider(volcengine/qianfan 等 coding-plan/token-plan,计费敏感)用自适应节奏(连续安静则放慢)。
   const maybeReflect = async (opts: { compactionImminent: boolean }): Promise<void> => {
-    if (argvPrompt || NO_MEMORY) return;
+    if (!reflectMemoryFlag || argvPrompt || NO_MEMORY) return; // 默认关闭,--reflect-memory 才跑
     // deepseek 不限流:跳过 cadence,每轮直接跑(仅用 reflectBusy 防并发堆叠)。
     // 读 cfg.provider(活值,随 /account 切换更新)而非 resolved.provider(启动时快照,切账户后不再变)。
     if (cfg.provider === "deepseek") {
