@@ -3,6 +3,49 @@ import { toJsonSchema } from "./schema.js";
 import type { Tool, ToolContext, ToolDispatcher } from "./types.js";
 import type { Lang } from "../i18n/i18n.js";
 
+// 半截 JSON 抢救:真实撞见过(20260717-143212-b8wt)单次输出预算不够,模型试图一次性生成
+// 超大内容(如整篇文档塞进 write_file 的 content 字段)被硬截断——原来只报一句"invalid JSON
+// arguments",模型看不出截断在哪、截了多少,只会原地重试同一个必然还是太大的调用。
+// 这里做最小化的"尽量往回补全":扫描字符流,跟踪是否在字符串内(正确处理转义)及未闭合的
+// {}/[] 层级,截断多半发生在某个字符串值中途——补一个闭合引号 + 按层级倒序补齐括号,再重新解析。
+// 只用于诊断/报错文案,不代表拿这份不完整数据去真的执行工具(内容不完整,写入不安全)。
+function tryRepairTruncatedJson(raw: string): Record<string, unknown> | undefined {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const c of raw) {
+    if (inString) {
+      if (escaped) { escaped = false; continue; }
+      if (c === "\\") { escaped = true; continue; }
+      if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === "{" || c === "[") stack.push(c);
+    else if (c === "}" || c === "]") stack.pop();
+  }
+  let repaired = raw;
+  if (inString) repaired += '"';
+  for (let i = stack.length - 1; i >= 0; i--) repaired += stack[i] === "{" ? "}" : "]";
+  try {
+    const parsed = JSON.parse(repaired);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// 把抢救出的半截参数拼成给模型看的诊断文案:字符串字段报长度 + 结尾预览,方便判断截在哪。
+function describeTruncatedArgs(partial: Record<string, unknown>): string {
+  return Object.entries(partial)
+    .map(([k, v]) => {
+      if (typeof v !== "string") return `${k}=${JSON.stringify(v)}`;
+      const tail = v.length > 60 ? `…${v.slice(-60)}` : v;
+      return `${k}(${v.length} 字符,结尾"${tail}")`;
+    })
+    .join("; ");
+}
+
 export class ToolRegistry implements ToolDispatcher {
   // Map 保留插入顺序 → toApiTools 输出稳定,利于前缀 cache。
   private tools = new Map<string, Tool>();
@@ -77,6 +120,13 @@ export class ToolRegistry implements ToolDispatcher {
     try {
       json = rawArgs.trim() ? JSON.parse(rawArgs) : {};
     } catch {
+      const partial = tryRepairTruncatedJson(rawArgs);
+      if (partial) {
+        throw new Error(
+          `invalid JSON arguments for ${name}(输出在生成过程中被截断,未执行——已生成到:${describeTruncatedArgs(partial)}。` +
+          `这次内容太长,把它拆成更小的几次调用:比如先用 write_file 写一部分,再用 edit_file/multi_edit 续写剩余内容,不要试图一次性重新生成同样长度的内容。)`,
+        );
+      }
       throw new Error(`invalid JSON arguments for ${name}`);
     }
 

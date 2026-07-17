@@ -46,6 +46,26 @@ describe("ToolRegistry", () => {
     );
   });
 
+  it("半截 JSON(单次输出被截断)→ 抢救出已生成内容,报诊断信息 + 拆分建议,不静默执行", async () => {
+    // 根因(真实撞见:20260717-143212-b8wt):write_file 的 content 太长,单次输出预算不够,
+    // JSON 参数生成到一半被截断(unterminated string)。之前只报一句"invalid JSON arguments",
+    // 模型看不出截了多少、截在哪,原地重试同一个必然还是太大的调用。
+    const reg = new ToolRegistry();
+    reg.register(makeEcho());
+    const truncated = '{"text": "这是一段很长的文本,写到一半就断掉了没有收尾';
+    await expect(reg.dispatch("echo", truncated, { workspaceRoot: "/tmp" })).rejects.toThrow(
+      /invalid JSON arguments for echo.*被截断.*text\(\d+ 字符.*拆成更小的几次调用/s,
+    );
+  });
+
+  it("真的是格式错乱(不是截断)时,抢救失败仍报原样的简短错误", async () => {
+    const reg = new ToolRegistry();
+    reg.register(makeEcho());
+    await expect(reg.dispatch("echo", "{not json", { workspaceRoot: "/tmp" })).rejects.toThrow(
+      "invalid JSON arguments for echo",
+    );
+  });
+
   it("throws when args fail schema validation", async () => {
     const reg = new ToolRegistry();
     reg.register(makeEcho());
