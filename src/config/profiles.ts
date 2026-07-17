@@ -51,6 +51,21 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
   openai: [DEFAULTS.openai.model],
 };
 
+// 支持视觉(图片输入)的模型名集合。按模型粒度精确匹配(跨 provider)。
+// 维护依据(2026-07-17 核实官方文档):
+// - kimi-k2.6: Kimi 官方文档明确"支持图片和视频输入"
+// - glm-5.2/glm-5.1: 智谱文档标注"输入模态:文本",不支持
+// - ernie-5.1: 千帆模型列表只在"文本生成"分类,不支持
+// - deepseek-v4-pro/flash: 千帆模型列表只在"文本生成"分类,不支持
+export const VISION_MODELS = new Set<string>([
+  "kimi-k2.6",
+]);
+
+/** 当前 model 是否支持图片输入。不在 VISION_MODELS 中的模型一律视为不支持。 */
+export function supportsVision(model: string): boolean {
+  return VISION_MODELS.has(model);
+}
+
 function isV2(raw: unknown): raw is ProfilesConfig {
   return !!raw && typeof raw === "object" && (raw as { version?: unknown }).version === 2;
 }
