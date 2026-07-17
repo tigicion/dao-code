@@ -13,7 +13,7 @@ import { createCacheAuditSink } from "../session/cache_audit.js";
 
 const config = { baseUrl: "https://x", apiKey: "sk" };
 const ctx = { workspaceRoot: "/tmp" };
-const stubGate: ApprovalGate = { decide: () => "allow", requestBatch: async () => new Map() };
+const stubGate: ApprovalGate = { decide: () => "allow", decideAsync: async () => "allow", requestBatch: async () => new Map() };
 
 function turn(deltas: StreamDelta[], message: AssistantMessage) {
   return async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {

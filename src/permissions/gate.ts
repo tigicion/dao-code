@@ -1,6 +1,6 @@
 import type { Tool } from "../tools/types.js";
 import type { ApprovalGate, ApprovalPrompt, ApprovalRequest, GateDecision } from "../approval/types.js";
-import { decide } from "./engine.js";
+import { decide, decideAsync } from "./engine.js";
 import { rememberRule } from "./identity.js";
 import type { PermissionsConfig, PermissionMode } from "./settings.js";
 
@@ -16,6 +16,7 @@ export class PermissionGate implements ApprovalGate {
     private classify?: (toolName: string, argsJson: string) => Promise<boolean>, // auto 模式:AI 代替人工裁决
   ) {}
 
+  // 同步裁决:用于非 Bash 工具或 legacy 路径。
   decide(toolName: string, argsJson: string, tool: Tool): GateDecision {
     const d = decide({
       toolName,
@@ -29,6 +30,23 @@ export class PermissionGate implements ApprovalGate {
     const tc = tool.checkPermissions?.(argsJson);
     if (tc === "deny") return "deny";
     // yolo(bypassPermissions):deny 之外一律放行——工具自检的 ask 升级也不拦(用户已自担风险)。
+    if (tc === "ask" && d === "allow" && this.getMode() !== "bypassPermissions") return "ask";
+    return d;
+  }
+
+  // async 裁决:Bash 工具用 AST 解析(精确子命令提取 + too-complex fail-closed)。
+  // 执行器应优先用这个;同步 decide 保留给不调用 evaluateWithAst 的路径。
+  async decideAsync(toolName: string, argsJson: string, tool: Tool): Promise<GateDecision> {
+    const d = await decideAsync({
+      toolName,
+      argsJson,
+      capability: tool.capability,
+      mode: this.getMode(),
+      rules: this.getRules(),
+    });
+    if (d === "deny") return d;
+    const tc = tool.checkPermissions?.(argsJson);
+    if (tc === "deny") return "deny";
     if (tc === "ask" && d === "allow" && this.getMode() !== "bypassPermissions") return "ask";
     return d;
   }

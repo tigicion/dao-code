@@ -24,5 +24,6 @@ export type GateDecision = "allow" | "ask" | "deny";
 // 审批门:执行器据此对每次调用裁决,并对 ask 的批量请求询问。
 export interface ApprovalGate {
   decide(toolName: string, argsJson: string, tool: Tool): GateDecision;
+  decideAsync(toolName: string, argsJson: string, tool: Tool): Promise<GateDecision>;
   requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>>;
 }

@@ -108,13 +108,14 @@ export async function executeToolCalls(
   }
 
   // 1. 逐次裁决:产出"待运行"集合与即时拒绝消息。
+  // async for-of:exec_shell 的 Bash 工具需 AST 解析(精确子命令提取 + too-complex fail-closed)。
   const gatedRequests: ApprovalRequest[] = [];
   const results = new Map<string, ToolMessage>();
   const toRun = new Set<string>();
   for (const tc of toolCalls) {
     const tool = registry.get(tc.function.name);
     const args = effArgs.get(tc.id)!; // 最终入参(已 apply updatedInput);裁决一律基于它
-    let decision = tool ? gate.decide(tc.function.name, args, tool) : "allow";
+    let decision = tool ? await gate.decideAsync(tc.function.name, args, tool) : "allow";
     const cap0 = tool?.capability ?? "unknown";
     // PreToolUse 钩子的"最后一公里"裁决覆盖规则判定:
     // block/deny 最强(直接拒);ask 强制人工审批;allow 仅在非敏感/非危险时把 ask 降为放行,绝不覆盖规则 deny。

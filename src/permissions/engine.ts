@@ -80,6 +80,7 @@ const AUTO_ALLOWLIST = new Set([
 // 单次工具调用的权限裁决,1:1 复刻 CC 优先级:
 //   deny 规则 > bypassPermissions(yolo:deny 之外全过)> 安全敏感目标确认 > ask 规则 > allow 规则 > 模式/能力默认。
 // deny 是硬黑名单,任何模式(含 bypass)都拦截。
+// 同步版本:用 legacy splitBashCommands 拆分 Bash 命令。
 export function decide(p: DecideParams): Decision {
   const d = decideBase(p);
   // auto 模式:把"需确认"的调用尽量在 AI 分类器之前快速放行(对标 CC 快速路径②③)。
@@ -92,6 +93,40 @@ export function decide(p: DecideParams): Decision {
     return "ask"; // ④ 交分类器
   }
   return d;
+}
+
+// async 版本:Bash 工具用 AST 解析(精确子命令提取 + too-complex fail-closed)。
+// 非 Bash 工具走同步 decide。
+// 对标 CC bashToolHasPermission:步骤 0(AST parse)→ too-complex fail-closed → 规则匹配。
+export async function decideAsync(p: DecideParams): Promise<Decision> {
+  if (p.toolName !== "exec_shell") return decide(p);
+  const id = toCcIdentity(p.toolName, p.argsJson);
+  if (!id) return decide(p);
+
+  // 动态 import:避免非 exec_shell 路径加载 AST 模块(~7000 行)
+  const { evaluateWithAst } = await import("./rules.js");
+  const ruleDec = await evaluateWithAst(p.rules, id);
+
+  if (ruleDec === "deny") return "deny";
+  if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) return "ask";
+  if (p.mode === "bypassPermissions") return "allow";
+  if (ruleDec === "ask") return "ask";
+  if (ruleDec === "allow") return "allow";
+
+  // 无规则命中 → 模式 + 能力默认
+  const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";
+  if (p.mode === "plan") return sideEffecting ? "deny" : "allow";
+  if (p.mode === "acceptEdits" && id && (id.ccTool === "Edit" || id.ccTool === "Write")) return "allow";
+
+  // auto 模式快速路径(同 decide 中的逻辑)
+  if (p.mode === "auto" && sideEffecting) {
+    if (AUTO_ALLOWLIST.has(p.toolName)) return "allow";
+    if (!mustConfirm(p) && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
+    if (decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow";
+    return "ask";
+  }
+
+  return sideEffecting ? "ask" : "allow";
 }
 
 // `if` 预过滤:CC 规则式(如 "Bash(git push *)")是否匹配此工具调用。

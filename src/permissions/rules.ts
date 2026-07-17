@@ -197,6 +197,7 @@ function bashRulesMatch(
 
 // 优先级:deny > ask > allow > 未匹配(返回 null,交由模式/能力默认决定)。
 // Bash:逐子命令检查——任一 deny→deny;否则任一 ask→ask;否则有未覆盖段→null;全 allow→allow。
+// 同步版本:用 splitBashCommands 拆分(legacy 正则)。测试/非 Bash 场景用这个。
 export function evaluate(rules: RuleSets, id: CallIdentity): Decision | null {
   if (id.ccTool === "Bash") {
     const parts = splitBashCommands(id.value)
@@ -223,4 +224,54 @@ export function evaluate(rules: RuleSets, id: CallIdentity): Decision | null {
   if (hit(rules.ask)) return "ask";
   if (hit(rules.allow)) return "allow";
   return null;
+}
+
+// async 版本:先尝试 AST 解析(精确子命令提取 + too-complex fail-closed),
+// 失败回退到同步 evaluate(legacy 正则拆分)。
+// 对标 CC bashToolHasPermission 步骤 0(AST parse)→ 步骤 1-8(规则匹配)。
+export async function evaluateWithAst(
+  rules: RuleSets,
+  id: CallIdentity,
+): Promise<Decision | null> {
+  if (id.ccTool !== "Bash") return evaluate(rules, id);
+
+  // 动态 import 避免非 Bash 路径加载 AST 模块
+  const { parseBashForSecurity } = await import("./bash/bash_ast.js");
+  const parseResult = await parseBashForSecurity(id.value);
+
+  // too-complex:含 $()、反引号、子 shell、控制流等无法静态分析的结构。
+  // 先查 deny/ask 规则(对标 CC checkEarlyExitDeny),没有则返回 ask(fail-closed)。
+  if (parseResult.kind === "too-complex") {
+    // 仍检查 deny 规则(用户显式 deny 的命令即使 too-complex 也应拦截)
+    if (bashRulesMatch(rules.deny, id.value, { stripAllEnv: true, checkCompound: false })) {
+      return "deny";
+    }
+    if (bashRulesMatch(rules.ask, id.value, { stripAllEnv: true, checkCompound: false })) {
+      return "ask";
+    }
+    // fail-closed:无法静态分析的命令 → ask
+    return "ask";
+  }
+
+  // AST 解析可用:用 AST 提取的子命令(更精确:引号已解析、变量已追踪)
+  const parts = parseResult.kind === "simple"
+    ? parseResult.subcommands
+    : splitBashCommands(id.value); // fallback → legacy 正则拆分
+
+  // deny:逐子命令检查,每个子命令用更激进的剥离(stripAllEnv=true)
+  if (parts.some(p => bashRulesMatch(rules.deny, p, { stripAllEnv: true, checkCompound: false }))) {
+    return "deny"
+  }
+  let sawAsk = false
+  let sawUnmatched = false
+  for (const p of parts) {
+    if (bashRulesMatch(rules.ask, p, { stripAllEnv: true, checkCompound: false })) {
+      sawAsk = true
+    } else if (!bashRulesMatch(rules.allow, p, { stripAllEnv: false, checkCompound: false })) {
+      sawUnmatched = true
+    }
+  }
+  if (sawAsk) return "ask"
+  if (sawUnmatched) return null
+  return "allow"
 }

@@ -4,7 +4,7 @@ import { executeToolCalls } from "./execute.js";
 import { ToolRegistry } from "./registry.js";
 import { defineTool } from "./types.js";
 import type { ToolCall } from "../client/types.js";
-import type { ApprovalGate, ApprovalRequest } from "../approval/types.js";
+import type { ApprovalGate, ApprovalRequest, GateDecision } from "../approval/types.js";
 import type { Tool } from "./types.js";
 
 const ctx = { workspaceRoot: "/tmp" };
@@ -35,6 +35,7 @@ function gateWith(approve: boolean) {
   const gate: ApprovalGate = {
     // auto 工具放行;其余进入 ask(审批)。
     decide: (_name: string, _args: string, tool: Tool) => (tool.approval === "auto" ? "allow" : "ask"),
+    decideAsync: (_name: string, _args: string, tool: Tool) => Promise.resolve(tool.approval === "auto" ? "allow" : "ask"),
     requestBatch: async (requests) => {
       calls.push(requests);
       return new Map(requests.map((r) => [r.id, approve]));
@@ -48,6 +49,7 @@ function denyGate() {
   const calls: ApprovalRequest[][] = [];
   const gate: ApprovalGate = {
     decide: () => "deny",
+    decideAsync: async () => "deny",
     requestBatch: async (requests) => { calls.push(requests); return new Map(); },
   };
   return { gate, calls };
@@ -110,7 +112,7 @@ describe("executeToolCalls (approval-aware)", () => {
       }));
       return { r, getMax: () => maxActive };
     };
-    const allowGate: ApprovalGate = { decide: () => "allow", requestBatch: async () => new Map() };
+    const allowGate: ApprovalGate = { decide: () => "allow", decideAsync: async () => "allow", requestBatch: async () => new Map() };
     const calls = [call("a", "t"), call("b", "t"), call("c", "t")];
 
     const rd = timedReg("read");
@@ -169,6 +171,13 @@ describe("executeToolCalls + PreToolUse hook", () => {
       }
       return "ask";
     },
+    decideAsync: (_name, args, tool) => Promise.resolve(((): GateDecision => {
+      if (tool.approval === "auto") {
+        if (/rm -rf/.test(args)) return "deny";
+        return "allow";
+      }
+      return "ask";
+    })()),
     requestBatch: async (requests) => new Map(requests.map((r) => [r.id, true])), // ask 一律批准(便于测 ask 路径)
   };
   const execReg = () => {
@@ -202,7 +211,7 @@ describe("executeToolCalls + PreToolUse hook", () => {
     const r = new ToolRegistry();
     const seen: ApprovalRequest[][] = [];
     r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "READ" }));
-    const gate: ApprovalGate = { decide: () => "allow", requestBatch: async (reqs) => { seen.push(reqs); return new Map(reqs.map((q) => [q.id, true])); } };
+    const gate: ApprovalGate = { decide: () => "allow", decideAsync: async () => "allow", requestBatch: async (reqs) => { seen.push(reqs); return new Map(reqs.map((q) => [q.id, true])); } };
     const c = { ...ctx, preToolHook: async () => ({ block: false, reason: "", permissionDecision: "ask" as const }) };
     const out = await executeToolCalls([call("a", "read_file")], r, c, gate);
     expect(seen).toHaveLength(1); // 进了审批(原本 allow 不会进)
@@ -213,7 +222,7 @@ describe("executeToolCalls + PreToolUse hook", () => {
     const r = new ToolRegistry();
     let asked = false;
     r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "required", schema: z.object({}), handler: async () => "READ" }));
-    const gate: ApprovalGate = { decide: () => "ask", requestBatch: async (reqs) => { asked = true; return new Map(reqs.map((q) => [q.id, false])); } };
+    const gate: ApprovalGate = { decide: () => "ask", decideAsync: async () => "ask", requestBatch: async (reqs) => { asked = true; return new Map(reqs.map((q) => [q.id, false])); } };
     const c = { ...ctx, preToolHook: async () => ({ block: false, reason: "", permissionDecision: "allow" as const }) };
     const out = await executeToolCalls([call("a", "read_file")], r, c, gate);
     expect(asked).toBe(false); // ask 被降为放行,没进审批
@@ -223,7 +232,7 @@ describe("executeToolCalls + PreToolUse hook", () => {
   it("permissionDecision allow 不能覆盖规则 deny", async () => {
     const r = new ToolRegistry();
     r.register(defineTool({ name: "write_file", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "WROTE" }));
-    const gate: ApprovalGate = { decide: () => "deny", requestBatch: async () => new Map() };
+    const gate: ApprovalGate = { decide: () => "deny", decideAsync: async () => "deny", requestBatch: async () => new Map() };
     const c = { ...ctx, preToolHook: async () => ({ block: false, reason: "", permissionDecision: "allow" as const }) };
     const out = await executeToolCalls([call("a", "write_file")], r, c, gate);
     expect(out[0]!.content).toContain("权限规则拒绝"); // 规则 deny 不被 hook allow 覆盖
@@ -233,7 +242,7 @@ describe("executeToolCalls + PreToolUse hook", () => {
     const r = new ToolRegistry();
     let asked = false;
     r.register(defineTool({ name: "exec_shell", description: "", capability: "exec", approval: "required", schema: z.object({ command: z.string() }), handler: async () => "RAN" }));
-    const gate: ApprovalGate = { decide: () => "ask", requestBatch: async (reqs) => { asked = true; return new Map(reqs.map((q) => [q.id, false])); } };
+    const gate: ApprovalGate = { decide: () => "ask", decideAsync: async () => "ask", requestBatch: async (reqs) => { asked = true; return new Map(reqs.map((q) => [q.id, false])); } };
     const c = { ...ctx, preToolHook: async () => ({ block: false, reason: "", permissionDecision: "allow" as const }) };
     const out = await executeToolCalls([call("a", "exec_shell", '{"command":"rm -rf /"}')], r, c, gate);
     expect(asked).toBe(true); // 危险命令:allow 不降级,仍走审批

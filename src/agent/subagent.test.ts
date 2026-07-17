@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createCacheAuditSink } from "../session/cache_audit.js";
 
-const stubGate: ApprovalGate = { decide: () => "allow", requestBatch: async () => new Map() };
+const stubGate: ApprovalGate = { decide: () => "allow", decideAsync: async () => "allow", requestBatch: async () => new Map() };
 
 function baseDeps(overrides: Partial<SubagentDeps>): SubagentDeps {
   return {
