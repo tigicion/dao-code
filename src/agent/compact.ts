@@ -5,6 +5,12 @@ export function estimateTokens(messages: ChatMessage[]): number {
   let chars = 0;
   for (const m of messages) {
     if (typeof m.content === "string") chars += m.content.length;
+    else if (Array.isArray(m.content)) {
+      for (const part of m.content) {
+        if (part.type === "text") chars += part.text.length;
+        else chars += 100; // image_url 固定开销估算
+      }
+    }
     if (m.role === "assistant" && m.tool_calls) {
       for (const tc of m.tool_calls) {
         chars += tc.function.name.length + tc.function.arguments.length;

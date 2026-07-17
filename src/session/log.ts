@@ -123,8 +123,9 @@ export function logEvents(inner: TurnEvents, store: SessionStore): TurnEvents {
     },
     toolResult: (call, msg) => {
       inner.toolResult(call, msg);
-      const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
-      store.append({ t: "tool_result", name: call.function.name, ok, content: msg.content });
+      const contentStr = typeof msg.content === "string" ? msg.content : "";
+      const ok = !contentStr.startsWith("Error") && !contentStr.includes("拒绝");
+      store.append({ t: "tool_result", name: call.function.name, ok, content: contentStr });
     },
     notice: (text) => {
       inner.notice(text);

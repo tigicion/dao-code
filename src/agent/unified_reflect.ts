@@ -3,6 +3,7 @@
 import { parseReflectResult, type ReflectResult, type ReflectMem } from "./reflect_result.js";
 import { isCatalogNoise } from "../memory/distill.js";
 import { findSecrets } from "../permissions/secrets.js";
+import type { ContentPart } from "../client/types.js";
 
 // 追加在主对话之后的尾部指令(fork:命中热缓存)。{existing} 处插入已有记忆候选供 mergeInto 判断。
 export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。只输出一个 JSON 对象,无其它文字。
@@ -91,7 +92,7 @@ export interface ReflectInput {
   streamChat: (opts: any) => AsyncGenerator<any, any>;
   config: { baseUrl: string; apiKey: string };
   model: string;
-  messages: { role: string; content: string | null }[];
+  messages: { role: string; content: string | ContentPart[] | null }[];
   today: string;
   existing?: { title: string; text: string }[]; // 已有记忆(建议按 importance 降序):全部标题当 mergeInto 目标,前 N 条附正文
   fork?: boolean;
@@ -126,7 +127,7 @@ export async function reflect(p: ReflectInput): Promise<ReflectResult> {
     ? [...p.messages, { role: "user", content: tail }]
     : [
         { role: "system", content: tail },
-        { role: "user", content: p.messages.filter((m) => m.role !== "system").map((m) => `${m.role}: ${m.content ?? ""}`).join("\n").slice(-24000) },
+        { role: "user", content: p.messages.filter((m) => m.role !== "system").map((m) => `${m.role}: ${typeof m.content === "string" ? m.content : m.content ? JSON.stringify(m.content) : ""}`).join("\n").slice(-24000) },
       ];
   const reqExtra = p.fork ? { reasoning_effort: p.reasoningEffort ?? "max" } : { thinking: { type: "disabled" }, temperature: 0 };
 

@@ -390,11 +390,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     //   · 主回合(有 reflect)→ 起一个 fork 独立复核,结论作 advisory(命中热缓存)。
     //   · 子代理(无 reflect、selfChallenge=true)→ 不 fork,注入静态自省 nudge,让它就地反省。
     if ((deps.reflect || deps.selfChallenge) && !signal?.aborted) {
-      const fails = turnToolMessages.filter((m) => looksFailed(m.content));
+      const fails = turnToolMessages.filter((m) => looksFailed(typeof m.content === "string" ? m.content : ""));
       const outcome = {
         progressed,
         toolFailures: fails.length,
-        errSig: fails.length ? errSignature(fails[fails.length - 1]!.content) : undefined,
+        errSig: fails.length ? errSignature(typeof fails[fails.length - 1]!.content === "string" ? fails[fails.length - 1]!.content as string : "") : undefined,
       };
       const d = assessTurn(health, outcome, healthCfg, { longTask: !!deps.longTask });
       health = d.next;

@@ -105,9 +105,9 @@ export function wrapToolExec(inner: ToolExecFn): ToolExecFn {
       const results = await inner(toolCalls, registry, ctx, gate);
       for (const r of results) {
         const span = spans.get(r.tool_call_id);
-        if (span) span.setAttributes({ [SPAN_OUTPUT]: truncate(r.content ?? "") });
+        if (span) span.setAttributes({ [SPAN_OUTPUT]: truncate(typeof r.content === "string" ? r.content : "") });
         // 异常事件:复用核心的规范失败判定(非零退出/超时/中断/Error);子代理失败也以 Task 结果冒出,一并覆盖。
-        if (looksFailed(r.content ?? "")) backend.event("tool_error", { tool: nameOf.get(r.tool_call_id) ?? "?" });
+        if (looksFailed(typeof r.content === "string" ? r.content : "")) backend.event("tool_error", { tool: nameOf.get(r.tool_call_id) ?? "?" });
       }
       return results;
     } finally {

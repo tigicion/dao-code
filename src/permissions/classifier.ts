@@ -9,7 +9,8 @@ export function buildClassifierTranscript(messages: ChatMessage[], maxEntries = 
   const entries: string[] = [];
   for (const m of messages) {
     if (m.role === "user") {
-      if (m.content.trim()) entries.push(JSON.stringify({ user: trunc(m.content.trim()) }));
+      const text = typeof m.content === "string" ? m.content : m.content.filter(p => p.type === "text").map(p => p.text).join(" ");
+      if (text.trim()) entries.push(JSON.stringify({ user: trunc(text.trim()) }));
     } else if (m.role === "assistant" && m.tool_calls?.length) {
       for (const tc of m.tool_calls) entries.push(JSON.stringify({ [tc.function.name]: trunc(tc.function.arguments) }));
     }

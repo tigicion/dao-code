@@ -1,11 +1,16 @@
 // ---- 对话消息 ----
+// OpenAI 兼容的多模态 content:纯文本仍用 string(绝大多数场景),图片走 ContentPart[] 数组。
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }; // data:image/png;base64,... 格式内联
+
 export interface SystemMessage {
   role: "system";
   content: string;
 }
 export interface UserMessage {
   role: "user";
-  content: string;
+  content: string | ContentPart[];
 }
 export interface ToolCall {
   id: string;
@@ -23,7 +28,7 @@ export interface AssistantMessage {
 export interface ToolMessage {
   role: "tool";
   tool_call_id: string;
-  content: string;
+  content: string | ContentPart[];
 }
 export type ChatMessage = SystemMessage | UserMessage | AssistantMessage | ToolMessage;
 

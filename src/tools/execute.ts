@@ -202,7 +202,7 @@ export async function executeToolCalls(
       }
       const r = await dispatchOne(tc, registry, ctx, preHooks.get(tc.id), effArgs.get(tc.id)); // 独占运行 write/exec
       results.set(tc.id, r);
-      if (registry.get(tc.function.name)?.capability === "exec" && looksFailed(r.content)) barrierAborted = true;
+      if (registry.get(tc.function.name)?.capability === "exec" && looksFailed(typeof r.content === "string" ? r.content : "")) barrierAborted = true;
     }
   }
   await flush();

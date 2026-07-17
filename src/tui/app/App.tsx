@@ -285,7 +285,8 @@ export function App(deps: AppDeps) {
           l ? { ...l, tools: [...l.tools, call.name], toolCount: l.toolCount + 1, lastActivity: toolVerb(call.name) } : l,
         ),
       toolResult: (call, msg) => {
-        const ok = !msg.content.startsWith("Error") && !msg.content.includes("拒绝");
+        const contentStr = typeof msg.content === "string" ? msg.content : "";
+        const ok = !contentStr.startsWith("Error") && !contentStr.includes("拒绝");
         const name = call.function.name;
         let pushed = false;
         if (ok && (name === "edit_file" || name === "multi_edit")) {
@@ -294,7 +295,7 @@ export function App(deps: AppDeps) {
             const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string; edits?: Array<{ old_string: string; new_string: string }> };
             const path = String(a.path ?? "");
             // 收集所有 ```diff 块(edit_file:1 个;multi_edit:每编辑 1 个)
-            const allDm = [...msg.content.matchAll(/```diff\n([\s\S]*?)\n```/g)];
+            const allDm = [...contentStr.matchAll(/```diff\n([\s\S]*?)\n```/g)];
             const rows = allDm.length ? allDm.flatMap(m => m[1]!.split("\n")) : undefined;
             const rm = name === "multi_edit" && a.edits
               ? Array.from({ length: a.edits.length }, () => "")
@@ -308,16 +309,16 @@ export function App(deps: AppDeps) {
         }
         if (!pushed && ok && name === "todo_write") {
           // todo:渲染成复选框清单(对标 CC),就地体现进度。
-          pushItem({ id: nextId(), kind: "todo", items: parseTodoResult(msg.content) });
+          pushItem({ id: nextId(), kind: "todo", items: parseTodoResult(contentStr) });
           pushed = true;
         }
         if (!pushed) {
           // 始终存全量 output/rawArgs(供 ctrl+o 展开);echo 标记默认是否显示输出(Bash/grep 等显,Read 只显计数)。
-          const output = msg.content.trim() ? msg.content.split("\n") : undefined;
+          const output = contentStr.trim() ? contentStr.split("\n") : undefined;
           pushItem({
             id: nextId(), kind: "tool",
             label: activityLabel(name, call.function.arguments),
-            detail: resultDetail(name, ok, msg.content), ok, output,
+            detail: resultDetail(name, ok, contentStr), ok, output,
             echo: ECHO_OUTPUT.has(name),
             rawArgs: call.function.arguments,
           });

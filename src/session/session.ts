@@ -1,4 +1,4 @@
-import type { ChatMessage, Usage } from "../client/types.js";
+import type { ChatMessage, ContentPart, Usage } from "../client/types.js";
 import type { Mode } from "../tools/tools_for_mode.js";
 import { estimateCostByModel, formatCNY } from "./cost.js";
 
@@ -108,8 +108,8 @@ export class Session {
     return `本会话用量:输入 ${promptTokens} tok(cache 命中 ${cacheHitTokens},命中率 ${pct}%)· 输出 ${completionTokens} tok · 约 ${cost}${this.budgetCNY !== undefined ? `(提醒阈值 ${formatCNY(this.budgetCNY)})` : ""}`;
   }
 
-  addUser(text: string): void {
-    this.messages.push({ role: "user", content: text });
+  addUser(content: string | ContentPart[]): void {
+    this.messages.push({ role: "user", content });
   }
 
   clear(): void {
