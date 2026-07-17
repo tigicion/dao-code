@@ -27,6 +27,7 @@ export interface LiveState {
 
 export interface StatusInfo {
   model: string;
+  accountName?: string; // 当前激活的 profile 名(显示在 StatusBar 模型名前)
   mode: string;
   permMode?: string; // 有效权限模式:default/acceptEdits/plan/bypassPermissions
   promptTokens: number;

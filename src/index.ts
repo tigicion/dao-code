@@ -424,16 +424,19 @@ async function main() {
   // /model 无参选择器:只列当前 provider 下已知的模型串,和 /model 文本命令的校验范围一致。
   const listModels = () =>
     (MODELS_BY_PROVIDER[cfg.provider] ?? MODELS_BY_PROVIDER.deepseek).map((m) => ({ model: m, active: m === session.model }));
-  // 切换:钥匙串读取是异步的,后台解析并更新 cfg(下一回合 streamChat 读 cfg.apiKey)。
+  // 切换:钥匙串读取是异步的,但 model/provider/baseUrl 都在 profile 文件里,可同步生效(让 StatusBar 立即刷新);
+  // 只有 apiKey 需要等钥匙串异步解析(下一回合 streamChat 读 cfg.apiKey)。
   const switchAccount = (name: string): boolean => {
     if (!profilesCfg.profiles[name]) return false;
     profilesCfg = setActive(profilesCfg, name);
     saveProfiles(keyFile, profilesCfg).catch(() => {});
+    const p = profilesCfg.profiles[name];
+    if (p) {
+      cfg.baseUrl = p.baseUrl; cfg.model = p.model; cfg.provider = p.provider;
+      session.setModel(p.model); // 实际发请求用的字段;不重放会拿旧 provider 的模型串打新 baseUrl
+    }
     resolveCredential(profilesCfg, kc).then((r) => {
-      if (r) {
-        cfg.apiKey = r.key; cfg.baseUrl = r.baseUrl; cfg.model = r.model; cfg.provider = r.provider; keySource = r.source;
-        session.setModel(r.model); // 实际发请求用的字段;不重放会拿旧 provider 的模型串打新 baseUrl
-      }
+      if (r) { cfg.apiKey = r.key; keySource = r.source; }
     }).catch(() => {});
     return true;
   };
@@ -1790,11 +1793,22 @@ async function main() {
             const sk = findUserInvocableSkill(skills, name);
             if (sk) return { handled: true, prompt: sk.body };
           }
+          // /model:委托 dispatchCommand 切换会话模型，并持久化到当前 profile 的 model 字段（下次启动保持）。
+          if (name === "model") {
+            const result = dispatchCommand(line, session, cfg.provider);
+            const activeProf = profilesCfg.profiles[profilesCfg.activeProfile];
+            if (activeProf) {
+              activeProf.model = session.model;
+              saveProfiles(keyFile, profilesCfg).catch(() => {});
+            }
+            return result;
+          }
           return dispatchCommand(line, session, cfg.provider);
         },
         compact: inkCompact,
         getStatus: () => ({
           model: session.model,
+          accountName: profilesCfg.activeProfile,
           mode: session.mode,
           permMode: getMode(),
           promptTokens: session.usage.promptTokens,
