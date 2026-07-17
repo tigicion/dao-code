@@ -3536,4 +3536,12 @@ typecheck`通过。
 
 **真实复测**：提交`fix-stuckcount-mips`(`terminal-bench/make-mips-interpreter`，
 `--ak provider=volcengine`)，`--agent-timeout-multiplier 4`。上次同题同provider
-跑了7225s（顶近4倍上限），这次预计耗时相近。结果待补。
+跑了7225s（顶近4倍上限），这次预计耗时相近。
+
+**结果：数据无效（账号配额限制，非真实结果）**。跑到1281s(71%预算，50次工具调用)时
+撞上`AccountQuotaExceeded`——volcengine账号触发5小时用量配额上限（今天连续在同一账号
+上跑了多次make-mips-interpreter复测，累计用量顶到了配额天花板），会话被迫中止，
+配额要到2026-07-17 20:25:19才重置。dao_stdout.txt尾部显示中止前模型仍在做真实的
+MIPS内存布局设计（讨论SP/GP寄存器初始化），不是反模式复发的迹象，但会话被强制截断，
+无法判断"进度提醒会话级计数"修复本轮是否真的改变了后续行为——**这次不能用来评判
+修复效果，需等配额重置或换账号/provider重新复测**。
