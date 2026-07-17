@@ -127,6 +127,31 @@ describe("runTurn", () => {
     ]);
   });
 
+  it("tool_call 参数是半截/非法 JSON(如单次输出被截断)→ 落库版本清洗成合法 JSON,不污染历史", async () => {
+    // 根因(真实撞见:20260717-143212-b8wt,glm-5.2 经火山方舟):模型单次 write_file 写超大
+    // 文件,JSON 参数生成到一半被截断,dispatch 本地解析失败(报"invalid JSON arguments"),
+    // 但这条半截 JSON 的 assistant 消息此前会原样存进 session.messages——下一轮把它重发给
+    // API 时,校验更严格的 provider(ARK)直接 400 Invalid request body,把整个会话卡死。
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    const badToolCall = { id: "c0", type: "function" as const, function: { name: "write_file", arguments: '{"content": "开头没写完' } };
+    const streamChatMock = scripted([
+      turn([], { role: "assistant", content: null, tool_calls: [badToolCall] }),
+      turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
+    ]);
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "Error: invalid JSON arguments for write_file" }],
+      write: () => {},
+    });
+    const stored = s.messages.find(
+      (m): m is AssistantMessage => m.role === "assistant" && !!m.tool_calls?.some((tc) => tc.id === "c0"),
+    )!;
+    expect(stored.tool_calls![0]!.function.arguments).toBe("{}"); // 落库版本清洗成合法 JSON
+    expect(stored.tool_calls![0]!.function.name).toBe("write_file"); // 只清洗 arguments,不动其它字段
+  });
+
   it("主备模型都遇到网络/超时类异常 → 退避后整轮重试,不让整个episode崩溃退出", async () => {
     // 根因(真实撞见:terminal-bench make-mips-interpreter):模型试图单次write_file写入
     // 千行级大文件,主模型先抛异常触发回退到flash,flash随后也120s空闲超时——此前这里

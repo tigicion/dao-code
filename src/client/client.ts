@@ -73,12 +73,25 @@ export async function* streamChat(
     }
     return m;
   });
+  // 显式给输出长度上限,不留给各家 API 的隐式默认值——实测撞见过:不设这个字段时,
+  // 火山方舟(glm-5.2)悄悄用了 4096 的默认上限,模型想一次性写几千字的大文件时,
+  // JSON 参数生成到一半就被截断(finish_reason=length),截断的 tool_call 解析不出来,
+  // 还会被原样存进历史,下一轮把这条坏消息重发给 API 时直接 400 崩掉(千帆/ARK 对
+  // tool_calls[].function.arguments 的 JSON 合法性校验比 DeepSeek 严格)。给一个远高于
+  // 常见隐式默认值的显式上限,从源头上让这类大段单次输出不那么容易被截断。
+  // 8192 起步、可用 DAO_MAX_OUTPUT_TOKENS 覆盖;调用方也可用 opts.maxTokens 单次覆盖
+  // (如权限分类器这类只需要几个字的场景,虽然不设也无妨——上限只是天花板,不影响实际生成量)。
+  const maxTokens = opts.maxTokens ?? (Number(process.env.DAO_MAX_OUTPUT_TOKENS) || 16000);
+  // OpenAI 的推理层模型(o1 系列、gpt-5 等)把 max_tokens 参数换成了 max_completion_tokens,
+  // 传旧字段名会直接 400;其余(DeepSeek/火山方舟/千帆等 OpenAI-legacy 兼容网关)仍用 max_tokens。
+  const maxTokensField = /^(gpt-5|o1|o3|o4)/i.test(opts.model) ? "max_completion_tokens" : "max_tokens";
   const body: Record<string, unknown> = {
     model: opts.model,
     messages: wireMessages,
     stream: true,
     // 流式下要拿 usage(含 cache 命中/未命中)必须显式开启,usage 在 [DONE] 前最后一个 chunk。
     stream_options: { include_usage: true },
+    [maxTokensField]: maxTokens,
     ...(opts.tools ? { tools: opts.tools } : {}),
     ...(opts.parallelToolCalls !== undefined
       ? { parallel_tool_calls: opts.parallelToolCalls }

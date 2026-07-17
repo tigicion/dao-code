@@ -99,6 +99,43 @@ describe("streamChat", () => {
     expect(sentBody.stream).toBe(true);
   });
 
+  it("显式设置 max_tokens 上限,不依赖各家 API 隐式默认值(默认 16000,可用 opts.maxTokens 覆盖)", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    await run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch }));
+    expect(sentBody.max_tokens).toBe(16000);
+    expect(sentBody.max_completion_tokens).toBeUndefined();
+
+    await run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch, maxTokens: 256 }));
+    expect(sentBody.max_tokens).toBe(256);
+  });
+
+  it("env DAO_MAX_OUTPUT_TOKENS 覆盖默认上限", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    process.env.DAO_MAX_OUTPUT_TOKENS = "32000";
+    await run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch }));
+    delete process.env.DAO_MAX_OUTPUT_TOKENS;
+    expect(sentBody.max_tokens).toBe(32000);
+  });
+
+  it("gpt-5(推理层模型)用 max_completion_tokens,不用会被拒的 max_tokens", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    await run(streamChat({ ...base, model: "gpt-5", messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch }));
+    expect(sentBody.max_completion_tokens).toBe(16000);
+    expect(sentBody.max_tokens).toBeUndefined();
+  });
+
   it("strips reasoningContent from history before sending (never replayed to the API)", async () => {
     let sentBody: any;
     const capturingFetch = (async (_url: string, init: any) => {

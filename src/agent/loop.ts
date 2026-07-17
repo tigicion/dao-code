@@ -26,6 +26,22 @@ function cheapHash(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+// 兜底防线(即便加大了 max_tokens,极端情况——单次输出仍超预算——还是可能截断):
+// tool_call 的 arguments 半截/非法 JSON 不能原样存进历史。dispatch 执行时会按原始内容
+// 报"invalid JSON arguments"(信息不变),但【落库】版本换成合法占位符"{}",防止这条坏
+// 消息在后续每一轮被重发时,被某些校验更严格的 provider(如 ARK)判定成 400 Invalid request body。
+function sanitizeForHistory(assistant: AssistantMessage): AssistantMessage {
+  if (!assistant.tool_calls?.length) return assistant;
+  const isValidJson = (s: string): boolean => { try { JSON.parse(s || "{}"); return true; } catch { return false; } };
+  if (assistant.tool_calls.every((tc) => isValidJson(tc.function.arguments))) return assistant;
+  return {
+    ...assistant,
+    tool_calls: assistant.tool_calls.map((tc) =>
+      isValidJson(tc.function.arguments) ? tc : { ...tc, function: { ...tc.function, arguments: "{}" } },
+    ),
+  };
+}
+
 // L4.5 收尾锚点:本会话是否碰过代码/命令(写文件/改文件/跑 shell)却从没调用过 verify_done。
 // 纯文字提示(工具描述里的话术、todo_write 全勾提醒)有个共同盲区——都得指望模型"恰好用到某个
 // 特定工具"才有机会触发,像 protein-assembly、filter-js-from-html 这类会话里模型全程没用过
@@ -353,7 +369,8 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         return;
       }
     }
-    session.messages.push(assistant);
+    // 执行仍用原始 assistant/toolCalls(dispatch 报错信息不受影响);落库换成清洗过的版本。
+    session.messages.push(sanitizeForHistory(assistant));
     if (toolCalls.length === 0) {
       // L4.5 收尾前锚点:纯文本回合(模型认为已经可以结束了)——但如果本会话碰过代码/命令、
       // 却从没调用过 verify_done,先提醒一次、给它一轮机会自己决定要不要验证,而不是直接放行。
