@@ -1371,11 +1371,13 @@ async function main() {
         verbose,
         notify, // 审批/提问弹窗时桌面通知(对齐完成一轮的通知),用户切走也能知道 dao 在等确认
         submit: async (text, { events, signal }) => {
+          // 命令/纯文本:走原有文本路径;图片(ContentPart[]):提取文字部分给 hook/store,图片部分随 session.addUser 一起发。
+          const textStr = typeof text === "string" ? text : text.filter(p => p.type === "text").map(p => (p as { text: string }).text).join(" ");
           // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。
-          const up = await gateUserPrompt(text);
+          const up = await gateUserPrompt(textStr);
           if (up.blocked) { events.notice(`[提交被 hook 阻止] ${up.reason || ""}`); return; }
-          turnCheckpoints.push(ckpt.snapshot(`回合前: ${text.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
-          store.append({ t: "user", text });
+          turnCheckpoints.push(ckpt.snapshot(`回合前: ${textStr.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
+          store.append({ t: "user", text: textStr });
           session.addUser(text);
           skillRound++; // 新一轮:用于关联本轮 skill 加载(skillSink.loaded);模型从常驻技能列表按需加载,无 discovery 预筛。
           if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });

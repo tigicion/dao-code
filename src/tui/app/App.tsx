@@ -11,6 +11,9 @@ import type { TurnEvents } from "../render.js";
 import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../approval/types.js";
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
 import type { Provider } from "../../config/profiles.js";
+import type { ContentPart } from "../../client/types.js";
+import { supportsVision, VISION_MODELS } from "../../config/profiles.js";
+import { getImageFromClipboard } from "../imagePaste.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 // 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
@@ -197,26 +200,53 @@ export function App(deps: AppDeps) {
   const lastSubmitRef = useRef(""); // 最近一次用户提交的文本;ESC 中断后回填输入框,避免重打
   const wordBaseRef = useRef(0); // 本回合 spinner 道家动词的随机起点(daoVerb 据此 + tick 轮换)
   const reasoningRef = useRef(""); // 本次模型响应累积的思考(同步提交,保证"思考在前、答案在后")
-  // 大段粘贴折叠:输入框/历史里显示 [粘贴#N +M行] 占位,提交时再展开成全文喂模型——保持界面与上下文清爽。
-  const pasteRef = useRef<Map<string, string>>(new Map());
+  // 大段粘贴折叠:输入框/历史里显示 [粘贴#N +M行] 或 [图片#N] 占位,提交时再展开喂模型。
+  // 值类型:string=文本粘贴(展开为字符串);ContentPart[]=图片粘贴(展开为多模态数组)。
+  const pasteRef = useRef<Map<string, string | ContentPart[]>>(new Map());
   const pasteSeqRef = useRef(0);
   // 会话内 /loop:定时把 prompt 排进 queued(空闲时自动跑);退出时清理。
   const loopRef = useRef<{ prompt: string; timer: ReturnType<typeof setInterval> } | null>(null);
   useEffect(() => () => { if (loopRef.current) clearInterval(loopRef.current.timer); }, []);
-  const expandPastes = (s: string) => {
+  const expandPastes = (s: string): string | ContentPart[] => {
+    // 如果含图片占位符,展开为 ContentPart[];否则仍是 string(绝大多数场景,不破坏现有逻辑)。
+    let hasImage = false;
     let out = s;
-    for (const [ph, full] of pasteRef.current) out = out.split(ph).join(full);
-    return out;
+    for (const [ph, val] of pasteRef.current) {
+      if (!s.includes(ph)) continue;
+      if (Array.isArray(val)) {
+        hasImage = true;
+        // 图片占位符:把输入文本按占位符切分,文字部分 → text part,图片部分 → image_url part
+        const before = out.slice(0, out.indexOf(ph));
+        const after = out.slice(out.indexOf(ph) + ph.length);
+        const parts: ContentPart[] = [];
+        if (before) parts.push({ type: "text", text: before });
+        parts.push(...val);
+        if (after) {
+          // after 里可能还有别的占位符或文字;递归展开后追加
+          const expanded = expandPastes(after);
+          if (typeof expanded === "string") parts.push({ type: "text", text: expanded });
+          else parts.push(...expanded);
+        }
+        return parts.length ? parts : s;
+      }
+      out = out.split(ph).join(val);
+    }
+    return hasImage ? out : out;
   };
   // transcript 回显用:把粘贴占位符展开成【预览】(首行 + 行数),让用户看见自己粘了什么,又不刷屏。
   const pastePreview = (s: string) => {
     let out = s;
-    for (const [ph, full] of pasteRef.current) {
+    for (const [ph, val] of pasteRef.current) {
       if (!out.includes(ph)) continue;
-      const normalized = full.replace(/\r\n/g, "\n").replace(/\n+$/, "");
-      const lines = normalized ? normalized.split("\n") : [];
-      const head = lines[0]?.slice(0, 100) ?? "";
-      out = out.split(ph).join(t("ui.paste.preview", lines.length, head, head.length >= 100 || lines.length > 1 ? "…" : ""));
+      if (Array.isArray(val)) {
+        // 图片占位符:显示 [图片(仅模型可见)] 标记
+        out = out.split(ph).join(t("ui.paste.imagePlaceholder", ph));
+      } else {
+        const normalized = val.replace(/\r\n/g, "\n").replace(/\n+$/, "");
+        const lines = normalized ? normalized.split("\n") : [];
+        const head = lines[0]?.slice(0, 100) ?? "";
+        out = out.split(ph).join(t("ui.paste.preview", lines.length, head, head.length >= 100 || lines.length > 1 ? "…" : ""));
+      }
     }
     return out;
   };
@@ -346,13 +376,14 @@ export function App(deps: AppDeps) {
 
   async function onSubmit(raw: string) {
     const text = raw.trim(); // 展示用(可能含 [粘贴#N] 占位)
-    const full = expandPastes(text); // 喂模型/命令用(占位展开成全文)
+    const full = expandPastes(text); // 喂模型/命令用(占位展开:文本 → string,图片 → ContentPart[])
     setField({ text: "", cursor: 0 });
     if (!text) return;
     lastSubmitRef.current = text; // 记下本次提交,供 ESC 中断后回填(只记用户提交,不含后台通知)
     history.current.push(text);
     histIdx.current = -1;
-    if (text.startsWith("/")) {
+    // 命令路径只用文本;图片内容不走命令(不可能用图片 /clear)。
+    if (typeof full === "string" && text.startsWith("/")) {
       const name = text.slice(1).split(/\s+/)[0];
       if (name === "theme") {
         const next = bg === "dark" ? "light" : "dark";
@@ -412,11 +443,21 @@ export function App(deps: AppDeps) {
       return;
     }
     pushItem({ id: nextId(), kind: "user", text: pastePreview(text) });
+    // 图片内容:检查当前模型是否支持图片;不支持则只发文字部分并提示用户。
+    if (Array.isArray(full)) {
+      const currentModel = deps.getStatus().model;
+      if (!supportsVision(currentModel)) {
+        const textOnly = full.filter(p => p.type === "text").map(p => (p as { text: string }).text).join(" ").trim();
+        pushItem({ id: nextId(), kind: "notice", text: `⚠ 当前模型 ${currentModel} 不支持图片输入,图片已忽略。可用支持图片的模型: ${[...VISION_MODELS].join(", ")}` });
+        await runAgentTurn(textOnly || "[图片已忽略]");
+        return;
+      }
+    }
     await runAgentTurn(full);
   }
 
   // 跑一个回合(用户输入 / 后台任务通知共用):管理 busy/live/中断/出错。
-  async function runAgentTurn(text: string) {
+  async function runAgentTurn(text: string | ContentPart[]) {
     setBusy(true);
     setStartedAt(Date.now());
     wordBaseRef.current = Math.floor(Math.random() * DAO_VERBS.length); // 每回合换一个道家动词起点
@@ -758,7 +799,7 @@ export function App(deps: AppDeps) {
       // 运行中:支持排队输入(steering)。回车排队,当前回合结束后按序处理。
       if (key.return) {
         const v = field.text.trim();
-        if (v) { setQueued((q) => [...q, expandPastes(v)]); pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.queued", v.slice(0, 50)) }); }
+        if (v) { const ev = expandPastes(v); setQueued((q) => [...q, typeof ev === "string" ? ev : JSON.stringify(ev)]); pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.queued", v.slice(0, 50)) }); }
         setField({ text: "", cursor: 0 });
         return;
       }
@@ -844,6 +885,18 @@ export function App(deps: AppDeps) {
     if (approval) return;
     if (choice) { if (choiceIdx === choice.options.length + (choice.multi ? 1 : 0)) setAskInput((s) => s + text); return; } // 焦点在"自己输入"行才接受粘贴
     if (ask) { setAskInput((s) => s + text); return; }
+    // macOS 空粘贴:剪贴板里有图片(终端发空 bracketed paste 序列)。检测到后读取 PNG → base64 → 存占位符。
+    if (process.platform === "darwin" && text.length === 0) {
+      void getImageFromClipboard().then(img => {
+        if (!img) return; // 剪贴板无图片,空粘贴忽略
+        const id = ++pasteSeqRef.current;
+        const ph = `[图片#${id}]`;
+        const imgPart: ContentPart = { type: "image_url", image_url: { url: `data:${img.mediaType};base64,${img.base64}` } };
+        pasteRef.current.set(ph, [imgPart]);
+        setField((f) => ({ text: f.text.slice(0, f.cursor) + ph + f.text.slice(f.cursor), cursor: f.cursor + ph.length }));
+      });
+      return;
+    }
     // 大段粘贴(>280 字符或 >6 行)折叠成占位符,全文存 pasteRef,提交时展开;小段照常内联。
     let ins = text;
     // 规范化换行:\r\n → \n,去末尾换行(避免多算一行);空串算 0 行。

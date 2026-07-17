@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "ink-testing-library";
 import { App } from "./App.js";
 import type { AppDeps } from "./types.js";
+import type { ContentPart } from "../../client/types.js";
 import type { ApprovalDecision, ApprovalPrompt } from "../../approval/types.js";
 import { setLang } from "../../i18n/i18n.js";
 
@@ -573,7 +574,7 @@ describe("App", () => {
   it("光标行内编辑:左移两次后插入字符", async () => {
     let submitted = "";
     const { stdin } = render(
-      <App {...makeDeps({ submit: async (t, { events }) => { submitted = t; events.assistantDone({ role: "assistant", content: "ok" }); } })} />,
+      <App {...makeDeps({ submit: async (t: string | ContentPart[], { events }) => { submitted = typeof t === "string" ? t : "[image]"; events.assistantDone({ role: "assistant", content: "ok" }); } })} />,
     );
     for (const ch of "abc") stdin.write(ch);
     await delay();
@@ -723,7 +724,7 @@ describe("App", () => {
       <App
         {...makeDeps({
           completeFiles: (p) => ["src/index.ts", "docs/x.md"].filter((f) => f.includes(p)),
-          submit: async (t, { events }) => { submitted = t; events.assistantDone({ role: "assistant", content: "ok" }); },
+          submit: async (t: string | ContentPart[], { events }) => { submitted = typeof t === "string" ? t : "[img]"; events.assistantDone({ role: "assistant", content: "ok" }); },
         })}
       />,
     );
@@ -784,8 +785,8 @@ describe("App", () => {
     const { stdin } = render(
       <App
         {...makeDeps({
-          submit: async (t, { events }) => {
-            submitted.push(t);
+          submit: async (t: string | ContentPart[], { events }) => {
+            submitted.push(typeof t === "string" ? t : "[img]");
             if (submitted.length === 1) await new Promise<void>((r) => { resolveFirst = r; });
             events.assistantDone({ role: "assistant", content: "done" });
           },
@@ -827,7 +828,7 @@ describe("App", () => {
           drainNotifications: () => notes.splice(0),
           subscribeTasks: () => {},
           runningTasks: () => 0,
-          submit: async (t, { events }) => { submitted.push(t); events.assistantDone({ role: "assistant", content: "已处理" }); },
+          submit: async (t: string | ContentPart[], { events }) => { submitted.push(typeof t === "string" ? t : "[img]"); events.assistantDone({ role: "assistant", content: "已处理" }); },
         })}
       />,
     );

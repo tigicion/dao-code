@@ -5,6 +5,7 @@ import type { Maxim } from "../maxim.js";
 import type { TurnEvents } from "../render.js";
 import type { ApprovalPrompt } from "../../approval/types.js";
 import type { Provider } from "../../config/profiles.js";
+import type { ContentPart } from "../../client/types.js";
 
 // transcript 里一条已完成的条目(进 <Static>,终端原生滚动)。
 export type TranscriptItem =
@@ -45,7 +46,7 @@ export interface AppDeps {
   // 首启 onboarding 已自行展示过 banner;真→App 不再渲染 <Welcome>(避免重复)。
   skipBanner?: boolean;
   // 跑一个用户回合:由 index 绑定真实 session/registry/gate;App 提供 events(喂 state)与 signal(ESC 取消)。
-  submit: (text: string, hooks: { events: TurnEvents; signal: AbortSignal }) => Promise<void>;
+  submit: (text: string | ContentPart[], hooks: { events: TurnEvents; signal: AbortSignal }) => Promise<void>;
   // 斜杠命令(/model /plan /clear /compact /help /exit;以及自定义命令展开成 prompt)。
   runCommand: (line: string) => { handled: boolean; output?: string; exit?: boolean; compact?: boolean; prompt?: string; clearTranscript?: boolean; resumeItems?: TranscriptItem[] };
   compact: () => Promise<void>;

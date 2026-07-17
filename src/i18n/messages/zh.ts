@@ -225,6 +225,7 @@ export const zh: Record<string, string> = {
   // 粘贴折叠
   "ui.paste.preview": "「粘贴 {0} 行:{1}{2}」",
   "ui.paste.placeholder": "[粘贴#{0} +{1}行]",
+  "ui.paste.imagePlaceholder": "[图片 {0}]",
   // 命令面板 / 补全
   "ui.cmd.noMatch": "  (无匹配命令)",
   "ui.cmd.more": "  …还有 {0} 个,继续输入筛选",

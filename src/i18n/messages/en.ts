@@ -225,6 +225,7 @@ export const en: Record<string, string> = {
   // Paste collapsing
   "ui.paste.preview": "[Pasted {0} lines: {1}{2}]",
   "ui.paste.placeholder": "[paste#{0} +{1} lines]",
+  "ui.paste.imagePlaceholder": "[image {0}]",
   // Command palette / completion
   "ui.cmd.noMatch": "  (no matching command)",
   "ui.cmd.more": "  …{0} more, keep typing to filter",
