@@ -188,24 +188,30 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           await deps.compact();
           continue;
         }
-        // 限流(429/配额耗尽):通常是账号级限流,换模型/换端点没用——不降级,原样把限流信息报给
-        // 用户,由用户决定"等待重试"还是自己去 /account 换账号。子代理(background)没有交互能力,
-        // 直接上抛(同其余分支对 background 的处理)。非交互场景(无 askChoice,如 headless/eval)
-        // 退化为"自动等待、退避重试若干次后放弃",不无限等待、也不换模型。
-        if (!deps.background && isRateLimitError(e)) {
-          const msg = e instanceof Error ? e.message : String(e);
-          events.notice(`\n[⚠ 触发限流] ${msg}\n`);
-          let shouldWait: boolean;
-          if (deps.ctx.askChoice) {
-            const choice = await deps.ctx.askChoice(
-              "当前账号触发限流(请求频率/配额超限)。是等待后用当前账号重试,还是中止本轮自行切换账号?",
-              ["等待后重试", "中止本轮(稍后可用 /account 切换账号)"],
-            );
-            shouldWait = choice.startsWith("等待");
-          } else {
-            shouldWait = rateLimitRetries < rateLimitMaxRetries;
-          }
-          if (shouldWait) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const rateLimited = isRateLimitError(e);
+        // 过载/5xx/超时/网络类:client.ts 自己的流式重试+非流式兜底已经耗尽才会到这里,
+        // 包成"连接…失败"/"非流式…均失败"这类文案。
+        const genericRecoverable = /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(msg);
+
+        // 交互场景(ctx.askChoice 存在):任何"看起来能恢复"的故障都不自动重试/自动换模型——
+        // 原样把错误报给用户 + 给出可选动作,由用户决定接下来怎么办。子代理(background)没有
+        // 交互能力,不问,直接走下面 headless 分支(同其余分支对 background 的一贯处理)。
+        if (!deps.background && (rateLimited || genericRecoverable) && deps.ctx.askChoice) {
+          events.notice(`\n[⚠ 请求失败] ${msg}\n`);
+          const canOfferFallback = !rateLimited && !!deps.fallbackModel && !usedFallback;
+          const options = [
+            "等待后用当前模型重试",
+            ...(canOfferFallback ? [`换成备用模型「${deps.fallbackModel}」试试(本回合)`] : []),
+            rateLimited ? "中止本轮(稍后可用 /account 切换账号)" : "中止本轮",
+          ];
+          const choice = await deps.ctx.askChoice(
+            rateLimited
+              ? "当前账号触发限流(请求频率/配额超限)。接下来怎么办?"
+              : "请求持续失败(疑似过载/超时/网络问题)。接下来怎么办?",
+            options,
+          );
+          if (choice.startsWith("等待")) {
             rateLimitRetries++;
             const rateLimitBaseWaitMs = Number(process.env.DAO_RATE_LIMIT_WAIT_MS) || 5000;
             const waitMs = Math.min(rateLimitBaseWaitMs * rateLimitRetries, 30000);
@@ -213,11 +219,33 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
             await new Promise((r) => setTimeout(r, waitMs));
             continue;
           }
+          if (canOfferFallback && choice.startsWith("换成备用模型")) {
+            usedFallback = true;
+            events.notice(`\n[已按你的选择临时切到 ${deps.fallbackModel}…]\n`);
+            continue;
+          }
+          throw new Error(
+            `已中止:${rateLimited ? "当前账号触发限流(请求频率/配额超限)。可运行 /account 切换到其它账号后重新发送消息。" : "已按你的选择中止本轮。"}\n原始错误:${msg}`,
+          );
+        }
+
+        // ---- 以下:非交互场景(headless/--goal/eval,无 ctx.askChoice)保留原有自动恢复 ----
+        // 没有人能回答问题,只能自动决定,是专门为无人值守长任务做的健壮性兜底。
+
+        // 限流:自动等待退避重试(不换模型),超过上限才放弃——不无限等待。
+        if (!deps.background && rateLimited) {
+          if (rateLimitRetries < rateLimitMaxRetries) {
+            rateLimitRetries++;
+            const rateLimitBaseWaitMs = Number(process.env.DAO_RATE_LIMIT_WAIT_MS) || 5000;
+            const waitMs = Math.min(rateLimitBaseWaitMs * rateLimitRetries, 30000);
+            events.notice(`\n[限流,等待 ${Math.round(waitMs / 1000)}s 后重试(不降级,第 ${rateLimitRetries}/${rateLimitMaxRetries} 次)…]\n`);
+            await new Promise((r) => setTimeout(r, waitMs));
+            continue;
+          }
           throw new Error(`已中止:当前账号触发限流(请求频率/配额超限)。可运行 /account 切换到其它账号后重新发送消息。\n原始错误:${msg}`);
         }
         // L1.3 模型回退:过载/5xx/网络类异常 → 本回合临时换 fallback 模型再试一次。
-        // 背景查询(子代理)不回退,直接上抛 → 防并行子代理在过载时各自再打一发 flash 放大级联。
-        if (!deps.background && deps.fallbackModel && !usedFallback && /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(e instanceof Error ? e.message : String(e))) {
+        if (!deps.background && deps.fallbackModel && !usedFallback && genericRecoverable) {
           usedFallback = true;
           events.notice(`\n[主模型异常,本回合临时回退 ${deps.fallbackModel}…]\n`);
           continue;
@@ -225,10 +253,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         // 主模型+回退模型都遇到了同类网络/超时错误(真实撞见过 terminal-bench make-mips-interpreter:
         // 模型试图单次 write_file 写入千行级大文件,主模型先抛异常触发回退,回退模型随后也 120s 空闲
         // 超时——此前这里直接上抛,整个 episode 崩溃退出,900s+ 预算和此前所有真实进展全部作废)。
-        // 退避后把 usedFallback 重置、给主模型再来一次机会,最多重试 2 次,任何一次成功都救回本轮;
-        // 背景查询(子代理)不重试,理由同上面的回退分支。
+        // 退避后把 usedFallback 重置、给主模型再来一次机会,最多重试 2 次,任何一次成功都救回本轮。
         const hardMaxRetries = 2;
-        if (!deps.background && hardRetries < hardMaxRetries && /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(e instanceof Error ? e.message : String(e))) {
+        if (!deps.background && hardRetries < hardMaxRetries && genericRecoverable) {
           hardRetries++;
           usedFallback = false;
           events.notice(`\n[主备模型均异常,退避后整轮重试(第 ${hardRetries}/${hardMaxRetries} 次)…]\n`);
