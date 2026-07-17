@@ -626,6 +626,63 @@ describe("App", () => {
     expect(r2.get("b")).toBe("once");
   });
 
+  it("审批模态弹出时触发桌面通知,让切走的用户知道 dao 在等确认", async () => {
+    let ap: ApprovalPrompt | null = null;
+    const notified: [string, string][] = [];
+    render(
+      <App
+        {...makeDeps({
+          register: ({ approvalPrompt }) => { ap = approvalPrompt; },
+          notify: (title, message) => { notified.push([title, message]); },
+        })}
+      />,
+    );
+    await delay();
+    void ap!([{ id: "1", toolName: "write_file", capability: "write", summary: "write_file a.txt" }]);
+    await delay();
+    expect(notified).toHaveLength(1);
+    expect(notified[0]![0]).toBe("dao");
+    expect(notified[0]![1]).toContain("write_file");
+  });
+
+  it("ask_user 问题弹出时触发桌面通知", async () => {
+    let ask: ((q: string) => Promise<string>) | null = null;
+    const notified: [string, string][] = [];
+    render(
+      <App
+        {...makeDeps({
+          register: ({ askUser }) => { ask = askUser; },
+          notify: (title, message) => { notified.push([title, message]); },
+        })}
+      />,
+    );
+    await delay();
+    void ask!("要不要覆盖已有文件?");
+    await delay();
+    expect(notified).toHaveLength(1);
+    expect(notified[0]![0]).toBe("dao");
+    expect(notified[0]![1]).toContain("要不要覆盖已有文件?");
+  });
+
+  it("ask_choice 选择弹出时触发桌面通知", async () => {
+    let ask: ((q: string, options: string[], multi?: boolean) => Promise<string>) | null = null;
+    const notified: [string, string][] = [];
+    render(
+      <App
+        {...makeDeps({
+          register: ({ askChoice }) => { ask = askChoice; },
+          notify: (title, message) => { notified.push([title, message]); },
+        })}
+      />,
+    );
+    await delay();
+    void ask!("选哪个方案?", ["A", "B"]);
+    await delay();
+    expect(notified).toHaveLength(1);
+    expect(notified[0]![0]).toBe("dao");
+    expect(notified[0]![1]).toContain("选哪个方案?");
+  });
+
   it("/theme 切换主题(App 内拦截)", async () => {
     const { lastFrame, stdin } = render(<App {...makeDeps()} />);
     for (const ch of "/theme") stdin.write(ch);

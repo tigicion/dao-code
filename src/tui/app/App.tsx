@@ -162,6 +162,11 @@ export function App(deps: AppDeps) {
     apDecisions.current = new Map();
     setApIdx(0);
     setApproval({ requests: next.requests, resolve: next.resolve });
+    const first = next.requests[0];
+    if (first) {
+      const suffix = next.requests.length > 1 ? `等${next.requests.length}项` : "";
+      deps.notify?.("dao", `待确认:${first.toolName}${suffix}`);
+    }
   };
   const [ask, setAsk] = useState<{ question: string; resolve: (s: string) => void } | null>(null);
   const [askInput, setAskInput] = useState("");
@@ -240,7 +245,11 @@ export function App(deps: AppDeps) {
         approvalQueue.current.push({ requests, resolve }); // 入队
         if (!showingApproval.current) startNextApproval(); // 空闲则显示队首,否则排队(防并发覆盖死锁)
       });
-    const askUser = (question: string) => new Promise<string>((resolve) => setAsk({ question, resolve }));
+    const askUser = (question: string) =>
+      new Promise<string>((resolve) => {
+        setAsk({ question, resolve });
+        deps.notify?.("dao", `待回答:${question.slice(0, 60)}`);
+      });
     const askChoice = (question: string, options: string[], multi?: boolean) =>
       new Promise<string>((resolve) => {
         // 去重:剔掉模型误写的"其他/先讨论/完成"——这几项 dao 会自动追加,否则会重复(如两个"先讨论一下")。
@@ -256,6 +265,7 @@ export function App(deps: AppDeps) {
         const cleaned = options.filter((o) => !reserved.has(norm(o)));
         setChoice({ question, options: cleaned, multi: !!multi, resolve });
         setChoiceIdx(0); setChoiceChecked(new Set()); setChoiceWarn(false);
+        deps.notify?.("dao", `待选择:${question.slice(0, 60)}`);
       });
     deps.register({ approvalPrompt, askUser, askChoice });
   }, [deps]);

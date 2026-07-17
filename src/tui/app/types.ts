@@ -56,6 +56,8 @@ export interface AppDeps {
   cycleMode?: () => string;
   // App 挂载后注册自己的审批/提问模态,供 index 的 gate 与 ctx.ask 委派。
   register: (ui: { approvalPrompt: ApprovalPrompt; askUser: (q: string) => Promise<string>; askChoice: (q: string, options: string[], multi?: boolean) => Promise<string> }) => void;
+  // 桌面通知(标题, 正文);省略则不通知。审批/提问弹窗展示时调用一次,让切走的用户知道 dao 在等确认。
+  notify?: (title: string, message: string) => void;
   // @文件补全:给前缀(子串),返回匹配的工作区相对路径(已截断);省略则不补全。
   completeFiles?: (prefix: string) => string[];
   // /resume 无参时的交互选择:返回本工作区历史会话(已按最近排序),App 弹出上下选择器;省略则退回文本列表。

@@ -1369,6 +1369,7 @@ async function main() {
         welcome,
         skipBanner: firstRun,
         verbose,
+        notify, // 审批/提问弹窗时桌面通知(对齐完成一轮的通知),用户切走也能知道 dao 在等确认
         submit: async (text, { events, signal }) => {
           // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。
           const up = await gateUserPrompt(text);
