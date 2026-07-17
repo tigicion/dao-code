@@ -3409,3 +3409,45 @@ purposes"打发掉，而是真的卡在了这个特定Debian包版本构建约�
 在啃真实任务难度（这个特定包版本的构建约定本身不直观），本轮到此为止，不再为这一道
 题继续加码，`verify_done`"验证范围+发现疑点不能自我合理化"这两条修复视为对这类框架
 性空子的验证已完成。
+
+## EVOLVE：make-mips-interpreter——主备模型都遇网络异常时episode直接崩溃退出，修复
+
+用户选定这道题继续深挖。这不是模型推理选择问题，是工程/协议层面的真实bug，没有用
+内省复盘法（模型不是"选错了",是流程本身没有恢复路径），直接查代码定位。
+
+**根因**：原样本（provider=qianfan）模型试图单次`write_file`写入千行级`vm.js`，三次
+尝试全部失败：前两次让主模型（pro）抛异常（网络/超时类），触发`loop.ts`已有的"本回合
+临时回退flash"机制；但flash随后也遇到120s空闲超时。此时`usedFallback`已经是`true`
+（同一次`requestAssistant`调用内，回退只允许触发一次），第二次异常命中"主备模型都已
+用尽"分支，直接`throw`——这个异常没有任何外层catch（`src/index.ts`的`runOneTurn`/
+`withPresence`调用链只有`finally`没有`catch`），整个DAO进程直接崩溃退出
+（`NonZeroAgentExitCodeError exit 1`），900s+预算和此前全部真实进展（ELF解析、
+指令集分析等）一次性作废。
+
+**改在哪层**（agent循环层，非工具/提示词）：`src/agent/loop.ts`的`requestAssistant`
+——主备模型都遇到同类网络/超时错误后，不再直接throw，退避后把`usedFallback`重置、
+给主模型再来一次完整机会，最多重试2次（`DAO_HARD_RETRY_DELAY_MS`可调退避基数，默认
+1000ms线性退避），任何一次成功都救回本轮；背景查询（子代理）不重试，理由同已有的
+单次回退分支（防并行子代理在过载时级联放大）。
+
+**预计能救哪几题**：make-mips-interpreter本身，以及任何"主备模型都撞上同一类网络/
+超时问题、此前会导致整个episode崩溃"的场景——这类场景此前100%以进程崩溃收场、零
+恢复机会，本质上和今天稍早"reasoning耗尽预算"修复的价值同构（把必然失败变成有概率
+恢复）。
+
+**可能连带弄坏的场景**：新增分支只在"主备模型都已用尽、且是同类网络/超时错误"这个
+此前只有throw、没有任何处理路径的窄口径下生效，不改变已有的压缩重试/单次回退逻辑，
+风险集中在"退避重试是否会让个别本该快速失败的场景多等几秒"，可接受。
+
+**第0步扫描**：检查了loop.ts里其它throw点，只有这一处"主备模型都用尽"是无任何恢复
+路径的窄口径，没有发现结构相同的其它实例。
+
+**TDD**：`loop.test.ts`新增用例，mock主模型+回退模型连续两次网络类异常、第3次（退避
+重试后回到主模型）成功，验证不再崩溃、messages正确入库。全量`npx vitest run`
+1233/1233通过，`npm run typecheck`通过。
+
+**commit**：`db01e6a`。二进制已按此commit重新编译。
+
+**真实复测**：提交`fix-hardretry-mips`(`terminal-bench/make-mips-interpreter`，
+`--ak provider=qianfan`匹配原样本provider)，`--agent-timeout-multiplier 4`。
+结果待补。
