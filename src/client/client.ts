@@ -63,11 +63,16 @@ export async function* streamChat(
   const fetchImpl = opts.fetchImpl ?? fetch;
   // 发给 API 的消息绝不带 reasoningContent(那是上一轮落盘用的思维链,不是该重放给模型的上下文——
   // 多数 reasoning 模型的最佳实践是不要把旧思维链塞回上下文,也没必要多花 token)。
-  const wireMessages = opts.messages.map((m) =>
-    m.role === "assistant" && m.reasoningContent
-      ? { role: m.role, content: m.content, ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}) }
-      : m,
-  );
+  const wireMessages = opts.messages.map((m) => {
+    if (m.role === "assistant" && m.reasoningContent) {
+      return { role: m.role, content: m.content, ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}) };
+    }
+    if (m.role === "tool" && m.imageData) {
+      // imageData 是内部字段(图片已通过单独的 user message 注入),不发给 API
+      return { role: m.role, tool_call_id: m.tool_call_id, content: m.content };
+    }
+    return m;
+  });
   const body: Record<string, unknown> = {
     model: opts.model,
     messages: wireMessages,

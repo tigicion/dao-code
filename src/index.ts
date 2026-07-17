@@ -243,7 +243,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--obs"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -316,13 +316,17 @@ async function main() {
   let resolved: ResolvedCredential | null = null;
   if (cliApiKey && cliProvider) {
     // headless 临时 key:构造合成凭证(不持久化,不存 profile)
+    // --model 可覆盖默认模型(如 --model kimi-k2.6);未给则用 provider 默认模型。
+    const modelIdx = rawArgs.indexOf("--model");
+    const cliModel = modelIdx >= 0 ? rawArgs[modelIdx + 1] : undefined;
     resolved = {
       key: cliApiKey,
       provider: cliProvider,
       baseUrl: DEFAULTS[cliProvider].baseUrl,
-      model: DEFAULTS[cliProvider].model,
+      model: cliModel || DEFAULTS[cliProvider].model,
       source: "cli:--api-key",
     };
+    if (cliModel) flags.add(cliModel);
   } else {
     resolved = await resolveCredential(profilesCfg, kc);
   }

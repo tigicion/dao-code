@@ -385,6 +385,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       session.messages.push(...toolMessages);
     }
 
+    // 工具返回了图片 → 在 tool messages 后注入一条 user message 携带 image_url。
+    // 千帆等 OpenAI 兼容 API 的 tool role 不接受 content 数组,故图片走 user message(对标 Kimi 文档的多模态格式)。
+    const imageParts = turnToolMessages
+      .filter((m) => m.imageData)
+      .map((m) => ({ type: "image_url" as const, image_url: { url: `data:${m.imageData!.mediaType};base64,${m.imageData!.base64}` } }));
+    if (imageParts.length > 0) {
+      session.messages.push({ role: "user", content: [...imageParts, { type: "text", text: "[以上图片由 read_file 工具读取,请基于图片内容回答用户的问题]" }] });
+    }
+
     // P2-11 编辑后诊断回灌:本轮改了文件 → 跑诊断命令,有报错就注入 [诊断],模型当轮自查自改。
     if (deps.diagnose) {
       const wrote = toolCalls.some((tc) => ["write_file", "edit_file", "multi_edit", "notebook_edit"].includes(tc.function.name));

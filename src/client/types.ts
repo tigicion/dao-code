@@ -29,6 +29,8 @@ export interface ToolMessage {
   role: "tool";
   tool_call_id: string;
   content: string | ContentPart[];
+  /** 工具返回的图片数据(execute.ts 暂存,loop.ts 据此在 tool messages 后注入 user image message) */
+  imageData?: { base64: string; mediaType: string };
 }
 export type ChatMessage = SystemMessage | UserMessage | AssistantMessage | ToolMessage;
 
