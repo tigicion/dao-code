@@ -3270,3 +3270,34 @@ verify_done）：3项测试1项通过（`test_result_file_exists`），G峰/2D�
 
 **应对**：4题无效数据已用`-n 1`（串行、无并发争抢）重新提交
 （`fix-promptaction-batch2-rerun`），结果待补，不能用本轮`-n4`的数据下结论。
+
+**追加**：用户指出上次是网络问题、要求改回并行——串行重跑（`fix-promptaction-batch2-rerun`）
+跑到第1题（regex-chess）中途即按用户要求终止（确认无残留docker容器/进程），改用
+`-n 4`并行重新提交全部4题（`fix-promptaction-batch2-rerun2`）：
+
+- `feal-differential-cryptanalysis`：**reward=1，通过**。
+- `path-tracing`：**reward=1，通过**。
+- `path-tracing-reverse`：reward=0，但**再次是基础设施问题**（`NonZeroAgentExitCodeError`
+  +"unknown certificate verification error"，且verifier自身`curl`连astral.sh失败、
+  `uvx: command not found`）——tool-trace显示9次write_file+88次exec_shell，是这批
+  里动作最密集的会话之一，看不出反模式迹象，是网络问题打断了真实在推进的会话。
+- `regex-chess`：reward=0，同样命中"unknown certificate verification error"+
+  verifier自身apt包索引下载失败——6次write_file+33次exec_shell，同样是真实工作
+  被网络问题打断，非反模式复现。
+
+**结论（本轮EVOLVE最终汇总）**：这轮对"反复推理反模式"的根因修复（`8794c99`），
+累计在5个**干净、无基础设施污染**的样本上验证：
+
+| 任务 | 原始状态 | 复测结果 |
+|---|---|---|
+| schemelike-metacircular-eval（反模式#30） | 跨6000+行重复设计5次，无交付物 | **reward=1，完全通过** |
+| dna-assembly（反模式#29） | 0次write_file，纯空转，无交付物 | reward=0，但产出真实交付物，仅差0.002°C精度 |
+| raman-fitting（反模式#34） | 循环措辞15+次，无交付物 | reward=0，但产出真实分析脚本+部分数值正确 |
+| feal-differential-cryptanalysis（意图-行动脱节） | 18次口号仅2-3次落地，无交付物 | **reward=1，完全通过** |
+| path-tracing（反模式#32） | 65%预算在重推同一bug，未回写代码 | **reward=1，完全通过** |
+
+**5/5 样本均观察到明确正向变化，3/5直接转为完全通过，其余2/5从"零交付物纯反复推理"
+变成"真实产出+仅差精度"——没有一例还原样复现最初"完全不产出、同一结论反复重推"的
+反模式特征**。`path-tracing-reverse`、`regex-chess`两次尝试（`-n4`原批次+本次重跑）
+均被网络/证书问题打断，数据无效，不计入结论，留待网络问题消退后按需重跑。这是本
+session对"反复推理反模式"这条头号失败原因做的第一次达到多样本验证规模的根因级修复。
