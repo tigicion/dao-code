@@ -235,6 +235,13 @@ async function main() {
   }
   const yoloFlag = rawArgs.includes("--yolo");
   const continueFlag = rawArgs.includes("--continue") || rawArgs.includes("-c");
+  // --continue/-c 可选带一个显式会话 id(如 dao -c 20260717-143212-b8wt),直接续写那一个会话文件;
+  // 不给就续写"最近一个可续写的会话"(findResumable)。取值规则:紧跟在 --continue/-c 后面、且本身
+  // 不是另一个已知 flag 的 token——否则这个 id 会被当成普通文本,连同别的内容一起被误发成一次性
+  // 提示词发给模型(真实撞见过:dao -c <id> 里的 id 被当 argvPrompt 直接发出去,触发一次真实 API 调用)。
+  const continueFlagIdx = (() => { const i = rawArgs.indexOf("--continue"); return i >= 0 ? i : rawArgs.indexOf("-c"); })();
+  const continueArgRaw = continueFlagIdx >= 0 ? rawArgs[continueFlagIdx + 1] : undefined;
+  const cliResumeId = continueArgRaw && !continueArgRaw.startsWith("-") ? continueArgRaw : undefined;
   const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task") || rawArgs.includes("--coordinator"); // --task/--coordinator 为旧别名,均进长任务自主模式(已并入)
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
@@ -247,6 +254,7 @@ async function main() {
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
+  if (cliResumeId) flags.add(cliResumeId);
   // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
@@ -1328,7 +1336,8 @@ async function main() {
       let resumeId: string | undefined;
       let initialItems: TranscriptItem[] = [];
       if (continueFlag) {
-        const prev = findResumable(sessionsDir, workspaceRoot);
+        // 给了明确 id(dao -c <id>)就精确续写那一个会话文件;没给才退回"最近一个可续写的会话"。
+        const prev = cliResumeId ? loadState(sessionsDir, cliResumeId) : findResumable(sessionsDir, workspaceRoot);
         if (prev) {
           session.messages = prev.messages;
           session.setModel(prev.model);
@@ -1341,6 +1350,9 @@ async function main() {
           const recap = transcriptFromMessages(prev.messages);
           recap.unshift({ id: 0, kind: "notice", text: "[已恢复上次会话]" });
           initialItems = recap.map((it, i) => ({ ...it, id: i + 1 })); // 统一编号(welcome 占 0)
+        } else if (cliResumeId) {
+          // 给了明确 id 但没找到:提示一下,而不是静默当成"无历史会话"从零开始,让人误以为续上了。
+          initialItems = [{ id: 0, kind: "notice", text: `[未找到会话 ${cliResumeId},本次将开始新会话]` }];
         }
       }
       const store = createSessionStore(sessionsDir, resumeId);
@@ -1882,7 +1894,26 @@ async function main() {
       write(buildWelcome(welcomeInfo, caps, undefined, bg) + "\n");
       // 修盲区:非 TTY 也建会话存储 + 审计 sink(此前仅 TTY 分支建,导致 --goal/管道长跑无缓存审计,无从诊断)。
       const sessionsDir = path.join(workspaceRoot, ".dao", "sessions");
-      const store = createSessionStore(sessionsDir, undefined);
+      // --continue/-c 在这条路径此前完全没生效(只在 TTY 分支处理过),同一个 dao -c <id> 换成非 TTY
+      // 环境(管道/CI/某些嵌入式终端)跑就静默失效——续写同一套逻辑:给了 id 精确续写,没给找最近一个。
+      let resumeId: string | undefined;
+      if (continueFlag) {
+        const prev = cliResumeId ? loadState(sessionsDir, cliResumeId) : findResumable(sessionsDir, workspaceRoot);
+        if (prev) {
+          session.messages = prev.messages;
+          session.setModel(prev.model);
+          session.mode = prev.mode;
+          session.usage.promptTokens += prev.usage.promptTokens;
+          session.usage.completionTokens += prev.usage.completionTokens;
+          session.usage.cacheHitTokens += prev.usage.cacheHitTokens;
+          session.usage.cacheMissTokens += prev.usage.cacheMissTokens;
+          resumeId = prev.id;
+          write(`[已恢复会话 ${prev.id}]\n`);
+        } else if (cliResumeId) {
+          write(`[未找到会话 ${cliResumeId},本次将开始新会话]\n`);
+        }
+      }
+      const store = createSessionStore(sessionsDir, resumeId);
       exitSessionId = store.id;
       setObsSession(store.id); // obs:session id 注入(同交互路径)
       cacheSink = createCacheAuditSink(store.dir);
@@ -1909,7 +1940,7 @@ async function main() {
       store.markDone(); // 干净退出标记(与 TTY 分支对齐)
     }
     if (session.usage.promptTokens > 0) write(`\n${session.usageSummary()}\n`);
-    if (exitSessionId) write(`会话 ${exitSessionId} · 续写:dao -c(最近一个)或启动后 /resume ${exitSessionId}\n`);
+    if (exitSessionId) write(`会话 ${exitSessionId} · 续写:dao -c ${exitSessionId}(或省略 id 续写最近一个)或启动后 /resume ${exitSessionId}\n`);
     // 退出【不再】蒸馏:记忆已在各热回合边界增量捕获;退出时缓存已凉,全量蒸只会撞冷缓存全价。
   } finally {
     closeRl();
