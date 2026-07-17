@@ -124,6 +124,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number): Promise<AssistantMessage> => {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
     let usedFallback = false;
+    let hardRetries = 0; // 主模型+回退模型都遇到同类网络/超时错误后,退避重试整轮的次数上限
     for (;;) {
       // 【缓存纪律】绝不在请求尾部追加每轮变化的内容(发现提示/进度提醒等)。原因:这些是 role:"system"
       // 消息,被当作前置指令块——尾部一变就把其后【整段对话】的前缀缓存全废掉(实测命中率从 95% 塌到 ~14%)。
@@ -190,6 +191,20 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (!deps.background && deps.fallbackModel && !usedFallback && /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(e instanceof Error ? e.message : String(e))) {
           usedFallback = true;
           events.notice(`\n[主模型异常,本回合临时回退 ${deps.fallbackModel}…]\n`);
+          continue;
+        }
+        // 主模型+回退模型都遇到了同类网络/超时错误(真实撞见过 terminal-bench make-mips-interpreter:
+        // 模型试图单次 write_file 写入千行级大文件,主模型先抛异常触发回退,回退模型随后也 120s 空闲
+        // 超时——此前这里直接上抛,整个 episode 崩溃退出,900s+ 预算和此前所有真实进展全部作废)。
+        // 退避后把 usedFallback 重置、给主模型再来一次机会,最多重试 2 次,任何一次成功都救回本轮;
+        // 背景查询(子代理)不重试,理由同上面的回退分支。
+        const hardMaxRetries = 2;
+        if (!deps.background && hardRetries < hardMaxRetries && /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(e instanceof Error ? e.message : String(e))) {
+          hardRetries++;
+          usedFallback = false;
+          events.notice(`\n[主备模型均异常,退避后整轮重试(第 ${hardRetries}/${hardMaxRetries} 次)…]\n`);
+          const hardRetryDelayMs = Number(process.env.DAO_HARD_RETRY_DELAY_MS) || 1000;
+          await new Promise((r) => setTimeout(r, hardRetryDelayMs * hardRetries));
           continue;
         }
         throw e; // 恢复手段用尽:上抛(致命或网络彻底不通)

@@ -127,6 +127,45 @@ describe("runTurn", () => {
     ]);
   });
 
+  it("主备模型都遇到网络/超时类异常 → 退避后整轮重试,不让整个episode崩溃退出", async () => {
+    // 根因(真实撞见:terminal-bench make-mips-interpreter):模型试图单次write_file写入
+    // 千行级大文件,主模型先抛异常触发回退到flash,flash随后也120s空闲超时——此前这里
+    // 直接上抛,整个进程崩溃退出(NonZeroAgentExitCodeError exit 1),900s+预算和此前
+    // 全部真实进展作废。现在退避后把usedFallback重置、给主模型再来一次机会。
+    process.env.DAO_HARD_RETRY_DELAY_MS = "1"; // 测试里不等真实退避时间(0会被||1000兜底,故用1ms)
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const streamChatMock = (() => {
+      call++;
+      if (call <= 2) {
+        // 第1次(主模型)、第2次(回退到flash)都遇到网络/超时类异常
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
+        })();
+      }
+      // 第3次:退避重试后回到主模型,这次成功
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        yield { kind: "content", text: "重试后成功了" };
+        return { role: "assistant", content: "重试后成功了" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      fallbackModel: "deepseek-v4-flash",
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    delete process.env.DAO_HARD_RETRY_DELAY_MS;
+    expect(call).toBe(3); // 主模型失败→回退flash失败→退避重试回到主模型成功
+    expect(s.messages).toEqual([
+      { role: "system", content: "SYS" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "重试后成功了" },
+    ]);
+  });
+
   it("sends session.model and runs tools then loops", async () => {
     const s = new Session("SYS", "deepseek-v4-flash");
     s.addUser("go");
