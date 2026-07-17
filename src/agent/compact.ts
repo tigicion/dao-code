@@ -1,4 +1,4 @@
-import type { ChatMessage } from "../client/types.js";
+import type { ChatMessage, ContentPart } from "../client/types.js";
 
 // 粗估 token:中英混排约 3 字符/token;统计 content 与 assistant 的 tool_calls。
 export function estimateTokens(messages: ChatMessage[]): number {
@@ -59,7 +59,9 @@ export async function compactMessages(
   // L2.3 降级阶梯:摘要失败(模型挂/熔断打开)→ 硬截断兜底,绝不让"压缩本身"把长任务搞崩。
   let summary: string;
   try {
-    summary = await opts.summarize([system, ...rest]); // 发 [system, ...全部对话]:整段摘要 + 命中主对话热缓存
+    // 压缩前 strip 图片(base64 体积大,压缩不需要图片,只保留 [image] 标记)
+    const stripped = stripImagesFromMessages([system, ...rest]);
+    summary = await opts.summarize(stripped); // 发 [system, ...全部对话]:整段摘要 + 命中主对话热缓存
   } catch {
     const marker: ChatMessage = {
       role: "system",
@@ -72,4 +74,28 @@ export async function compactMessages(
     : `[早期对话摘要——上下文超限已压缩,以下是早段对话的摘要]\n${summary}\n\n从中断处直接继续,不要复述摘要、不要寒暄,像没中断过一样接着上一个任务。`;
   const summaryMsg: ChatMessage = { role: "system", content: merged };
   return [system, summaryMsg, ...pinnedMsg()];
+}
+
+/** 压缩前 strip 图片 block:替换为 [image] 文字标记,避免 base64 膨胀压缩请求。 */
+export function stripImagesFromMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => {
+    if (!Array.isArray(m.content)) return m; // system/纯文本 user/tool 不含图片
+    let changed = false;
+    const stripped: ContentPart[] = [];
+    for (const part of m.content) {
+      if (part.type === "image_url") {
+        changed = true;
+        // 连续 [image] 去重:上一个已是 [image] 则不再追加
+        const last = stripped[stripped.length - 1];
+        if (!(last && last.type === "text" && last.text === "[image]")) {
+          stripped.push({ type: "text", text: "[image]" });
+        }
+      } else {
+        stripped.push(part);
+      }
+    }
+    if (!changed) return m;
+    // 只可能是 user 或 tool 消息(system content 是 string,上面已 return)
+    return { ...m, content: stripped } as ChatMessage;
+  });
 }
