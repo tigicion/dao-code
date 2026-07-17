@@ -3490,3 +3490,50 @@ Wait...Actually, wait. Let me re-read..."），而不是写一个独立小脚本
 同一具体bug的重复假设-推翻循环，直到4倍预算耗尽，从未调用verify_done。记录为反复
 推理反模式新增确认样本（与dna-assembly/schemelike-metacircular-eval等同族：具体
 不确定点反复用文字重新论证，而非写代码/脚本钉死）。
+
+## EVOLVE：进度提醒会话级"反复卡住"计数——修补raman-fitting/make-mips-interpreter共享检测盲区
+
+用户要求继续用内省复盘法定位make-mips-interpreter这次卡住的根因。
+
+**内省复盘**：把真实系统提示词+真实任务+真实推理片段（首次遇到"zone memory: Invalid
+format specifier"错误→中期两轮不同假设→超时前最后状态）原样发回同一个模型。模型的
+回答确认：遇到错误时手上已经有确切信息（补丁地址、补丁前后内容、补丁代码位置），
+只需1次edit_file+1次exec_shell直接dump补丁地址的实际字节就能在2-3次调用内得到确定
+答案，但实际走了200+次反复假设。三轮假设（patch写错地址→printf走了另一份拷贝→$a0
+寄存器传参问题）没有一个被转化为验证脚本，全部停留在"读代码+口头推理"。模型对"为什么
+系统提示词里已有的'用工具验证,别心算'规则没生效"给出的解释："这条规则缺少触发检查点
+——mental math在做的当下感觉上就像是分析，不是猜测……越是深陷推理循环，自我识别能力
+越是下降"。模型主动提议的结构性方案之一："检测到模型对同一问题连续做了N次读文件/
+反汇编而没有运行验证命令时，自动注入中断提示"。
+
+**核实关键代码事实**：查tool-trace.jsonl+dao_stdout.txt发现，卡住期间（第18776-21532
+行）进度提醒确实触发过3次（19459/19763/20954行），但全部是"5轮"这个通用档，从未升级
+到"第2次"——因为每次快到5轮阈值前，穿插的零星edit_file调用（tool-trace索引75/77/85/
+88/97）把`stuckAdviceCount`清零了。**这正是本session之前raman-fitting那次发现的
+检测盲区的又一次独立复现**：判据只看"该轮是否调用过写类工具"，不看这次编辑是否真的
+解决了核心卡住的问题。
+
+**改在哪层**（agent循环层）：`src/agent/loop.ts`——新增`totalStuckEvents`计数器，
+不受`progressed`清零影响，累计到3次即使当前这次"卡住"是刚重新计数的
+（`stuckAdviceCount===1`）也会升级为具体措辞的提醒（"本会话第N次卡住"），不再无限
+靠零星编辑清零来规避检测。
+
+**预计能救哪几题**：raman-fitting、make-mips-interpreter这类"零星编辑穿插+核心问题
+未解决"的题；理论上任何长任务里出现"卡住→零星小改动→又卡住"循环的场景都可能受益。
+
+**可能连带弄坏的场景**：`totalStuckEvents`只在原有"noProgress达到ADVISE_EVERY倍数"
+这个既有触发点上累加，不新增触发条件，不改变`escalate=false`时的行为（含此前"两次
+触发都是第1次"的既有测试用例，达到totalStuckEvents=2时仍不升级，行为不变，已用
+既有测试验证）。风险在于`totalStuckEvents>=3`这个阈值是否合适——偏低可能对"确实
+每次都有真实推进、只是任务本身分阶段多"的长任务提前误判为卡住；偏高则可能像
+make-mips-interpreter这次一样等太久才升级。先用3作为起点，后续按真实复测样本调整。
+
+**TDD**：`loop.test.ts`新增用例验证"3轮5次空转+零星编辑清零"循环第3次会升级；既有
+"两次触发都是第1次"用例保持通过。全量`npx vitest run`1272/1272通过，`npm run
+typecheck`通过。
+
+**commit**：`8674b28`。二进制已按此commit重新编译。
+
+**真实复测**：提交`fix-stuckcount-mips`(`terminal-bench/make-mips-interpreter`，
+`--ak provider=volcengine`)，`--agent-timeout-multiplier 4`。上次同题同provider
+跑了7225s（顶近4倍上限），这次预计耗时相近。结果待补。
