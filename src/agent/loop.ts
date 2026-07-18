@@ -349,6 +349,14 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     let assistant = await requestAssistant(tools, t);
     let toolCalls = assistant.tool_calls ?? [];
     let hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+    // 用户中途取消(ESC)、且这一轮确实空手而归(无 content 无 tool_calls):client.ts 对
+    // "abort 时尚无产出"故意不抛错,优雅返回一个空 assistant 消息(见 client.ts isAbort 分支),
+    // 避免半截工具调用把历史搞崩。但这意味着下面的空响应重试逻辑会误把"被打断"当成
+    // "模型真答不出",在用户已经按了 ESC 之后又真的发一次网络请求(该请求同样立刻被 abort
+    // 返回空),白等一轮往返,还甩出两条"模型空响应/连续两次空响应"的误导性提示——这里直接
+    // 收尾。注意:只在真空手时提前退出;若这一轮已经有 content/tool_calls(答完/工具调用后
+    // 才 abort),必须继续走下面的正常入库 + 补齐取消态 tool 结果流程,不能跳过。
+    if (signal?.aborted && toolCalls.length === 0 && !hasContent) return;
     // 空内容且无工具调用的回合(只有 reasoning、或被打断)不能直接入库——否则下一轮
     // DeepSeek 会 400「content or tool_calls must be set」直接崩会话。但也不能悄悄当成
     // "模型主动决定收尾了"就地结束:蒸馏过 iteration 4 两道题(large-scale-text-editing、

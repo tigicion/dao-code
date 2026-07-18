@@ -828,6 +828,35 @@ describe("runTurn", () => {
     expect(wanted.every((id) => answered.has(id))).toBe(true);
   });
 
+  it("aborted mid-reasoning with no content/tool_calls yet: stops immediately, no phantom empty-response retry", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const controller = new AbortController();
+    let calls = 0;
+    const notices: string[] = [];
+    await runTurn({
+      session: s,
+      config,
+      registry: emptyReg(),
+      ctx,
+      gate: stubGate,
+      // 模拟 client.ts 的真实 abort 行为:ESC 落在还没产出任何 content/tool_calls 时,
+      // 生成器不抛错,优雅返回一个空 assistant 消息(见 client.ts isAbort 分支)。
+      streamChat: (() => {
+        calls++;
+        controller.abort();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: null };
+        })();
+      }) as any,
+      executeToolCalls: async () => [],
+      write: (t) => notices.push(t),
+      signal: controller.signal,
+    });
+    expect(calls).toBe(1); // 不应该在已 abort 后又发第二次请求
+    expect(notices.join("")).not.toContain("空响应");
+  });
+
   it("returns immediately without calling streamChat when already aborted", async () => {
     const s = new Session("SYS", "m");
     s.addUser("hi");
