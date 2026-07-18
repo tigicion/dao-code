@@ -35,10 +35,10 @@ export interface BaseAgentDef {
   model?: string;
   // 子代理权限模式:可设 PermissionMode(default/acceptEdits/plan/bypassPermissions/auto)
   // 或旧的 Mode(normal/plan)。normal = 继承父级模式;plan = 只读。
-  // 对标 CC:CC 默认 acceptEdits(子代理编辑不弹审批),dao 默认 normal(继承父级)。
+  // 参考:CC 默认 acceptEdits(子代理编辑不弹审批),dao 默认 normal(继承父级)。
   permissionMode?: Mode | PermissionMode;
   maxTurns?: number;
-  // reasoning effort(对标 CC effort):控制子代理思考强度。"max"/"high"/"medium"/"low"。
+  // reasoning effort(参考 effort):控制子代理思考强度。"max"/"high"/"medium"/"low"。
   // 按模型支持与否生效--DeepSeek 支持 reasoning_effort,其他模型忽略。
   effort?: string;
   skills?: string[];

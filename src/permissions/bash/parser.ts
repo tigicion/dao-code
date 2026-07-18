@@ -1,5 +1,5 @@
 // parser.ts — 薄封装:调用 bash_parser.ts 的纯 TS bash 解析器,产出 AST 根节点。
-// 对标 CC parser.ts,去掉 feature flag / 遥测 / WASM init(纯 TS 始终可用)。
+// 参考 parser.ts,去掉 feature flag / 遥测 / WASM init(纯 TS 始终可用)。
 
 import {
   ensureParserInitialized,

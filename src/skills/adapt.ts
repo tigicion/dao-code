@@ -1,5 +1,5 @@
 // 把"为其它 agent(Codex / Gemini CLI / Cursor)所写的技能"识别出来。
-// CC 技能不需要转换--DAO 工具名已对齐 CC PascalCase(Read/Bash/Edit/Grep...),原样可用。
+// CC 技能不需要转换--DAO 工具名已统一 PascalCase(Read/Bash/Edit/Grep...),原样可用。
 // 只检测非 CC 生态的外来技能:Codex 的 apply_patch/run_shell_command、Gemini 的 activate_skill 等。
 export function isForeignSkill(body: string, daoTools: Set<string>): boolean {
   // 1) 命名空间跨引用:superpowers:xxx / plugin:skill(他者生态特有写法,冒号两侧无空格)。

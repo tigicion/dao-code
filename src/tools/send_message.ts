@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 import { defineTool } from "./types.js";
 
-// 对标 CC SendUserMessage:给用户发可见消息(支持 markdown + 文件附件)。
+// 参考 SendUserMessage:给用户发可见消息(支持 markdown + 文件附件)。
 // 与直接输出文本的区别:attachments 可附文件(图片/diff/log);status 标注意图(主动推送 vs 回复)。
 export const sendMessageTool = defineTool({
   name: "SendUserMessage",

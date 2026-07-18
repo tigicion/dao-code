@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
 
-// 对标 CC EnterPlanMode/ExitPlanMode:模型可主动进入/退出规划模式。
+// 参考 EnterPlanMode/ExitPlanMode:模型可主动进入/退出规划模式。
 // plan 模式下写/执行类工具从工具表移除(只读+提方案);exit 切回 normal。
 export const enterPlanModeTool = defineTool({
   name: "EnterPlanMode",

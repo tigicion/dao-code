@@ -68,7 +68,7 @@ function mustConfirm(p: DecideParams): boolean {
   return isDangerousCall(p.toolName, p.argsJson);
 }
 
-// auto 模式安全白名单(对标 CC SAFE_YOLO_ALLOWLISTED_TOOLS):只读/搜索/任务管理/计划类工具
+// auto 模式安全白名单(参考 SAFE_YOLO_ALLOWLISTED_TOOLS):只读/搜索/任务管理/计划类工具
 // 即便被升级到"需确认"也直接放行,省一次分类器调用。Bash/外部写不在内,必须过分类器。
 // 网络查询(WebSearch/WebFetch)auto 下放行:属"读取型"取信息,deny 规则仍能覆盖;WebFetch 自带 SSRF 挡内网/元数据。
 const AUTO_ALLOWLIST = new Set([
@@ -83,7 +83,7 @@ const AUTO_ALLOWLIST = new Set([
 // 同步版本:用 legacy splitBashCommands 拆分 Bash 命令。
 export function decide(p: DecideParams): Decision {
   const d = decideBase(p);
-  // auto 模式:把"需确认"的调用尽量在 AI 分类器之前快速放行(对标 CC 快速路径②③)。
+  // auto 模式:把"需确认"的调用尽量在 AI 分类器之前快速放行(参考 快速路径②③)。
   if (d === "ask" && p.mode === "auto") {
     if (AUTO_ALLOWLIST.has(p.toolName)) return "allow"; // ③ 安全白名单(只读类工具)
     // ③' 只读 shell 命令的快速放行已经并进 decideBase 本身(不分模式),这里到达时 d 已经不可能
@@ -96,7 +96,7 @@ export function decide(p: DecideParams): Decision {
 
 // async 版本:Bash 工具用 AST 解析(精确子命令提取 + too-complex fail-closed)。
 // 非 Bash 工具走同步 decide。
-// 对标 CC bashToolHasPermission:步骤 0(AST parse)→ too-complex fail-closed → 规则匹配。
+// 参考 bashToolHasPermission:步骤 0(AST parse)→ too-complex fail-closed → 规则匹配。
 export async function decideAsync(p: DecideParams): Promise<Decision> {
   if (p.toolName !== "Bash") return decide(p);
   const id = toCcIdentity(p.toolName, p.argsJson);
@@ -145,7 +145,7 @@ function decideBase(p: DecideParams): Decision {
 
   if (ruleDec === "deny") return "deny";
   // S3.1 敏感目标写/执行 + 危险 shell 命令:除 plan(只读、下方一律 deny 更严)外的任何模式(含 yolo)
-  // 都要确认,除非显式 allow 规则 opt-in。放在 bypassPermissions 之前 → yolo 也不能绕过(对标 CC bypass-immune)。
+  // 都要确认,除非显式 allow 规则 opt-in。放在 bypassPermissions 之前 → yolo 也不能绕过(参考 bypass-immune)。
   if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) return "ask";
   // bypassPermissions(yolo):deny + must-confirm 之外一律放行(用户已 --yolo 启动,自担其余风险)。
   if (p.mode === "bypassPermissions") return "allow";

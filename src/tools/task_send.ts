@@ -34,7 +34,7 @@ export const taskSendTool = defineTool({
     if (ctx.sendToTask(args.id, args.message)) {
       return msg(`已发送给 ${args.id}(下一回合边界生效)。`, `Sent to ${args.id} (effective at next turn boundary).`);
     }
-    // 目标任务已结束(非"不存在"):对标 CC SendMessageTool——运行中走 queuePendingMessage,已停止走
+    // 目标任务已结束(非"不存在"):参考 SendMessageTool——运行中走 queuePendingMessage,已停止走
     // resumeAgentBackground 从磁盘转录重建后把这条消息作为新 prompt 注入,而不是直接告知发送失败。
     const task = ctx.taskManager?.get(args.id);
     if (task && task.status !== "running" && ctx.resumeAgent) {

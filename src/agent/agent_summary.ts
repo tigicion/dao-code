@@ -9,7 +9,7 @@ export interface CacheSafeParams {
 
 /**
  * 后台 agent 每 30s 做一次摘要,通过 updateSummary(taskId, summary) 写回任务(对应 TaskManager.updateSummary)。
- * 对标 CC startAgentSummarization,但摘要回调直接对接 DAO TaskManager,不引入 CC 的 setAppState reducer 模式。
+ * 参考 startAgentSummarization,但摘要回调直接对接 DAO TaskManager,不引入 CC 的 setAppState reducer 模式。
  */
 export function startAgentSummarization(
   taskId: string,

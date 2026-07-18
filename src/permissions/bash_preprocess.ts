@@ -1,4 +1,4 @@
-// Bash 命令预处理(对标 CC stripSafeWrappers / stripAllLeadingEnvVars / extractOutputRedirections)。
+// Bash 命令预处理(参考 stripSafeWrappers / stripAllLeadingEnvVars / extractOutputRedirections)。
 // 在权限规则匹配前对命令做归一化:剥离安全包装器、环境变量前缀、输出重定向,
 // 使规则能匹配到实际执行的命令,防止通过包装器/env 前缀绕过 deny/ask 规则。
 

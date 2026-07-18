@@ -8,7 +8,7 @@ const OPS = [
 type Op = (typeof OPS)[number];
 
 // 不接入任何语言的二进制:纯协议客户端,server 命令由用户在 .dao/lsp.json 配(见 src/lsp/config.ts)。
-// 没配置对应文件类型的语言 → 报错,不负责帮用户装。操作集合对齐 CC 的 LSP 工具接口。
+// 没配置对应文件类型的语言 → 报错,不负责帮用户装。操作集合统一 的 LSP 工具接口。
 export const lspTool = defineTool({
   name: "LSP",
   description:

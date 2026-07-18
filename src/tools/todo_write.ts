@@ -47,7 +47,7 @@ export const todoWriteTool = defineTool({
         z.object({
           content: z.string().describe("祈使式描述,如 'Run tests'"),
           status: z.enum(["pending", "in_progress", "completed"]),
-          activeForm: z.string().optional().describe("进行式描述(对标 CC),如 'Running tests';省略时用 content"),
+          activeForm: z.string().optional().describe("进行式描述(参考),如 'Running tests';省略时用 content"),
         }),
       )
       .describe("完整任务列表"),

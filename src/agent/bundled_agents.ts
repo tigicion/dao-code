@@ -28,7 +28,7 @@ export const GENERAL_PURPOSE_AGENT: BuiltInAgentDef = {
 - 不确定就说不确定,别编。`,
 };
 
-// 探查子代理:只读、多策略搜索,默认用 flash 省成本(对标 CC Explore=haiku)。
+// 探查子代理:只读、多策略搜索,默认用 flash 省成本(参考 Explore=haiku)。
 export const EXPLORE_AGENT: BuiltInAgentDef = {
   agentType: "explore",
   whenToUse: "只读·彻底探查子代理:多策略搜索代码库/资料,跨多位置与命名惯例,只回提炼后的结论(适合范围广、要点散的调查,可并行派多个)。",

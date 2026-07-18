@@ -25,11 +25,11 @@ const modeLabel = (m: string): string => (MODE_KEYS.has(m) ? t("mode." + m) : m)
 const MAX_LIVE_LINES = 12; // 流式动态区尾部行数的【上限】;实际取 liveCap(按屏高自适应)。完成后整段进 <Static>,故不丢内容。
 const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
 const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose 全显)
-// 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
+// 这些工具的结果正文值得在 ⎿ 子块里展示(参考:Bash/Grep 显输出,Read 只显计数)。
 const ECHO_OUTPUT = new Set(["Bash", "BashOutput", "Grep", "WebSearch", "WebFetch"]);
 
 // 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源):命令名 + 顺序即菜单展示顺序。
-// 每条描述走 i18n 键 cmd.<name>(精炼一行,对标 CC 命令面板),渲染处用 t("cmd."+name) 取值。
+// 每条描述走 i18n 键 cmd.<name>(精炼一行,参考 命令面板),渲染处用 t("cmd."+name) 取值。
 const COMMAND_META: ReadonlyArray<string> = [
   "model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor",
   "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume",
@@ -349,7 +349,7 @@ export function App(deps: AppDeps) {
           } catch { /* 参数非 JSON,退回轻量工具行 */ }
         }
         if (!pushed && ok && name === "TodoWrite") {
-          // todo:渲染成复选框清单(对标 CC),就地体现进度。
+          // todo:渲染成复选框清单(参考),就地体现进度。
           pushItem({ id: nextId(), kind: "todo", items: parseTodoResult(contentStr) });
           pushed = true;
         }
@@ -846,7 +846,7 @@ export function App(deps: AppDeps) {
       modeHintTimer.current = setTimeout(() => setModeHint(null), 2500);
       return;
     }
-    // Ctrl+O:展开/折叠全量输出(对标 CC)。已打印进 scrollback 的无法原地改,
+    // Ctrl+O:展开/折叠全量输出(参考)。已打印进 scrollback 的无法原地改,
     // 故开启时把"最近一条可展开项"的完整内容追加显示,后续输出按展开态渲染。
     if (key.ctrl && ch === "o") {
       const next = !expanded;
@@ -1221,7 +1221,7 @@ export function App(deps: AppDeps) {
             </Text>
           </Box>
           {input.startsWith("/") && !input.includes(" ") ? (() => {
-            // 命令面板(对标 CC):竖排,左命令右简介,列对齐;过多则截断并提示继续输入筛选。
+            // 命令面板(参考):竖排,左命令右简介,列对齐;过多则截断并提示继续输入筛选。
             const matched = COMMAND_META.filter((name) => ("/" + name).startsWith(input));
             if (matched.length === 0) return <Text color={c("dim")}>{t("ui.cmd.noMatch")}</Text>;
             const shown = matched.slice(0, MAX_SLASH_MENU);

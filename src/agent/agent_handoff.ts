@@ -40,7 +40,7 @@ export function parseHandoffClassifierResponse(text: string): ClassifyResult {
 }
 
 /**
- * auto 权限模式下,子代理结束后审查其输出是否安全(对标 CC classifyHandoffIfNeeded)。
+ * auto 权限模式下,子代理结束后审查其输出是否安全(参考 classifyHandoffIfNeeded)。
  * 复用 DAO 现有 buildClassifierTranscript 构建 transcript。
  */
 export async function classifyHandoffIfNeeded(opts: {

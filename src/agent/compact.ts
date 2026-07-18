@@ -31,7 +31,7 @@ export interface CompactOptions {
 // 压缩(整段摘要,无 verbatim tail):保留 messages[0](系统前缀+记忆)+ 一份覆盖其后【全部】对话的摘要
 // + 可选的活任务清单 pin。
 // 为何不再保留"最近 N 轮原文":压缩后前缀本就从【新摘要】处断开缓存,tail 落在冷区、留原文对缓存无益;
-// 续接改由摘要的"当前工作/下一步(附原话引用)"小节承载(对标 CC 的整段摘要)。这也根除了"最近轮含大
+// 续接改由摘要的"当前工作/下一步(附原话引用)"小节承载(参考 的整段摘要)。这也根除了"最近轮含大
 // 工具输出 → tail 膨胀、压不动"的结构性问题,并让单 user 轮长任务也走同一条摘要路径(无需 microcompact)。
 export async function compactMessages(
   messages: ChatMessage[],

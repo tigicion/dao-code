@@ -351,7 +351,7 @@ export async function* streamChat(
     }));
 
   // max_output_tokens 续写恢复:输出被 max_tokens 截断(finish_reason=length)、且是纯文本(无工具调用)、
-  // 非首问 → 注入"继续"补完剩余,拼接成完整回答(对标 CC 多轮续写)。最多 DAO_MAX_CONTINUE 次。
+  // 非首问 → 注入"继续"补完剩余,拼接成完整回答(参考 多轮续写)。最多 DAO_MAX_CONTINUE 次。
   const maxContinue = Number(process.env.DAO_MAX_CONTINUE) || 3;
   let conts = 0;
   while (finishReason === "length" && tool_calls.length === 0 && content && conts < maxContinue && !opts.signal?.aborted) {

@@ -132,7 +132,7 @@ describe("ruleMatches — Bash xargs 透传", () => {
   });
 });
 
-describe("evaluate — 安全包装器剥离(对标 CC stripSafeWrappers)", () => {
+describe("evaluate — 安全包装器剥离(参考 stripSafeWrappers)", () => {
   it("deny 规则穿透 timeout 包装器", () => {
     const id = { ccTool: "Bash", value: "timeout 10 rm -rf /tmp" };
     expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
@@ -159,7 +159,7 @@ describe("evaluate — 安全包装器剥离(对标 CC stripSafeWrappers)", () =
   });
 });
 
-describe("evaluate — 环境变量非对称剥离(对标 CC)", () => {
+describe("evaluate — 环境变量非对称剥离(参考)", () => {
   it("deny 规则剥离所有环境变量(防绕过)", () => {
     const id = { ccTool: "Bash", value: "FOO=bar rm -rf /tmp" };
     expect(evaluate({ allow: [], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
@@ -187,7 +187,7 @@ describe("evaluate — 环境变量非对称剥离(对标 CC)", () => {
   });
 });
 
-describe("evaluate — 复合命令前缀免疫(对标 CC)", () => {
+describe("evaluate — 复合命令前缀免疫(参考)", () => {
   it("前缀规则不匹配复合命令(防 cd /x && rm -rf / 整串匹配 Bash(cd:*))", () => {
     // 注意:splitBashCommands 会先拆分,每段单独检查——这里测试的是"如果某段没被拆开"的场景
     // 实际上 evaluate 先 split 再逐段查,所以复合命令的每段都是单命令,前缀规则可以匹配
@@ -202,7 +202,7 @@ describe("evaluate — 复合命令前缀免疫(对标 CC)", () => {
   });
 });
 
-describe("evaluate — 输出重定向剥离(对标 CC)", () => {
+describe("evaluate — 输出重定向剥离(参考)", () => {
   it("allow 规则匹配带重定向的命令", () => {
     const id = { ccTool: "Bash", value: "python script.py > /tmp/out" };
     expect(evaluate({ allow: ["Bash(python:*)"], ask: [], deny: [] }, id)).toBe("allow");

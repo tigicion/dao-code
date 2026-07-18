@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-// 技能使用频率加权(对标 CC skillUsageTracking):记每个技能被加载的次数 + 最近日期,
+// 技能使用频率加权(参考 skillUsageTracking):记每个技能被加载的次数 + 最近日期,
 // 按"指数衰减 × 次数"打分,用于发现排序的并列打破与常驻列表的预算截断排序。
 // 常被用且最近用过的技能排在前。纯确定性(日期注入),持久化到 ~/.dao/skill-usage.json。
 

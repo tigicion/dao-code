@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-// 开箱即用 Skill(对标 CC):markdown(frontmatter name/description + 正文指令)。
+// 开箱即用 Skill(参考):markdown(frontmatter name/description + 正文指令)。
 // 渐进式披露:启动只把 name+description 列进上下文,模型用 skill 工具按需加载正文。
 // 来源:.dao/skills/<name>.md 或 .dao/skills/<name>/SKILL.md(+ 用户 ~/.dao/skills/)。
 
@@ -10,9 +10,9 @@ export interface Skill {
   description: string;
   whenToUse?: string; // frontmatter when_to_use:触发条件(决定何时该加载此技能),对触发至关重要
   slug?: string; // 目录/文件名(供模型用直觉短名调用,不必照抄 Title Case 的 name)
-  paths?: string[]; // frontmatter paths:条件技能——仅当项目有匹配文件才"在场"(对齐 CC 的 paths;空=一直在场)
+  paths?: string[]; // frontmatter paths:条件技能——仅当项目有匹配文件才"在场"(统一 的 paths;空=一直在场)
   namespace?: string; // 来源命名空间(插件名);用于 plugin:slug 调用与防撞。本地/项目/内置无前缀
-  // 触发旋钮(对齐 CC,默认都开;省略=undefined=按默认开处理,第三方一般不写)。
+  // 触发旋钮(统一,默认都开;省略=undefined=按默认开处理,第三方一般不写)。
   modelInvokable?: boolean; // false ← frontmatter disable-model-invocation:true(模型不自动触发,只 /手动调)
   userInvocable?: boolean;  // false ← frontmatter user-invocable:false(不暴露 /手动调,只模型自动)
   body: string;
@@ -45,7 +45,7 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
       else if (k === "when_to_use" || k === "when to use" || k === "whentouse") whenToUse = v;
       // paths:条件技能 glob。支持 "a, b" / "[a, b]" / 单个;空格或逗号分隔。
       else if (k === "paths") paths = v.replace(/^\[|\]$/g, "").split(/[,\s]+/).map((x) => x.replace(/^["']|["']$/g, "").trim()).filter(Boolean);
-      // 触发旋钮(对齐 CC):只在显式写出时记录,否则留 undefined(按默认"都开"处理)。
+      // 触发旋钮(统一):只在显式写出时记录,否则留 undefined(按默认"都开"处理)。
       else if (k === "disable-model-invocation" || k === "disable_model_invocation") { if (truthy(v)) modelInvokable = false; }
       else if (k === "user-invocable" || k === "user_invocable") { if (!truthy(v)) userInvocable = false; }
     }
@@ -67,7 +67,7 @@ function parse(fallbackName: string, dir: string, raw: string): Skill | null {
   };
 }
 
-// 用户手动调用匹配:按裸 slug / name / namespace:slug 找一个【可被用户 /调用】的技能(对齐 CC 的 /skill-name)。
+// 用户手动调用匹配:按裸 slug / name / namespace:slug 找一个【可被用户 /调用】的技能(统一 的 /skill-name)。
 export function findUserInvocableSkill(skills: Skill[], name: string): Skill | undefined {
   const want = name.trim().toLowerCase();
   return skills.find((s) => s.userInvocable !== false && (
@@ -120,7 +120,7 @@ export function skillCatalogLines(
 }
 
 // 从若干目录加载技能;同名时【后传入的目录覆盖先传入的】(按优先级低→高传)。
-// realpath 去重(对齐 CC):同一物理文件经多路径/符号链接被加载多次时,只保留最高优先级那次。
+// realpath 去重(统一):同一物理文件经多路径/符号链接被加载多次时,只保留最高优先级那次。
 export async function loadSkills(...dirs: string[]): Promise<Skill[]> {
   const loaded = await Promise.all(dirs.map(loadFrom));
   const byRealpath = new Map<string, Skill>(); // 物理文件去重(低→高,后者覆盖)

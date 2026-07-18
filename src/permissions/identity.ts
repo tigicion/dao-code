@@ -48,12 +48,15 @@ export function rememberRule(toolName: string, argsJson: string): string | null 
   // WebSearch:任何查询都放行,记裸工具名——不持久化具体 query(否则换个搜索词就再问)。
   if (id.ccTool === "WebSearch") return "WebSearch";
   // Bash:能提炼出安全前缀就记 `Bash(prog sub:*)`(同类免再问);复合/超长/含 heredoc 的命令
-  // 提炼不出来 → 不生成规则(返回 null),只放行本次——否则会把整条巨型命令存成永不再匹配的垃圾规则。
-  if (id.ccTool === "Bash") { const p = bashPrefix(id.value); return p ? `Bash(${p})` : null; }
+  // 提炼不出通配前缀时,不能直接丢弃(返回 null)——那样用户选"总是允许"/"仅本次会话"会静默什么都
+  // 不保存,同一条命令下次还会重新问一遍(体感就是"反复问")。退化成精确匹配当前命令原文:字节相同的
+  // 重复调用直接放行,内容一变(哪怕只变一点)就不再匹配、重新走判断——不会把这条命令错误泛化成危险的
+  // 通配规则,只是不再对"完全同一条命令"重复发问。
+  if (id.ccTool === "Bash") { const p = bashPrefix(id.value); return `Bash(${p ? p : id.value})`; }
   return `${id.ccTool}(${id.value})`;
 }
 
-// 提炼放宽前缀(对标 CC getSimpleCommandPrefix + stripSafeWrappers):
+// 提炼放宽前缀(参考 getSimpleCommandPrefix + stripSafeWrappers):
 // 先剥离安全包装器(timeout/time/nice/nohup)和安全环境变量,再取 "程序 + 首个非 flag 子命令"。
 // 复合(管道/重定向/链接/替换)、含换行(heredoc)、或超长(>200)→ 返回 null(不持久化);
 // 否则 程序 + 首个非 flag 子命令 + ":*"。

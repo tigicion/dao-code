@@ -1,5 +1,5 @@
 // bash_ast.ts — 桥接模块:将 AST 安全 walker 对接到 DAO 权限管线。
-// 对标 CC bashPermissions.ts 中 AST 解析路径(步骤 0)。
+// 参考 bashPermissions.ts 中 AST 解析路径(步骤 0)。
 //
 // 在规则匹配前,先用 AST 解析命令:
 //   - 简单命令(parseForSecurity 返回 'simple'):用 AST 提取的子命令替换 splitBashCommands,
@@ -19,7 +19,7 @@ export type BashParseResult =
   | { kind: "fallback" }; // AST 不可用,回退到 legacy 正则拆分
 
 // 解析 bash 命令,返回安全 walker 结果。
-// 对标 CC bashToolHasPermission 步骤 0(parseForSecurityFromAst)。
+// 参考 bashToolHasPermission 步骤 0(parseForSecurityFromAst)。
 export async function parseBashForSecurity(command: string): Promise<BashParseResult> {
   if (!command || command.trim() === "") {
     return { kind: "simple", subcommands: [] };

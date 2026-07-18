@@ -19,7 +19,7 @@ export class PermissionGate implements ApprovalGate {
   /**
    * 创建一个用指定 mode 覆盖的子 gate(供子代理用)。
    * 规则/prompt/remember/classify 全部复用父级;只有裁决用的 mode 不同。
-   * 对标 CC runAgent 中 agentGetAppState() 把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
+   * 参考 runAgent 中 agentGetAppState() 把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
    */
   withModeOverride(mode: PermissionMode): PermissionGate {
     return new PermissionGate(
@@ -42,7 +42,7 @@ export class PermissionGate implements ApprovalGate {
       rules: this.getRules(),
     });
     if (d === "deny") return d;
-    // 工具自检只能【收紧】(对标 CC 1c–1f):escalate allow→ask、任意→deny;返回 null 不干预。
+    // 工具自检只能【收紧】(参考 1c–1f):escalate allow→ask、任意→deny;返回 null 不干预。
     const tc = tool.checkPermissions?.(argsJson);
     if (tc === "deny") return "deny";
     // yolo(bypassPermissions):deny 之外一律放行——工具自检的 ask 升级也不拦(用户已自担风险)。

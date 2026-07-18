@@ -5,7 +5,7 @@ import { resolveWritePath } from "./paths.js";
 import { atomicWrite } from "./fs_atomic.js";
 import { withFileLock } from "./file_lock.js";
 
-// 编辑 Jupyter notebook(.ipynb)的单元格:replace 替换 / insert 插入 / delete 删除指定下标的 cell。对标 CC 的 NotebookEdit。
+// 编辑 Jupyter notebook(.ipynb)的单元格:replace 替换 / insert 插入 / delete 删除指定下标的 cell。参考 的 NotebookEdit。
 export const notebookEditTool = defineTool({
   name: "NotebookEdit",
   description:

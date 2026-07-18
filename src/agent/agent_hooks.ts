@@ -9,7 +9,7 @@ import { runHooks, type HookSpec, type HookOutcome } from "../hooks/hooks.js";
 export type AgentHookRegistry = Map<string, AgentHooks>;
 
 /**
- * 注册 agent 的 frontmatter hooks 到注册表(对标 CC registerFrontmatterHooks)。
+ * 注册 agent 的 frontmatter hooks 到注册表(参考 registerFrontmatterHooks)。
  *
  * 这些 hooks 在 agent 生命周期内生效:
  * - SubagentStart:会话创建后、首轮查询前执行
@@ -25,7 +25,7 @@ export function registerAgentHooks(
 }
 
 /**
- * 清除 agent 的所有 hooks(对标 CC clearSessionHooks)。
+ * 清除 agent 的所有 hooks(参考 clearSessionHooks)。
  * 在 runAgent 的 finally 阶段调用。
  */
 export function clearAgentHooks(
@@ -36,7 +36,7 @@ export function clearAgentHooks(
 }
 
 /**
- * 执行 SubagentStart hooks 并收集 additionalContext(对标 CC executeSubagentStartHooks)。
+ * 执行 SubagentStart hooks 并收集 additionalContext(参考 executeSubagentStartHooks)。
  *
  * 在 runAgent 阶段 3 调用:注册 hooks 后、首轮查询前。
  * hook 的 additionalContext 输出作为 initial message 注入。
@@ -71,7 +71,7 @@ export async function executeSubagentStartHooks(
 }
 
 /**
- * 执行 SubagentStop hooks(对标 CC clearSessionHooks 时的 Stop 执行)。
+ * 执行 SubagentStop hooks(参考 clearSessionHooks 时的 Stop 执行)。
  *
  * 在 runAgent 阶段 7(finally)调用。
  * 不收集 additionalContext(会话已结束),只执行命令。

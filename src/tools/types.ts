@@ -77,7 +77,7 @@ export interface ToolContext {
   // 完整任务管理器引用(TaskCreate/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create/registerAsyncAgent/
   // registerAgentForeground,不是并行的第二套系统——agent 工具的后台/前台切换也走它。
   taskManager?: TaskManager;
-  // auto 模式下子代理结束后审查整段转录的分类器(对标 CC classifyHandoffIfNeeded)。
+  // auto 模式下子代理结束后审查整段转录的分类器(参考 classifyHandoffIfNeeded)。
   // 传入紧凑 transcript(JSONL),返回 {shouldBlock, reason} 或 {unavailable}。非 auto 模式下不会被调用。
   handoffClassifyFn?: (transcript: string) => Promise<ClassifyResult>;
   // 当前权限模式(auto/default/acceptEdits/plan/bypassPermissions);handoff 审查只在 auto 模式触发
@@ -132,7 +132,7 @@ export interface Tool {
   name: string;
   description: string;
   descriptionEn?: string;
-  // 动态描述生成(对标 CC AgentTool.prompt):存在时 toApiTools 优先用其返回值替代 description。
+  // 动态描述生成(参考 AgentTool.prompt):存在时 toApiTools 优先用其返回值替代 description。
   // 用于 agent 工具:把 when-not-to-use / writing-prompt / 示例动态拼进描述,但 agent 列表留在
   // system prompt 层(保持工具 schema 静态,agent 列表变更不 bust 缓存)。
   prompt?: (ctx: { lang: "zh" | "en" }) => string;
@@ -142,10 +142,10 @@ export interface Tool {
   handler: (args: any, ctx: ToolContext) => Promise<string>;
   // 直接给 API 的参数 JSON Schema(MCP 工具用其原始 inputSchema);省略则由 schema(zod)转换。
   apiParameters?: object;
-  // 工具自身的参数级权限自检(对标 CC tool.checkPermissions):仅能【收紧】——返回 "deny"/"ask"
+  // 工具自身的参数级权限自检(参考 tool.checkPermissions):仅能【收紧】——返回 "deny"/"ask"
   // 覆盖更宽的判定(如 exec 检出 download-execute),返回 null = 不干预。规则引擎判 allow 后才咨询它。
   checkPermissions?: (argsJson: string) => "deny" | "ask" | null;
-  // 延迟加载(对标 CC shouldDefer):true 时初始只发 name+简短描述(不发完整 parameters),
+  // 延迟加载(参考 shouldDefer):true 时初始只发 name+简短描述(不发完整 parameters),
   // 模型需用 ToolSearch 查询后才返回完整 schema 并激活。减少低频工具的 token 开销。
   shouldDefer?: boolean;
 }

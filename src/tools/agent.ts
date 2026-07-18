@@ -151,7 +151,7 @@ export const agentTool = defineTool({
       .optional()
       .describe("调用级权限模式覆盖:plan=只读规划。省略则继承 agent 定义/默认模式。与 fork 互斥。"),
   }),
-  // 动态描述生成(对标 CC getPrompt):产出会话内固定的完整描述(含 when-not-to-use / writing-prompt / 示例),
+  // 动态描述生成(参考 getPrompt):产出会话内固定的完整描述(含 when-not-to-use / writing-prompt / 示例),
   // 不含 agent 列表(agent 列表在 system prompt 层,变更不 bust 工具 schema 缓存)。
   prompt: ({ lang }) => {
     if (lang === "en") {
@@ -390,7 +390,7 @@ export const agentTool = defineTool({
   },
 });
 
-// P2-48 清理策略(对标 CC):isolate 有改动 → 保留分支供 review/merge;无改动 → 自动删,不留垃圾 worktree。
+// P2-48 清理策略(参考):isolate 有改动 → 保留分支供 review/merge;无改动 → 自动删,不留垃圾 worktree。
 function finishWithWorktree(text: string, worktree?: { branch: string; cleanup: () => void; hasChanges: () => boolean }): string {
   if (!worktree) return text;
   if (worktree.hasChanges()) return `${text}\n[隔离:改动在分支 ${worktree.branch}(已保留,可 review/merge)]`;

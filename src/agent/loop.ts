@@ -123,7 +123,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const events = deps.events ?? plainEvents(deps.write);
   // 工具 ctx 透传取消信号(Bash 据此 SIGTERM);不改原 ctx 引用,按需补 signal + 当前模型名。
   const toolCtx = { ...deps.ctx, sessionModel: session.model, ...(signal ? { signal } : {}) };
-  // 边界保护对标 CC:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
+  // 边界保护参考:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
   // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时,把提醒【追加】进 session.messages(append-only)。

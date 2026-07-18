@@ -121,7 +121,7 @@ export function splitBashCommands(cmd: string): string[] {
 }
 
 // 为 Bash 命令生成匹配候选列表——对原始命令做各种预处理剥离,收集所有可能的匹配形式。
-// 对标 CC filterRulesByContentsMatchingInput 的候选生成策略:
+// 参考 filterRulesByContentsMatchingInput 的候选生成策略:
 //   - 原始命令(保留引号用于精确匹配)
 //   - 去输出重定向后的命令(使 Bash(python:*))匹配 "python script.py > output.txt")
 //   - 对每个候选再剥离安全包装器(使 Bash(npm install:*))匹配 "timeout 10 npm install foo")
@@ -163,7 +163,7 @@ function bashCandidates(command: string, stripAllEnv: boolean): string[] {
 }
 
 // 检查一组 Bash 规则是否匹配命令(考虑预处理剥离)。
-// 对标 CC filterRulesByContentsMatchingInput。
+// 参考 filterRulesByContentsMatchingInput。
 function bashRulesMatch(
   rules: string[],
   command: string,
@@ -228,7 +228,7 @@ export function evaluate(rules: RuleSets, id: CallIdentity): Decision | null {
 
 // async 版本:先尝试 AST 解析(精确子命令提取 + too-complex fail-closed),
 // 失败回退到同步 evaluate(legacy 正则拆分)。
-// 对标 CC bashToolHasPermission 步骤 0(AST parse)→ 步骤 1-8(规则匹配)。
+// 参考 bashToolHasPermission 步骤 0(AST parse)→ 步骤 1-8(规则匹配)。
 export async function evaluateWithAst(
   rules: RuleSets,
   id: CallIdentity,
@@ -240,7 +240,7 @@ export async function evaluateWithAst(
   const parseResult = await parseBashForSecurity(id.value);
 
   // too-complex:含 $()、反引号、子 shell、控制流等无法静态分析的结构。
-  // 先查 deny/ask 规则(对标 CC checkEarlyExitDeny),没有则返回 ask(fail-closed)。
+  // 先查 deny/ask 规则(参考 checkEarlyExitDeny),没有则返回 ask(fail-closed)。
   if (parseResult.kind === "too-complex") {
     // 仍检查 deny 规则(用户显式 deny 的命令即使 too-complex 也应拦截)
     if (bashRulesMatch(rules.deny, id.value, { stripAllEnv: true, checkCompound: false })) {

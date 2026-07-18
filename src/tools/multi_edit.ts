@@ -7,7 +7,7 @@ import { withFileLock } from "./file_lock.js";
 import { buildEditHunk } from "./diff_hunk.js";
 import { msg } from "./lang.js";
 
-// 对一个文件按顺序应用多处精确替换,原子(全部成功才写盘,任一处失败则整体不动)。对标 CC 的 MultiEdit。
+// 对一个文件按顺序应用多处精确替换,原子(全部成功才写盘,任一处失败则整体不动)。参考 的 MultiEdit。
 export const multiEditTool = defineTool({
   name: "MultiEdit",
   description:

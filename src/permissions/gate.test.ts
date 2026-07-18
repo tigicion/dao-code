@@ -108,7 +108,7 @@ describe("PermissionGate.decide", () => {
 });
 
 describe("PermissionGate.withModeOverride", () => {
-  // 对标 CC:子代理用 agentDef.permissionMode 裁决,而非继承父级 session 的 mode。
+  // 参考:子代理用 agentDef.permissionMode 裁决,而非继承父级 session 的 mode。
   // 此前 dao 子代理和父级共用同一个 gate,gate.getMode() 返回父级 mode,
   // 导致子代理的 permissionMode 设了也没用。
   const writeTool = defineTool({

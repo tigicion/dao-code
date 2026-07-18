@@ -34,7 +34,7 @@ export function parseSettings(raw: string): PermissionsConfig {
   return cfg;
 }
 
-// 企业托管策略文件(最高优先级,对标 CC managed-settings.json)。平台可注入便于测试。
+// 企业托管策略文件(最高优先级,参考 managed-settings.json)。平台可注入便于测试。
 export function enterpriseSettingsPath(platform: NodeJS.Platform = process.platform): string {
   if (platform === "darwin") return "/Library/Application Support/DaoCode/managed-settings.json";
   if (platform === "win32") return "C:/ProgramData/DaoCode/managed-settings.json";

@@ -9,7 +9,7 @@ function sanitizeAgentTypeForPath(agentType: string): string {
 }
 
 /**
- * 返回 agent 记忆目录(对标 CC getAgentMemoryDir)。
+ * 返回 agent 记忆目录(参考 getAgentMemoryDir)。
  * - user: <home>/.dao/agents/memory/<agentType>/
  * - project: <cwd>/.dao/agents/memory/<agentType>/
  * - local: <cwd>/.dao/agents/memory/<agentType>/local/
@@ -81,7 +81,7 @@ export function getMemoryScopeDisplay(
 }
 
 /**
- * 加载 agent 持久记忆并返回 prompt 文本(对标 CC loadAgentMemoryPrompt)。
+ * 加载 agent 持久记忆并返回 prompt 文本(参考 loadAgentMemoryPrompt)。
  * 在 runAgent 阶段 2 追加到 system prompt。
  * agent 通过 Read/Write/Edit 直接读写 memory.md。
  */

@@ -7,7 +7,7 @@ import type { PermissionMode } from "../permissions/settings.js";
 
 const VALID_MODES = new Set(["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
 
-// 对标 CC Config 工具:读写运行时配置项。支持全局(~/.dao/settings.json)和项目级(.dao/settings.json)。
+// 参考 Config 工具:读写运行时配置项。支持全局(~/.dao/settings.json)和项目级(.dao/settings.json)。
 // 目前支持 setting: permissions.defaultMode, theme。后续可扩展。
 export const configTool = defineTool({
   name: "Config",

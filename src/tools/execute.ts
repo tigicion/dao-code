@@ -27,7 +27,7 @@ export function describeCall(name: string, argsJson: string): string {
   }
 }
 
-// 并发安全(对标 CC 的 isConcurrencySafe):只读/网络/plan 类不改工作区文件、无副作用顺序问题 → 可并行;
+// 并发安全(参考 的 isConcurrencySafe):只读/网络/plan 类不改工作区文件、无副作用顺序问题 → 可并行;
 // write/exec 改文件或有外部副作用 → 作"屏障":独占执行,不与任何工具并发(防 race / 不确定状态)。
 const SAFE_CAPS = new Set<Capability>(["read", "network", "plan"]);
 const MAX_CONCURRENCY = 8; // 安全工具批的并发上限,避免一口气打满 fd / 连接
@@ -202,7 +202,7 @@ export async function executeToolCalls(
     else {
       await flush(); // 屏障:先跑完已积累的安全批
       // ③ 错误级联:本批里前一个 Bash 已失败 → 跳过后续 exec/write,
-      // 防"npm install 挂了还接着 npm run build"这类连锁错误(对标 CC Bash 级联)。
+      // 防"npm install 挂了还接着 npm run build"这类连锁错误(参考 Bash 级联)。
       if (barrierAborted) {
         results.set(tc.id, { role: "tool", tool_call_id: tc.id, content: "已跳过:本批前一个命令失败,为避免连锁错误未执行。请先处理上一个错误再重试。" });
         continue;

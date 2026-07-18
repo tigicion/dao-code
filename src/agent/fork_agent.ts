@@ -10,7 +10,7 @@ export const FORK_DIRECTIVE_PREFIX = "你的指令: ";
 
 /**
  * Fork agent 的合成定义(不注册到 BUNDLED_AGENTS)。
- * fork 路径由 `fork: true` 参数触发(对标 CC 省略 subagent_type)。
+ * fork 路径由 `fork: true` 参数触发(参考 省略 subagent_type)。
  * - tools = undefined + useExactTools = 直接用父的工具池(缓存对齐)
  * - model = inherit(继承父模型,保持上下文长度一致)
  * - getSystemPrompt 返回空:实际用 override.systemPrompt 传父的 rendered prompt
@@ -48,7 +48,7 @@ export function isInForkChild(messages: ChatMessage[]): boolean {
 const FORK_PLACEHOLDER_RESULT = "Fork 已启动 - 后台处理中";
 
 /**
- * 构建 fork 子代理的 directive 消息(对标 CC buildChildMessage)。
+ * 构建 fork 子代理的 directive 消息(参考 buildChildMessage)。
  * 包含 fork-boilerplate 标签 + 规则 + 指令。中文版,结构化输出格式。
  */
 export function buildChildMessage(directive: string): string {
@@ -81,7 +81,7 @@ ${FORK_DIRECTIVE_PREFIX}${directive}`;
 }
 
 /**
- * 构建 fork 子代理的对话消息(对标 CC buildForkedMessages)。
+ * 构建 fork 子代理的对话消息(参考 buildForkedMessages)。
  *
  * 为前缀缓存共享,所有 fork 子必须产生字节一致的 API 请求前缀:
  * 1. 保留完整的父 assistant 消息(所有 tool_use blocks)
@@ -127,7 +127,7 @@ export function buildForkedMessages(
 }
 
 /**
- * 构建 fork 子代理的完整上下文消息(对标 CC buildForkedMessages 的调用编排,spec §13)。
+ * 构建 fork 子代理的完整上下文消息(参考 buildForkedMessages 的调用编排,spec §13)。
  * 1. 若父消息尾部是带 tool_calls 的未完成 assistant:保留它(占位 tool_result 补全,不丢弃已产出内容)+ directive
  * 2. 否则:整段父消息原样保留 + 一条 directive user 消息
  * 结果只有最后一条不同 → 字节级复用父前缀,最大化缓存命中。
@@ -141,7 +141,7 @@ export function buildForkContextMessages(parentMessages: ChatMessage[], directiv
 }
 
 /**
- * worktree 隔离 fork 子代理的路径翻译提示(对标 CC buildWorktreeNotice)。
+ * worktree 隔离 fork 子代理的路径翻译提示(参考 buildWorktreeNotice)。
  * 告知子代理:继承的上下文路径指向父目录,需翻译到 worktree;编辑前重读文件。
  */
 export function buildWorktreeNotice(parentCwd: string, worktreeCwd: string): string {

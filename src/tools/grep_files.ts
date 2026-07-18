@@ -9,7 +9,7 @@ import { msg } from "./lang.js";
 
 const MAX = 200;
 
-// 文件类型 -> 扩展名集合(对标 CC Grep 的 type 参数)
+// 文件类型 -> 扩展名集合(参考 Grep 的 type 参数)
 const TYPE_EXTENSIONS: Record<string, string[]> = {
   js: [".js", ".jsx", ".mjs", ".cjs"],
   ts: [".ts", ".tsx", ".mts", ".cts"],
@@ -40,7 +40,7 @@ export const grepFilesTool = defineTool({
     "在工作区内按内容(正则,JS 语法)搜索文本文件。mode=content(默认)返回 路径:行号:行内容;mode=files 只返回命中文件名," +
     "只想知道哪些文件有匹配、不需要看具体行时用它更省。可用 glob(如 *.ts)过滤文件名、path 限定搜索子目录、" +
     "ignore_case 忽略大小写、type 按文件类型过滤(js/ts/py/go/rust/java…)。\n" +
-    "上下文行:before/after/context 显示匹配行前/后/前后各 N 行(对标 CC Grep -A/-B/-C)," +
+    "上下文行:before/after/context 显示匹配行前/后/前后各 N 行(参考 Grep -A/-B/-C)," +
     "便于理解匹配处的上下文。head_limit 限制返回条数(默认 200),offset 跳过前 N 条(分页)。" +
     "multiline=true 启用跨行匹配(. 匹配换行符,模式可跨行)。\n" +
     "内容搜索优先用本工具,不要用 Bash 拼 grep/rg--结果格式统一、不占审批。\n" +
@@ -67,9 +67,9 @@ export const grepFilesTool = defineTool({
     glob: z.string().optional().describe("文件名 glob 过滤,如 *.ts"),
     mode: z.enum(["content", "files"]).optional().describe("content(默认)或 files"),
     ignore_case: z.boolean().optional().describe("忽略大小写"),
-    before: z.number().int().min(0).optional().describe("匹配行前显示 N 行(对标 CC -B)"),
-    after: z.number().int().min(0).optional().describe("匹配行后显示 N 行(对标 CC -A)"),
-    context: z.number().int().min(0).optional().describe("匹配行前后各显示 N 行(对标 CC -C);与 before/after 取 max"),
+    before: z.number().int().min(0).optional().describe("匹配行前显示 N 行(参考 -B)"),
+    after: z.number().int().min(0).optional().describe("匹配行后显示 N 行(参考 -A)"),
+    context: z.number().int().min(0).optional().describe("匹配行前后各显示 N 行(参考 -C);与 before/after 取 max"),
     head_limit: z.number().int().min(1).optional().describe("限制返回条数,默认 200"),
     offset: z.number().int().min(0).optional().describe("跳过前 N 条结果(分页),默认 0"),
     multiline: z.boolean().optional().describe("跨行匹配(. 匹配换行符,模式可跨行)"),

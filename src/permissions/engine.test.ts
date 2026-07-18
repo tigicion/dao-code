@@ -25,7 +25,7 @@ describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默
 });
 
 describe("decide — CC 1g:安全敏感目标", () => {
-  it("bypass(yolo)下 SECRET_TARGET(真实泄密风险)仍 ask,即便只是写也一样(S3.1 bypass-immune,对标 CC)", () => {
+  it("bypass(yolo)下 SECRET_TARGET(真实泄密风险)仍 ask,即便只是写也一样(S3.1 bypass-immune,参考)", () => {
     expect(decide({ toolName: "Write", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
   });
   it("bypass(yolo)下 WRITE_ONLY_SENSITIVE_TARGET(/etc、.git、shell启动脚本)不再 bypass-immune——用户已经显式yolo,读写都放行", () => {

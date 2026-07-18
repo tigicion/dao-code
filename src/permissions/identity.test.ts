@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { toCcIdentity, rememberRule } from "./identity.js";
+import { parseRule, ruleMatches } from "./rules.js";
 
 describe("toCcIdentity — DAO 工具调用 → CC 工具身份", () => {
   it("Bash → Bash(command)", () => {
@@ -39,9 +40,20 @@ describe("rememberRule — '允许并记住' 生成的规则", () => {
     expect(rememberRule("Bash", '{"command":"npm run build"}')).toBe("Bash(npm run:*)");
     expect(rememberRule("Bash", '{"command":"ls -la"}')).toBe("Bash(ls:*)");
   });
-  it("Bash 复合/heredoc/超长 → 不生成规则(只放行本次,防垃圾规则)", () => {
-    expect(rememberRule("Bash", '{"command":"cat a | grep b"}')).toBeNull();
-    expect(rememberRule("Bash", JSON.stringify({ command: "cat > f << EOF\nx\nEOF" }))).toBeNull();
+  it("Bash 复合/heredoc/超长 → 提炼不出通配前缀时,退化成精确匹配当前命令原文(不是不生成规则)", () => {
+    // 之前这里直接返回 null——选"总是允许"/"仅本次会话"会静默什么都不保存,同一条命令下次还会
+    // 重新问一遍(用户体感就是"反复问同一个问题")。现在退化成精确匹配:下次字节相同的命令直接放行,
+    // 内容变了(哪怕只变一点)才会重新走判断——不会把"精确的这一条"错误泛化成危险的通配规则。
+    expect(rememberRule("Bash", '{"command":"cat a | grep b"}')).toBe("Bash(cat a | grep b)");
+    expect(rememberRule("Bash", JSON.stringify({ command: "cat > f << EOF\nx\nEOF" })))
+      .toBe("Bash(cat > f << EOF\nx\nEOF)");
+  });
+  it("Bash 精确匹配规则:同一条命令原样重复 → 命中;内容变了 → 不命中(不会被泛化成通配)", () => {
+    const cmd = "cat > f << EOF\nx\nEOF";
+    const rule = rememberRule("Bash", JSON.stringify({ command: cmd }))!;
+    const parsed = parseRule(rule);
+    expect(ruleMatches(parsed, { ccTool: "Bash", value: cmd })).toBe(true);
+    expect(ruleMatches(parsed, { ccTool: "Bash", value: "cat > f << EOF\ny\nEOF" })).toBe(false);
   });
   it("WebSearch → 裸工具名(任何查询都放行,不存具体 query)", () => {
     expect(rememberRule("WebSearch", '{"query":"some specific query"}')).toBe("WebSearch");

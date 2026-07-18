@@ -1,5 +1,5 @@
 // src/agent/agent_lifecycle.ts
-// 驱动后台/异步子代理真正跑起来的生命周期函数(对标 CC runAsyncAgentLifecycle)。
+// 驱动后台/异步子代理真正跑起来的生命周期函数(参考 runAsyncAgentLifecycle)。
 // 计划文档只把它的类型/参数名写在 Task 10/13 里,从未实现函数体——这里补上。
 import type { ChatMessage } from "../client/types.js";
 import { finalizeAgentTool } from "./agent_tools.js";

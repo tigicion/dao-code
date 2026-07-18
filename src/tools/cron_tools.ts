@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineTool } from "./types.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "../schedule.js";
 
-// 对标 CC CronCreate/CronDelete/CronList:三个独立工具替代单一 schedule。
+// 参考 CronCreate/CronDelete/CronList:三个独立工具替代单一 schedule。
 // durable=true(默认 false)写 OS crontab;durable=false 仅 session 内存(后续实现)。
 // recurring=false 一次性任务(执行后自动删除);recurring=true(默认)循环执行。
 export const cronCreateTool = defineTool({

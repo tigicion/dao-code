@@ -55,7 +55,7 @@ export function filterIncompleteToolCalls(messages: ChatMessage[]): ChatMessage[
   });
 }
 
-/** 恢复已结束的子代理(对标 CC resumeAgentBackground) */
+/** 恢复已结束的子代理(参考 resumeAgentBackground) */
 export async function resumeAgentBackground(opts: {
   agentId: string;
   prompt: string;

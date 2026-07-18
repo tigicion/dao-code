@@ -1,4 +1,4 @@
-// 内置 prompt 命令(对标 CC 的 bundled skill:slash 命令 → 展开成 prompt,操作员触发、模型用工具执行)。
+// 内置 prompt 命令(参考 的 bundled skill:slash 命令 → 展开成 prompt,操作员触发、模型用工具执行)。
 // 与 .dao/commands 自定义命令同机制,但随 dao 自带、且可现算 prompt。
 import { SIMPLIFY_BODY } from "../skills/bundled.js";
 

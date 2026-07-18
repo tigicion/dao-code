@@ -21,7 +21,7 @@ const FORCED_MEMORY_TOOLS = ["Read", "Write", "Edit"];
 
 // ---- 类型 ----
 
-/** runAgent 的参数(对标 CC runAgent 的参数对象) */
+/** runAgent 的参数(参考 runAgent 的参数对象) */
 export interface RunAgentParams {
   /** agent 定义(含 system prompt / 工具 / 模型 / 权限) */
   agentDef: AgentDef;
@@ -98,7 +98,7 @@ export interface CacheSafeParams {
 // ---- 模型解析 ----
 
 /**
- * 解析 agent 模型(对标 CC getAgentModel)。
+ * 解析 agent 模型(参考 getAgentModel)。
  * 优先级:调用级 model > agent 定义 model > inherit(父模型)
  */
 export function getAgentModel(
@@ -148,7 +148,7 @@ function withPushNotifier(arr: ChatMessage[], notify: () => void): ChatMessage[]
 // ---- 执行引擎 ----
 
 /**
- * 子代理执行引擎(对标 CC runAgent)。
+ * 子代理执行引擎(参考 runAgent)。
  * AsyncGenerator:逐条 yield ChatMessage,上层可消费消息流。
  *
  * 7 个阶段:
@@ -206,7 +206,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     resolvedTools = result.resolvedTools;
   }
 
-  // 权限模式解析(对标 CC:agentDef.permissionMode ?? 'acceptEdits')。
+  // 权限模式解析(参考:agentDef.permissionMode ?? 'acceptEdits')。
   // agentDef.permissionMode 可为 Mode(normal/plan)或 PermissionMode(default/acceptEdits/plan/auto/bypassPermissions)。
   // - plan:只读模式(Session.mode=plan + gate mode=plan,write/exec 被 deny)
   // - acceptEdits/default/auto/bypassPermissions:Session.mode=normal,gate 用该 PermissionMode
@@ -215,7 +215,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   const agentMode: Mode = rawPermMode === "plan" ? "plan" : "normal";
 
   // 子代理权限门:用子代理自己的 mode 裁决,而非继承父级 session 的 mode。
-  // 对标 CC runAgent 的 agentGetAppState():把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
+  // 参考 runAgent 的 agentGetAppState():把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
   // 此前 dao 子代理和父级共用同一个 gate 对象,gate.getMode() 返回父级 session 的 mode,
   // 导致子代理的 permissionMode 设了也没用--explore(plan 模式)在父级 default 模式下仍按 default 裁决。
   const parentGate = gate as unknown as PermissionGate | undefined;
@@ -274,7 +274,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
       : `${projectInstructions}\n\n# 你的专用角色(${agentDef.agentType})\n${own}`;
   }
 
-  // 环境信息追加(对标 CC enhanceSystemPromptWithEnvDetails):子代理需要知道 cwd/platform/工具列表,
+  // 环境信息追加(参考 enhanceSystemPromptWithEnvDetails):子代理需要知道 cwd/platform/工具列表,
   // 否则它不知道自己在哪个目录、用什么命令。fork 路径已有父的完整 prompt(含环境信息),不重复追加。
   if (!override?.systemPrompt) {
     const cwd = worktreePath ?? toolUseContext.workspaceRoot ?? process.cwd();
@@ -282,7 +282,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     agentSystemPrompt += `\n\n# 环境信息\n工作目录: ${cwd}\n平台: ${process.platform}\n可用工具: ${toolNames}`;
   }
 
-  // criticalSystemReminder:追加到 system prompt 末尾(对标 CC criticalSystemReminder_EXPERIMENTAL)。
+  // criticalSystemReminder:追加到 system prompt 末尾(参考 criticalSystemReminder_EXPERIMENTAL)。
   // system prompt 是 session.messages[0],每轮发给 LLM 且不会被压缩裁剪--等价于 CC 的每轮注入,
   // 但无需每轮临时拼接(缓存安全:内容会话内固定)。
   if (agentDef.criticalSystemReminder) {
@@ -290,7 +290,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   }
 
   // ---- 阶段 3:Agent 级资源初始化 ----
-  // Skills:agentDef.skills 预加载指定 skill 正文作为 system 消息(对标 CC agent 预加载 skills)。
+  // Skills:agentDef.skills 预加载指定 skill 正文作为 system 消息(参考 agent 预加载 skills)。
   // MCP:agentDef.mcpServers 连接专属 MCP server,工具注入子代理工具池,finally 清理。
   let agentMcpConnections: import("../mcp/mcp.js").McpConnections | undefined;
   if (agentDef.mcpServers && agentDef.mcpServers.length > 0 && params.mcpConfig) {
@@ -339,11 +339,11 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   const initialMessages: ChatMessage[] = forkContextMessages
     ? [...contextMessages, ...promptMessages]
     : [{ role: "system", content: agentSystemPrompt }, ...promptMessages];
-  // initialPrompt:作为首条 user 消息注入(对标 CC agent initialPrompt)。
+  // initialPrompt:作为首条 user 消息注入(参考 agent initialPrompt)。
   if (agentDef.initialPrompt) {
     initialMessages.push({ role: "user", content: agentDef.initialPrompt });
   }
-  // skills 预加载:把指定 skill 正文作为 system 消息注入(对标 CC agent skills 预加载)。
+  // skills 预加载:把指定 skill 正文作为 system 消息注入(参考 agent skills 预加载)。
   if (agentDef.skills && agentDef.skills.length > 0) {
     const allSkills = toolUseContext.skills ?? [];
     for (const skillName of agentDef.skills) {
