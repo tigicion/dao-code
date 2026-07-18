@@ -1,6 +1,5 @@
 // src/agent/agent_handoff.ts
 import type { ChatMessage } from "../client/types.js";
-import type { Mode } from "../tools/tools_for_mode.js";
 import { buildClassifierTranscript } from "../permissions/classifier.js";
 
 interface ClassifyResult { unavailable?: boolean; shouldBlock?: boolean; reason?: string; }
@@ -11,7 +10,7 @@ interface ClassifyResult { unavailable?: boolean; shouldBlock?: boolean; reason?
  */
 export async function classifyHandoffIfNeeded(opts: {
   agentMessages: ChatMessage[];
-  permissionMode: Mode;
+  permissionMode: string;  // 审批模式(auto/default/acceptEdits/bypassPermissions)
   abortSignal: AbortSignal;
   subagentType: string;
   totalToolUseCount: number;

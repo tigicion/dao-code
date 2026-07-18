@@ -59,7 +59,7 @@ export async function resumeAgentBackground(opts: {
   prompt: string;
   subagentsDir: string;
   agentDefs: AgentDef[];
-  runAgent: (params: unknown) => AsyncGenerator<ChatMessage, void>;
+  runAgent: (params: any) => AsyncGenerator<ChatMessage, void>;
   registerAsyncAgent: (opts: { agentId: string; description: string }) => { agentId: string; abortController: AbortController };
   runAsyncAgentLifecycle: (opts: unknown) => Promise<void>;
 }): Promise<{ agentId: string; description: string; outputFile: string }> {

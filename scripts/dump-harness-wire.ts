@@ -107,18 +107,18 @@ async function main() {
     path.join(os.homedir(), ".dao", "agents"),
     [],
   );
-  const diskAgentNames = new Set(diskAgentDefs.map((d) => d.name));
-  const agentDefs = [...diskAgentDefs, ...BUNDLED_AGENTS.filter((a) => !diskAgentNames.has(a.name))];
+  const diskAgentNames = new Set(diskAgentDefs.map((d) => d.agentType));
+  const agentDefs = [...diskAgentDefs, ...BUNDLED_AGENTS.filter((a) => !diskAgentNames.has(a.agentType))];
   const agentTypesHeader = "\n\n# 可用子代理类型(派 agent 时用 agent_type 指定,各有专属角色与工具)\n";
   const agentTypesSection = agentDefs.length > 0
-    ? agentTypesHeader + agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
+    ? agentTypesHeader + agentDefs.map((d) => `- ${d.agentType}:${d.whenToUse}`).join("\n")
     : "";
   writeFileSync(
     path.join(outDir, "subagents.wire.md"),
     "<!-- 这段文本被直接拼在 systemPrompt 末尾(见 system-prompt.wire.md 的对应小节)。 -->\n\n" +
       "```text\n" + agentTypesSection + "\n```\n\n" +
       "## 各内置子代理类型的专属角色 prompt(派发时追加在完整 systemPrompt 之后)\n\n" +
-      agentDefs.map((d) => `### ${d.name}\n\n\`\`\`text\n${d.prompt}\n\`\`\`\n`).join("\n"),
+      agentDefs.map((d) => `### ${d.agentType}\n\n\`\`\`text\n${d.getSystemPrompt()}\n\`\`\`\n`).join("\n"),
   );
 
   // ---- 技能(真实内置 8 个 + 本仓库/用户磁盘技能,若有) ----

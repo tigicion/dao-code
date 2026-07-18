@@ -47,6 +47,18 @@
   验收点逐条自检,模型于是自造了一套跑得通就行的验证标准,完全没检查任务原文明写的
   "源码需从Debian包获取"这一条。**本轮未动手修**,记为下一轮EVOLVE候选(让verify_done
   要求模型逐条列出任务验收点及自检证据)。
+- [ ] **`317b130`(regex-chess心算反模式提示词修复)真实复测:reward=0,反模式复现,
+  且定位到一个新的、更早的失败机制**(2026-07-18)——详见下方正文。根因链条已机制性
+  坐实:①模型确实仍反复手工推导骑士攻击的正则字符偏移(与修复目标同一模式);②但整场
+  会话只在开局完成2次工具调用(`read_file`+`list_dir`,turn 0),随后turn 1的推理直接
+  耗尽输出预算触发`onEmptyTruncation`,注入收敛提示重试后**仍然空响应**,命中"连续两次
+  空响应,结束本轮"直接终止——`noProgress`/`ADVISE_EVERY=5`那套逐轮进度提醒机制根本
+  没有机会触发(远没攒够5轮),317b130的提示词规则和这套安全网都还没来得及生效,会话
+  就已经死了。**本轮未动手修**(用户要求先看完其它失败题),已给出两个候选修法留到下轮:
+  (a) 空响应重试的收敛提示措辞加强为强制"这次回复第一步必须是工具调用,不允许输出
+  推导类自由文本";(b) 该重试请求临时调低`reasoning_effort`,物理限制模型没有预算
+  重新做一遍完整推导。这不是遗忘式搁置——根因和候选方案都已写清楚,只是实现顺序让位
+  给了本轮排查其它失败题。
 
 ---
 
@@ -3626,3 +3638,110 @@ or mental math"这条规则补充一句：明确"当场推导"同样适用（不
 **真实复测**：提交`fix-mentalmath-regexchess`(`terminal-bench/regex-chess`，
 qianfan)，`--agent-timeout-multiplier 4`。regex-chess原生预算3600s，可能要跑到
 接近4小时。结果待补。
+
+## 复测结果：317b130未能阻止反模式复现——但真正根因是更早的一层，安全网还没来得及触发
+
+**结果**：`jobs/fix-mentalmath-regexchess`，23:27–23:38（仅11分钟，远低于3600s预算），
+`reward=0.0`。`diagnose_failure.py`体检：2次工具调用、跨度0s/预算0%、`verify_done`
+0次——⚠标"疑似静默提前结束"。
+
+**先确认反模式是否真复现**：读`dao_stdout.txt`全文（117KB，约2000行）+
+`tool-trace.jsonl`。工具调用记录只有开局2条（`read_file(check.py)`、
+`list_dir(/app)`），此后到会话结束再没有第3次工具调用。全文搜"script"类关键词，
+命中至少10处"Let me write a Python script"/"OK, I think I should just write a
+Python script"（第206/492/515/533/674/811/836/864/1019/1678/1680/1682/1851行）——
+模型反复**宣称**要写脚本，但每次说完这句话后紧接着的不是工具调用，而是继续用文字
+展开新一轮设计分析，从未真正落地成一次`write_file`/`exec_shell`调用。同时全文能看到
+知识产权级别的手工推导：为骑士的8个攻击方向逐一手算FEN扁平字符串里的字符距离
+（"Total: (9-P) + 1 + 8 + 1 + P = 19"、推出`n.{18}K`这类正则），中途还发现算错、
+从头重算——这正是317b130想拦住的模式，**确认真实复现，不是任务难度**。
+
+**但复测没有证明317b130无效——因为它根本没有机会生效**。定位到一个更早、更根本的
+失败链条（`src/agent/loop.ts:312-385`）：
+
+1. turn 0：`read_file`+`list_dir`，`progressed=false`（这两个工具不在`PROGRESS_TOOLS`
+   里），`noProgress`计数器+1。
+2. turn 1：模型的这次`streamChat`把整个输出预算耗在了上面那段手工推导的reasoning上，
+   最终既没有`content`也没有`tool_calls`——`client.ts`判定为`onEmptyTruncation`
+   （第215行），`loop.ts`第368行注入"[提示]上一轮的思考过程用尽了输出预算……这一轮
+   请更快收敛：如果方向已经想清楚，直接给出结论、代码或调用工具"，原样重发。
+3. **重试的这一次同样是空响应**（全文搜"进度"/"已连续"/"无实质推进"零命中，说明连
+   `noProgress`累计到`ADVISE_EVERY=5`触发第一次进度提醒的门槛都没摸到——第474-495行
+   那套逐轮提醒机制从未被执行到，因为它挂在`toolCalls`/`content`非空的正常轮次之后，
+   这一轮根本没走到那一步）。第381-384行判定"连续两次空响应"，直接`return`，
+   `session.messages`里这两次失败的reasoning完全没有落库（第387行的`push`在
+   `return`之后，从未执行），整个episode就此终止。
+
+**根因链条**：turn 1单次completion的reasoning阶段自己陷入了对同一类计算的反复重算，
+在**一次**模型调用内部就把整个输出预算耗尽——这个失败发生在"逐轮"（多个turn之间）
+安全网（`noProgress`进度提醒、317b130写进系统提示词后靠模型自我监督）能起作用的时间
+尺度**之前**。317b130这条规则确实在系统提示词里，模型在turn 1开始时理论上就该看到，
+但一旦reasoning展开成一条不收敛的长链，规则本身不会在reasoning中途把模型拽回来
+（这本身也印证了317b130只解决"规则适用范围被窄化"这一层，没有解决"模型进入这条
+reasoning链后有没有东西能把它中断"这一层）。而现有的"空响应重试"机制唯一的补救
+手段——"[提示]更快收敛"这句话——本身也只是又一次挂在下一次`streamChat`调用之前的
+文本提示，不能阻止模型在重试时重新滑入同一条推导链，这次复测里就正是如此：
+重试请求同样以空响应告终。
+
+**这不是317b130的回归，是它的作用域边界**：317b130解决的是"模型完成一次正常轮次、
+产出了content或tool_calls"这个前提下的心理bypass；这次复测撞见的是这个前提本身
+没有成立——模型在能产出任何可观察输出之前，就已经在单次reasoning内部把自己耗尽了。
+两者是同一族问题（重复同类计算不收敛）在不同粒度上的表现，需要不同层的修复。
+
+**候选修法（本轮不动手，留到下一轮）**：
+- (a) 强化`loop.ts:371-372`的收敛提示措辞：从"请更快收敛"改成结构性更强制的指令——
+  "这次回复的第一步必须是一次工具调用，不允许先输出任何推导性自由文本"，把"建议"
+  变成对回复结构的直接约束。
+- (b) 对`onEmptyTruncation`触发后的这一次重试请求，临时把`reasoning_effort`调低
+  （`requestAssistant`第193行`extra.reasoning_effort`已支持覆盖），物理压缩模型
+  可用的思考预算，逼停"重新完整推导一遍"这条路径，而不是只靠文字建议。
+- 两者不互斥，可以一起做；(a)是纯提示词改动、风险低，(b)改变了重试请求的采样参数，
+  需要确认对其它合法的"需要更长推理"场景（比如retry本来就该给模型机会认真收尾）
+  没有负面影响，风险略高，建议(a)先行，(b)看(a)单独复测效果再决定是否需要叠加。
+
+**决定"暂不现在修"的具体理由**（非"样本量不够"这类已被推翻的通用模板）：用户已明确
+要求这条写完后转去排查本轮其它失败题，根因链条和候选方案已经完整写清楚，属于排定
+优先级顺延、不是遗忘或回避决策——已加入上方"待闭环事项"清单，下一次EVOLVE阶段
+必须先处理这条,再谈进NEXT/LAUNCH。
+
+## DEBUG补漏：iter9批次(iter9-2048/4096/8192，2026-07-15 23:23启动)此前从未走过DEBUG阶段
+
+排查其它失败题时发现这批三桶(共10题reward=0)有7题从未被`diagnose_failure.py`体检过、
+没有归因记录（另外3题`gpt2-codegolf__fabN5f5`已确认覆盖为反模式样本2；
+`caffe-cifar-10`/`filter-js-from-html`属于iter8桶，已覆盖）。逐题跑体检+人工核实：
+
+- **`build-pmars__38fdnK8`**：确认就是`verify_done`验证范围空子那整条调查线的**原始
+  样本**（`test_built_from_source`：`/app/pmars-0.9.5/src`不存在），完成时间
+  （2026-07-16 00:44）与"iteration 15新发现"记录的日期吻合，`5d9d96d`/`c1070f5`两轮
+  修复+`fix-verifydone-pmars`/`-r2`复测都是针对这题展开的——**不是新发现，已充分覆盖**。
+- **`query-optimize__Gnc8u8x`**：无exception、21次工具调用、`verify_done`调用1次、
+  收尾时模型自信声称"多次验证通过"。查`verifier/test-stdout.txt`：4/5测试通过，唯一
+  失败在`test_compare_golden_vs_solution_runtime`——`assert 1.38s <= 1.05*0.91s`，
+  模型方案**正确但比参考解慢约52%**。核实是否属于verify_done验证范围空子同族（build-
+  pmars/filter-js-from-html那类"任务原文有要求、模型没检查"）：**不是**——任务原文
+  只说"as efficient as possible"，且明确要求`sol.sql`必须是单条SQL语句（不能先
+  `CREATE INDEX`再查询），模型也确认了这一点（"can't modify the DB...single query"），
+  没有golden query可比对，模型无法预先知道1.05x这个精确阈值，自己验证了正确性+
+  合理耗时（原查询超时，这版60s内跑完）已经是它能做到的验证上限。dao_stdout.txt显示
+  用了EXPLAIN QUERY PLAN多次迭代CTE结构、明确排除了加索引（任务禁止改DB）这条路——
+  **确认真实难度**（差距不大，1.5倍而非量级差距，是查询计划精细度没打平参考解，不是
+  没优化）。
+- **`model-extraction-relu-logits__uSpScYY`**（AgentTimeoutError，85%预算，7次工具
+  调用）、**`make-mips-interpreter__2beEmPY`**（AgentTimeoutError，93%预算，37次）、
+  **`qemu-alpine-ssh__DJkzaHS`**（AgentTimeoutError，99%预算，50次，含
+  `exec_shell_poll`）、**`compile-compcert__AstW84x`**（AgentTimeoutError，100%预算，
+  103次）：四题工具调用在tool-trace里全程分布均匀（exec_shell/edit_file/read_file
+  交替，不是聚在开头或结尾），dao_stdout.txt结尾都停在具体的技术推进中（聚类算法调参、
+  MIPS字节码搜索、Rosetta pkey_mprotect系统调用绕过方案、Coq证明重写策略），无
+  ask-denied、无静默早停信号——**确认真实难度：自然超时，会话结束前仍在真实推进**，
+  不是空转或反模式。
+- **`overfull-hbox__Zrnu8a9`**（AgentTimeoutError，109%预算——超过timeout multiplier
+  估算了一点，32次工具调用：15次exec_shell/7次edit_file/6次read_file/4次multi_edit）：
+  结尾在对LaTeX措辞做多轮试错替换（"clear censorings"→"obvious"→"clear"→"plain"→
+  去掉形容词），乍看像反复推理反模式，但**这类任务的验收信号本身就要靠实际重新编译
+  排版才能拿到**（不是可以提前用脚本/心算算出来的确定性计算，跟317b130针对的"可计算量
+  却在心算"不是同一类）——每次假设都配了真实的编辑+重新编译动作，不是纯文字空转，
+  **确认真实难度**，超预算部分是LaTeX排版这类问题本身缺少解析解、要不断试错逼近。
+
+**结论**：这批7题里6题（build-pmars已单独覆盖）全部确认为真实难度或已知问题的原始
+样本，没有新增未处理的框架级bug。

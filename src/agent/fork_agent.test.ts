@@ -25,7 +25,7 @@ describe("FORK_AGENT", () => {
   });
 
   it("getSystemPrompt 返回空字符串(实际用父的)", () => {
-    expect(FORK_AGENT.getSystemPrompt()).toBe("");
+    expect(FORK_AGENT.getSystemPrompt({} as never)).toBe("");
   });
 
   it("tools = undefined(useExactTools 直接拿父的工具池)", () => {

@@ -20,6 +20,31 @@ export interface ToolContext {
   askChoice?: (question: string, options: string[], multi?: boolean) => Promise<string>;
   // 网络抓取(web_search/fetch_url 用);注入,默认全局 fetch。
   fetchImpl?: typeof fetch;
+  // ---- 子代理系统(新:runAgent 统一接口) ----
+  // 子代理派发(返回 AsyncGenerator,逐条 yield 消息)
+  runAgent?: (params: {
+    agentDef: import("../agent/agent_defs.js").AgentDef;
+    promptMessages: import("../client/types.js").ChatMessage[];
+    isAsync: boolean;
+    override?: {
+      systemPrompt?: string;
+      abortController?: AbortController;
+      agentId?: string;
+    };
+    model?: string;
+    mode?: Mode;
+    forkContextMessages?: import("../client/types.js").ChatMessage[];
+    worktreePath?: string;
+    description?: string;
+  }) => AsyncGenerator<import("../client/types.js").ChatMessage, void>;
+  // Agent 恢复
+  resumeAgent?: (agentId: string, prompt: string) => Promise<string>;
+  // 可用 agent 定义(替代旧 agentTypes)
+  agentDefinitions?: import("../agent/agent_defs.js").AgentDef[];
+  // fork 时父消息
+  forkMessages?: import("../client/types.js").ChatMessage[];
+
+  // ---- 旧子代理接口(Task 15 清理时删除) ----
   // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
   // agentType 指定自定义子代理类型(用其专属 prompt/工具白名单/模型);省略则用通用子代理。
   // workspaceRoot 覆盖子代理的工作区根(worktree 隔离用);省略则与父代理同根。
@@ -30,13 +55,12 @@ export interface ToolContext {
     agentType?: string;
     workspaceRoot?: string;
     drainPending?: () => string[];
-    auditAgent?: "sub" | "bg"; // 缓存审计身份:后台传 "bg",前台/工具默认 "sub"
-    model?: string;            // 调用级模型覆盖(后续任务起用);优先级最高
-    mode?: Mode;               // 调用级权限模式覆盖(后续任务起用)
-    messageParent?: (message: string) => void; // 后台子代理→父的 mid-run 出口(runBackgroundAgent 绑定)
+    auditAgent?: "sub" | "bg";
+    model?: string;
+    mode?: Mode;
+    messageParent?: (message: string) => void;
   }) => Promise<string>;
   // ② fork 子代理:继承父代理已缓存的消息前缀(同 system/模型/工具),复用前缀缓存近乎免费;
-  // 适合"带全量上下文做一个分支子任务"。任务作末尾指令,只此处与父对话不同。
   runForkAgent?: (task: string, signal?: AbortSignal, drainPending?: () => string[]) => Promise<string>;
   // 给运行中的后台子代理追加指令(SendMessage);返回是否送达(任务在跑)。
   sendToTask?: (id: string, message: string) => boolean;
