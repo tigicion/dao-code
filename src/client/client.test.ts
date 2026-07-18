@@ -79,6 +79,21 @@ describe("streamChat", () => {
     expect(message.tool_calls?.map((t) => t.id)).toEqual(["c0", "c1"]);
   });
 
+  it("后续分片显式带 id:'' 时不冲掉已捕获的真实 id(实测 deepseek-v4-flash 流式会这样发)", async () => {
+    const chunks = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_real","type":"function","function":{"name":"read_file","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"arguments":"{\\"path\\":"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"arguments":"\\"a.txt\\"}"}}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const { message } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: fakeFetch(chunks) }),
+    );
+    expect(message.tool_calls).toEqual([
+      { id: "call_real", type: "function", function: { name: "read_file", arguments: '{"path":"a.txt"}' } },
+    ]);
+  });
+
   it("includes tools and parallel_tool_calls in the request body", async () => {
     let sentBody: any;
     const capturingFetch = (async (_url: string, init: any) => {

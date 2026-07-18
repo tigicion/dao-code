@@ -218,7 +218,9 @@ export async function* streamChat(
           acc = { id: "", name: "", args: "" };
           toolAcc[idx] = acc;
         }
-        if (typeof frag.id === "string") acc.id = frag.id;
+        // 只在非空时覆盖:部分模型(实测 deepseek-v4-flash)在续传分片里显式带 "id":""(而非直接省略该字段),
+        // 若不加判空会用空串冲掉首个分片已捕获的真实 id,导致同批并行 tool_call 的 id 全部塌缩成 ""。
+        if (typeof frag.id === "string" && frag.id) acc.id = frag.id;
         if (frag.function) {
           if (typeof frag.function.name === "string") acc.name += frag.function.name;
           if (typeof frag.function.arguments === "string") acc.args += frag.function.arguments;
