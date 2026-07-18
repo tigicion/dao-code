@@ -160,6 +160,21 @@ describe("agent tool", () => {
     expect(calls[0].isAsync).toBe(true);
   });
 
+  it("background 子代理调用 messageParent → 进父的任务通知队列(message_parent 工具的唯一出口)", async () => {
+    const fn = (params: any): AsyncGenerator<ChatMessage, void> => {
+      async function* gen(): AsyncGenerator<ChatMessage, void> {
+        params.messageParent?.("跑到一半了");
+        yield { role: "assistant", content: "done" };
+      }
+      return gen();
+    };
+    const taskManager = createTaskManager();
+    const ctx = mkCtx({ runAgent: fn, taskManager });
+    const out = await agentTool.handler({ task: "耗时调查", background: true } as any, ctx);
+    expect(out).toContain("已后台启动");
+    expect(taskManager.drainNotifications().join("\n")).toContain("跑到一半了");
+  });
+
   it("background + model → 显式拒绝(不静默丢)", async () => {
     const ctx = mkCtx();
     const out = await agentTool.handler({ task: "x", background: true, model: "deepseek-v4-flash" } as any, ctx);

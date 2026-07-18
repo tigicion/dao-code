@@ -52,6 +52,12 @@ describe("ALL_AGENT_DISALLOWED_TOOLS", () => {
   });
 });
 
+describe("ASYNC_AGENT_ALLOWED_TOOLS", () => {
+  it("含 message_parent(后台子代理给父发 mid-run 消息的唯一出口,DAO 特有,漏掉等于后台子代理哑掉)", () => {
+    expect(ASYNC_AGENT_ALLOWED_TOOLS.has("message_parent")).toBe(true);
+  });
+});
+
 describe("filterToolsForAgent", () => {
   it("内置 agent 过滤全局禁用工具", () => {
     const r = mkRegistry(["agent", "ask_user", "read_file", "grep_files"]);

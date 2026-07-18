@@ -163,6 +163,7 @@ export const agentTool = defineTool({
             agentDef, promptMessages, forkContextMessages, useExactTools: fork,
             isAsync: true, override: { abortController: bg.abortController, agentId },
             worktreePath: worktree?.root, model: reqModel, mode: reqMode, onCacheSafeParams,
+            messageParent: (m) => { ctx.taskManager!.emitFromTask(bg.agentId, m); },
           }),
           taskManager: taskManagerAdapter,
         });
@@ -176,6 +177,7 @@ export const agentTool = defineTool({
         const iterator = runAgent({
           agentDef, promptMessages, forkContextMessages, useExactTools: fork,
           isAsync: false, override: { agentId }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
+          messageParent: (m) => { ctx.taskManager!.emitFromTask(fg.taskId, m); },
         })[Symbol.asyncIterator]();
 
         const messages: ChatMessage[] = [];
