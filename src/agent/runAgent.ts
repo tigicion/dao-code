@@ -85,6 +85,8 @@ export interface RunAgentParams {
   drainPending?: () => string[];
   /** 缓存审计 sink */
   auditSink?: TurnDeps["auditSink"];
+  /** 全局 MCP 配置(供 agent 专属 mcpServers 引用名解析) */
+  mcpConfig?: import("../mcp/mcp.js").McpConfig;
 }
 
 /** 缓存安全参数(后台摘要 fork 用) */
@@ -280,9 +282,39 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     agentSystemPrompt += `\n\n# 环境信息\n工作目录: ${cwd}\n平台: ${process.platform}\n可用工具: ${toolNames}`;
   }
 
+  // criticalSystemReminder:追加到 system prompt 末尾(对标 CC criticalSystemReminder_EXPERIMENTAL)。
+  // system prompt 是 session.messages[0],每轮发给 LLM 且不会被压缩裁剪--等价于 CC 的每轮注入,
+  // 但无需每轮临时拼接(缓存安全:内容会话内固定)。
+  if (agentDef.criticalSystemReminder) {
+    agentSystemPrompt += `\n\n${agentDef.criticalSystemReminder}`;
+  }
+
   // ---- 阶段 3:Agent 级资源初始化 ----
   // Skills:agentDef.skills 预加载指定 skill 正文作为 system 消息(对标 CC agent 预加载 skills)。
-  // MCP:Phase 1 不实现(agent_mcp.ts 预留接口,计划文档里也没有任务真正创建它)
+  // MCP:agentDef.mcpServers 连接专属 MCP server,工具注入子代理工具池,finally 清理。
+  let agentMcpConnections: import("../mcp/mcp.js").McpConnections | undefined;
+  if (agentDef.mcpServers && agentDef.mcpServers.length > 0 && params.mcpConfig) {
+    const McpConfig = params.mcpConfig;
+    // agent 的 mcpServers 是引用名(如 "github")或内联定义;从全局配置解析。
+    const agentServerConfig: Record<string, import("../mcp/mcp.js").McpServerConfig> = {};
+    for (const spec of agentDef.mcpServers) {
+      if (typeof spec === "string") {
+        // 引用名:从全局 MCP 配置查找
+        const found = McpConfig.mcpServers?.[spec];
+        if (found) agentServerConfig[spec] = found;
+      } else {
+        // 内联定义:{ name: { command, args, env } }
+        for (const [name, cfg] of Object.entries(spec)) agentServerConfig[name] = cfg;
+      }
+    }
+    if (Object.keys(agentServerConfig).length > 0) {
+      try {
+        const { connectMcpServers } = await import("../mcp/mcp.js");
+        agentMcpConnections = await connectMcpServers({ mcpServers: agentServerConfig });
+        for (const t of agentMcpConnections.tools) resolvedTools.register(t);
+      } catch { /* MCP 连接失败不阻塞子代理启动 */ }
+    }
+  }
 
   // Memory:agentDef.memory 设置时追加记忆 prompt,并强制找回 read/write/edit(即使被 disallowedTools 排除)
   if (agentDef.memory) {
@@ -310,11 +342,6 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   // initialPrompt:作为首条 user 消息注入(对标 CC agent initialPrompt)。
   if (agentDef.initialPrompt) {
     initialMessages.push({ role: "user", content: agentDef.initialPrompt });
-  }
-  // criticalSystemReminder:作为 system 消息注入(对标 CC criticalSystemReminder_EXPERIMENTAL)。
-  // append-only 进 session.messages,缓存安全;每轮发给 LLM,压缩也不会丢。
-  if (agentDef.criticalSystemReminder) {
-    initialMessages.push({ role: "system", content: agentDef.criticalSystemReminder });
   }
   // skills 预加载:把指定 skill 正文作为 system 消息注入(对标 CC agent skills 预加载)。
   if (agentDef.skills && agentDef.skills.length > 0) {
@@ -415,6 +442,7 @@ ${skill.body}` });
           background: true, // 子代理:遇 529 不重试/不回退
           selfChallenge: true, // 子代理跑确定性卡住检测
           maxTurns: maxTurnsOverride ?? agentDef.maxTurns ?? 200,
+          ...(agentDef.effort ? { reasoningEffort: agentDef.effort } : {}),
           ...(auditSink ? { auditSink, auditId: { agent: "sub" as const, subId: agentId, depth: subDepth } } : {}),
         });
       })();
@@ -457,7 +485,8 @@ ${skill.body}` });
     // - Hooks 注销 + 执行 SubagentStop(会话已结束,不再收集 additionalContext)
     await executeSubagentStopHooks(agentId, agentDef.agentType, hookRegistry, worktreePath ?? toolUseContext.workspaceRoot).catch(() => {});
     clearAgentHooks(agentId, hookRegistry);
-    // - MCP 连接清理:agent_mcp.ts 预留接口,计划里没有任务创建它,暂不做
+    // - MCP 连接清理:agent 专属 MCP server(阶段3 连接的)
+    if (agentMcpConnections) { try { await agentMcpConnections.close(); } catch { /* 已死 */ } }
     // - readFileState 释放(子代理独立 Set/Map,随 GC 回收)
     // - shell tasks / todos 清理(Phase 2,留待后续:子代理派生的后台 shell/TodoWrite 残留目前不清)
   }

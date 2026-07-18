@@ -989,6 +989,7 @@ async function main() {
     drainPending: () => taskManager.drainPending(params.override?.agentId ?? ""),
     auditSink: cacheSink,
     subagentsDir: path.join(workspaceRoot, ".dao", "subagents"),
+    mcpConfig,
   });
   ctx.forkMessages = session.messages;
   ctx.resumeAgent = async (agentId, prompt) => {

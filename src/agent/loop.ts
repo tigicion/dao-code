@@ -88,6 +88,8 @@ export interface TurnDeps {
   // Ink 路径传入自己的适配器,把流式喂进 React state。
   events?: TurnEvents;
   maxTurns?: number;
+  // reasoning effort 覆盖(子代理 agentDef.effort 传入);省略则用全局 DAO_REASONING_EFFORT。
+  reasoningEffort?: string;
   // 中途取消信号(ESC/超时):透传给 streamChat 与工具 ctx;abort 后本回合优雅停止。
   signal?: AbortSignal;
   // 回合边界消费的追加消息(SendMessage 给运行中子代理用):每个工具回合前注入为 user 消息。
@@ -158,7 +160,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const healthCfg = defaultHealthConfig();
 
   // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
-  const reasoningEffort = process.env.DAO_REASONING_EFFORT || "max";
+  const reasoningEffort = deps.reasoningEffort ?? process.env.DAO_REASONING_EFFORT ?? "max";
   const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number): Promise<AssistantMessage> => {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
     let usedFallback = false;

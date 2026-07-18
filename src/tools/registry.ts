@@ -106,7 +106,8 @@ export class ToolRegistry implements ToolDispatcher {
         type: "function" as const,
         function: {
           name: t.name,
-          description: lang === "en" && t.descriptionEn ? t.descriptionEn : t.description,
+          description: t.prompt ? t.prompt({ lang: lang === "en" ? "en" : "zh" })
+            : (lang === "en" && t.descriptionEn ? t.descriptionEn : t.description),
           parameters: t.apiParameters ?? toJsonSchema(t.schema),
         },
       }));

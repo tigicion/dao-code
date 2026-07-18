@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { Mode } from "../tools/tools_for_mode.js";
+import type { PermissionMode } from "../permissions/settings.js";
 import type { ToolContext } from "../tools/types.js";
 
 // Agent 来源
@@ -32,16 +33,23 @@ export interface BaseAgentDef {
   tools?: string[];
   disallowedTools?: string[];
   model?: string;
-  permissionMode?: Mode;
+  // 子代理权限模式:可设 PermissionMode(default/acceptEdits/plan/bypassPermissions/auto)
+  // 或旧的 Mode(normal/plan)。normal = 继承父级模式;plan = 只读。
+  // 对标 CC:CC 默认 acceptEdits(子代理编辑不弹审批),dao 默认 normal(继承父级)。
+  permissionMode?: Mode | PermissionMode;
   maxTurns?: number;
+  // reasoning effort(对标 CC effort):控制子代理思考强度。"max"/"high"/"medium"/"low"。
+  // 按模型支持与否生效--DeepSeek 支持 reasoning_effort,其他模型忽略。
+  effort?: string;
   skills?: string[];
   hooks?: AgentHooks;
   memory?: AgentMemoryScope;
   background?: boolean;
-  isolation?: "worktree";
+  isolation?: "worktree" | "remote";
   color?: string;
   omitClaudeMd?: boolean;
   initialPrompt?: string;
+  criticalSystemReminder?: string;
   mcpServers?: AgentMcpServerSpec[];
   requiredMcpServers?: string[];
   source: AgentSource;
@@ -152,14 +160,16 @@ export function parseAgentDef(filename: string, raw: string, source: "userSettin
 
   const maxTurnsRaw = fm.maxturns;
   const maxTurns = maxTurnsRaw ? parseInt(maxTurnsRaw, 10) || undefined : undefined;
+  const effort = fm.effort || undefined;
 
   const permissionMode = fm.permissionmode as Mode | undefined;
   const memory = fm.memory as AgentMemoryScope | undefined;
   const background = fm.background === "true";
-  const isolation = fm.isolation === "worktree" ? "worktree" as const : undefined;
+  const isolation = fm.isolation === "worktree" ? "worktree" as const : fm.isolation === "remote" ? "remote" as const : undefined;
   const color = fm.color || undefined;
   const omitClaudeMd = fm.omitclaudemd === "true";
   const initialPrompt = fm.initialprompt || undefined;
+  const criticalSystemReminder = fm.criticalsystemreminder || undefined;
 
   const hooks = fmRaw.hooks as AgentHooks | undefined;
   const mcpServers = fmRaw.mcpServers as AgentMcpServerSpec[] | undefined;
@@ -174,6 +184,7 @@ export function parseAgentDef(filename: string, raw: string, source: "userSettin
     ...(model !== undefined ? { model } : {}),
     ...(permissionMode ? { permissionMode } : {}),
     ...(maxTurns !== undefined ? { maxTurns } : {}),
+    ...(effort ? { effort } : {}),
     ...(skills !== undefined ? { skills } : {}),
     ...(hooks ? { hooks } : {}),
     ...(memory ? { memory } : {}),
@@ -182,6 +193,7 @@ export function parseAgentDef(filename: string, raw: string, source: "userSettin
     ...(color ? { color } : {}),
     ...(omitClaudeMd ? { omitClaudeMd } : {}),
     ...(initialPrompt ? { initialPrompt } : {}),
+    ...(criticalSystemReminder ? { criticalSystemReminder } : {}),
     ...(mcpServers ? { mcpServers } : {}),
     getSystemPrompt: () => systemPrompt,
     source,
