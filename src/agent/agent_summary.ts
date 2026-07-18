@@ -7,31 +7,23 @@ export interface CacheSafeParams {
   model: string;
 }
 
-type SetAppState = (fn: (prev: Record<string, unknown>) => Record<string, unknown>) => void;
-
 /**
- * 后台 agent 每 30s 用 flash 模型做摘要,更新任务 summary 字段。
- * 对标 CC startAgentSummarization。
+ * 后台 agent 每 30s 做一次摘要,通过 updateSummary(taskId, summary) 写回任务(对应 TaskManager.updateSummary)。
+ * 对标 CC startAgentSummarization,但摘要回调直接对接 DAO TaskManager,不引入 CC 的 setAppState reducer 模式。
  */
 export function startAgentSummarization(
   taskId: string,
   _agentId: string,
   params: CacheSafeParams,
-  setAppState: SetAppState,
+  updateSummary: (taskId: string, summary: string) => void,
   opts?: { intervalMs?: number },
 ): { stop: () => void } {
   const interval = opts?.intervalMs ?? 30_000;
   let stopped = false;
 
-  const timer = setInterval(async () => {
+  const timer = setInterval(() => {
     if (stopped || params.messages.length === 0) return;
-    const summary = extractSimpleSummary(params.messages.slice(-20));
-    setAppState((prev) => {
-      const tasks = (prev as { tasks?: Record<string, unknown> }).tasks ?? {};
-      const task = tasks[taskId] as Record<string, unknown> | undefined;
-      if (!task || task.status !== "running") return prev;
-      return { ...prev, tasks: { ...tasks, [taskId]: { ...task, summary } } };
-    });
+    updateSummary(taskId, extractSimpleSummary(params.messages.slice(-20)));
   }, interval);
 
   return { stop: () => { stopped = true; clearInterval(timer); } };

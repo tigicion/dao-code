@@ -36,6 +36,7 @@ export interface ToolContext {
     forkContextMessages?: import("../client/types.js").ChatMessage[];
     worktreePath?: string;
     description?: string;
+    onCacheSafeParams?: (params: { systemPrompt: string; forkContextMessages: import("../client/types.js").ChatMessage[] }) => void;
   }) => AsyncGenerator<import("../client/types.js").ChatMessage, void>;
   // Agent 恢复
   resumeAgent?: (agentId: string, prompt: string) => Promise<string>;
