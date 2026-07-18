@@ -47,7 +47,7 @@ describe("filterIncompleteToolCalls", () => {
     const assistantWithToolCall: AssistantMessage = {
       role: "assistant",
       content: "let me read",
-      tool_calls: [{ id: "tc-1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "tc-1", type: "function", function: { name: "Read", arguments: "{}" } }],
     };
     const msgs: ChatMessage[] = [
       { role: "user", content: "do it" },
@@ -66,7 +66,7 @@ describe("filterIncompleteToolCalls", () => {
     const assistantWithToolCall: AssistantMessage = {
       role: "assistant",
       content: "let me read",
-      tool_calls: [{ id: "tc-1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "tc-1", type: "function", function: { name: "Read", arguments: "{}" } }],
     };
     const toolResult: ToolMessage = {
       role: "tool",
@@ -170,13 +170,13 @@ describe("runAgent 阶段接线", () => {
 
   it("agentDef.memory 设置时:system prompt 追加记忆说明 + 强制找回被 disallowedTools 排除的 read/write/edit 工具", async () => {
     const pool = new ToolRegistry();
-    for (const n of ["read_file", "write_file", "edit_file", "grep_files"]) pool.register(mkTool(n));
+    for (const n of ["Read", "Write", "Edit", "Grep"]) pool.register(mkTool(n));
     let capturedMessages: ChatMessage[] | undefined;
     let capturedRegistry: ToolRegistry | undefined;
     const params = baseParams({
       agentDef: {
         agentType: "mem-agent", whenToUse: "", source: "built-in", memory: "project",
-        disallowedTools: ["read_file", "write_file", "edit_file"],
+        disallowedTools: ["Read", "Write", "Edit"],
         getSystemPrompt: () => "SYS",
       } as BuiltInAgentDef,
       availableTools: pool,
@@ -187,9 +187,9 @@ describe("runAgent 阶段接线", () => {
       },
     });
     await drain(runAgent(params));
-    expect(capturedRegistry!.get("read_file")).toBeDefined();
-    expect(capturedRegistry!.get("write_file")).toBeDefined();
-    expect(capturedRegistry!.get("edit_file")).toBeDefined();
+    expect(capturedRegistry!.get("Read")).toBeDefined();
+    expect(capturedRegistry!.get("Write")).toBeDefined();
+    expect(capturedRegistry!.get("Edit")).toBeDefined();
     const sysText = typeof capturedMessages![0]!.content === "string" ? capturedMessages![0]!.content as string : "";
     expect(sysText).toContain("持久 Agent 记忆");
   });
@@ -358,7 +358,7 @@ describe("runAgent 阶段接线", () => {
     expect(caught!.message).toBe("runTurn 炸了");
   });
 
-  it("同步子代理也拿到真实 abortController(此前 isAsync:false 时 signal 恒 undefined,task_stop/cancel 无 controller 可 abort)", async () => {
+  it("同步子代理也拿到真实 abortController(此前 isAsync:false 时 signal 恒 undefined,TaskStop/cancel 无 controller 可 abort)", async () => {
     let capturedSignal: AbortSignal | undefined;
     const params = baseParams({
       isAsync: false,

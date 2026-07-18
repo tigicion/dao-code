@@ -42,8 +42,8 @@ export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。
 
 5. **你做错但自己发现并修正了的**(type=procedural, confidence≥0.7)
    不是因为用户纠正,而是你通过工具验证自己发现的问题:
-   - multi_edit 没先 read_file 被拒,之后每次都先读→ 流程沉淀
-   - edit_file 的 old_string 不唯一报错,扩大上下文后通过→ 操作技巧
+   - MultiEdit 没先 Read 被拒,之后每次都先读→ 流程沉淀
+   - Edit 的 old_string 不唯一报错,扩大上下文后通过→ 操作技巧
    记"第一次为什么错、正确的做法是什么"。
 
 ### 抽什么——三类记忆
@@ -58,7 +58,7 @@ export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。
 {"title":"用户要求先出方案再动手","text":"涉及多步或有风险的改动,用户期望先看到简短计划、认可后再执行。为什么:避免方向跑偏浪费轮数。怎么用:收到复杂任务后先列 2-4 个步骤的提纲,等用户说'继续'再开干。","type":"feedback","importance":8,"confidence":0.9,"source":"user_stated","mergeInto":null}
 
 示例 2 — 用户画像(来自信号 4 "跨轮次行为模式"):
-{"title":"用户偏好选项式引导而非开放式提问","text":"需要用户做选择时,用结构化选项(2-4 个)而非让用户自由输入。为什么:多轮对话中选项式交互更高效、用户反应更积极。怎么用:ask_user 时给 options 数组,每个选项 5-15 字,单选/多选据实际情况定。","type":"user","importance":6,"confidence":0.4,"source":"inferred","mergeInto":null}
+{"title":"用户偏好选项式引导而非开放式提问","text":"需要用户做选择时,用结构化选项(2-4 个)而非让用户自由输入。为什么:多轮对话中选项式交互更高效、用户反应更积极。怎么用:AskUserQuestion 时给 options 数组,每个选项 5-15 字,单选/多选据实际情况定。","type":"user","importance":6,"confidence":0.4,"source":"inferred","mergeInto":null}
 
 示例 3 — 项目知识(来自信号 5 "自己做错但修正了"):
 {"title":"DAO CODE 三层 i18n 架构","text":"国际化的三层:①TUI 展示层(t()字典)②系统 prompt 层(BODY/BODY_EN)③工具描述层(descriptionEn+handler 返回 msg())。只切 TUI 层会让英文 UI 下的 LLM 仍收到中文指令。为什么:LLM 看到中文指令会按中文思维执行,即使 UI 是英文——这比 UI 不一致更隐蔽。怎么用:改语言时确保三层都传 lang 参数。","type":"semantic","importance":7,"confidence":0.9,"source":"本 session 全量实现","mergeInto":null}

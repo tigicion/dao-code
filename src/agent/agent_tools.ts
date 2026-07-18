@@ -7,9 +7,9 @@ import type { Tool } from "../tools/types.js";
 // ---- 工具禁用/允许清单 ----
 
 export const ALL_AGENT_DISALLOWED_TOOLS = new Set([
-  "agent",
-  "ask_user",
-  "task_stop",
+  "Agent",
+  "AskUserQuestion",
+  "TaskStop",
 ]);
 
 export const CUSTOM_AGENT_DISALLOWED_TOOLS = new Set([
@@ -17,15 +17,15 @@ export const CUSTOM_AGENT_DISALLOWED_TOOLS = new Set([
 ]);
 
 export const ASYNC_AGENT_ALLOWED_TOOLS = new Set([
-  "read_file", "list_dir", "grep_files", "file_search",
-  "exec_shell", "exec_shell_poll", "exec_shell_kill",
-  "write_file", "edit_file", "multi_edit", "notebook_edit",
-  "web_search", "fetch_url",
-  "todo_write",
-  "skill",
-  "memory_write", "memory_read",
-  "notify_user",
-  "message_parent", // 后台子代理给父发 mid-run 消息的唯一出口(DAO 特有,不在 spec 原清单内)
+  "Read", "ListDir", "Grep", "Glob",
+  "Bash", "BashOutput", "KillShell",
+  "Write", "Edit", "MultiEdit", "NotebookEdit",
+  "WebSearch", "WebFetch",
+  "TodoWrite",
+  "Skill",
+  "MemoryWrite", "MemoryRead",
+  "NotifyUser",
+  "MessageParent", // 后台子代理给父发 mid-run 消息的唯一出口(DAO 特有,不在 spec 原清单内)
 ]);
 
 // 一次性 agent(不支持 resume)

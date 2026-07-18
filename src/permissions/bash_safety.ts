@@ -8,7 +8,7 @@ import { splitBashCommands } from "./rules.js";
 // 文件名前缀的 "eval.scm"(`python3 interp.py eval.scm`)会被误判成 eval 动态执行,
 // 无 TTY 场景下 ask 判定自动转 deny,连续拦掉模型对自己解题文件的正常执行,逼得模型
 // 放弃真实运行、改成纯人工代码走查,漏掉了跑测试才能发现的 bug(schemelike-metacircular-eval
-// 真实撞见的案例:9 次 exec_shell 被拒,最终因为没跑通官方测试集漏了 boolean? 原语;
+// 真实撞见的案例:9 次 Bash 被拒,最终因为没跑通官方测试集漏了 boolean? 原语;
 // tune-mjcf 的 eval.py 也是同一个根因)。这不是 eval/sudo 两处的个例,是"用 \b 判断命令名"
 // 这整类写法的通病——全文件所有命令名边界检查统一换成这个 helper,不只补两个洞。
 const CMD_END = "(?=\\s|$|;|&|\\|)";
@@ -85,7 +85,7 @@ const SAFE_READONLY_CMDS = new Set([
 const SAFE_GIT_SUB = new Set([
   "status", "log", "diff", "show", "branch", "remote", "tag", "describe", "rev-parse",
   "ls-files", "ls-tree", "blame", "shortlog", "reflog", "whatchanged", "cat-file",
-  "for-each-ref", "name-rev", "symbolic-ref", "rev-list", "config",
+  "for-each-ref", "name-rev", "symbolic-ref", "rev-list", "Config",
 ]);
 
 // 判定一条 shell 命令是否【纯只读、可在 auto 模式快速放行】——保守优先,拿不准就返回 false(交分类器/人工)。

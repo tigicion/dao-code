@@ -51,7 +51,7 @@ describe("streamChat", () => {
 
   it("assembles a single tool_call from streamed fragments", async () => {
     const chunks = [
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"Read","arguments":""}}]}}]}\n\n',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"path\\":"}}]}}]}\n\n',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"a.txt\\"}"}}]}}]}\n\n',
       "data: [DONE]\n\n",
@@ -59,29 +59,29 @@ describe("streamChat", () => {
     const { deltas, message } = await run(
       streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: fakeFetch(chunks) }),
     );
-    expect(deltas).toContainEqual({ kind: "tool_call", index: 0, name: "read_file" });
+    expect(deltas).toContainEqual({ kind: "tool_call", index: 0, name: "Read" });
     expect(message.content).toBeNull();
     expect(message.tool_calls).toEqual([
-      { id: "call_1", type: "function", function: { name: "read_file", arguments: '{"path":"a.txt"}' } },
+      { id: "call_1", type: "function", function: { name: "Read", arguments: '{"path":"a.txt"}' } },
     ]);
   });
 
   it("assembles two parallel tool_calls by index", async () => {
     const chunks = [
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c0","type":"function","function":{"name":"read_file","arguments":"{}"}}]}}]}\n\n',
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c1","type":"function","function":{"name":"list_dir","arguments":"{}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c0","type":"function","function":{"name":"Read","arguments":"{}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c1","type":"function","function":{"name":"ListDir","arguments":"{}"}}]}}]}\n\n',
       "data: [DONE]\n\n",
     ];
     const { message } = await run(
       streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: fakeFetch(chunks) }),
     );
-    expect(message.tool_calls?.map((t) => t.function.name)).toEqual(["read_file", "list_dir"]);
+    expect(message.tool_calls?.map((t) => t.function.name)).toEqual(["Read", "ListDir"]);
     expect(message.tool_calls?.map((t) => t.id)).toEqual(["c0", "c1"]);
   });
 
   it("后续分片显式带 id:'' 时不冲掉已捕获的真实 id(实测 deepseek-v4-flash 流式会这样发)", async () => {
     const chunks = [
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_real","type":"function","function":{"name":"read_file","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_real","type":"function","function":{"name":"Read","arguments":""}}]}}]}\n\n',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"arguments":"{\\"path\\":"}}]}}]}\n\n',
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","function":{"arguments":"\\"a.txt\\"}"}}]}}]}\n\n',
       "data: [DONE]\n\n",
@@ -90,7 +90,7 @@ describe("streamChat", () => {
       streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: fakeFetch(chunks) }),
     );
     expect(message.tool_calls).toEqual([
-      { id: "call_real", type: "function", function: { name: "read_file", arguments: '{"path":"a.txt"}' } },
+      { id: "call_real", type: "function", function: { name: "Read", arguments: '{"path":"a.txt"}' } },
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("streamChat", () => {
       streamChat({
         ...base,
         messages: [{ role: "user", content: "hi" }],
-        tools: [{ type: "function", function: { name: "read_file", description: "d", parameters: {} } }],
+        tools: [{ type: "function", function: { name: "Read", description: "d", parameters: {} } }],
         parallelToolCalls: true,
         fetchImpl: capturingFetch,
       }),
@@ -361,15 +361,15 @@ describe("streamChat", () => {
       const b = JSON.parse(init.body);
       if (b.stream) throw new Error("fetch failed");
       return new Response(
-        JSON.stringify({ choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "read_file", arguments: "{}" } }] } }] }),
+        JSON.stringify({ choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "Read", arguments: "{}" } }] } }] }),
         { status: 200 },
       );
     }) as unknown as typeof fetch;
     const { message, deltas } = await run(
       streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 0, retryDelayMs: 0 }),
     );
-    expect(message.tool_calls?.[0]?.function.name).toBe("read_file");
-    expect(deltas).toContainEqual({ kind: "tool_call", index: 0, name: "read_file" });
+    expect(message.tool_calls?.[0]?.function.name).toBe("Read");
+    expect(deltas).toContainEqual({ kind: "tool_call", index: 0, name: "Read" });
   });
 
   it("503/529 过载:作为可重试处理(走重试/兜底)", async () => {

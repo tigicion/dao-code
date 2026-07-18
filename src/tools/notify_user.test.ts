@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { notifyUserTool } from "./notify_user.js";
 
-describe("notify_user", () => {
+describe("NotifyUser", () => {
   it("调用 ctx.notifyUser 并确认", async () => {
     let sent: string | null = null;
     const out = await notifyUserTool.handler(

@@ -11,12 +11,12 @@ function changesSummary(root: string): string {
 }
 
 export const exitWorktreeTool = defineTool({
-  name: "exit_worktree",
-  description: "退出 enter_worktree 建的 worktree 会话,把路径解析根目录切回进入前的状态。不在 worktree 会话里时" +
+  name: "ExitWorktree",
+  description: "退出 EnterWorktree 建的 worktree 会话,把路径解析根目录切回进入前的状态。不在 worktree 会话里时" +
     "调用是空操作,不会报错也不会误删任何东西。action=keep 保留 worktree 目录和分支(改动留着,之后用户可以" +
     "自己 review/合并/删除);action=remove 直接删掉 worktree 目录和分支——但如果里面有未提交的改动或不在原分支上的" +
     "提交,会拒绝执行并列出这些改动,除非显式传 discard_changes:true(丢弃改动不可恢复,务必先确认用户确实不需要)。",
-  descriptionEn: "Exits the worktree session started by enter_worktree, restoring the path-resolution root to what it was before entering. Calling " +
+  descriptionEn: "Exits the worktree session started by EnterWorktree, restoring the path-resolution root to what it was before entering. Calling " +
     "this when not in a worktree session is a no-op — no error, nothing deleted. action=keep leaves the worktree directory and branch on disk " +
     "(changes stay, the user can review/merge/delete later); action=remove deletes both — but if there are uncommitted changes or commits not on " +
     "the original branch, it refuses and lists them unless discard_changes:true is explicitly passed (irreversible — confirm with the user first).",

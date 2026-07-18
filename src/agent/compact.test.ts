@@ -34,7 +34,7 @@ describe("estimateTokens", () => {
     const t2 = estimateTokens([user("abcdef")]);
     expect(t2).toBeGreaterThan(t1);
     const withTool = estimateTokens([
-      { role: "assistant", content: null, tool_calls: [{ id: "x", type: "function", function: { name: "read_file", arguments: '{"path":"a"}' } }] },
+      { role: "assistant", content: null, tool_calls: [{ id: "x", type: "function", function: { name: "Read", arguments: '{"path":"a"}' } }] },
     ]);
     expect(withTool).toBeGreaterThan(0);
   });

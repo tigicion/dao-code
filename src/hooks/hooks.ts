@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { exec } from "node:child_process";
 import { matchesIfClause } from "../permissions/engine.js";
 
-export type HookType = "command" | "prompt" | "agent" | "http" | "callback" | "function";
+export type HookType = "command" | "prompt" | "Agent" | "http" | "callback" | "function";
 
 export interface HookSpec {
   event: string;

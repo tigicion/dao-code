@@ -14,7 +14,7 @@ export interface TodoItem {
 
 const ICON_STATUS: Record<string, TodoStatus> = { "☐": "pending", "▶": "in_progress", "☑": "completed" };
 
-// 解析 todo_write 的结果文本(每行 "图标 内容")成清单项,供复选框渲染。
+// 解析 TodoWrite 的结果文本(每行 "图标 内容")成清单项,供复选框渲染。
 export function parseTodoResult(content: string): TodoItem[] {
   const out: TodoItem[] = [];
   for (const line of content.split("\n")) {

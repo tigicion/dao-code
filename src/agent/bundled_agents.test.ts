@@ -17,9 +17,9 @@ describe("BUNDLED_AGENTS", () => {
 
 describe("EXPLORE_AGENT", () => {
   it("disallowedTools 含 agent/edit/write", () => {
-    expect(EXPLORE_AGENT.disallowedTools).toContain("agent");
-    expect(EXPLORE_AGENT.disallowedTools).toContain("edit_file");
-    expect(EXPLORE_AGENT.disallowedTools).toContain("write_file");
+    expect(EXPLORE_AGENT.disallowedTools).toContain("Agent");
+    expect(EXPLORE_AGENT.disallowedTools).toContain("Edit");
+    expect(EXPLORE_AGENT.disallowedTools).toContain("Write");
   });
   it("omitClaudeMd = true", () => {
     expect(EXPLORE_AGENT.omitClaudeMd).toBe(true);
@@ -30,9 +30,9 @@ describe("EXPLORE_AGENT", () => {
 });
 
 describe("PLAN_AGENT", () => {
-  it("disallowedTools 含 agent/edit/write/exec_shell", () => {
-    expect(PLAN_AGENT.disallowedTools).toContain("agent");
-    expect(PLAN_AGENT.disallowedTools).toContain("exec_shell");
+  it("disallowedTools 含 agent/edit/write/Bash", () => {
+    expect(PLAN_AGENT.disallowedTools).toContain("Agent");
+    expect(PLAN_AGENT.disallowedTools).toContain("Bash");
   });
   it("omitClaudeMd = true", () => {
     expect(PLAN_AGENT.omitClaudeMd).toBe(true);
@@ -44,7 +44,7 @@ describe("VERIFY_AGENT", () => {
     expect(VERIFY_AGENT.background).toBe(true);
   });
   it("disallowedTools 含 agent/edit/write", () => {
-    expect(VERIFY_AGENT.disallowedTools).toContain("agent");
+    expect(VERIFY_AGENT.disallowedTools).toContain("Agent");
   });
   it("permissionMode = acceptEdits(对标 CC:子代理编辑不弹审批)", () => {
     expect(VERIFY_AGENT.permissionMode).toBe("acceptEdits");

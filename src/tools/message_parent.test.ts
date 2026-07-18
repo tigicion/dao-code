@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { messageParentTool } from "./message_parent.js";
 
-describe("message_parent 工具", () => {
+describe("MessageParent 工具", () => {
   it("有 messageParent → 调用并回执", async () => {
     const sent: string[] = [];
     const ctx = { workspaceRoot: "/tmp", readFiles: new Set<string>(), messageParent: (m: string) => sent.push(m) } as any;

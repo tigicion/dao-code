@@ -14,7 +14,7 @@ const memDir = (scope: "project" | "user" | "knowledge", ws: string, home?: stri
   return path.join(scope === "user" ? home ?? os.homedir() : ws, ".dao", "memory");
 };
 
-// 串行锁:并发 memory_write 的"读全部→合并→写回"必须串行,否则后写覆盖先写丢记忆。
+// 串行锁:并发 MemoryWrite 的"读全部→合并→写回"必须串行,否则后写覆盖先写丢记忆。
 let memLock: Promise<unknown> = Promise.resolve();
 function withMemLock<T>(fn: () => Promise<T>): Promise<T> {
   const run = memLock.then(fn, fn);
@@ -23,7 +23,7 @@ function withMemLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export const memoryWriteTool = defineTool({
-  name: "memory_write",
+  name: "MemoryWrite",
   description:
     "记录一条跨 session 的稳定记忆。最高价值是【用户模型】:用户信息(环境/技术栈/水平/习惯)、偏好、意图,以及你推断出的、用户没明说的信息/意图(这类把 confidence 设低、type=user)。用户纠正你的做法或确认某个非显然做法可行时,记 type=feedback:正文先写规则,再接'为什么:…'和'怎么用:…'。也可记通用规则(procedural)、项目事实(semantic)与项目进展(episodic)。只记耐久且可泛化的,克制使用。若该事实是从某个文件/代码推导出来的,务必填 source(如 'package.json#packageManager'),以便日后对照实时文件验证是否过期。",
   descriptionEn:

@@ -5,7 +5,7 @@ function fetchReturning(html: string, status = 200): typeof fetch {
   return (async () => new Response(html, { status })) as unknown as typeof fetch;
 }
 
-describe("fetch_url tool", () => {
+describe("WebFetch tool", () => {
   it("strips tags, script/style, and decodes entities", async () => {
     const html =
       "<html><head><style>.x{}</style></head><body><script>evil()</script><p>Hi &amp; bye</p></body></html>";
@@ -41,6 +41,6 @@ describe("fetch_url tool", () => {
   it("declares network capability and suggest approval", () => {
     expect(fetchUrlTool.capability).toBe("network");
     expect(fetchUrlTool.approval).toBe("suggest");
-    expect(fetchUrlTool.name).toBe("fetch_url");
+    expect(fetchUrlTool.name).toBe("WebFetch");
   });
 });

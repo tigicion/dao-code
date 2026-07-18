@@ -85,7 +85,7 @@ describe("App", () => {
       <App {...makeDeps({
         submit: async (_t, { events }) => {
           events.toolResult(
-            { id: "c1", type: "function" as const, function: { name: "skill", arguments: JSON.stringify({ name: "debugging" }) } },
+            { id: "c1", type: "function" as const, function: { name: "Skill", arguments: JSON.stringify({ name: "debugging" }) } },
             { role: "tool", tool_call_id: "c1", content: "# Skill: Systematic Debugging\n\n正文……" },
           );
           events.assistantDone({ role: "assistant", content: "ok" });
@@ -406,7 +406,7 @@ describe("App", () => {
     expect(f).not.toContain("A)"); // 不再出现 "1. A) …" 这种叠加
   });
 
-  it("edit_file 工具结果渲染红绿 diff(路径 + 增删行)", async () => {
+  it("Edit 工具结果渲染红绿 diff(路径 + 增删行)", async () => {
     const { lastFrame, stdin } = render(
       <App
         {...makeDeps({
@@ -415,7 +415,7 @@ describe("App", () => {
               {
                 id: "c1",
                 type: "function" as const,
-                function: { name: "edit_file", arguments: JSON.stringify({ path: "a.ts", old_string: "旧行", new_string: "新行A\n新行B" }) },
+                function: { name: "Edit", arguments: JSON.stringify({ path: "a.ts", old_string: "旧行", new_string: "新行A\n新行B" }) },
               },
               { role: "tool", tool_call_id: "c1", content: "已编辑 a.ts(替换 1 处)" },
             );
@@ -435,13 +435,13 @@ describe("App", () => {
     expect(f).toContain("+ 新行B");
   });
 
-  it("edit_file 带 ```diff 块:渲染行号 + 上下文 + 增删", async () => {
+  it("Edit 带 ```diff 块:渲染行号 + 上下文 + 增删", async () => {
     const diff = "```diff\n    1 import x\n-   2   return 1\n+   2   return 2\n    3 }\n```";
     const { lastFrame, stdin } = render(
       <App {...makeDeps({
         submit: async (_t, { events }) => {
           events.toolResult(
-            { id: "c1", type: "function" as const, function: { name: "edit_file", arguments: JSON.stringify({ path: "a.ts", old_string: "  return 1", new_string: "  return 2" }) } },
+            { id: "c1", type: "function" as const, function: { name: "Edit", arguments: JSON.stringify({ path: "a.ts", old_string: "  return 1", new_string: "  return 2" }) } },
             { role: "tool", tool_call_id: "c1", content: `已编辑 a.ts(替换 1 处,行 2)\n${diff}` },
           );
           events.assistantDone({ role: "assistant", content: "ok" });
@@ -459,12 +459,12 @@ describe("App", () => {
     expect(f).toContain("2"); // 行号
   });
 
-  it("ctrl+o:默认折叠 read_file 输出,按键后展开完整内容", async () => {
+  it("ctrl+o:默认折叠 Read 输出,按键后展开完整内容", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({
         submit: async (_t, { events }) => {
           events.toolResult(
-            { id: "c1", type: "function" as const, function: { name: "read_file", arguments: JSON.stringify({ path: "a.ts" }) } },
+            { id: "c1", type: "function" as const, function: { name: "Read", arguments: JSON.stringify({ path: "a.ts" }) } },
             { role: "tool", tool_call_id: "c1", content: "L1\nL2\nL3" },
           );
           events.assistantDone({ role: "assistant", content: "ok" });
@@ -505,12 +505,12 @@ describe("App", () => {
     expect(f.indexOf("先看下结构")).toBeLessThan(f.indexOf("好了"));
   });
 
-  it("工具 ⎿ 子块:exec_shell 展示截断真实输出", async () => {
+  it("工具 ⎿ 子块:Bash 展示截断真实输出", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({
         submit: async (_t, { events }) => {
           events.toolResult(
-            { id: "c1", type: "function" as const, function: { name: "exec_shell", arguments: JSON.stringify({ command: "echo hi" }) } },
+            { id: "c1", type: "function" as const, function: { name: "Bash", arguments: JSON.stringify({ command: "echo hi" }) } },
             { role: "tool", tool_call_id: "c1", content: "hi\nbye" },
           );
           events.assistantDone({ role: "assistant", content: "ok" });
@@ -527,12 +527,12 @@ describe("App", () => {
     expect(f).toContain("bye");
   });
 
-  it("todo_write 渲染成复选框清单", async () => {
+  it("TodoWrite 渲染成复选框清单", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({
         submit: async (_t, { events }) => {
           events.toolResult(
-            { id: "c1", type: "function" as const, function: { name: "todo_write", arguments: "{}" } },
+            { id: "c1", type: "function" as const, function: { name: "TodoWrite", arguments: "{}" } },
             { role: "tool", tool_call_id: "c1", content: "☑ 读代码\n▶ 写实现\n☐ 测试" },
           );
           events.assistantDone({ role: "assistant", content: "ok" });
@@ -555,7 +555,7 @@ describe("App", () => {
         verbose: true,
         submit: async (_t, { events }) => {
           events.toolResult(
-            { id: "c1", type: "function" as const, function: { name: "read_file", arguments: JSON.stringify({ path: "src/foo.ts" }) } },
+            { id: "c1", type: "function" as const, function: { name: "Read", arguments: JSON.stringify({ path: "src/foo.ts" }) } },
             { role: "tool", tool_call_id: "c1", content: "line1\nline2" },
           );
           events.assistantDone({ role: "assistant", content: "ok" });
@@ -596,7 +596,7 @@ describe("App", () => {
         {...makeDeps({
           register: ({ approvalPrompt }) => { ap = approvalPrompt; },
           submit: async () => {
-            resolved = await ap!([{ id: "1", toolName: "write_file", capability: "write", summary: "write_file a.txt" }]);
+            resolved = await ap!([{ id: "1", toolName: "Write", capability: "write", summary: "Write a.txt" }]);
           },
         })}
       />,
@@ -615,8 +615,8 @@ describe("App", () => {
     let ap: ApprovalPrompt | null = null;
     const { stdin } = render(<App {...makeDeps({ register: ({ approvalPrompt }) => { ap = approvalPrompt; } })} />);
     await delay();
-    const p1 = ap!([{ id: "a", toolName: "list_dir", capability: "read", summary: "list /tmp/x" }]);
-    const p2 = ap!([{ id: "b", toolName: "list_dir", capability: "read", summary: "list /tmp/y" }]);
+    const p1 = ap!([{ id: "a", toolName: "ListDir", capability: "read", summary: "list /tmp/x" }]);
+    const p2 = ap!([{ id: "b", toolName: "ListDir", capability: "read", summary: "list /tmp/y" }]);
     await delay();
     stdin.write("y"); // 解决队首
     await delay();
@@ -664,14 +664,14 @@ describe("App", () => {
       />,
     );
     await delay();
-    void ap!([{ id: "1", toolName: "write_file", capability: "write", summary: "write_file a.txt" }]);
+    void ap!([{ id: "1", toolName: "Write", capability: "write", summary: "Write a.txt" }]);
     await delay();
     expect(notified).toHaveLength(1);
     expect(notified[0]![0]).toBe("dao");
-    expect(notified[0]![1]).toContain("write_file");
+    expect(notified[0]![1]).toContain("Write");
   });
 
-  it("ask_user 问题弹出时触发桌面通知", async () => {
+  it("AskUserQuestion 问题弹出时触发桌面通知", async () => {
     let ask: ((q: string) => Promise<string>) | null = null;
     const notified: [string, string][] = [];
     render(
@@ -761,7 +761,7 @@ describe("App", () => {
         {...makeDeps({
           submit: async (_t, { events }) => {
             events.toolResult(
-              { id: "c1", type: "function" as const, function: { name: "read_file", arguments: JSON.stringify({ path: "src/foo.ts" }) } },
+              { id: "c1", type: "function" as const, function: { name: "Read", arguments: JSON.stringify({ path: "src/foo.ts" }) } },
               { role: "tool", tool_call_id: "c1", content: "line1\nline2\nline3" },
             );
             events.assistantDone({ role: "assistant", content: "ok" });
@@ -776,7 +776,7 @@ describe("App", () => {
     const f = lastFrame()!;
     expect(f).toContain("读取 src/foo.ts");
     expect(f).toContain("3 行");
-    expect(f).not.toContain("read_file");
+    expect(f).not.toContain("Read");
   });
 
   it("运行中回车排队 → 由 events.userMessage 在回合内直接消费,不用等整个回合结束(steering)", async () => {

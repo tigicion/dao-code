@@ -12,7 +12,7 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("write_file tool", () => {
+describe("Write tool", () => {
   it("creates a new file (no read required)", async () => {
     const out = await writeFileTool.handler(
       { path: "new.txt", content: "hello\nworld" },
@@ -34,7 +34,7 @@ describe("write_file tool", () => {
     await fs.writeFile(path.join(root, "exists.txt"), "old", "utf8");
     await expect(
       writeFileTool.handler({ path: "exists.txt", content: "new" }, { workspaceRoot: root, readFiles: new Set() }),
-    ).rejects.toThrow(/先用 read_file/);
+    ).rejects.toThrow(/先用 Read/);
   });
 
   it("overwrites an existing file once it has been read", async () => {
@@ -80,6 +80,6 @@ describe("write_file tool", () => {
   it("declares write capability and required approval", () => {
     expect(writeFileTool.capability).toBe("write");
     expect(writeFileTool.approval).toBe("required");
-    expect(writeFileTool.name).toBe("write_file");
+    expect(writeFileTool.name).toBe("Write");
   });
 });

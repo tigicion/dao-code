@@ -15,10 +15,10 @@ const questionSchema = z.object({
 });
 
 export const askUserTool = defineTool({
-  name: "ask_user",
+  name: "AskUserQuestion",
   description:
     "向用户提出澄清问题并等待回答。仅在缺少关键信息、且无法用其它工具获取时用(先想清楚这个信息是不是能靠" +
-    "read_file/grep_files/memory_read 自己查到--能查到就别问)。\n" +
+    "Read/Grep/MemoryRead 自己查到--能查到就别问)。\n" +
     "两种调用方式(二选一):\n" +
     "1. 简写(单个问题):传 question + options(字符串数组)+ multiSelect\n" +
     "2. 完整(多问题):传 questions 数组(1-4 个问题,每个含 question/header/options[{label,description}]/multiSelect);" +
@@ -32,7 +32,7 @@ export const askUserTool = defineTool({
     "返回:选中项(多选逗号分隔)/ 用户自填内容 / 讨论意向--用户选了'先讨论一下'就是想在拍板前先聊聊,别当成同意了继续推进。",
   descriptionEn:
     "Asks the user clarifying questions and waits for answers. Only use when missing critical information that can't be obtained via other tools (first consider whether " +
-    "read_file/grep_files/memory_read could answer it - don't ask if you can look it up).\n" +
+    "Read/Grep/MemoryRead could answer it - don't ask if you can look it up).\n" +
     "Two calling styles (pick one):\n" +
     "1. Shorthand (single question): pass question + options (string array) + multiSelect\n" +
     "2. Full (multi-question): pass questions array (1-4 items, each with question/header/options[{label,description}]/multiSelect);" +

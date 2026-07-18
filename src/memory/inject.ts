@@ -41,7 +41,7 @@ const retentionScore = (m: Memory, today: string): number =>
 
 // 两层读取(读路径重构):
 // ① 高价值【整句全文】常驻:user/feedback/locked 全留 + 其余按留存取 top,封顶 fullCap。
-// ② 长尾只给【slug 名】索引(slug 本就是 text 派生的概要,省 token);模型看到相关名用 memory_read 取整句。
+// ② 长尾只给【slug 名】索引(slug 本就是 text 派生的概要,省 token);模型看到相关名用 MemoryRead 取整句。
 // 都在会话开始算定、整会话固定(进会话固定区)——不刷新、不破前缀缓存。
 export function selectFullText(
   items: { mem: Memory; verdict: Verdict }[],
@@ -57,7 +57,7 @@ export function selectFullText(
   return [...high, ...topRest];
 }
 
-// 全文集之外的 live 记忆【标题】(按留存排序,封顶);长尾可发现性靠这层 + memory_read。
+// 全文集之外的 live 记忆【标题】(按留存排序,封顶);长尾可发现性靠这层 + MemoryRead。
 // 用 title 作概要(无 title 的旧记忆退化用 name)——比截断 slug 更达意。
 export function selectIndexNames(
   items: { mem: Memory; verdict: Verdict }[],
@@ -76,5 +76,5 @@ export function selectIndexNames(
 // 索引段:只列 title + 用法提示。空则不注入。
 export function buildIndexSection(names: string[]): string {
   if (names.length === 0) return "";
-  return `\n\n[记忆索引 · 其余 ${names.length} 条(标题即概要;需要整句细节用 memory_read 读)]\n${names.map((n) => `- ${n}`).join("\n")}`;
+  return `\n\n[记忆索引 · 其余 ${names.length} 条(标题即概要;需要整句细节用 MemoryRead 读)]\n${names.map((n) => `- ${n}`).join("\n")}`;
 }

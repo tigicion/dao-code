@@ -5,7 +5,7 @@ import { installSkills } from "../skills/install.js";
 // 让模型能直接"装一套技能"(对应操作员命令 dao skill add):克隆/复制 + 校验 + 报告需适配的外来工具名。
 // 修"用户要装 superpowers 时模型逐个 WebFetch 再手抄改写、还压缩内容"的反模式。
 export const skillInstallTool = defineTool({
-  name: "skill_install",
+  name: "SkillInstall",
   description:
     "安装一套技能:从 git 仓库或本地路径,把含 SKILL.md 的技能克隆/复制到 ~/.dao/skills(scope=user,默认,跨项目都能用)" +
     "或项目 .dao/skills(scope=project,只这个项目用)。保留完整内容,原样搬,工具名在【加载时】自动适配" +

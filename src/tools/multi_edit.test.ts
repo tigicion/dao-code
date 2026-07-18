@@ -9,7 +9,7 @@ const ctx = () => ({ workspaceRoot: root, readFiles: new Set([abs]) });
 beforeEach(async () => { root = await fs.mkdtemp(path.join(os.tmpdir(), "dao-multiedit-")); abs = path.join(root, "f.txt"); });
 afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
 
-describe("multi_edit", () => {
+describe("MultiEdit", () => {
   it("按顺序应用多处替换", async () => {
     await fs.writeFile(abs, "A B C", "utf8");
     const out = await multiEditTool.handler({ path: "f.txt", edits: [

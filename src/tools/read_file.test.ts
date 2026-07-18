@@ -14,7 +14,7 @@ afterAll(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("read_file tool", () => {
+describe("Read tool", () => {
   it("returns file content with 1-based line numbers", async () => {
     const out = await readFileTool.handler({ path: "a.txt" }, { workspaceRoot: root });
     expect(out).toContain("1\tline1");
@@ -36,7 +36,7 @@ describe("read_file tool", () => {
   it("declares read capability and auto approval", () => {
     expect(readFileTool.capability).toBe("read");
     expect(readFileTool.approval).toBe("auto");
-    expect(readFileTool.name).toBe("read_file");
+    expect(readFileTool.name).toBe("Read");
   });
 
   it("工作区外路径:未授权返回 Error(不再硬抛)", async () => {

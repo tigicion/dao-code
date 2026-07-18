@@ -8,7 +8,7 @@ export const SIMPLIFY_BODY = `审查当前代码改动,做【质量清理】—�
    - 简化:去冗余、收敛分支、删掉不必要的中间状态;
    - 提效:明显低效处(重复计算、无谓遍历);
    - altitude:把逻辑放到正确的层/抽象级。
-3. 逐处用 edit_file / multi_edit 落地,并简述理由。
+3. 逐处用 Edit / MultiEdit 落地,并简述理由。
 4. 改完跑相关测试/构建,确认没改坏(质量清理不应改变行为)。`;
 
 export const DEBUGGING_BODY = `系统化排查——【没找到根因之前,不许动手改】。任何问题(报错、行为不对、结果不对、卡住、性能、集成)都走这四步,越是"看着简单/赶时间"越要走。
@@ -74,7 +74,7 @@ export const CODE_REVIEW_BODY = `被要求复核改动、或要交付前,【先�
 
 export const DEEP_RESEARCH_BODY = `深入研究——多来源联网、交叉验证、给【带出处】的结论:
 1. 拆解:把问题拆成 3-5 个可独立检索的子问题。
-2. 并行检索:用 agent 工具一次 tasks[] 并行派子代理,每个子代理用 web_search 查一个子问题、fetch_url 读关键页面,只回提炼结论 + 来源 URL(子代理独立上下文,不把整页倒进主线)。
+2. 并行检索:用 agent 工具一次 tasks[] 并行派子代理,每个子代理用 WebSearch 查一个子问题、WebFetch 读关键页面,只回提炼结论 + 来源 URL(子代理独立上下文,不把整页倒进主线)。
 3. 交叉验证:来源对不上就标分歧,判可信度(一手>二手、近期>过时)。
 4. 综合:给结论,每个关键论断后附出处 URL;不确定的明说。
 5. 不臆造来源:只引真检索到的页面,没查到就说没查到,别编 URL。`;
@@ -99,7 +99,7 @@ export const VERIFY_BODY = `声称"完成"之前,独立验证它【真的可用�
 export const RUN_SKILL_GEN_BODY = `把"这个项目怎么跑"录成可复用的项目技能(省得每个会话重新摸索):
 1. 摸清配方:读 package.json scripts / Makefile / README / pyproject 等,确定【构建、启动、测试】各自的命令(连同所需环境/端口)。拿不准就跑一下验证,或问用户。
 2. 写成项目技能:在 .dao/skills/run-<项目名>/SKILL.md 写 frontmatter(name;description 用【触发式:只说"何时用"】,别把命令步骤塞进描述;可加 paths 让它只在本项目在场)+ 正文列出构建/启动/测试命令与注意点。
-3. 用 dao 工具名(exec_shell 跑、read_file 读、edit_file 写),不要外来工具名。
+3. 用 dao 工具名(Bash 跑、Read 读、Edit 写),不要外来工具名。
 4. 写完告诉用户存到哪、收录了哪些命令;之后构建/启动/验证可直接照它做。`;
 
 export interface BundledSkill {

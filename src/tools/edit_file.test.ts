@@ -17,7 +17,7 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("edit_file tool", () => {
+describe("Edit tool", () => {
   it("replaces a unique occurrence", async () => {
     await fs.writeFile(abs, "alpha beta gamma", "utf8");
     const out = await editFileTool.handler({ path: "f.txt", old_string: "beta", new_string: "BETA" }, ctx());
@@ -28,7 +28,7 @@ describe("edit_file tool", () => {
   it("并行编辑同一文件:两处改动都不丢失(同路径串行锁)", async () => {
     await fs.writeFile(abs, "A\nB", "utf8");
     const c = ctx();
-    // 并发发两个 edit_file 到同一文件(不同 old_string)——串行锁保证都生效、不互相覆盖、不撞临时文件。
+    // 并发发两个 Edit 到同一文件(不同 old_string)——串行锁保证都生效、不互相覆盖、不撞临时文件。
     await Promise.all([
       editFileTool.handler({ path: "f.txt", old_string: "A", new_string: "X" }, c),
       editFileTool.handler({ path: "f.txt", old_string: "B", new_string: "Y" }, c),
@@ -67,7 +67,7 @@ describe("edit_file tool", () => {
         { path: "f.txt", old_string: "hello", new_string: "hi" },
         { workspaceRoot: root, readFiles: new Set() },
       ),
-    ).rejects.toThrow(/先用 read_file/);
+    ).rejects.toThrow(/先用 Read/);
   });
 
   it("treats $ in new_string literally (no replacement-pattern interpretation)", async () => {
@@ -83,6 +83,6 @@ describe("edit_file tool", () => {
   it("declares write capability and required approval", () => {
     expect(editFileTool.capability).toBe("write");
     expect(editFileTool.approval).toBe("required");
-    expect(editFileTool.name).toBe("edit_file");
+    expect(editFileTool.name).toBe("Edit");
   });
 });

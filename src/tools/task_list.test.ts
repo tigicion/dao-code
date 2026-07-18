@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { taskListTool } from "./task_list.js";
 import { createTaskManager } from "../agent/tasks.js";
 
-describe("task_list", () => {
+describe("TaskList", () => {
   it("默认只列运行中的", async () => {
     const taskManager = createTaskManager();
     const a = taskManager.create("任务A");

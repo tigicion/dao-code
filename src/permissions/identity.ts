@@ -4,17 +4,17 @@ import { stripSafeWrappers } from "./bash_preprocess.js";
 // DAO 工具名 → CC 工具名 + 取哪个参数作匹配值。让 CC settings.json 的规则原样适用于 DAO 工具。
 // 返回 null = 该工具无 CC 对应(memory/todo/agent 等),退回 DAO 能力默认放行逻辑。
 const MAP: Record<string, { ccTool: string; arg: string }> = {
-  exec_shell: { ccTool: "Bash", arg: "command" },
-  read_file: { ccTool: "Read", arg: "path" },
-  edit_file: { ccTool: "Edit", arg: "path" },
-  multi_edit: { ccTool: "Edit", arg: "path" }, // 归到 Edit:Edit 规则 + acceptEdits 自动覆盖
-  notebook_edit: { ccTool: "Edit", arg: "path" },
-  write_file: { ccTool: "Write", arg: "path" },
-  list_dir: { ccTool: "LS", arg: "path" },
-  grep_files: { ccTool: "Grep", arg: "path" },
-  file_search: { ccTool: "Glob", arg: "glob" },
-  fetch_url: { ccTool: "WebFetch", arg: "url" },
-  web_search: { ccTool: "WebSearch", arg: "query" },
+  Bash: { ccTool: "Bash", arg: "command" },
+  Read: { ccTool: "Read", arg: "path" },
+  Edit: { ccTool: "Edit", arg: "path" },
+  MultiEdit: { ccTool: "Edit", arg: "path" }, // 归到 Edit:Edit 规则 + acceptEdits 自动覆盖
+  NotebookEdit: { ccTool: "Edit", arg: "path" },
+  Write: { ccTool: "Write", arg: "path" },
+  ListDir: { ccTool: "LS", arg: "path" },
+  Grep: { ccTool: "Grep", arg: "path" },
+  Glob: { ccTool: "Glob", arg: "glob" },
+  WebFetch: { ccTool: "WebFetch", arg: "url" },
+  WebSearch: { ccTool: "WebSearch", arg: "query" },
 };
 
 export function toCcIdentity(toolName: string, argsJson: string): CallIdentity | null {

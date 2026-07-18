@@ -15,7 +15,7 @@ afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
 
 const cells = async () => JSON.parse(await fs.readFile(abs, "utf8")).cells;
 
-describe("notebook_edit", () => {
+describe("NotebookEdit", () => {
   it("replace 替换单元格源码", async () => {
     await fs.writeFile(abs, nb([{ cell_type: "code", metadata: {}, source: ["old"], outputs: [], execution_count: null }]));
     await notebookEditTool.handler({ path: "n.ipynb", cell_index: 0, mode: "replace", source: "print(1)" }, ctx());

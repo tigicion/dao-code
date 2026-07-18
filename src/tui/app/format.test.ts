@@ -13,7 +13,7 @@ describe("clampLines — ⎿ 输出截断", () => {
   });
 });
 
-describe("parseTodoResult — todo_write 结果解析成清单项", () => {
+describe("parseTodoResult — TodoWrite 结果解析成清单项", () => {
   it("解析图标行成 {status, content}", () => {
     const r = parseTodoResult("☐ 写测试\n▶ 实现功能\n☑ 读代码");
     expect(r).toEqual([

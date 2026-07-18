@@ -9,7 +9,7 @@ import { createMessageConnection, StreamMessageReader, StreamMessageWriter, type
 // 位置编码转换(对外 1-based,行编辑器习惯,同 CC 的 LSP 工具接口;对 LSP 协议本身是 0-based)、
 // 把响应整理成可读文本。不接入任何语言的二进制——command/args 完全来自用户配置(见 config.ts)。
 
-// 对外 API 用 1-based line/character(同 read_file 的行号习惯、CC 的 LSP 工具接口一致);
+// 对外 API 用 1-based line/character(同 Read 的行号习惯、CC 的 LSP 工具接口一致);
 // 发给 LSP 协议前统一在这里转 0-based,别让每个操作各自减一、容易漏。
 function toLspPosition(line: number, character: number): { line: number; character: number } {
   return { line: line - 1, character: character - 1 };

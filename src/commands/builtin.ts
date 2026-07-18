@@ -18,7 +18,7 @@ export const BUILTIN_COMMANDS: Record<string, BuiltinCommand> = {
     argHint: "<要记住的事实>",
     buildPrompt: (a) =>
       a.trim()
-        ? `用 memory_write 记住下面这条事实,自行判断 type(user 用户信息/feedback 工作方式/procedural 跨项目知识/semantic 项目事实/episodic 项目进展)与归属层:
+        ? `用 MemoryWrite 记住下面这条事实,自行判断 type(user 用户信息/feedback 工作方式/procedural 跨项目知识/semantic 项目事实/episodic 项目进展)与归属层:
 ${a.trim()}`
         : "",
   },
@@ -27,8 +27,8 @@ ${a.trim()}`
     argHint: "[问题描述]",
     buildPrompt: (a) =>
       `诊断 dao 最近一次会话的问题。步骤:
-1. list_dir .dao/sessions,挑时间戳最大的会话目录。
-2. read_file 它的 events.jsonl(事件流)与 state.json(末态 + usage)。
+1. ListDir .dao/sessions,挑时间戳最大的会话目录。
+2. Read 它的 events.jsonl(事件流)与 state.json(末态 + usage)。
 3. 找异常:报错、未结束的回合(缺 turn_end)、卡死迹象、token/上下文异常。
 4. 用平实语言说明发现 + 给下一步。
 ${a.trim() ? `重点关注:${a.trim()}` : "(未指明问题,请总结日志中的异常)"}`,
@@ -39,7 +39,7 @@ ${a.trim() ? `重点关注:${a.trim()}` : "(未指明问题,请总结日志中�
     buildPrompt: (a) => {
       const pr = a.trim();
       if (/^\d+$/.test(pr))
-        return `审查 GitHub PR #${pr}:用 exec_shell 跑 \`gh pr diff ${pr}\`(必要时 \`gh pr view ${pr}\`)取 diff,逐文件审查正确性 bug、安全隐患、质量问题,按「文件:行 — 问题 — 建议修法」列出,最后给总体结论。只审查报告,不改代码。`;
+        return `审查 GitHub PR #${pr}:用 Bash 跑 \`gh pr diff ${pr}\`(必要时 \`gh pr view ${pr}\`)取 diff,逐文件审查正确性 bug、安全隐患、质量问题,按「文件:行 — 问题 — 建议修法」列出,最后给总体结论。只审查报告,不改代码。`;
       return `审查当前未提交改动:先 git status / git diff 看范围,逐处审查——正确性与边界 bug、安全隐患(注入/越权/泄密)、错误处理、质量。按「文件:行 — 问题 — 建议修法」列出每个问题,最后给总体结论(是否可提交)。只审查报告,不改代码。`;
     },
   },
@@ -48,7 +48,7 @@ ${a.trim() ? `重点关注:${a.trim()}` : "(未指明问题,请总结日志中�
     buildPrompt: () =>
       `为本仓库生成一份 DAO.md 项目指令文件(供 dao 以后每次会话自动加载):
 1. 调研仓库:读 README、package.json/pyproject.toml/Cargo.toml/go.mod 等、入口文件、目录结构;若已有 AGENTS.md/CLAUDE.md,吸收其要点。
-2. 用 write_file 写 DAO.md,包含:项目用途一句话概述、技术栈、目录结构要点、关键约定(代码风格/命名/测试)、常用命令(构建/测试/运行/lint)、注意事项与坑。
+2. 用 Write 写 DAO.md,包含:项目用途一句话概述、技术栈、目录结构要点、关键约定(代码风格/命名/测试)、常用命令(构建/测试/运行/lint)、注意事项与坑。
 3. 简洁、准确、可执行——别堆砌显而易见的内容。写完告诉用户已生成,可在 DAO.md 里继续调整。`,
   },
   "security-review": {
@@ -56,7 +56,7 @@ ${a.trim() ? `重点关注:${a.trim()}` : "(未指明问题,请总结日志中�
     argHint: "[PR号]",
     buildPrompt: (a) => {
       const pr = a.trim();
-      const target = /^\d+$/.test(pr) ? `用 exec_shell 跑 \`gh pr diff ${pr}\` 取 PR diff` : "先 git status / git diff 看当前未提交改动";
+      const target = /^\d+$/.test(pr) ? `用 Bash 跑 \`gh pr diff ${pr}\` 取 PR diff` : "先 git status / git diff 看当前未提交改动";
       return `对改动做【安全审查】(只看安全,不做风格清理):${target}。重点排查:命令/SQL/模板注入、密钥与凭据泄露(硬编码/写日志)、认证与越权、路径穿越与任意文件读写、不安全反序列化/eval、SSRF、输入校验缺失、依赖风险。按「文件:行 — 风险 — 影响 — 修法」逐条列出,最后给总体风险结论。只报告,不改代码。`;
     },
   },
@@ -83,7 +83,7 @@ ${a.trim() ? `重点关注:${a.trim()}` : "(未指明问题,请总结日志中�
 2. 写到 .dao/skills/<kebab-name>/SKILL.md,frontmatter 含 name、description:
    - description 用【触发式:只说"何时该用"】(如"遇到 X 时用 / 做 Y 之前用"),【绝不要把步骤/工作流塞进描述】——否则模型会照描述走、跳过正文;≤60 字。
    - 名字用动词式短横线名(writing-x / fixing-y)。
-3. 正文是【要照做的流程指令】:步骤清晰;纪律型技能带"红旗/反合理化"清单(对抗赶时间、沉没成本等压力);用 dao 工具名(read_file/edit_file/exec_shell/grep_files/file_search/agent),不用其它 agent 的工具名;正文尽量精简(<500 字)。
+3. 正文是【要照做的流程指令】:步骤清晰;纪律型技能带"红旗/反合理化"清单(对抗赶时间、沉没成本等压力);用 dao 工具名(Read/Edit/Bash/Grep/Glob/agent),不用其它 agent 的工具名;正文尽量精简(<500 字)。
 4. 写完【先别声称完成】:技能要测才算数,但子代理压力测试有成本——【先问用户是否要测】;同意了再用 agent 子代理跑"发现测试(描述能否在该触发时触发、且不误触发)+ 合规测试(压力下正文是否被遵守)";不测就如实标"未测"。
 ${a.trim() ? `建议技能名:${a.trim()}` : "技能名据内容自拟。"}`,
   },

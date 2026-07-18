@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { taskSendTool } from "./task_send.js";
 
-describe("task_send", () => {
+describe("TaskSend", () => {
   it("给运行中任务发消息", async () => {
     let sent: [string, string] | null = null;
     const out = await taskSendTool.handler(

@@ -47,7 +47,7 @@ describe("ToolRegistry", () => {
   });
 
   it("半截 JSON(单次输出被截断)→ 抢救出已生成内容,报诊断信息 + 拆分建议,不静默执行", async () => {
-    // 根因(真实撞见:20260717-143212-b8wt):write_file 的 content 太长,单次输出预算不够,
+    // 根因(真实撞见:20260717-143212-b8wt):Write 的 content 太长,单次输出预算不够,
     // JSON 参数生成到一半被截断(unterminated string)。之前只报一句"invalid JSON arguments",
     // 模型看不出截了多少、截在哪,原地重试同一个必然还是太大的调用。
     const reg = new ToolRegistry();
@@ -136,8 +136,8 @@ const mkMcp = (name: string, description: string) =>
 describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => {
   it("非 mcp__ 前缀的工具永远可见", () => {
     const r = new ToolRegistry();
-    r.register(mk("read_file"));
-    expect(r.isMcpVisible("read_file")).toBe(true);
+    r.register(mk("Read"));
+    expect(r.isMcpVisible("Read")).toBe(true);
   });
 
   it("mcp__ 工具默认不可见,搜到并激活后可见", () => {
@@ -184,10 +184,10 @@ const mkDeferred = (name: string, description: string) =>
 describe("ToolRegistry 延迟加载(shouldDefer)", () => {
   it("deferred 工具初始只发简短描述 + 空 parameters", () => {
     const r = new ToolRegistry();
-    r.register(mkDeferred("cron_create", "创建定时任务。支持循环和一次性。"));
+    r.register(mkDeferred("CronCreate", "创建定时任务。支持循环和一次性。"));
     const api = r.toApiTools();
     expect(api).toHaveLength(1);
-    expect(api[0]!.function.name).toBe("cron_create");
+    expect(api[0]!.function.name).toBe("CronCreate");
     expect(api[0]!.function.description).toBe("创建定时任务");
     const params = api[0]!.function.parameters as any;
     expect(params.properties).toEqual({});
@@ -195,21 +195,21 @@ describe("ToolRegistry 延迟加载(shouldDefer)", () => {
 
   it("非 deferred 工具不受影响", () => {
     const r = new ToolRegistry();
-    r.register(mk("read_file"));
-    r.register(mkDeferred("cron_create", "创建定时任务。"));
+    r.register(mk("Read"));
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
     const api = r.toApiTools();
     expect(api).toHaveLength(2);
-    expect(api[0]!.function.name).toBe("read_file");
+    expect(api[0]!.function.name).toBe("Read");
     expect(api[1]!.function.description).toBe("创建定时任务");
   });
 
   it("searchAndActivateDeferred 激活后 toApiTools 发完整 schema", () => {
     const r = new ToolRegistry();
-    r.register(mkDeferred("cron_create", "创建定时任务。支持循环和一次性。"));
+    r.register(mkDeferred("CronCreate", "创建定时任务。支持循环和一次性。"));
     let api = r.toApiTools();
     expect((api[0]!.function.parameters as any).properties).toEqual({});
     const out = r.searchAndActivateDeferred("cron");
-    expect(out).toContain("cron_create");
+    expect(out).toContain("CronCreate");
     expect(out).toContain("已激活");
     api = r.toApiTools();
     expect((api[0]!.function.parameters as any).properties).toHaveProperty("x");
@@ -217,7 +217,7 @@ describe("ToolRegistry 延迟加载(shouldDefer)", () => {
 
   it("已激活的 deferred 工具不再被搜索到", () => {
     const r = new ToolRegistry();
-    r.register(mkDeferred("cron_create", "创建定时任务。"));
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
     r.searchAndActivateDeferred("cron");
     const out = r.searchAndActivateDeferred("cron");
     expect(out).toContain("没有延迟加载工具匹配");
@@ -225,7 +225,7 @@ describe("ToolRegistry 延迟加载(shouldDefer)", () => {
 
   it("查无命中 -> 提示", () => {
     const r = new ToolRegistry();
-    r.register(mkDeferred("cron_create", "创建定时任务。"));
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
     const out = r.searchAndActivateDeferred("不存在的xyz");
     expect(out).toContain("没有延迟加载工具匹配");
   });

@@ -4,7 +4,7 @@ import type { Tool, ToolContext, ToolDispatcher } from "./types.js";
 import type { Lang } from "../i18n/i18n.js";
 
 // 半截 JSON 抢救:真实撞见过(20260717-143212-b8wt)单次输出预算不够,模型试图一次性生成
-// 超大内容(如整篇文档塞进 write_file 的 content 字段)被硬截断——原来只报一句"invalid JSON
+// 超大内容(如整篇文档塞进 Write 的 content 字段)被硬截断——原来只报一句"invalid JSON
 // arguments",模型看不出截断在哪、截了多少,只会原地重试同一个必然还是太大的调用。
 // 这里做最小化的"尽量往回补全":扫描字符流,跟踪是否在字符串内(正确处理转义)及未闭合的
 // {}/[] 层级,截断多半发生在某个字符串值中途——补一个闭合引号 + 按层级倒序补齐括号,再重新解析。
@@ -51,11 +51,11 @@ export class ToolRegistry implements ToolDispatcher {
   private tools = new Map<string, Tool>();
   // MCP 工具默认不进每轮发给模型的 tools 数组(避免连了很多 server 时,每轮都为一堆可能用不到的
   // 工具付 token;更关键的是内置工具集合永远保持不变,前缀缓存不受 MCP 工具数量影响)。
-  // 通过 tool_search 命中后加入此集合,从下一轮起才会出现在 tools 里——这一步本身会让 tools 数组变化
+  // 通过 ToolSearch 命中后加入此集合,从下一轮起才会出现在 tools 里——这一步本身会让 tools 数组变化
   // 一次(不可避免,调用新工具前模型必须先在某一轮看到它的 schema),但只在真正用到某个 MCP 工具时才发生,
   // 不是每轮都发全部。
   private activatedMcp = new Set<string>();
-  // 延迟加载工具(shouldDefer=true)初始只发 name+简短描述;被 tool_search 激活后发完整 schema。
+  // 延迟加载工具(shouldDefer=true)初始只发 name+简短描述;被 ToolSearch 激活后发完整 schema。
   private activatedDeferred = new Set<string>();
 
   register(tool: Tool): void {
@@ -66,7 +66,7 @@ export class ToolRegistry implements ToolDispatcher {
     return this.tools.get(name);
   }
 
-  // mcp__ 前缀之外的工具永远可见;mcp__ 工具只有被 tool_search 命中激活后才可见。
+  // mcp__ 前缀之外的工具永远可见;mcp__ 工具只有被 ToolSearch 命中激活后才可见。
   isMcpVisible(name: string): boolean {
     return !name.startsWith("mcp__") || this.activatedMcp.has(name);
   }
@@ -166,7 +166,7 @@ export class ToolRegistry implements ToolDispatcher {
       if (partial) {
         throw new Error(
           `invalid JSON arguments for ${name}(输出在生成过程中被截断,未执行——已生成到:${describeTruncatedArgs(partial)}。` +
-          `这次内容太长,把它拆成更小的几次调用:比如先用 write_file 写一部分,再用 edit_file/multi_edit 续写剩余内容,不要试图一次性重新生成同样长度的内容。)`,
+          `这次内容太长,把它拆成更小的几次调用:比如先用 Write 写一部分,再用 Edit/MultiEdit 续写剩余内容,不要试图一次性重新生成同样长度的内容。)`,
         );
       }
       throw new Error(`invalid JSON arguments for ${name}`);

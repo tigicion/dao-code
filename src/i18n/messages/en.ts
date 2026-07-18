@@ -210,7 +210,7 @@ export const en: Record<string, string> = {
   "ui.skill.help2": "Batch: letter=on, Shift+letter=off — a all · b built-in · i installed",
   "ui.model.none": "No selectable models for the current provider.",
   "ui.model.pickerTitle": "Model: ↑↓ select · ⏎ switch · Esc cancel",
-  // Structured choice (ask_user options)
+  // Structured choice (AskUserQuestion options)
   "ui.choice.done": "✓ Done (submit selection)",
   "ui.choice.fill": "Other (type your own)",
   "ui.choice.discuss": "Let's discuss first",

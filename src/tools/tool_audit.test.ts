@@ -11,9 +11,9 @@ describe("tool_audit sink", () => {
   it("call 落一行,args 截断 120", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "tool-a-"));
     const s = createToolAuditSink(dir, {} as NodeJS.ProcessEnv);
-    s.call("read_file", "read", true, 12, "x".repeat(300));
+    s.call("Read", "read", true, 12, "x".repeat(300));
     const ev = read(dir);
-    expect(ev[0]).toMatchObject({ kind: "call", name: "read_file", cap: "read", ok: true, durationMs: 12 });
+    expect(ev[0]).toMatchObject({ kind: "call", name: "Read", cap: "read", ok: true, durationMs: 12 });
     expect((ev[0] as { args: string }).args.length).toBeLessThanOrEqual(120);
   });
 

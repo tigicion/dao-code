@@ -19,13 +19,13 @@ afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
 function reg() {
   const r = new ToolRegistry();
   r.register(defineTool({
-    name: "exec_shell", description: "", capability: "exec", approval: "required",
+    name: "Bash", description: "", capability: "exec", approval: "required",
     schema: z.object({ command: z.string() }), handler: async () => "RAN",
   }));
   return r;
 }
 const exec = (id: string, command: string): ToolCall => ({
-  id, type: "function", function: { name: "exec_shell", arguments: JSON.stringify({ command }) },
+  id, type: "function", function: { name: "Bash", arguments: JSON.stringify({ command }) },
 });
 
 async function gateFor(promptAllows: boolean) {

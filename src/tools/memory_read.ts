@@ -7,13 +7,13 @@ import type { Memory } from "../memory/types.js";
 
 // 查跨会话记忆:给【名字/标题】或【关键词】,返回相关条目(用户模型/偏好/项目事实/历史决策/技术坑)。
 // 跨三层目录读(项目级 / 用户级 ~/.dao/memory / 知识库 ~/.dao/knowledge)——后两层在工作区沙箱外,
-// 普通 read_file/grep_files 够不着,故需本专用工具。纯文件读、零模型、【子串匹配】(不再用相似度)。
+// 普通 Read/Grep 够不着,故需本专用工具。纯文件读、零模型、【子串匹配】(不再用相似度)。
 // 用法:① 注入的"记忆索引"里看到相关 title → 给它取整句;② 想按词回忆之前定下的事 → 给关键词。
 const fmtFull = (m: Memory): string =>
   `[${m.type}·重${m.importance}·命中${m.uses ?? 0}${m.source ? `·来源 ${m.source}` : ""}]\n${m.text}`;
 
 export const memoryReadTool = defineTool({
-  name: "memory_read",
+  name: "MemoryRead",
   description:
     "查跨会话记忆:给名字(slug)或关键词/问题,返回最相关的若干条(用户模型/偏好/项目事实/历史决策/技术坑)。回答关于用户或项目的问题、或需要回忆之前定下的事时用它,别去翻代码。索引里看到相关名字也用它取整句。" +
     "多词查询是【全部命中】(AND,非模糊/OR),查不到就换更短的关键词而非加更多词。查询范围跨三层:项目级" +

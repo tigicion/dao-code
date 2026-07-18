@@ -59,7 +59,7 @@ describe("unified_reflect.reflect", () => {
   });
 
   it("目录倾倒式记忆被过滤", async () => {
-    const out = JSON.stringify({ onTrack: true, advisory: null, memories: [{ title: "x", text: "用户使用 grep_files 工具搜索代码", type: "user", importance: 6 }] });
+    const out = JSON.stringify({ onTrack: true, advisory: null, memories: [{ title: "x", text: "用户使用 Grep 工具搜索代码", type: "user", importance: 6 }] });
     const r = await reflect({ ...base, streamChat: () => fakeStream(out) } as never);
     expect(r.memories).toHaveLength(0);
   });
@@ -73,7 +73,7 @@ describe("unified_reflect.reflect", () => {
   it("fork 模式:把已有记忆候选嵌进发送的 prompt(供 mergeInto 判断),并带 tools", async () => {
     let sent: any;
     await reflect({
-      ...base, fork: true, tools: [{ type: "function", function: { name: "read_file" } }],
+      ...base, fork: true, tools: [{ type: "function", function: { name: "Read" } }],
       existing: [{ title: "已有偏好", text: "用户偏好中文" }],
       streamChat: (o: any) => { sent = o; return fakeStream('{"onTrack":true,"advisory":null,"memories":[]}'); },
     } as never);

@@ -11,7 +11,7 @@ export type FlashCall = (system: string, user: string) => Promise<string>;
 
 export interface AdapterDeps {
   daoTools: Set<string>; // dao 工具名集合(检测"非 dao 工具形 token"用)
-  catalog: string; // 目标词表:"read_file — 读文件\nexec_shell — 跑命令\n…"
+  catalog: string; // 目标词表:"Read — 读文件\nBash — 跑命令\n…"
   callFlash: FlashCall;
   homeDir: string; // 缓存根(~/.dao/skill-adapted/)
 }
@@ -23,7 +23,7 @@ export function convertSystemPrompt(catalog: string): string {
     catalog,
     "",
     "要求:",
-    "1. 正文里出现的【外来工具名】按用途替换成上面对应的 DAO 工具名(读文件→read_file、跑命令→exec_shell、改文件→edit_file、搜代码→grep_files…);没有对应的就用最贴近用途的,或改写成自然语言描述该动作。",
+    "1. 正文里出现的【外来工具名】按用途替换成上面对应的 DAO 工具名(读文件→Read、跑命令→Bash、改文件→Edit、搜代码→Grep…);没有对应的就用最贴近用途的,或改写成自然语言描述该动作。",
     "2. 跨引用(如 superpowers:xxx)改成 DAO 里按裸技能名加载(`xxx`)。",
     "3. 【外来模型档】映射到 DAO 的两档:廉价档(haiku / sonnet / gpt-*-mini / flash 等便宜模型)→ deepseek-v4-flash;强档(opus / gpt-4 / 高配 sonnet 等)→ deepseek-v4-pro。",
     "4. 凡'换更便宜的模型 / 用独立上下文 / dispatch 一个 subagent 去做 X'这类意图——【包括原文让主流程/主循环切到便宜模型干活的】——统一改写成 DAO 的子代理模式:用 agent 工具派子代理(它本就跑在独立上下文里,在子代理里换 model 无损),廉价子任务再加 model: deepseek-v4-flash。",

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { taskGetTool } from "./task_get.js";
 import { createTaskManager } from "../agent/tasks.js";
 
-describe("task_get", () => {
+describe("TaskGet", () => {
   it("查已完成任务的详情,含结果", async () => {
     const taskManager = createTaskManager();
     const id = taskManager.create("任务A");

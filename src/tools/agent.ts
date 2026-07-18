@@ -40,8 +40,8 @@ const AGENT_TOOL_PROMPT_ZH =
   "agent_type 指定子代理类型(见系统 prompt 的'可用子代理类型');省略则用通用子代理。\n" +
   "拿到结果后留个心眼:子代理返回的是它自称做了什么,不是你亲眼确认过的事实。" +
   "涉及代码改动的子任务,回来后亲自复核关键结论,不要原样转述子代理的自述。\n" +
-  "何时不该用:要读某个具体文件路径,直接 read_file;要搜某个类/函数定义,直接 grep_files/file_search;" +
-  "只需在 2-3 个文件里搜代码,直接 read_file。这些简单搜索不值得派子代理。\n" +
+  "何时不该用:要读某个具体文件路径,直接 Read;要搜某个类/函数定义,直接 Grep/Glob;" +
+  "只需在 2-3 个文件里搜代码,直接 Read。这些简单搜索不值得派子代理。\n" +
   "写 prompt 的指引:像给刚进门的聪明同事 brief--子代理没看过当前对话,不知道你试过什么、为什么这个任务重要。" +
   "说清目标与背景、已排除的方向、需要判断而非窄指令的上下文。需要短回复就说『200 字以内回报』。" +
   "查/定位:给确切命令;调查:给问题而非规定步骤。别写『基于你的发现修复 bug』--那是把综合判断推给子代理;" +
@@ -62,8 +62,8 @@ const AGENT_TOOL_PROMPT_EN =
   "agent_type selects a subagent type (see 'Available Subagent Types' in system prompt); omit for generic subagent.\n" +
   "Trust but verify: a subagent's summary describes what it claims it did, not what you've confirmed. " +
   "For code-change subtasks, verify key results yourself before reporting.\n" +
-  "When NOT to use: to read a specific file path, use read_file directly; to search for a class/function definition, use grep_files/file_search directly; " +
-  "to search within 2-3 specific files, use read_file directly. These simple searches don't warrant a subagent.\n" +
+  "When NOT to use: to read a specific file path, use Read directly; to search for a class/function definition, use Grep/Glob directly; " +
+  "to search within 2-3 specific files, use Read directly. These simple searches don't warrant a subagent.\n" +
   "Writing the prompt: brief the agent like a smart colleague who just walked into the room - it hasn't seen this conversation. " +
   "Explain what you're trying to accomplish and why. Describe what you've already learned or ruled out. " +
   "Give enough context for judgment calls. If you need a short response, say so. Lookups: hand over the exact command. " +
@@ -76,7 +76,7 @@ const AGENT_TOOL_PROMPT_EN =
   "  agent({ task: \"Change ValidationError to extend AppError and update all catch blocks\", fork: true })";
 
 export const agentTool = defineTool({
-  name: "agent",
+  name: "Agent",
   description:
     "把独立子任务派发给子代理:它用同样的工具自主跑完、只返回最终结果(你看不到中间过程)。" +
     "任务描述要自包含——子代理没有当前对话上下文。" +
@@ -92,7 +92,7 @@ export const agentTool = defineTool({
     "拿到结果后留个心眼:子代理返回的是它自称做了什么,不是你亲眼确认过的事实——它可能把「应该改好了」当「已经改好了」报回来。" +
     "涉及代码改动、修 bug、跑测试这类子任务,回来后花一次工具调用亲自复核关键结论(读一下实际 diff、跑一下它说过的命令)," +
     "不要原样把子代理的自述转述给用户当作你自己验证过的结论。\n" +
-    "何时不该用:要读某个具体文件路径,直接 read_file;要搜某个类/函数定义,直接 grep_files/file_search;只需在 2-3 个文件里搜代码,直接 read_file。这些简单搜索不值得派子代理。\n" +
+    "何时不该用:要读某个具体文件路径,直接 Read;要搜某个类/函数定义,直接 Grep/Glob;只需在 2-3 个文件里搜代码,直接 Read。这些简单搜索不值得派子代理。\n" +
     "写 prompt 的指引:像给刚进门的聪明同事 brief--子代理没看过当前对话,不知道你试过什么、为什么这个任务重要。说清目标与背景、已排除的方向、需要判断而非窄指令的上下文。需要短回复就说『200 字以内回报』。查/定位:给确切命令;调查:给问题而非规定步骤。别写『基于你的发现修复 bug』--那是把综合判断推给子代理;写能证明你理解了的 prompt:含文件路径、行号、具体改什么。",
   descriptionEn:
     "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
@@ -110,7 +110,7 @@ export const agentTool = defineTool({
     "Trust but verify what comes back: a subagent's summary describes what it claims it did, not what you've confirmed happened — it may report \"should be fixed\" as " +
     "\"fixed\". For subtasks touching code changes, bug fixes, or tests, spend one follow-up tool call checking the actual result yourself (read the real diff, run the " +
     "command it says it ran) before reporting the subagent's account to the user as your own verified conclusion.\n" +
-    "When NOT to use: to read a specific file path, use read_file directly; to search for a class/function definition, use grep_files/file_search directly; to search within 2-3 specific files, use read_file directly. These simple searches don't warrant a subagent.\n" +
+    "When NOT to use: to read a specific file path, use Read directly; to search for a class/function definition, use Grep/Glob directly; to search within 2-3 specific files, use Read directly. These simple searches don't warrant a subagent.\n" +
     "Writing the prompt: brief the agent like a smart colleague who just walked into the room - it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters. Explain what you're trying to accomplish and why. Describe what you've already learned or ruled out. Give enough context that the agent can make judgment calls rather than just following a narrow instruction. If you need a short response, say so. Lookups: hand over the exact command. Investigations: hand over the question - prescribed steps become dead weight when the premise is wrong. Don't write 'based on your findings, fix the bug' - that pushes synthesis onto the agent; write prompts that prove you understood: include file paths, line numbers, what specifically to change.",
   capability: "plan",
   approval: "auto",
@@ -251,7 +251,7 @@ export const agentTool = defineTool({
       if (!isolate && ctx.taskManager && taskManagerAdapter) {
         const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
         // abortController 由 registerAgentForeground 建好返回(而非 runAgent 内部私建)——这样它才能
-        // 同时注册进 taskManager,让 cancel()/task_stop 对这个还在跑的子代理真正生效(不止翻状态位)。
+        // 同时注册进 taskManager,让 cancel()/TaskStop 对这个还在跑的子代理真正生效(不止翻状态位)。
         const fg = ctx.taskManager.registerAgentForeground({ agentId, description: t.slice(0, 50), autoBackgroundMs: ms });
         const { abortController } = fg;
         // 父信号链自己管(不让 runAgent 内部兜底链):这里是唯一知道"转后台"这个时机的地方——
@@ -290,7 +290,7 @@ export const agentTool = defineTool({
               // 前台->后台无缝切换:复用同一个 iterator 继续消费,不重跑(不像 CC 那样销毁重启一个
               // isAsync:true 的新 runAgent)——之所以敢这么做,是因为 agentId/taskId 已统一成同一个 id、
               // abortController 也是 registerAgentForeground 建好注册进 taskManager 的真实 controller,
-              // task_send/cancel 从子代理一开始就能生效,不需要靠"转成 isAsync"才激活,复用 iterator 不会丢这两个能力。
+              // TaskSend/cancel 从子代理一开始就能生效,不需要靠"转成 isAsync"才激活,复用 iterator 不会丢这两个能力。
               // onCacheSafeParams 透传:若前台阶段已触发过(正常情况),用已有的 cacheSafeParams
               // 启动摘要器;若尚未触发(runAgent 还没到阶段 4),makeStream 的 onCacheSafeParams 回调
               // 由 runAsyncAgentLifecycle 调用 makeStream 时传入--但 iterator 已在跑,不会再触发。
@@ -319,7 +319,7 @@ export const agentTool = defineTool({
           }
           fg.cancelAutoBackground();
           detachParentAbort?.(); // 正常跑完:摘掉父信号监听器,不留在父 signal 上等永远不会来的 abort
-          ctx.taskManager.settle(fg.taskId); // running -> completed,别让 cancelAll()/task_stop 把跑完的任务当成还在跑
+          ctx.taskManager.settle(fg.taskId); // running -> completed,别让 cancelAll()/TaskStop 把跑完的任务当成还在跑
           const result = finalizeAgentTool(messages, agentId, {
             prompt: t, model: resolvedModelForDisplay, agentType: agentDef.agentType, startTime: Date.now(), isAsync: false, isBuiltInAgent,
           });

@@ -22,7 +22,7 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("file_search tool", () => {
+describe("Glob tool", () => {
   it("finds top-level files by glob, newest first", async () => {
     const out = await fileSearchTool.handler({ glob: "*.ts" }, ctx());
     const lines = out.split("\n");
@@ -43,6 +43,6 @@ describe("file_search tool", () => {
   it("declares read capability and auto approval", () => {
     expect(fileSearchTool.capability).toBe("read");
     expect(fileSearchTool.approval).toBe("auto");
-    expect(fileSearchTool.name).toBe("file_search");
+    expect(fileSearchTool.name).toBe("Glob");
   });
 });

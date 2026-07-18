@@ -40,9 +40,9 @@ describe("loadHooks (CC 嵌套格式)", () => {
   it("裸 {event:[...]} 也接受(无外层 hooks 包)", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "hk-"));
     const f = path.join(dir, "h2.json");
-    writeFileSync(f, JSON.stringify({ PreToolUse: [{ matcher: "write_file", hooks: [{ type: "command", command: "x", if: "Write(*.ts)" }] }] }));
+    writeFileSync(f, JSON.stringify({ PreToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "x", if: "Write(*.ts)" }] }] }));
     const specs = loadHooks([{ path: f }]);
-    expect(specs[0]).toMatchObject({ event: "PreToolUse", matcher: "write_file", if: "Write(*.ts)", type: "command", command: "x" });
+    expect(specs[0]).toMatchObject({ event: "PreToolUse", matcher: "Write", if: "Write(*.ts)", type: "command", command: "x" });
   });
   it("坏文件跳过", () => {
     expect(loadHooks([{ path: "/no/such/file.json" }])).toEqual([]);
@@ -54,8 +54,8 @@ const spec = (o: Partial<import("./hooks.js").HookSpec>): import("./hooks.js").H
 
 describe("selectHooks", () => {
   it("工具事件:matcher 匹配工具名", () => {
-    const specs = [spec({ event: "PreToolUse", matcher: "write_file|edit_file" }), spec({ event: "PreToolUse", matcher: "exec_shell" })];
-    const sel = selectHooks(specs, "PreToolUse", { toolName: "write_file", argsJson: "{}" });
+    const specs = [spec({ event: "PreToolUse", matcher: "Write|Edit" }), spec({ event: "PreToolUse", matcher: "Bash" })];
+    const sel = selectHooks(specs, "PreToolUse", { toolName: "Write", argsJson: "{}" });
     expect(sel).toHaveLength(1);
   });
   it("SessionStart:matcher 匹配来源", () => {

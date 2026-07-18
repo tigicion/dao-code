@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { auditEnabled } from "../session/audit_switch.js";
 
-// 记忆审计:召回(会话启动注入了什么)/写入(memory_write 新建 vs 合并)/蒸馏(退出抽取)。
+// 记忆审计:召回(会话启动注入了什么)/写入(MemoryWrite 新建 vs 合并)/蒸馏(退出抽取)。
 // 落盘 <sessionDir>/memory-trace.jsonl。受总开关 DAO_AUDIT(默认开)/DAO_MEMORY_AUDIT 控制。
 export type MemoryTraceEvent =
   | { kind: "recalled"; ts: number; injected: number; stale: number; changed: number; types: Record<string, number>; foreign?: number }

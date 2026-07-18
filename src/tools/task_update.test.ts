@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { taskUpdateTool } from "./task_update.js";
 import { createTaskManager } from "../agent/tasks.js";
 
-describe("task_update", () => {
+describe("TaskUpdate", () => {
   it("标记完成并给结果", async () => {
     const taskManager = createTaskManager();
     const id = taskManager.create("任务A");

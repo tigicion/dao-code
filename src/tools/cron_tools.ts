@@ -6,7 +6,7 @@ import { scheduleAdd, scheduleList, scheduleRemove } from "../schedule.js";
 // durable=true(默认 false)写 OS crontab;durable=false 仅 session 内存(后续实现)。
 // recurring=false 一次性任务(执行后自动删除);recurring=true(默认)循环执行。
 export const cronCreateTool = defineTool({
-  name: "cron_create",
+  name: "CronCreate",
   description:
     "创建定时任务。cron 为 5 字段表达式(分 时 日 月 周,本地时区),如 '0 9 * * *'(每天 9 点)。" +
     "recurring: true(默认)=循环执行;false=一次性(执行后自动删除)。" +
@@ -41,23 +41,23 @@ export const cronCreateTool = defineTool({
       : args.prompt;
     await scheduleAdd(args.cron, fullPrompt, ctx.workspaceRoot, process.execPath, w);
     if (args.recurring === false) {
-      w("注意:一次性任务执行后需手动删除(用 cron_delete 或 dao schedule remove)。\n");
+      w("注意:一次性任务执行后需手动删除(用 CronDelete 或 dao schedule remove)。\n");
     }
     return out.trim() || "(完成)";
   },
 });
 
 export const cronDeleteTool = defineTool({
-  name: "cron_delete",
+  name: "CronDelete",
   description:
-    "按序号删除定时任务。先用 cron_list 查看序号。仅删除 durable(持久化到 OS crontab)的任务。",
+    "按序号删除定时任务。先用 CronList 查看序号。仅删除 durable(持久化到 OS crontab)的任务。",
   descriptionEn:
-    "Delete a scheduled task by index. Use cron_list first to see the numbers. Only deletes durable (OS crontab) tasks.",
+    "Delete a scheduled task by index. Use CronList first to see the numbers. Only deletes durable (OS crontab) tasks.",
   capability: "exec",
   approval: "required",
   shouldDefer: true,
   schema: z.object({
-    jobId: z.number().int().min(1).describe("cron_list 里的序号"),
+    jobId: z.number().int().min(1).describe("CronList 里的序号"),
   }),
   handler: async (args, ctx) => {
     let out = "";
@@ -68,7 +68,7 @@ export const cronDeleteTool = defineTool({
 });
 
 export const cronListTool = defineTool({
-  name: "cron_list",
+  name: "CronList",
   description: "列出所有定时任务(含序号、cron 表达式、prompt 摘要)。",
   descriptionEn: "List all scheduled tasks (index, cron expression, prompt summary).",
   capability: "read",

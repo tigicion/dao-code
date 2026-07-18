@@ -71,6 +71,6 @@ describe("prefix append-only invariant", () => {
     s.addUser("b"); await runTurn(d);
     expect(toolsJson).toHaveLength(2);
     expect(toolsJson[0]).toBe(toolsJson[1]); // 逐字节相同 → 工具段不破缓存
-    expect(toolsJson[0]).toContain("read_file");
+    expect(toolsJson[0]).toContain("Read");
   });
 });

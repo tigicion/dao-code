@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { makeApprovalPrompt } from "./stdin_prompt.js";
 import type { ApprovalRequest } from "./types.js";
 
-const req = (id: string): ApprovalRequest => ({ id, toolName: "exec_shell", capability: "exec", summary: `$ cmd-${id}` });
+const req = (id: string): ApprovalRequest => ({ id, toolName: "Bash", capability: "exec", summary: `$ cmd-${id}` });
 
 describe("makeApprovalPrompt", () => {
   it("非交互(isInteractive=false)时直接拒绝,完全不调用 ask——避免在无 TTY 环境卡死等一个永远不会来的回答", async () => {

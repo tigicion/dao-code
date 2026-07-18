@@ -4,11 +4,11 @@ import { distill, isCatalogNoise } from "./distill.js";
 describe("isCatalogNoise — 产品目录倾倒的后备过滤", () => {
   it("拦截'用户使用 X 技能/工具'清单式条目", () => {
     expect(isCatalogNoise("用户使用 test-driven-development 技能进行测试")).toBe(true);
-    expect(isCatalogNoise("用户使用 grep_files 工具(原 Grep)来搜索代码库")).toBe(true);
+    expect(isCatalogNoise("用户使用 Grep 工具(原 Grep)来搜索代码库")).toBe(true);
     expect(isCatalogNoise("用户维护了一个包含 31 个技能的本地技能库")).toBe(true);
   });
   it("拦截工具改名清单(原 X → Y)", () => {
-    expect(isCatalogNoise("用户偏好将工具名从 Task/TodoWrite 改为 agent/todo_write")).toBe(true);
+    expect(isCatalogNoise("用户偏好将工具名从 Task/TodoWrite 改为 agent/TodoWrite")).toBe(true);
   });
   it("放行真正关于用户的事实", () => {
     expect(isCatalogNoise("用户在学 agent 原理,偏好讲机制")).toBe(false);
@@ -57,7 +57,7 @@ describe("distill", () => {
       config: { baseUrl: "x", apiKey: "x" }, model: "deepseek-v4-pro",
       messages: [{ role: "system", content: "SYS" }, { role: "user", content: "hi" }],
       today: "2026-06-07", fork: true,
-      tools: [{ type: "function", function: { name: "read_file" } }],
+      tools: [{ type: "function", function: { name: "Read" } }],
       reasoningEffort: "max",
     } as any);
     expect(opts.tools).toHaveLength(1); // 带主循环同款 tools
@@ -73,7 +73,7 @@ describe("distill", () => {
       streamChat: (o: any) => { opts = o; return fakeStream("[]"); },
       config: { baseUrl: "x", apiKey: "x" }, model: "deepseek-v4-flash",
       messages: [{ role: "user", content: "hi" }], today: "2026-06-07",
-      tools: [{ type: "function", function: { name: "read_file" } }], // 即便传了也不带(非 fork)
+      tools: [{ type: "function", function: { name: "Read" } }], // 即便传了也不带(非 fork)
     } as any);
     expect(opts.tools).toBeUndefined();
     expect(opts.extra?.thinking).toEqual({ type: "disabled" });

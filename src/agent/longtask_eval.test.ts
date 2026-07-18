@@ -85,8 +85,8 @@ describe("长任务韧性 eval", () => {
     let turn = 0, compacted = 0;
     const streamChat = (o: StreamChatOptions) => {
       turn++;
-      if (turn === 1) return gen(toolMsg("t1", "read_file")); // 第1轮:正常调工具
-      if (turn === 2) return o.model === "pro" ? boom("DeepSeek API error 529") : gen(toolMsg("t2", "write_file")); // 第2轮:529→回退
+      if (turn === 1) return gen(toolMsg("t1", "Read")); // 第1轮:正常调工具
+      if (turn === 2) return o.model === "pro" ? boom("DeepSeek API error 529") : gen(toolMsg("t2", "Write")); // 第2轮:529→回退
       if (turn === 3) return compacted === 0 ? boom("maximum context length exceeded") : gen({ role: "assistant", content: "完成" }); // 第3轮:超限→压缩重试
       return gen({ role: "assistant", content: "完成" });
     };

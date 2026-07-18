@@ -105,8 +105,8 @@ describe("resumeAgentBackground", () => {
 describe("filterIncompleteToolCalls", () => {
   it("过滤未配对的 tool_use", () => {
     const msgs: ChatMessage[] = [
-      { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "read_file", arguments: "{}" } }] },
-      { role: "assistant", content: "", tool_calls: [{ id: "2", type: "function", function: { name: "grep_files", arguments: "{}" } }] },
+      { role: "assistant", content: "", tool_calls: [{ id: "1", type: "function", function: { name: "Read", arguments: "{}" } }] },
+      { role: "assistant", content: "", tool_calls: [{ id: "2", type: "function", function: { name: "Grep", arguments: "{}" } }] },
       { role: "tool", tool_call_id: "1", content: "result" },
     ];
     const filtered = filterIncompleteToolCalls(msgs);

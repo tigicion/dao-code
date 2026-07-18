@@ -14,7 +14,7 @@ async function waitFor(pred: () => boolean, timeoutMs = 3000) {
   }
 }
 
-describe("exec_shell_poll / exec_shell_kill", () => {
+describe("BashOutput / KillShell", () => {
   it("polls a background process's output and status", async () => {
     const id = processManager.start("echo polled", process.cwd());
     await waitFor(() => processManager.poll(id).status === "exited");
@@ -35,7 +35,7 @@ describe("exec_shell_poll / exec_shell_kill", () => {
   it("declares auto approval", () => {
     expect(execShellPollTool.approval).toBe("auto");
     expect(execShellKillTool.approval).toBe("auto");
-    expect(execShellPollTool.name).toBe("exec_shell_poll");
-    expect(execShellKillTool.name).toBe("exec_shell_kill");
+    expect(execShellPollTool.name).toBe("BashOutput");
+    expect(execShellKillTool.name).toBe("KillShell");
   });
 });

@@ -4,7 +4,7 @@ const trunc = (s: string, n = 300): string => (s.length > n ? s.slice(0, n) + "�
 
 // 为 auto 模式分类器构建紧凑 transcript(对标 CC buildTranscriptEntries):
 // 只取【用户文本】与【助手的工具调用】,故意排除助手自由文本——防止模型用解释性文字反向操纵分类器。
-// 输出紧凑 JSONL:{"user":"修下登录"}\n{"exec_shell":"{\"command\":\"npm test\"}"} …
+// 输出紧凑 JSONL:{"user":"修下登录"}\n{"Bash":"{\"command\":\"npm test\"}"} …
 export function buildClassifierTranscript(messages: ChatMessage[], maxEntries = 12): string {
   const entries: string[] = [];
   for (const m of messages) {

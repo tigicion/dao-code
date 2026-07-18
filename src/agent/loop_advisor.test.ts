@@ -26,7 +26,7 @@ describe("L4.2/L4.3 advisor", () => {
       sentLog.push([...opts.messages]);
       turn++;
       return (async function* (): AsyncGenerator<never, AssistantMessage> {
-        if (turn <= 3) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "read_file", arguments: "{}" } }] };
+        if (turn <= 3) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "Read", arguments: "{}" } }] };
         return { role: "assistant", content: "done" };
       })();
     };
@@ -51,7 +51,7 @@ describe("L4.2/L4.3 advisor", () => {
       sentLog.push([...opts.messages]);
       turn++;
       return (async function* (): AsyncGenerator<never, AssistantMessage> {
-        if (turn <= 4) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "write_file", arguments: "{}" } }] };
+        if (turn <= 4) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "Write", arguments: "{}" } }] };
         return { role: "assistant", content: "done" };
       })();
     };

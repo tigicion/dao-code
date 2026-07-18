@@ -5,7 +5,7 @@ import { scheduleAdd, scheduleList, scheduleRemove } from "../schedule.js";
 // 让"每天/每隔…自动跑/提醒…"这类自然语言能路由到本地定时(OS crontab + headless dao)。
 // 与操作员命令 `dao schedule` 共用 schedule.ts;写 crontab 有副作用,故 exec + 需审批。
 export const scheduleTool = defineTool({
-  name: "schedule",
+  name: "Schedule",
   description:
     "管理本地定时任务(OS crontab,到点 cd 到当前工作区、headless 跑一次 dao 带这个 prompt,输出落" +
     "~/.dao/schedule.log)。用户表达'每天/每周/每隔…自动跑/提醒/检查…'这类定时需求时用。" +

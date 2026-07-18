@@ -4,7 +4,7 @@ import { buildSystemPrompt, LONG_TASK_DIRECTIVE, LONG_TASK_DIRECTIVE_EN } from "
 describe("buildSystemPrompt (zh)", () => {
   const prompt = buildSystemPrompt({
     modelId: "deepseek-v4-pro",
-    toolSummaries: "- read_file:读文件\n- write_file:写文件",
+    toolSummaries: "- Read:读文件\n- Write:写文件",
     projectInstructions: "(无)",
   });
 
@@ -13,8 +13,8 @@ describe("buildSystemPrompt (zh)", () => {
   });
 
   it("injects the tool summaries", () => {
-    expect(prompt).toContain("- read_file:读文件");
-    expect(prompt).toContain("- write_file:写文件");
+    expect(prompt).toContain("- Read:读文件");
+    expect(prompt).toContain("- Write:写文件");
   });
 
   it("describes the two modes", () => {
@@ -39,7 +39,7 @@ describe("buildSystemPrompt (zh)", () => {
   it("reflectMemoryEnabled:true(单开)→ 只提 [反思],不提审视者/纠偏者", () => {
     const p = buildSystemPrompt({
       modelId: "deepseek-v4-pro",
-      toolSummaries: "- read_file:读文件",
+      toolSummaries: "- Read:读文件",
       reflectMemoryEnabled: true,
     });
     expect(p).toContain("[反思]");
@@ -51,7 +51,7 @@ describe("buildSystemPrompt (zh)", () => {
   it("reflectChallengerEnabled:true(单开)→ 只提审视者/纠偏者,不提 [反思]", () => {
     const p = buildSystemPrompt({
       modelId: "deepseek-v4-pro",
-      toolSummaries: "- read_file:读文件",
+      toolSummaries: "- Read:读文件",
       reflectChallengerEnabled: true,
     });
     expect(p).toContain("[审视者]");
@@ -62,7 +62,7 @@ describe("buildSystemPrompt (zh)", () => {
   it("两个都开 → 三个 tag 都出现", () => {
     const p = buildSystemPrompt({
       modelId: "deepseek-v4-pro",
-      toolSummaries: "- read_file:读文件",
+      toolSummaries: "- Read:读文件",
       reflectMemoryEnabled: true,
       reflectChallengerEnabled: true,
     });
@@ -114,7 +114,7 @@ describe("buildSystemPrompt (zh)", () => {
 describe("buildSystemPrompt (en)", () => {
   const prompt = buildSystemPrompt({
     modelId: "deepseek-v4-pro",
-    toolSummaries: "- read_file:Reads a text file\n- write_file:Writes a file",
+    toolSummaries: "- Read:Reads a text file\n- Write:Writes a file",
     lang: "en",
   });
 
@@ -123,8 +123,8 @@ describe("buildSystemPrompt (en)", () => {
   });
 
   it("injects the tool summaries", () => {
-    expect(prompt).toContain("- read_file:Reads a text file");
-    expect(prompt).toContain("- write_file:Writes a file");
+    expect(prompt).toContain("- Read:Reads a text file");
+    expect(prompt).toContain("- Write:Writes a file");
   });
 
   it("uses English section headers", () => {
@@ -155,7 +155,7 @@ describe("buildSystemPrompt (en)", () => {
   it("reflectMemoryEnabled:true(单开)→ 提示词里补上 [反思],不提审视者/纠偏者", () => {
     const p = buildSystemPrompt({
       modelId: "deepseek-v4-pro",
-      toolSummaries: "- read_file:Reads a text file",
+      toolSummaries: "- Read:Reads a text file",
       lang: "en",
       reflectMemoryEnabled: true,
     });
@@ -166,7 +166,7 @@ describe("buildSystemPrompt (en)", () => {
   it("reflectChallengerEnabled:true(单开)→ 提示词里补上审视者/纠偏者,不提 [反思]", () => {
     const p = buildSystemPrompt({
       modelId: "deepseek-v4-pro",
-      toolSummaries: "- read_file:Reads a text file",
+      toolSummaries: "- Read:Reads a text file",
       lang: "en",
       reflectChallengerEnabled: true,
     });

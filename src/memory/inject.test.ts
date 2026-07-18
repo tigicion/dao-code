@@ -133,7 +133,7 @@ describe("两层读取(selectFullText / selectIndexNames / buildIndexSection)", 
   it("buildIndexSection:列名 + 用法提示;空则空串", () => {
     expect(buildIndexSection([])).toBe("");
     const s = buildIndexSection(["foo", "bar"]);
-    expect(s).toContain("memory_read");
+    expect(s).toContain("MemoryRead");
     expect(s).toContain("- foo");
     expect(s).toContain("- bar");
     expect(s).toContain("其余 2 条");

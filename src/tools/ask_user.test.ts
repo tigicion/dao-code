@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { askUserTool } from "./ask_user.js";
 
-describe("ask_user tool", () => {
+describe("AskUserQuestion tool", () => {
   it("returns the user's answer via ctx.ask", async () => {
     const out = await askUserTool.handler(
       { question: "favorite color?" },
@@ -57,7 +57,7 @@ describe("ask_user tool", () => {
 
   it("declares auto approval", () => {
     expect(askUserTool.approval).toBe("auto");
-    expect(askUserTool.name).toBe("ask_user");
+    expect(askUserTool.name).toBe("AskUserQuestion");
   });
 
   // ---- 多问题模式(questions 数组) ----

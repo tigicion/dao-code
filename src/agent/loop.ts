@@ -52,11 +52,11 @@ export function sanitizeHistoryForResume(messages: ChatMessage[]): ChatMessage[]
 }
 
 // L4.5 收尾锚点:本会话是否碰过代码/命令(写文件/改文件/跑 shell)却从没调用过 verify 子代理。
-// 纯文字提示(工具描述里的话术、todo_write 全勾提醒)有个共同盲区——都得指望模型"恰好用到某个
+// 纯文字提示(工具描述里的话术、TodoWrite 全勾提醒)有个共同盲区——都得指望模型"恰好用到某个
 // 特定工具"才有机会触发,像 protein-assembly、filter-js-from-html 这类会话里模型全程没用过
-// todo_write,那些提示就完全没被看到。这个检测不依赖任何特定工具是否被用过,直接扫整个会话
+// TodoWrite,那些提示就完全没被看到。这个检测不依赖任何特定工具是否被用过,直接扫整个会话
 // 历史,在循环真正"要收尾"(纯文本回合、没有更多工具调用)那一刻锚定判断。
-const CODE_TOUCHING_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "exec_shell"]);
+const CODE_TOUCHING_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
 function touchedCodeWithoutVerify(messages: ChatMessage[]): boolean {
   let touchedCode = false;
   let calledVerify = false;
@@ -65,7 +65,7 @@ function touchedCodeWithoutVerify(messages: ChatMessage[]): boolean {
     for (const tc of m.tool_calls ?? []) {
       if (CODE_TOUCHING_TOOLS.has(tc.function.name)) touchedCode = true;
       // 检测是否派了 verify 子代理(agent 工具 + agent_type=verify)
-      if (tc.function.name === "agent") {
+      if (tc.function.name === "Agent") {
         try {
           const args = JSON.parse(tc.function.arguments);
           if (args.agent_type === "verify") calledVerify = true;
@@ -137,14 +137,14 @@ export interface TurnDeps {
 export async function runTurn(deps: TurnDeps): Promise<void> {
   const { session, signal } = deps;
   const events = deps.events ?? plainEvents(deps.write);
-  // 工具 ctx 透传取消信号(exec_shell 据此 SIGTERM);不改原 ctx 引用,按需补 signal + 当前模型名。
+  // 工具 ctx 透传取消信号(Bash 据此 SIGTERM);不改原 ctx 引用,按需补 signal + 当前模型名。
   const toolCtx = { ...deps.ctx, sessionModel: session.model, ...(signal ? { signal } : {}) };
   // 边界保护对标 CC:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
   // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时,把提醒【追加】进 session.messages(append-only)。
   const ADVISE_EVERY = Number(process.env.DAO_ADVISE_EVERY) || 5;
-  const PROGRESS_TOOLS = new Set(["write_file", "edit_file", "multi_edit", "notebook_edit", "todo_write"]);
+  const PROGRESS_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "TodoWrite"]);
   let noProgress = 0;
   // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
   // 动机:蒸馏过 4 道 terminal-bench 超时题(dna-assembly/llm-inference-batching-scheduler/
@@ -156,7 +156,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 全会话累计"通用档提醒"触发次数,不随 progressed 清零(与 stuckAdviceCount 的区别就在这里)。
   // 动机(真实撞见:terminal-bench make-mips-interpreter,反复推理反模式):模型卡在同一个
   // printf/内存字节问题上反复假设了两个多小时,期间进度提醒确实触发过 3 次,但每次都恰好被
-  // 穿插的零星 edit_file 调用清零了 stuckAdviceCount,导致每次都只拿到"第1次"的通用措辞,
+  // 穿插的零星 Edit 调用清零了 stuckAdviceCount,导致每次都只拿到"第1次"的通用措辞,
   // 从未真正升级——跟 raman-fitting 那次发现的检测盲区同一个根因("该轮是否调用过写类工具"
   // 不代表核心问题真的被解决了)。这个计数器不看"当前这次卡住连续了几次",看"这整个会话
   // 里已经卡住又被复位过几次",复位掩盖不了这个累计数字。
@@ -297,7 +297,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           continue;
         }
         // 主模型+回退模型都遇到了同类网络/超时错误(真实撞见过 terminal-bench make-mips-interpreter:
-        // 模型试图单次 write_file 写入千行级大文件,主模型先抛异常触发回退,回退模型随后也 120s 空闲
+        // 模型试图单次 Write 写入千行级大文件,主模型先抛异常触发回退,回退模型随后也 120s 空闲
         // 超时——此前这里直接上抛,整个 episode 崩溃退出,900s+ 预算和此前所有真实进展全部作废)。
         // 退避后把 usedFallback 重置、给主模型再来一次机会,最多重试 2 次,任何一次成功都救回本轮。
         const hardMaxRetries = 2;
@@ -408,7 +408,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     if (toolCalls.length === 0) {
       // L4.5 收尾前锚点:纯文本回合(模型认为已经可以结束了)--但如果本会话碰过代码/命令、
       // 却从没派过 verify 子代理,先提醒一次、给它一轮机会自己决定要不要验证,而不是直接放行。
-      if (!verifyReminderShown && tools.some((t) => t.function.name === "agent") && session.mode !== "plan" && touchedCodeWithoutVerify(session.messages)) {
+      if (!verifyReminderShown && tools.some((t) => t.function.name === "Agent") && session.mode !== "plan" && touchedCodeWithoutVerify(session.messages)) {
         verifyReminderShown = true;
         session.messages.push({
           role: "system",
@@ -474,12 +474,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       .filter((m) => m.imageData)
       .map((m) => ({ type: "image_url" as const, image_url: { url: `data:${m.imageData!.mediaType};base64,${m.imageData!.base64}` } }));
     if (imageParts.length > 0) {
-      session.messages.push({ role: "user", content: [...imageParts, { type: "text", text: "[以上图片由 read_file 工具读取,请基于图片内容回答用户的问题]" }] });
+      session.messages.push({ role: "user", content: [...imageParts, { type: "text", text: "[以上图片由 Read 工具读取,请基于图片内容回答用户的问题]" }] });
     }
 
     // P2-11 编辑后诊断回灌:本轮改了文件 → 跑诊断命令,有报错就注入 [诊断],模型当轮自查自改。
     if (deps.diagnose) {
-      const wrote = toolCalls.some((tc) => ["write_file", "edit_file", "multi_edit", "notebook_edit"].includes(tc.function.name));
+      const wrote = toolCalls.some((tc) => ["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(tc.function.name));
       if (wrote && !signal?.aborted) {
         const d = await deps.diagnose();
         if (d) { session.messages.push({ role: "system", content: `[诊断:编辑后检查发现问题,请修复]\n${d}` }); events.notice("\n[已注入编辑后诊断]\n"); }
@@ -502,10 +502,10 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       const escalate = stuckAdviceCount > 1 || totalStuckEvents >= 3;
       advisories.push(
         !escalate
-          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请派 verify 子代理验证后收尾;如果确实卡住了,用 ask_user 向用户求助,不要空转。`
+          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请派 verify 子代理验证后收尾;如果确实卡住了,用 AskUserQuestion 向用户求助,不要空转。`
           : stuckAdviceCount > 1
-            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,用 ask_user 求助或如实汇报现状。`
-            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,用 ask_user 求助或如实汇报现状。`,
+            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,用 AskUserQuestion 求助或如实汇报现状。`
+            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,用 AskUserQuestion 求助或如实汇报现状。`,
       );
       const label = stuckAdviceCount > 1 ? `·第${stuckAdviceCount}次` : escalate ? `·本会话第${totalStuckEvents}次卡住` : "";
       events.notice(`\n[进度提醒${label}:已连续 ${noProgress} 轮无实质推进]\n`);
