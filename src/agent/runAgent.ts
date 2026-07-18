@@ -1,14 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { ChatMessage, AssistantMessage } from "../client/types.js";
-import type { ToolContext } from "../tools/types.js";
+import type { ChatMessage } from "../client/types.js";
+import type { ToolContext, Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type { Mode } from "../tools/tools_for_mode.js";
 import { Session } from "../session/session.js";
 import type { TurnDeps } from "./loop.js";
 import type { AgentDef } from "./agent_defs.js";
 import { resolveAgentTools, createProgressTracker } from "./agent_tools.js";
+import { recordSidechainMessage, writeAgentMetadata, filterIncompleteToolCalls } from "./resume_agent.js";
+import { registerAgentHooks, clearAgentHooks, executeSubagentStartHooks, executeSubagentStopHooks, type AgentHookRegistry } from "./agent_hooks.js";
+import { loadAgentMemoryPrompt } from "./agent_memory.js";
+
+export { filterIncompleteToolCalls };
+
+// 记忆 agent 强制找回的工具(即使 tools/disallowedTools 把它们排除了)——没有读写能力,记忆等于白设。
+const FORCED_MEMORY_TOOLS = ["read_file", "write_file", "edit_file"];
 
 // ---- 类型 ----
 
@@ -44,6 +51,8 @@ export interface RunAgentParams {
   worktreePath?: string;
   /** 任务描述(持久化用) */
   description?: string;
+  /** sidechain 转录目录(未传时兜底用 process.cwd()/.dao/subagents) */
+  subagentsDir?: string;
   /** 缓存安全参数回调(后台摘要用) */
   onCacheSafeParams?: (params: CacheSafeParams) => void;
   /** 每条消息回调(活性检测用) */
@@ -94,64 +103,19 @@ export function getAgentModel(
   return parentModel;
 }
 
-// ---- 消息过滤 ----
-
-/**
- * 过滤未配对 tool_use 的 assistant 消息(对标 CC filterIncompleteToolCalls)。
- * 防止 fork 上下文中有孤儿 tool_call 导致 API 报错。
- */
-export function filterIncompleteToolCalls(messages: ChatMessage[]): ChatMessage[] {
-  // 收集所有有 tool result 的 tool_call_id
-  const toolUseIdsWithResults = new Set<string>();
-  for (const m of messages) {
-    if (m.role === "tool") {
-      toolUseIdsWithResults.add(m.tool_call_id);
-    }
-  }
-
-  return messages.filter((m) => {
-    if (m.role !== "assistant") return true;
-    const a = m as AssistantMessage;
-    if (!a.tool_calls || a.tool_calls.length === 0) return true;
-    // 如果有任何一个 tool_call 没有对应 result,过滤掉这条 assistant
-    const hasIncomplete = a.tool_calls.some((tc) => !toolUseIdsWithResults.has(tc.id));
-    return !hasIncomplete;
-  });
-}
-
 // ---- 子代理上下文 ----
+// 消息过滤(filterIncompleteToolCalls)、转录持久化(recordSidechainMessage/writeAgentMetadata)
+// 与 resume_agent.ts 共用同一份实现(此前两处各写一份,写读目录拼法还不一致,resume 时会
+// 读不到 runAgent 刚写的转录)——canonical 实现在 resume_agent.ts,这里只导入复用。
 
-/** 子代理的 sidechain 转录目录 */
-function getSubagentDir(): string {
+/** 默认 sidechain 转录目录(未显式传 subagentsDir 时的兜底) */
+function defaultSubagentDir(): string {
   return path.join(process.cwd(), ".dao", "subagents");
 }
 
 /** 生成 agent ID */
 function createAgentId(): string {
   return `agent-${randomUUID().slice(0, 8)}`;
-}
-
-/**
- * 逐条写入 sidechain 转录(fire-and-forget,失败不影响运行)。
- * 对标 CC recordSidechainTranscript -- 每条消息追加一行 JSON。
- */
-async function recordSidechainMessage(agentId: string, messages: ChatMessage[]): Promise<void> {
-  const dir = getSubagentDir();
-  await fs.mkdir(dir, { recursive: true }).catch(() => {});
-  const file = path.join(dir, `${agentId}.jsonl`);
-  const lines = messages.map((m) => JSON.stringify(m)).join("\n") + "\n";
-  await fs.appendFile(file, lines, "utf8").catch(() => {});
-}
-
-/** 写入 agent 元数据(对标 CC writeAgentMetadata) */
-async function writeAgentMetadata(
-  agentId: string,
-  meta: { agentType: string; description?: string; worktreePath?: string; model?: string },
-): Promise<void> {
-  const dir = getSubagentDir();
-  await fs.mkdir(dir, { recursive: true }).catch(() => {});
-  const file = path.join(dir, `${agentId}.meta.json`);
-  await fs.writeFile(file, JSON.stringify(meta, null, 2), "utf8").catch(() => {});
 }
 
 // ---- 执行引擎 ----
@@ -227,7 +191,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
 
   // ---- 阶段 2:上下文构建 ----
 
-  // fork 路径:过滤未配对 tool_use,然后拼接
+  // fork 路径:过滤未配对 tool_use,然后拼接(forkContextMessages 本身已含父的 system 消息)
   const contextMessages: ChatMessage[] = forkContextMessages
     ? filterIncompleteToolCalls(forkContextMessages)
     : [];
@@ -242,14 +206,36 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     agentSystemPrompt = agentDef.getSystemPrompt();
   }
 
-  // 初始消息:fork 上下文 + prompt
-  const initialMessages: ChatMessage[] = [...contextMessages, ...promptMessages];
-
-  // ---- 阶段 3:Agent 级资源初始化(Phase 1 预留接口) ----
-  // Hooks:Phase 1 不实现(agent_hooks.ts 在 Task 7 实现,但此处预留调用点)
+  // ---- 阶段 3:Agent 级资源初始化 ----
   // Skills:Phase 1 不实现(预加载 skill 作为 initial message)
-  // Memory:Phase 1 不实现(agent_memory.ts 在 Task 6 实现,但此处预留调用点)
-  // MCP:Phase 1 不实现(agent_mcp.ts 预留接口)
+  // MCP:Phase 1 不实现(agent_mcp.ts 预留接口,计划文档里也没有任务真正创建它)
+
+  // Memory:agentDef.memory 设置时追加记忆 prompt,并强制找回 read/write/edit(即使被 disallowedTools 排除)
+  if (agentDef.memory) {
+    agentSystemPrompt += `\n\n${loadAgentMemoryPrompt(agentDef.agentType, agentDef.memory)}`;
+    const pool = availableTools ?? new ToolRegistry();
+    for (const name of FORCED_MEMORY_TOOLS) {
+      if (!resolvedTools.get(name)) {
+        const tool = pool.get(name);
+        if (tool) resolvedTools.register(tool);
+      }
+    }
+  }
+
+  // Hooks:注册 + 执行 SubagentStart,additionalContext 作为一条 system 消息注入
+  const hookRegistry: AgentHookRegistry = new Map();
+  if (agentDef.hooks) registerAgentHooks(agentId, agentDef.hooks, hookRegistry);
+  const startOutcome = await executeSubagentStartHooks(agentId, agentDef.agentType, hookRegistry, worktreePath ?? toolUseContext.workspaceRoot);
+
+  // 初始消息:非 fork 路径补上 system 消息(此前整体替换 sub.messages 时把 Session 构造函数塞的
+  // system 消息丢了——loop.ts 按 session.messages[0] 取 system prompt,丢了等于子代理裸奔无提示词跑)。
+  // fork 路径的 contextMessages 已经带着父的 system 消息,不能再叠加一条。
+  const initialMessages: ChatMessage[] = forkContextMessages
+    ? [...contextMessages, ...promptMessages]
+    : [{ role: "system", content: agentSystemPrompt }, ...promptMessages];
+  if (startOutcome.additionalContext) {
+    initialMessages.push({ role: "system", content: `[hook 注入的上下文]\n${startOutcome.additionalContext}` });
+  }
 
   // 缓存安全参数回调(后台摘要用)
   if (onCacheSafeParams) {
@@ -260,8 +246,9 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   }
 
   // 转录:写入初始消息 + 元数据(fire-and-forget)
-  void recordSidechainMessage(agentId, initialMessages).catch(() => {});
-  void writeAgentMetadata(agentId, {
+  const subagentsDir = params.subagentsDir ?? defaultSubagentDir();
+  for (const m of initialMessages) void recordSidechainMessage(subagentsDir, agentId, m).catch(() => {});
+  void writeAgentMetadata(subagentsDir, agentId, {
     agentType: agentDef.agentType,
     ...(description && { description }),
     ...(worktreePath && { worktreePath }),
@@ -272,10 +259,10 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
 
   const sub = new Session(agentSystemPrompt, resolvedModel);
   sub.mode = agentMode;
-  // 替换默认 system message 为组装好的消息序列
+  // 替换默认 system message 为组装好的消息序列(已在上面保证包含 system 消息)
   sub.messages = [...initialMessages];
 
-  // 子代理 ToolContext:独立 readFiles/readMeta(不污染父)
+  // 子代理 ToolContext:独立 readFiles/readMeta(不污染父);worktreePath 存在时覆盖工作区根
   const subDepth = (toolUseContext.subagentDepth ?? 0) + 1;
   const subCtx: ToolContext = {
     ...toolUseContext,
@@ -283,6 +270,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
     sessionModel: resolvedModel,
+    ...(worktreePath ? { workspaceRoot: worktreePath } : {}),
     // fork 路径保留父的 signal;异步路径用独立 controller
     ...(agentAbortController ? { signal: agentAbortController.signal } : {}),
   };
@@ -322,7 +310,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
       onQueryProgress?.();
       tracker.updateFromMessage(msg);
       // 逐条转录(fire-and-forget)
-      void recordSidechainMessage(agentId, [msg]).catch(() => {});
+      void recordSidechainMessage(subagentsDir, agentId, msg).catch(() => {});
       yield msg;
     }
 
@@ -334,11 +322,11 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
 
   } finally {
     // ---- 阶段 7:清理 ----
-    // Phase 1 清理:
-    // - MCP 连接清理(agent_mcp.ts 实现)
-    // - Hooks 注销(agent_hooks.ts 实现)
-    // - readFileState 释放(子代理独立,随 GC)
-    // - shell tasks 清理(Phase 2)
-    // - todos 清理(Phase 2)
+    // - Hooks 注销 + 执行 SubagentStop(会话已结束,不再收集 additionalContext)
+    await executeSubagentStopHooks(agentId, agentDef.agentType, hookRegistry, worktreePath ?? toolUseContext.workspaceRoot).catch(() => {});
+    clearAgentHooks(agentId, hookRegistry);
+    // - MCP 连接清理:agent_mcp.ts 预留接口,计划里没有任务创建它,暂不做
+    // - readFileState 释放(子代理独立 Set/Map,随 GC 回收)
+    // - shell tasks / todos 清理(Phase 2,留待后续:子代理派生的后台 shell/TodoWrite 残留目前不清)
   }
 }
