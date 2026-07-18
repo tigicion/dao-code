@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { decide } from "./engine.js";
+import { decide, decideAsync } from "./engine.js";
 import { emptyPermissions } from "./settings.js";
 
 const base = { rules: emptyPermissions() };
@@ -107,8 +107,30 @@ describe("decide — auto 模式快速路径(分类器之前)", () => {
     expect(sh("cat ~/.ssh/id_rsa")).toBe("ask"); // cat 虽只读,但敏感目标 → mustConfirm 拦
     expect(sh("npm test")).toBe("ask"); // 非白名单程序 → 交分类器
   });
-  it("只读快速路径只在 auto 生效:default 下 ls 仍 ask", () => {
-    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "default", ...base })).toBe("ask");
+  it("只读快速路径不再局限于 auto:default/acceptEdits 下纯只读命令也直接 allow,不用弹审批", () => {
+    const ro = (mode: "default" | "acceptEdits") => decide({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode, ...base });
+    expect(ro("default")).toBe("allow");
+    expect(ro("acceptEdits")).toBe("allow");
+    const roPipe = (mode: "default" | "acceptEdits") => decide({ toolName: "exec_shell", argsJson: '{"command":"find src -name \'*.ts\' | wc -l"}', capability: "exec", mode, ...base });
+    expect(roPipe("default")).toBe("allow");
+    expect(roPipe("acceptEdits")).toBe("allow");
+  });
+  it("但 default/acceptEdits 下非只读命令仍要询问(没有全面放开 exec_shell)", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"npm install"}', capability: "exec", mode: "default", ...base })).toBe("ask");
+    expect(decide({ toolName: "exec_shell", argsJson: rm, capability: "exec", mode: "acceptEdits", ...base })).toBe("ask");
+  });
+  it("default 下只读命令碰到敏感目标(SECRET_TARGET)依然要确认——快速放行不绕过凭据保护", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "default", ...base })).toBe("ask");
+  });
+  it("plan 模式不享受这条快速路径:exec_shell 一律 deny,即便命令本身只读——plan 跳过了 mustConfirm," +
+    "若在这里放行会让 cat ~/.ssh/id_rsa 绕过凭据检查,保持原有'exec 一律拦'更安全", () => {
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
+  });
+  it("显式 ask 规则命中时,即便命令只读也要问——用户显式规则优先于自动只读快速路径", () => {
+    const rules = { ...emptyPermissions(), ask: ["Bash(ls:*)"] };
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "default", rules })).toBe("ask");
+    expect(decide({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "auto", rules })).toBe("ask");
   });
 });
 
@@ -130,6 +152,27 @@ describe("decide — 模式默认(无规则命中)", () => {
   });
   it("无 CC 对应的工具(plan 能力,如 memory/todo)默认放行", () => {
     expect(decide({ toolName: "memory_write", argsJson: "{}", capability: "plan", mode: "default", ...base })).toBe("allow");
+  });
+});
+
+describe("decideAsync(AST 路径,exec_shell 真实运行时走这条)— 只读快速路径同样生效", () => {
+  it("default/acceptEdits 下纯只读命令直接 allow", async () => {
+    expect(await decideAsync({ toolName: "exec_shell", argsJson: '{"command":"find src -name \'*.ts\' | wc -l"}', capability: "exec", mode: "default", ...base })).toBe("allow");
+    expect(await decideAsync({ toolName: "exec_shell", argsJson: '{"command":"git log --oneline -5"}', capability: "exec", mode: "acceptEdits", ...base })).toBe("allow");
+  });
+  it("非只读命令依然 ask", async () => {
+    expect(await decideAsync({ toolName: "exec_shell", argsJson: '{"command":"npm install"}', capability: "exec", mode: "default", ...base })).toBe("ask");
+  });
+  it("plan 模式不享受快速路径,敏感目标不被绕过", async () => {
+    expect(await decideAsync({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
+    expect(await decideAsync({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
+  });
+  it("default 下敏感目标(SECRET_TARGET)只读也要确认", async () => {
+    expect(await decideAsync({ toolName: "exec_shell", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "default", ...base })).toBe("ask");
+  });
+  it("显式 ask 规则优先于只读快速路径", async () => {
+    const rules = { ...emptyPermissions(), ask: ["Bash(ls:*)"] };
+    expect(await decideAsync({ toolName: "exec_shell", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "default", rules })).toBe("ask");
   });
 });
 

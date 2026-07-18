@@ -62,9 +62,9 @@ describe("权限端到端", () => {
     expect(promptedCount()).toBe(0);
   });
 
-  it("未匹配规则:exec 默认询问,拒绝则不执行", async () => {
+  it("未匹配规则:exec 默认询问,拒绝则不执行(非只读命令;ls -la 这类纯只读命令现在走快速路径直接放行,见 engine.test.ts)", async () => {
     const { gate, promptedCount } = await gateFor(false);
-    const out = await executeToolCalls([exec("a", "ls -la")], reg(), { ...ctx, workspaceRoot: dir }, gate);
+    const out = await executeToolCalls([exec("a", "npm install")], reg(), { ...ctx, workspaceRoot: dir }, gate);
     expect(out[0]!.content).toContain("用户拒绝");
     expect(promptedCount()).toBe(1);
   });

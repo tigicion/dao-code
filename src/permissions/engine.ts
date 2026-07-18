@@ -86,9 +86,8 @@ export function decide(p: DecideParams): Decision {
   // auto 模式:把"需确认"的调用尽量在 AI 分类器之前快速放行(对标 CC 快速路径②③)。
   if (d === "ask" && p.mode === "auto") {
     if (AUTO_ALLOWLIST.has(p.toolName)) return "allow"; // ③ 安全白名单(只读类工具)
-    // ③' 只读 shell 命令(ls/cat/git status…)快速放行:免一次分类器、也不被拒绝熔断牵连。
-    // 触及敏感目标(已在上面 mustConfirm→ask)或危险命令的不会走到这(isReadOnlyShellCommand 内部再次双保险)。
-    if (p.toolName === "exec_shell" && !mustConfirm(p) && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
+    // ③' 只读 shell 命令的快速放行已经并进 decideBase 本身(不分模式),这里到达时 d 已经不可能
+    // 是因为"只读"而 ask——若走到这,要么是显式 ask 规则命中,要么是非只读命令,都不该在这再放行。
     if (decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow"; // ② acceptEdits 会放行(工作区内编辑)
     return "ask"; // ④ 交分类器
   }
@@ -113,6 +112,10 @@ export async function decideAsync(p: DecideParams): Promise<Decision> {
   if (ruleDec === "ask") return "ask";
   if (ruleDec === "allow") return "allow";
 
+  // 只读 shell 命令:不分模式一律快速放行(同 decideBase 的逻辑,这里 toolName 恒为 exec_shell,
+  // 已在函数顶部 return decide(p) 分流掉了非 exec_shell 的情况)。不含 plan,理由同 decideBase。
+  if (p.mode !== "plan" && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
+
   // 无规则命中 → 模式 + 能力默认
   const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";
   if (p.mode === "plan") return sideEffecting ? "deny" : "allow";
@@ -121,7 +124,6 @@ export async function decideAsync(p: DecideParams): Promise<Decision> {
   // auto 模式快速路径(同 decide 中的逻辑)
   if (p.mode === "auto" && sideEffecting) {
     if (AUTO_ALLOWLIST.has(p.toolName)) return "allow";
-    if (!mustConfirm(p) && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
     if (decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow";
     return "ask";
   }
@@ -149,6 +151,13 @@ function decideBase(p: DecideParams): Decision {
   if (p.mode === "bypassPermissions") return "allow";
   if (ruleDec === "ask") return "ask";
   if (ruleDec === "allow") return "allow";
+
+  // 只读 shell 命令(ls/cat/git status/find 不带 -delete…):不分模式一律快速放行,免一次审批——
+  // exec_shell 的 capability 标了 "exec" 不代表这次调用真有副作用,没道理因为工具本身的分类就问。
+  // 已过上面的 mustConfirm(SECRET_TARGET/危险命令双保险 fail-closed),这里再判一次纯读安全即可。
+  // 不含 plan:plan 模式跳过了 mustConfirm(见上面 `p.mode !== "plan"` 那个条件),SECRET_TARGET
+  // 检查没跑过,这里如果也放行会让 `cat ~/.ssh/id_rsa` 绕过凭据保护——保持 plan 原有"exec 一律 deny"。
+  if (p.mode !== "plan" && p.toolName === "exec_shell" && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
 
   // 无规则命中 → 模式 + 能力默认
   const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";

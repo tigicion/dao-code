@@ -101,9 +101,9 @@ describe("PermissionGate.decide", () => {
     const { gate } = makeGate({});
     expect(gate.decide("read_file", '{"path":"a"}', readTool)).toBe("allow");
   });
-  it("exec 默认 → ask", () => {
+  it("exec 默认 → ask(非只读命令;纯只读命令如 ls 现在走只读快速路径直接 allow,见 engine.test.ts)", () => {
     const { gate } = makeGate({});
-    expect(gate.decide("exec_shell", '{"command":"ls"}', execTool)).toBe("ask");
+    expect(gate.decide("exec_shell", '{"command":"npm install"}', execTool)).toBe("ask");
   });
 });
 
