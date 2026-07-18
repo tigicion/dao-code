@@ -222,6 +222,20 @@ describe("runAgent 阶段接线", () => {
     expect(capturedMode).toBe("plan");
   });
 
+  it("messageParent 透传进子代理的 subCtx(后台子代理给父发 mid-run 消息用)", async () => {
+    let capturedMessageParent: ((m: string) => void) | undefined;
+    const mp = () => {};
+    const params = baseParams({
+      messageParent: mp,
+      runTurn: async (deps) => {
+        capturedMessageParent = deps.ctx.messageParent;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    await drain(runAgent(params));
+    expect(capturedMessageParent).toBe(mp);
+  });
+
   it("worktreePath 覆盖子代理的 workspaceRoot", async () => {
     let capturedWorkspaceRoot: string | undefined;
     const params = baseParams({

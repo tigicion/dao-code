@@ -38,6 +38,7 @@ export interface ToolContext {
     worktreePath?: string;
     description?: string;
     onCacheSafeParams?: (params: { systemPrompt: string; forkContextMessages: import("../client/types.js").ChatMessage[] }) => void;
+    messageParent?: (message: string) => void;
   }) => AsyncGenerator<import("../client/types.js").ChatMessage, void>;
   // Agent 恢复
   resumeAgent?: (agentId: string, prompt: string) => Promise<string>;
@@ -45,28 +46,9 @@ export interface ToolContext {
   agentDefinitions?: import("../agent/agent_defs.js").AgentDef[];
   // fork 时父消息
   forkMessages?: import("../client/types.js").ChatMessage[];
-
-  // ---- 旧子代理接口(Task 15 清理时删除) ----
-  // 一次性派发子代理,返回其最终结果(index 注入)。signal 透传以便父代理 abort 时停子代理。
-  // agentType 指定自定义子代理类型(用其专属 prompt/工具白名单/模型);省略则用通用子代理。
-  // workspaceRoot 覆盖子代理的工作区根(worktree 隔离用);省略则与父代理同根。
-  // drainPending:后台子代理在回合边界消费 SendMessage 的来源。
-  runSubagent?: (opts: {
-    task: string;
-    signal?: AbortSignal;
-    agentType?: string;
-    workspaceRoot?: string;
-    drainPending?: () => string[];
-    auditAgent?: "sub" | "bg";
-    model?: string;
-    mode?: Mode;
-    messageParent?: (message: string) => void;
-  }) => Promise<string>;
-  // ② fork 子代理:继承父代理已缓存的消息前缀(同 system/模型/工具),复用前缀缓存近乎免费;
-  runForkAgent?: (task: string, signal?: AbortSignal, drainPending?: () => string[]) => Promise<string>;
   // 给运行中的后台子代理追加指令(SendMessage);返回是否送达(任务在跑)。
   sendToTask?: (id: string, message: string) => boolean;
-  // (后台子代理用)给父代理发 mid-run 消息;由 runBackgroundAgent 绑定到本任务 id。前台子代理为 undefined。
+  // (后台子代理用)给父代理发 mid-run 消息;由 runAgent 的 messageParent 参数绑定到本任务 id。前台子代理为 undefined。
   messageParent?: (message: string) => void;
   // 直达人类桌面的即时通知(notify_user 用);与 messageParent 不同——不经任何代理层排队,当下就弹。
   notifyUser?: (message: string) => void;
@@ -77,15 +59,9 @@ export interface ToolContext {
   lsp?: LspManager;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
   createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
-  // 后台派发子代理,立即返回 task id;完成后结果经通知队列在后续回合注入(主循环不阻塞)。
-  runBackgroundAgent?: (task: string, agentType?: string) => string;
-  // 接管一个已在运行的子代理 promise 转入后台(前台超时自动后台化用)。
-  adoptBackground?: (description: string, promise: Promise<string>) => string;
-  // 完整任务管理器引用(task_create/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create,
-  // 不是并行的第二套系统——后台子代理派发(runBackgroundAgent/adoptBackground)也走它。
+  // 完整任务管理器引用(task_create/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create/registerAsyncAgent/
+  // registerAgentForeground,不是并行的第二套系统——agent 工具的后台/前台切换也走它。
   taskManager?: TaskManager;
-  // 可用的自定义子代理类型(名字+描述),供 agent 工具校验 agent_type。
-  agentTypes?: { name: string; description: string }[];
   // 可用 skill(名字+描述+触发条件+slug+正文+目录),供 skill 工具按需加载正文。
   skills?: { name: string; description: string; whenToUse?: string; paths?: string[]; slug?: string; body: string; dir: string }[];
   // skill 工具加载某技能后回调:记录使用频率(用于发现/列表加权)。注入便于测试。

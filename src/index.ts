@@ -42,7 +42,6 @@ import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
 import { memoryReadTool } from "./tools/memory_read.js";
 import { verifyDoneTool } from "./tools/verify.js";
-import { runSubagent } from "./agent/subagent.js";
 import { runAgent } from "./agent/runAgent.js";
 import { resolveLang, setLang, getLang, t, readUserLang, writeUserLang } from "./i18n/i18n.js";
 import { createTaskManager } from "./agent/tasks.js";
@@ -869,7 +868,6 @@ async function main() {
   // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
   let subagentWrite: (s: string) => void = write;
   ctx.agentDefinitions = agentDefs;
-  ctx.agentTypes = agentDefs.map((d) => ({ name: d.agentType, description: d.whenToUse }));
   ctx.skills = skills;
   // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
   ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); skillSink.loaded(skillRound, name); };
@@ -937,78 +935,13 @@ async function main() {
     return { blocked: false, additionalContext: up.additionalContext.trim() ? up.additionalContext : undefined };
   };
   ctx.createWorktree = (id: string) => createWorktree(workspaceRoot, id);
-  ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
-  ctx.runSubagent = ({ task, signal, agentType, workspaceRoot: wsRoot, drainPending, auditAgent = "sub", model, mode, messageParent }) => {
-    // 省略 agent_type 时默认用 general-purpose(对齐 CC);找不到该内置则回退裸 systemPrompt。
-    const def = agentDefs.find((d) => d.agentType === (agentType ?? "general-purpose"));
-    const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.agentType})\n${"getSystemPrompt" in def ? def.getSystemPrompt({} as never) : ""}` : systemPrompt;
-    let reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
-    if (def?.disallowedTools?.length) reg = reg.subsetExcluding(new Set(def.disallowedTools));
-    const subModel = model ?? def?.model ?? session.model;     // 优先级:调用级 > 类型 > 会话
-    const subMode = mode ?? session.mode;
-    const subCtx = {
-      ...(wsRoot ? { ...ctx, workspaceRoot: wsRoot } : ctx), // worktree 隔离:覆盖工作区根
-      ...(messageParent ? { messageParent } : {}),           // 后台子代理→父 mid-run 出口(仅 runBackgroundAgent 绑定)
-    };
-    return runSubagent({
-      task,
-      systemPrompt: sp,
-      model: subModel,
-      mode: subMode,
-      config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
-      registry: reg,
-      ctx: subCtx,
-      gate,
-      streamChat,
-      executeToolCalls,
-      write: subagentWrite,
-      runTurn,
-      signal,
-      drainPending,
-      writeTranscript: (messages) => {
-        try {
-          const dir = path.join((wsRoot ?? workspaceRoot), ".dao", "subagents");
-          mkdirSync(dir, { recursive: true });
-          const name = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jsonl`;
-          writeFileSync(path.join(dir, name), messages.map((m) => JSON.stringify(m)).join("\n"));
-        } catch { /* 观测落盘失败不影响 */ }
-      },
-      auditSink: cacheSink,
-      auditAgent,
-      auditSubId: Math.random().toString(36).slice(2, 6),
-    });
-  };
-
-  // ② fork 子代理:用父对话已缓存前缀做起点(复用缓存),全量 system/工具/模型与父一致。
-  ctx.runForkAgent = (task: string, signal?: AbortSignal, drainPending?: () => string[]) => {
-    // 剪掉尾部"未配对的 assistant(tool_calls)/tool"消息,使前缀以完整交换收尾(可合法追加 user);
-    // 这段前缀正是此前回合发过的、已被缓存的内容。
-    const fork = [...session.messages];
-    while (fork.length && (fork[fork.length - 1]!.role === "tool" || (fork[fork.length - 1]!.role === "assistant" && (fork[fork.length - 1] as { tool_calls?: unknown }).tool_calls))) fork.pop();
-    return runSubagent({
-      task, systemPrompt, model: session.model, mode: session.mode,
-      config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
-      registry, ctx, gate, streamChat, executeToolCalls, write: subagentWrite, runTurn,
-      signal, drainPending, forkMessages: fork,
-      auditSink: cacheSink, auditAgent: "fork", auditSubId: Math.random().toString(36).slice(2, 6),
-    });
-  };
 
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
   ctx.taskManager = taskManager; // task_create/get/list/update/stop 用;同一个实例,不是第二套系统
-  ctx.runBackgroundAgent = (task: string, agentType?: string) =>
-    taskManager.launch(`${agentType ? `[${agentType}] ` : ""}${task.slice(0, 50)}`, (signal, id) =>
-      ctx.runSubagent!({
-        task, signal, agentType,
-        drainPending: () => taskManager.drainPending(id),
-        auditAgent: "bg",
-        messageParent: (m) => { taskManager.emitFromTask(id, m); },
-      }),
-    );
-  ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
+  ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
 
-  // ---- 新子代理引擎装配 ----
+  // ---- 子代理引擎装配(对齐 CC:runAgent 统一入口)----
   ctx.runAgent = (params) => runAgent({
     ...params,
     toolUseContext: ctx,
@@ -1738,9 +1671,9 @@ async function main() {
             return { handled: true, output: `已配置 hooks:\n${lines.join("\n")}` };
           }
           if (name === "agents") {
-            const types = ctx.agentTypes ?? [];
+            const types = (ctx.agentDefinitions ?? []).filter((d) => d.source !== "built-in");
             if (types.length === 0) return { handled: true, output: "无自定义子代理类型(默认通用子代理可用)。在 .dao/agents/ 定义后用 agent 工具的 agent_type 调。" };
-            return { handled: true, output: `可用子代理类型(${types.length}):\n` + types.map((t) => `  ${t.name} — ${t.description}`).join("\n") };
+            return { handled: true, output: `可用子代理类型(${types.length}):\n` + types.map((t) => `  ${t.agentType} — ${t.whenToUse}`).join("\n") };
           }
           if (name === "files") {
             const files = [...(ctx.readFiles ?? [])].map((f) => path.relative(workspaceRoot, f) || f);

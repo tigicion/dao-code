@@ -55,6 +55,8 @@ export interface RunAgentParams {
   description?: string;
   /** sidechain 转录目录(未传时兜底用 process.cwd()/.dao/subagents) */
   subagentsDir?: string;
+  /** 后台子代理给父发 mid-run 消息的出口(message_parent 工具用);前台子代理不传 */
+  messageParent?: (message: string) => void;
   /** 缓存安全参数回调(后台摘要用) */
   onCacheSafeParams?: (params: CacheSafeParams) => void;
   /** 每条消息回调(活性检测用) */
@@ -152,6 +154,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     description,
     onCacheSafeParams,
     onQueryProgress,
+    messageParent,
     config,
     streamChat,
     executeToolCalls,
@@ -271,6 +274,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     readMeta: new Map<string, { mtime: number; size: number }>(),
     sessionModel: resolvedModel,
     ...(worktreePath ? { workspaceRoot: worktreePath } : {}),
+    ...(messageParent ? { messageParent } : {}),
     // fork 路径保留父的 signal;异步路径用独立 controller
     ...(agentAbortController ? { signal: agentAbortController.signal } : {}),
   };
