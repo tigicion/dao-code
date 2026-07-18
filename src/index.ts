@@ -43,10 +43,12 @@ import { memoryWriteTool } from "./tools/memory_write.js";
 import { memoryReadTool } from "./tools/memory_read.js";
 import { verifyDoneTool } from "./tools/verify.js";
 import { runSubagent } from "./agent/subagent.js";
+import { runAgent } from "./agent/runAgent.js";
 import { resolveLang, setLang, getLang, t, readUserLang, writeUserLang } from "./i18n/i18n.js";
 import { createTaskManager } from "./agent/tasks.js";
-import { loadAgentDefs } from "./agent/agent_defs.js";
+import { loadAgentDefs, type AgentDef } from "./agent/agent_defs.js";
 import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
+import { resumeAgentBackground } from "./agent/resume_agent.js";
 import { createWorktree } from "./agent/worktree.js";
 import { runDiagnosticsCmd, detectDiagnosticsCmd } from "./tools/diagnostics.js";
 import { shouldTrustProject, addTrusted } from "./config/trust.js";
@@ -608,8 +610,8 @@ async function main() {
     pluginComp.agentDirs,
   );
   // 并入内置子代理(explore/verify);同名磁盘定义优先(可覆盖)。
-  const diskAgentNames = new Set(diskAgentDefs.map((d) => d.name));
-  const agentDefs = [...diskAgentDefs, ...BUNDLED_AGENTS.filter((a) => !diskAgentNames.has(a.name))];
+  const diskAgentNames = new Set(diskAgentDefs.map((d) => d.agentType));
+  const agentDefs: AgentDef[] = [...diskAgentDefs, ...BUNDLED_AGENTS.filter((a) => !diskAgentNames.has(a.agentType))];
   // 自定义 slash 命令(.dao/commands/*.md + 插件 commands/):/name 展开成 prompt。
   const customCommands = await loadCustomCommands(
     path.join(workspaceRoot, ".dao", "commands"),
@@ -622,7 +624,7 @@ async function main() {
   const agentTypesSection =
     agentDefs.length > 0
       ? agentTypesHeader +
-        agentDefs.map((d) => `- ${d.name}:${d.description}`).join("\n")
+        agentDefs.map((d) => `- ${d.agentType}:${d.whenToUse}`).join("\n")
       : "";
   // 开箱即用 skill(.dao/skills/ + 已装插件的 skills/):启动只列 name+description,模型用 skill 工具按需取正文。
   // 插件技能打【命名空间】(=插件名):用于 plugin:slug 调用与防撞;本地/项目/内置不加前缀。
@@ -866,7 +868,8 @@ async function main() {
 
   // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
   let subagentWrite: (s: string) => void = write;
-  ctx.agentTypes = agentDefs.map((d) => ({ name: d.name, description: d.description }));
+  ctx.agentDefinitions = agentDefs;
+  ctx.agentTypes = agentDefs.map((d) => ({ name: d.agentType, description: d.whenToUse }));
   ctx.skills = skills;
   // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
   ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); skillSink.loaded(skillRound, name); };
@@ -937,10 +940,10 @@ async function main() {
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
   ctx.runSubagent = ({ task, signal, agentType, workspaceRoot: wsRoot, drainPending, auditAgent = "sub", model, mode, messageParent }) => {
     // 省略 agent_type 时默认用 general-purpose(对齐 CC);找不到该内置则回退裸 systemPrompt。
-    const def = agentDefs.find((d) => d.name === (agentType ?? "general-purpose"));
-    const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
+    const def = agentDefs.find((d) => d.agentType === (agentType ?? "general-purpose"));
+    const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.agentType})\n${"getSystemPrompt" in def ? def.getSystemPrompt({} as never) : ""}` : systemPrompt;
     let reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
-    if (def?.toolsExclude?.length) reg = reg.subsetExcluding(new Set(def.toolsExclude));
+    if (def?.disallowedTools?.length) reg = reg.subsetExcluding(new Set(def.disallowedTools));
     const subModel = model ?? def?.model ?? session.model;     // 优先级:调用级 > 类型 > 会话
     const subMode = mode ?? session.mode;
     const subCtx = {
@@ -1004,6 +1007,33 @@ async function main() {
       }),
     );
   ctx.adoptBackground = (description: string, promise: Promise<string>) => taskManager.adopt(description, promise);
+
+  // ---- 新子代理引擎装配 ----
+  ctx.runAgent = (params) => runAgent({
+    ...params,
+    toolUseContext: ctx,
+    availableTools: registry,
+    config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
+    streamChat,
+    executeToolCalls,
+    gate,
+    runTurn,
+    write: subagentWrite,
+    drainPending: params.isAsync ? () => taskManager.drainPending(params.override?.agentId ?? "") : undefined,
+    auditSink: cacheSink,
+  });
+  ctx.forkMessages = session.messages;
+  ctx.resumeAgent = async (agentId, prompt) => {
+    await resumeAgentBackground({
+      agentId, prompt,
+      subagentsDir: path.join(workspaceRoot, ".dao", "subagents"),
+      agentDefs,
+      runAgent: ctx.runAgent!,
+      registerAsyncAgent: (o) => taskManager.registerAsyncAgent(o),
+      runAsyncAgentLifecycle: async () => {},
+    });
+    return `已恢复子代理 ${agentId}。`;
+  };
 
   // 申请访问工作区外路径(读类工具):一次授权后本会话不再追问;选"本仓库后续都用"则持久化。
   let externalReadGranted = alwaysApproved.has("external-read");
