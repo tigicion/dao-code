@@ -1,6 +1,8 @@
 // 后台任务管理器 + 通知队列:让子代理可异步后台跑,主循环不阻塞;完成后把结果作为
 // <task-notification> 入队,主循环在后续回合注入给模型(CC 的异步任务 + 消息队列模型)。
 
+import type { ChatMessage } from "../client/types.js";
+
 export interface BgTask {
   id: string;
   description: string;
@@ -9,6 +11,10 @@ export interface BgTask {
   error?: string;
   startedAt: number;
   endedAt?: number;
+  // 新增:进度/摘要/agent 类型
+  summary?: string;
+  messages?: ChatMessage[];
+  agentType?: string;
 }
 
 export interface TaskManager {
@@ -36,6 +42,14 @@ export interface TaskManager {
   cancel(id: string): boolean;
   cancelAll(): void;
   onChange(cb: () => void): void; // 任务状态变化(启动/完成/失败/取消)时回调,驱动 UI 刷新与通知处理
+  // 新增:前台 agent 注册(可被 auto-background 或手动转后台)
+  registerAgentForeground(opts: { agentId: string; description: string; autoBackgroundMs?: number }): { taskId: string; backgroundSignal: Promise<void>; cancelAutoBackground: () => void };
+  // 新增:后台 agent 注册(独立 AbortController)
+  registerAsyncAgent(opts: { agentId: string; description: string }): { agentId: string; abortController: AbortController };
+  // 新增:更新任务摘要
+  updateSummary(taskId: string, summary: string): boolean;
+  // 新增:追加消息到任务的实时消息列表
+  appendMessage(taskId: string, message: ChatMessage): boolean;
 }
 
 // 转义注入文本里的 XML 元字符:description/result/message 来自用户任务或子代理输出,
@@ -207,6 +221,38 @@ export function createTaskManager(): TaskManager {
     },
     onChange(cb) {
       onChangeCb = cb;
+    },
+    registerAgentForeground(opts) {
+      const id = `task-${++counter}`;
+      tasks.set(id, { id, description: opts.description, status: "running", startedAt: Date.now() });
+      let bgResolve: () => void;
+      const backgroundSignal = new Promise<void>((res) => { bgResolve = res; });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      if (opts.autoBackgroundMs) timer = setTimeout(() => bgResolve(), opts.autoBackgroundMs);
+      notify();
+      return { taskId: id, backgroundSignal, cancelAutoBackground: () => { if (timer) clearTimeout(timer); } };
+    },
+    registerAsyncAgent(opts) {
+      const id = opts.agentId;
+      const ac = new AbortController();
+      tasks.set(id, { id, description: opts.description, status: "running", startedAt: Date.now() });
+      controllers.set(id, ac);
+      notify();
+      return { agentId: id, abortController: ac };
+    },
+    updateSummary(taskId, summary) {
+      const t = tasks.get(taskId);
+      if (!t) return false;
+      t.summary = summary;
+      notify();
+      return true;
+    },
+    appendMessage(taskId, message) {
+      const t = tasks.get(taskId);
+      if (!t) return false;
+      if (!t.messages) t.messages = [];
+      t.messages.push(message);
+      return true;
     },
   };
 }
