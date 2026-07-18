@@ -151,6 +151,13 @@ export const execShellTool = defineTool({
     return null;
   },
   handler: async (args, ctx) => {
+    // 反 sleep 轮询:纯 sleep 命令(如 "sleep 15")几乎只用于等待后台子代理完成,
+    // 这是明确的反模式--后台任务完成时结果会自动回灌,不需要 sleep 轮询。
+    // 拦截并给出正确指导,而不是让模型白白烧 15-30 秒。
+    if (/^\s*sleep\s+\d+(\.\d+)?\s*$/.test(args.command)) {
+      return "不要用 sleep 等待后台子代理完成。后台任务的结果会自动通知你--结束本轮或去做别的事,结果到了会自动回灌。\n" +
+        "如果你确实需要等待(如等端口可用),用 exec_shell 的 background 参数起后台命令配合 exec_shell_poll 轮询输出,而不是阻塞式 sleep。";
+    }
     if (args.background) {
       const id = processManager.start(args.command, ctx.workspaceRoot);
       return `已在后台启动(id=${id})。用 exec_shell_poll 读取输出,exec_shell_kill 结束。`;

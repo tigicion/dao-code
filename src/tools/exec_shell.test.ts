@@ -29,7 +29,7 @@ describe("exec_shell tool", () => {
     const controller = new AbortController();
     const start = Date.now();
     const p = execShellTool.handler(
-      { command: "sleep 5" },
+      { command: "sh -c 'sleep 5'" },
       { workspaceRoot: process.cwd(), signal: controller.signal },
     );
     // 给子进程一点启动时间再 abort,确认它被 SIGTERM 提前结束而非跑满 5s。
@@ -115,10 +115,22 @@ describe("exec_shell tool", () => {
   });
 
   it("非包管理器命令超时 → 不触发 dpkg 自动恢复", async () => {
-    const out = await execShellTool.handler({ command: "sleep 5", timeout: 100 }, ctx);
+    const out = await execShellTool.handler({ command: "sh -c 'sleep 5'", timeout: 100 }, ctx);
     expect(out).toContain("[超时,已终止]");
     expect(out).not.toContain("自动恢复");
     expect(out).not.toContain("dpkg");
+  });
+
+  it("纯 sleep 命令被拦截(反 sleep 轮询后台任务)", async () => {
+    const out = await execShellTool.handler({ command: "sleep 15" }, ctx);
+    expect(out).toContain("不要用 sleep");
+    expect(out).not.toContain("[exit");
+  });
+
+  it("复合 sleep 命令不拦截(如 sleep && echo)", async () => {
+    const out = await execShellTool.handler({ command: "sleep 0.1 && echo done" }, ctx);
+    expect(out).toContain("done");
+    expect(out).toContain("[exit 0]");
   });
 
   it("declares exec capability and required approval", () => {

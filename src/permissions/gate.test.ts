@@ -107,6 +107,55 @@ describe("PermissionGate.decide", () => {
   });
 });
 
+describe("PermissionGate.withModeOverride", () => {
+  // 对标 CC:子代理用 agentDef.permissionMode 裁决,而非继承父级 session 的 mode。
+  // 此前 dao 子代理和父级共用同一个 gate,gate.getMode() 返回父级 mode,
+  // 导致子代理的 permissionMode 设了也没用。
+  const writeTool = defineTool({
+    name: "write_file", description: "", capability: "write", approval: "required",
+    schema: z.object({}), handler: async () => "",
+  });
+
+  it("父级 default -> 子代理 acceptEdits:write 从 ask 变 allow", () => {
+    const { gate } = makeGate({ mode: "default" });
+    expect(gate.decide("write_file", '{"path":"a.ts"}', writeTool)).toBe("ask");
+    const subGate = gate.withModeOverride("acceptEdits");
+    expect(subGate.decide("write_file", '{"path":"a.ts"}', writeTool)).toBe("allow");
+  });
+
+  it("父级 default -> 子代理 plan:write 从 ask 变 deny", () => {
+    const { gate } = makeGate({ mode: "default" });
+    const subGate = gate.withModeOverride("plan");
+    expect(subGate.decide("write_file", '{"path":"a.ts"}', writeTool)).toBe("deny");
+  });
+
+  it("父级 acceptEdits -> 子代理 plan:read 仍 allow", () => {
+    const { gate } = makeGate({ mode: "acceptEdits" });
+    const subGate = gate.withModeOverride("plan");
+    expect(subGate.decide("read_file", '{"path":"a.ts"}', readTool)).toBe("allow");
+  });
+
+  it("子 gate 的 requestBatch 复用父级的 prompt/remember", async () => {
+    const remembered: string[] = [];
+    const sessionAllow: string[] = [];
+    const prompt = async (reqs: ApprovalRequest[]) =>
+      new Map(reqs.map((r) => [r.id, "always" as const]));
+    const parent = new PermissionGate(
+      () => "default",
+      () => emptyPermissions(),
+      prompt,
+      async (rule) => { remembered.push(rule); },
+      (rule) => { sessionAllow.push(rule); },
+    );
+    const sub = parent.withModeOverride("default");
+    await sub.requestBatch([
+      { id: "x", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
+    ]);
+    expect(remembered).toEqual(["Bash(npm run:*)"]);
+    expect(sessionAllow).toEqual(["Bash(npm run:*)"]);
+  });
+});
+
 describe("PermissionGate.requestBatch", () => {
   const reqs: ApprovalRequest[] = [
     { id: "x", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
