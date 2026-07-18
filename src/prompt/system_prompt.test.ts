@@ -29,18 +29,42 @@ describe("buildSystemPrompt (zh)", () => {
     expect(prompt).toMatch(/模型.*上下文|上下文.*模型/);
   });
 
-  it("含审视/反思提醒段;reflectMemoryEnabled 默认关闭时不提 [反思](审视者/纠偏者不受影响)", () => {
-    expect(prompt).toContain("[审视者]");
-    expect(prompt).toContain("[纠偏者]");
-    expect(prompt).not.toContain("[反思]"); // 默认关闭:统一反思器不会跑,别教模型一个永远用不上的 tag
-    expect(prompt).toMatch(/不得默默忽略|看到即停|停下来显式处理/);
+  it("reflectMemoryEnabled/reflectChallengerEnabled 默认都关闭 → 整段审视/反思提醒都不出现", () => {
+    expect(prompt).not.toContain("[审视者]");
+    expect(prompt).not.toContain("[纠偏者]");
+    expect(prompt).not.toContain("[反思]");
+    expect(prompt).not.toContain("审视与反思提醒"); // 两个开关都关时,整段标题+正文都被去掉
   });
 
-  it("reflectMemoryEnabled:true → 提示词里补上 [反思] 这个 tag", () => {
+  it("reflectMemoryEnabled:true(单开)→ 只提 [反思],不提审视者/纠偏者", () => {
     const p = buildSystemPrompt({
       modelId: "deepseek-v4-pro",
       toolSummaries: "- read_file:读文件",
       reflectMemoryEnabled: true,
+    });
+    expect(p).toContain("[反思]");
+    expect(p).not.toContain("[审视者]");
+    expect(p).not.toContain("[纠偏者]");
+    expect(p).toMatch(/不得默默忽略|看到即停|停下来显式处理/);
+  });
+
+  it("reflectChallengerEnabled:true(单开)→ 只提审视者/纠偏者,不提 [反思]", () => {
+    const p = buildSystemPrompt({
+      modelId: "deepseek-v4-pro",
+      toolSummaries: "- read_file:读文件",
+      reflectChallengerEnabled: true,
+    });
+    expect(p).toContain("[审视者]");
+    expect(p).toContain("[纠偏者]");
+    expect(p).not.toContain("[反思]");
+  });
+
+  it("两个都开 → 三个 tag 都出现", () => {
+    const p = buildSystemPrompt({
+      modelId: "deepseek-v4-pro",
+      toolSummaries: "- read_file:读文件",
+      reflectMemoryEnabled: true,
+      reflectChallengerEnabled: true,
     });
     expect(p).toContain("[审视者]");
     expect(p).toContain("[反思]");
@@ -121,14 +145,14 @@ describe("buildSystemPrompt (en)", () => {
     expect(prompt).toMatch(/pro/);
   });
 
-  it("包含 advisory/reflection reminders;reflectMemoryEnabled 默认关闭时不提 [反思]", () => {
-    expect(prompt).toContain("[审视者]");
-    expect(prompt).toContain("[纠偏者]");
+  it("两个开关默认都关闭 → 整段 advisory/reflection reminders 都不出现", () => {
+    expect(prompt).not.toContain("[审视者]");
+    expect(prompt).not.toContain("[纠偏者]");
     expect(prompt).not.toContain("[反思]");
-    // The English BODY keeps the original Chinese prefixes
+    expect(prompt).not.toContain("Advisory & Reflection Reminders");
   });
 
-  it("reflectMemoryEnabled:true → 提示词里补上 [反思] 这个 tag", () => {
+  it("reflectMemoryEnabled:true(单开)→ 提示词里补上 [反思],不提审视者/纠偏者", () => {
     const p = buildSystemPrompt({
       modelId: "deepseek-v4-pro",
       toolSummaries: "- read_file:Reads a text file",
@@ -136,6 +160,19 @@ describe("buildSystemPrompt (en)", () => {
       reflectMemoryEnabled: true,
     });
     expect(p).toContain("[反思]");
+    expect(p).not.toContain("[审视者]");
+  });
+
+  it("reflectChallengerEnabled:true(单开)→ 提示词里补上审视者/纠偏者,不提 [反思]", () => {
+    const p = buildSystemPrompt({
+      modelId: "deepseek-v4-pro",
+      toolSummaries: "- read_file:Reads a text file",
+      lang: "en",
+      reflectChallengerEnabled: true,
+    });
+    expect(p).toContain("[审视者]");
+    expect(p).toContain("[纠偏者]");
+    expect(p).not.toContain("[反思]");
   });
 
   it("leaves no unfilled placeholders", () => {

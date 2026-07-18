@@ -246,6 +246,10 @@ async function main() {
   // 回合末"统一反思器"(反思进展 + 抽/改记忆)默认关闭,--reflect-memory 启动时显式开启才跑。
   // 启动时定一次、会话全程不变——中途切换会让系统提示词字节变化,废掉整段对话的前缀缓存。
   const reflectMemoryFlag = rawArgs.includes("--reflect-memory");
+  // 轮内"确定性卡住检测"(assessTurn→挑战者/纠偏者 fork)同样默认关闭,--reflect-challenger 才开。
+  // 这是另一套独立机制(不依赖 --reflect-memory),之前一直无条件跑(仅一次性 headless 因
+  // argvPrompt 而被跳过),交互态/非 TTY 多轮管道下每轮都在算 + 命中阈值就 fork 一次 LLM 调用。
+  const reflectChallengerFlag = rawArgs.includes("--reflect-challenger");
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
@@ -253,7 +257,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -709,6 +713,7 @@ async function main() {
       projectInstructions: loadProjectInstructions(workspaceRoot), // DAO.md/AGENTS.md/CLAUDE.md + 用户级
       lang,
       reflectMemoryEnabled: reflectMemoryFlag,
+      reflectChallengerEnabled: reflectChallengerFlag,
     }) + agentTypesSection + skillsSection;
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
@@ -1163,7 +1168,7 @@ async function main() {
       shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
-      reflect: argvPrompt ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思
+      reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
       drainNotifications: () => taskManager.drainNotifications(), // 后台子代理完成结果:回合边界回灌(一次性/--goal 与交互同等,修复 headless 丢失)
@@ -1436,7 +1441,7 @@ async function main() {
             shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
-            reflect, // 轮内卡住检测(assessTurn→挑战者)
+            reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
             events: logEvents(events, store), // 渲染的同时写日志
