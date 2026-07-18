@@ -260,6 +260,9 @@ async function main() {
   // 这是另一套独立机制(不依赖 --reflect-memory),之前一直无条件跑(仅一次性 headless 因
   // argvPrompt 而被跳过),交互态/非 TTY 多轮管道下每轮都在算 + 命中阈值就 fork 一次 LLM 调用。
   const reflectChallengerFlag = rawArgs.includes("--reflect-challenger");
+  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)默认关闭,--progress-advice 才开。
+  // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
+  const progressAdviceFlag = rawArgs.includes("--progress-advice");
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
@@ -267,7 +270,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -1210,6 +1213,7 @@ async function main() {
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
+      progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
       drainNotifications: () => taskManager.drainNotifications(), // 后台子代理完成结果:回合边界回灌(一次性/--goal 与交互同等,修复 headless 丢失)
@@ -1487,6 +1491,7 @@ async function main() {
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
+            progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
             drainPending: () => steeringQueue.splice(0), // 运行中排队的补充输入:下一个工具轮边界注入,不等整个大回合跑完

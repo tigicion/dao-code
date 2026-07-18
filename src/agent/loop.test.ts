@@ -623,6 +623,7 @@ describe("runTurn", () => {
       executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
       write: () => {},
       maxTurns: 10,
+      progressAdvice: true,
     });
     // 提醒持久化在历史里(append-only),不是用完即弃的尾部临时注入
     expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("进度提醒"))).toBe(true);
@@ -645,6 +646,7 @@ describe("runTurn", () => {
       executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
       write: (t) => written.push(t),
       maxTurns: 10,
+      progressAdvice: true,
     });
     expect(written.join("")).toContain("进度提醒");
   });
@@ -669,6 +671,7 @@ describe("runTurn", () => {
       executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
       write: (t) => written.push(t),
       maxTurns: 15,
+      progressAdvice: true,
     });
     const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
     const first = sys.find((c) => c.includes("[进度提醒]") && !c.includes("第2次"));
@@ -695,6 +698,7 @@ describe("runTurn", () => {
       executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
       write: (t) => written.push(t),
       maxTurns: 15,
+      progressAdvice: true,
     });
     const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
     expect(sys.some((c) => c.includes("[进度提醒]") && !c.includes("第2次"))).toBe(true); // 第1次
@@ -721,6 +725,7 @@ describe("runTurn", () => {
       executeToolCalls: async (calls) => calls.map((c) => ({ role: "tool" as const, tool_call_id: c.id, content: "R" })),
       write: () => {},
       maxTurns: 15,
+      progressAdvice: true,
     });
     const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
     // 两次触发都应该是"第1次"(通用措辞),因为中途的 Write 把 stuckAdviceCount 清零了。
@@ -751,12 +756,35 @@ describe("runTurn", () => {
       executeToolCalls: async (calls) => calls.map((c) => ({ role: "tool" as const, tool_call_id: c.id, content: "R" })),
       write: () => {},
       maxTurns: 25,
+      progressAdvice: true,
     });
     const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
     // 第1、2次仍是通用措辞(totalStuckEvents=1,2,不够3);第3次即使stuckAdviceCount又是1,
     // 也应该因totalStuckEvents=3而升级,带具体的"写脚本/加调试打印"动作指令。
     expect(sys.filter((c) => c.includes("[进度提醒]") && !c.includes("第")).length).toBe(2);
     expect(sys.some((c) => c.includes("本会话第3次卡住") && c.includes("最小验证脚本或加一行调试打印"))).toBe(true);
+  });
+
+  it("默认不传 progressAdvice → 进度提醒机制不触发,即使连续多轮无推进(默认关闭)", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "Read", arguments: "{}" } }] })();
+    const turns = [
+      ...Array.from({ length: 10 }, () => readTurn), // 远超 ADVISE_EVERY(默认5)的两倍
+      () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
+    ];
+    let i = 0;
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "r", content: "R" }],
+      write: (t) => written.push(t),
+      maxTurns: 15,
+      // 不传 progressAdvice
+    });
+    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("进度提醒"))).toBe(false);
+    expect(written.join("")).not.toContain("进度提醒");
   });
 
   it("轮数提醒(接近 maxTurns)触发时同步 events.notice", async () => {

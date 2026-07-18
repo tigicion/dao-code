@@ -14,6 +14,7 @@ function baseDeps(session: Session, streamChat: any, executeToolCalls: any) {
     streamChat,
     executeToolCalls,
     write: () => {},
+    progressAdvice: true,
   } as any;
 }
 
