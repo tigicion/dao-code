@@ -469,6 +469,23 @@ async function main() {
     }).catch(() => {});
     return true;
   };
+  // 限流重试用的版本:和 switchAccount 逻辑一致,但 await 凭据解析完成才返回——
+  // 调用方紧接着就要用新账号重试请求,不能像 switchAccount 那样 fire-and-forget
+  // (那样的话 apiKey 大概率还没解析完,重试会用错账号的 key)。
+  const switchAccountAndWait = async (name: string): Promise<boolean> => {
+    if (!profilesCfg.profiles[name]) return false;
+    profilesCfg = setActive(profilesCfg, name);
+    saveProfiles(keyFile, profilesCfg).catch(() => {});
+    const p = profilesCfg.profiles[name];
+    if (p) {
+      cfg.baseUrl = p.baseUrl; cfg.model = p.model; cfg.provider = p.provider;
+      session.setModel(p.model);
+    }
+    const r = await resolveCredential(profilesCfg, kc);
+    if (!r) return false;
+    cfg.apiKey = r.key; keySource = r.source;
+    return true;
+  };
   const removeAccount = (name: string): void => {
     const ref = profilesCfg.profiles[name]?.keyRef;
     if (ref?.startsWith("keychain:")) keychainDelete(ref.slice("keychain:".length)).catch(() => {});
@@ -1456,7 +1473,7 @@ async function main() {
           if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
           await withPresence(() => runTurn({
             session,
-            config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
+            config: cfg, // 活引用(不是快照)——账号切换要在同一次 runTurn 调用期间立刻生效
             registry,
             ctx,
             auditSink: cacheSink,
@@ -1473,6 +1490,8 @@ async function main() {
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
             drainPending: () => steeringQueue.splice(0), // 运行中排队的补充输入:下一个工具轮边界注入,不等整个大回合跑完
+            listOtherAccounts: () => listAccounts().filter((a) => !a.active).map((a) => ({ name: a.name })), // 限流菜单用
+            switchAccountAndWait,
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
