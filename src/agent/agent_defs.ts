@@ -127,7 +127,7 @@ function parseMcpServersSection(fmText: string, fmRaw: Record<string, unknown>):
   if (specs.length > 0) fmRaw.mcpServers = specs;
 }
 
-export function parseAgentDef(filename: string, raw: string, source: AgentSource = "userSettings"): CustomAgentDef | null {
+export function parseAgentDef(filename: string, raw: string, source: "userSettings" | "projectSettings" = "userSettings"): CustomAgentDef | null {
   const { fm, fmRaw, body } = parseFrontmatter(raw);
   const name = fm.name?.trim();
   if (!name || !body) return null;
@@ -155,7 +155,7 @@ export function parseAgentDef(filename: string, raw: string, source: AgentSource
 
   const permissionMode = fm.permissionmode as Mode | undefined;
   const memory = fm.memory as AgentMemoryScope | undefined;
-  const background = fm.background === "true" || fm.background === "true";
+  const background = fm.background === "true";
   const isolation = fm.isolation === "worktree" ? "worktree" as const : undefined;
   const color = fm.color || undefined;
   const omitClaudeMd = fm.omitclaudemd === "true";
@@ -189,7 +189,7 @@ export function parseAgentDef(filename: string, raw: string, source: AgentSource
   };
 }
 
-export async function loadAgentDefsFrom(dir: string, source: AgentSource = "userSettings"): Promise<CustomAgentDef[]> {
+export async function loadAgentDefsFrom(dir: string, source: "userSettings" | "projectSettings" = "userSettings"): Promise<CustomAgentDef[]> {
   let names: string[];
   try { names = await fs.readdir(dir); } catch { return []; }
   const out: CustomAgentDef[] = [];
@@ -207,7 +207,7 @@ export async function loadAgentDefs(
   userDir: string,
   pluginDirs: string[] = [],
 ): Promise<AgentDef[]> {
-  const plugins = (await Promise.all(pluginDirs.map((d) => loadAgentDefsFrom(d, "plugin")))).flat();
+  const plugins = (await Promise.all(pluginDirs.map((d) => loadAgentDefsFrom(d, "projectSettings")))).flat();
   const [user, project] = await Promise.all([
     loadAgentDefsFrom(userDir, "userSettings"),
     loadAgentDefsFrom(projectDir, "projectSettings"),
