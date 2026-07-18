@@ -26,7 +26,7 @@ function makeCtx(): ToolContext {
   return { workspaceRoot: repo, createWorktree: (id: string) => createWorktree(repo, id) };
 }
 
-describe("enter_worktree", () => {
+describe("EnterWorktree", () => {
   it("建 worktree 并把 ctx.cwd 切过去,workspaceRoot 不变", async () => {
     const ctx = makeCtx();
     const out = await enterWorktreeTool.handler({}, ctx);

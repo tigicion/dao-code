@@ -147,7 +147,7 @@ function transcriptFromMessages(messages: ChatMessage[]): TranscriptItem[] {
 async function main() {
   // 退出/中断时清理所有后台进程,避免孤儿(长任务里模型常起 dev server/watch)。
   // 但一次性 headless 调用(argvPrompt,eval/脚本化场景的主要形态)正常跑完退出时不清——
-  // 这类调用常常就是靠 background:true 起一个任务要求"保持运行"的服务(见 exec_shell 工具描述),
+  // 这类调用常常就是靠 background:true 起一个任务要求"保持运行"的服务(见 Bash 工具描述),
   // 退出就杀等于把这个用法废掉;isHeadlessOneShot 在下面 argvPrompt 算出来后回填,
   // 处理函数注册要趁早(即便早期崩溃也能兜底清理),用闭包变量而非把注册挪到 argvPrompt 之后。
   // SIGINT/SIGTERM 是显式中断信号,不管什么模式都应该清——用户/上层主动喊停就是要停干净。
@@ -196,7 +196,7 @@ async function main() {
     return;
   }
   // 操作员命令:dao schedule add|list|remove —— 本地 OS crontab 定时跑 headless dao。不连 API。
-  if (rawArgs[0] === "schedule") {
+  if (rawArgs[0] === "Schedule") {
     const sub = rawArgs[1];
     const w = (s: string) => process.stdout.write(s);
     try {
@@ -230,7 +230,7 @@ async function main() {
     return;
   }
   // 操作员命令:dao skill add <git-url|本地路径> [--user|--project]。不连 API,装完即退。
-  if (rawArgs[0] === "skill" && rawArgs[1] === "add") {
+  if (rawArgs[0] === "Skill" && rawArgs[1] === "add") {
     const rest = rawArgs.slice(2);
     const source = rest.find((a) => !a.startsWith("--"));
     const scope: "user" | "project" = rest.includes("--project") ? "project" : "user"; // 默认用户级(技能多为通用)
@@ -526,7 +526,7 @@ async function main() {
     onElicit: (m, s) => (mcpElicit ? mcpElicit(m, s) : Promise.resolve({ action: "decline" as const })),
   });
   for (const t of mcp.tools) registry.register(t);
-  // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 tool_search 去找它们。
+  // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 ToolSearch 去找它们。
   if (mcp.tools.length > 0) registry.register(toolSearchTool);
 
   // LSP:不接入任何语言的二进制,纯协议客户端;server 命令完全来自用户配置(同 MCP 的配置文件模式)。
@@ -594,7 +594,7 @@ async function main() {
     validated.push({ mem, verdict });
   }
   // 注入:DAO_NO_MEMORY 禁注入(demo 对照);小 N(<50)全注入整句、跳索引层(召回最简);
-  // 否则两层——高价值整句常驻 + 长尾只给 title 索引(memory_read 按需取整句)。
+  // 否则两层——高价值整句常驻 + 长尾只给 title 索引(MemoryRead 按需取整句)。
   // 都在会话开始算定、整会话固定,不刷新、不破前缀缓存。
   const SMALL_N = 50;
   const liveCount = validated.filter((v) => v.verdict !== "stale").length;
@@ -856,7 +856,7 @@ async function main() {
     readMeta: new Map<string, { mtime: number; size: number }>(),
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
-    // 只在真正交互式会话里提供——非交互场景不给这个函数,让 ask_user 工具退回 ctx.ask()(已有
+    // 只在真正交互式会话里提供——非交互场景不给这个函数,让 AskUserQuestion 工具退回 ctx.ask()(已有
     // 优雅降级:读到空就回"(用户未回答)"),loop.ts 的异常恢复逻辑也据此正确落到 headless 分支。
     ...(interactiveSession ? {
       askChoice: async (q: string, opts: string[], multi?: boolean) => {
@@ -873,7 +873,7 @@ async function main() {
     } : {}),
     fetchImpl: fetch,
     today,
-    notifyUser: (m: string) => notify("dao", m), // notify_user 用;主会话与子代理均可(复用现成的桌面通知)
+    notifyUser: (m: string) => notify("dao", m), // NotifyUser 用;主会话与子代理均可(复用现成的桌面通知)
     setMode: (mode: "normal" | "plan") => {
       session.mode = mode;
       if (mode === "normal") permModeOverride = null; // 退出 plan 时清覆盖
@@ -894,7 +894,7 @@ async function main() {
   ctx.skills = skills;
   // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
   ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); skillSink.loaded(skillRound, name); };
-  // skill_install 装完 → 把新技能加载进【当前会话】(无需重启):load 目标 scope 目录 → 未知的 push 进活列表(ctx.skills 同引用)
+  // SkillInstall 装完 → 把新技能加载进【当前会话】(无需重启):load 目标 scope 目录 → 未知的 push 进活列表(ctx.skills 同引用)
   // → 追加一条 catalog system 消息(同框法;append-only,只此一条一次性 miss,不动已缓存前缀)。返回新加载技能名。
   ctx.loadInstalledSkills = async (scope) => {
     const dir = scope === "project" ? path.join(workspaceRoot, ".dao", "skills") : path.join(os.homedir(), ".dao", "skills");
@@ -961,7 +961,7 @@ async function main() {
 
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
-  ctx.taskManager = taskManager; // task_create/get/list/update/stop 用;同一个实例,不是第二套系统
+  ctx.taskManager = taskManager; // TaskCreate/get/list/update/stop 用;同一个实例,不是第二套系统
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
   // handoff 审查只在 auto 模式触发;用 getter 每次读最新值,/mode 或长任务切换 mode 时自动同步
   Object.defineProperty(ctx, 'permissionMode', { get: () => getMode(), enumerable: true });
@@ -1005,7 +1005,7 @@ async function main() {
     gate,
     runTurn,
     write: subagentWrite,
-    // 不再按 isAsync 门控:task_send 对前台子代理(转后台前/后)一样要能送达,taskManager.drainPending
+    // 不再按 isAsync 门控:TaskSend 对前台子代理(转后台前/后)一样要能送达,taskManager.drainPending
     // 对未注册的 id 只是无害地返回 [],不区分 isAsync 也没有额外代价。
     drainPending: () => taskManager.drainPending(params.override?.agentId ?? ""),
     auditSink: cacheSink,
@@ -1701,7 +1701,7 @@ async function main() {
             writeFileSync(file, md);
             return { handled: true, output: `已导出对话 → ${file}(${session.messages.length} 条消息)` };
           }
-          if (name === "config") {
+          if (name === "Config") {
             return { handled: true, output: `配置:\n  模型 ${cfg.model} · baseUrl ${cfg.baseUrl} · 权限模式 ${getMode()}\n  账户 profile ${profilesCfg.activeProfile} · key 来源 ${keySource}(/account 管理多 key)\n  设置文件:~/.dao/settings.json(用户)· <项目>/.dao/settings.json · .dao/settings.local.json\n(编辑这些文件改配置;权限规则见 /permissions,MCP 见 ~/.dao/mcp.json)` };
           }
           if (name === "effort") {

@@ -17,7 +17,7 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("grep_files tool", () => {
+describe("Grep tool", () => {
   it("returns path:line:content for content mode", async () => {
     const out = await grepFilesTool.handler({ pattern: "foo" }, ctx());
     expect(out).toContain("a.ts:1:const foo = 1;");
@@ -52,7 +52,7 @@ describe("grep_files tool", () => {
   it("declares read capability and auto approval", () => {
     expect(grepFilesTool.capability).toBe("read");
     expect(grepFilesTool.approval).toBe("auto");
-    expect(grepFilesTool.name).toBe("grep_files");
+    expect(grepFilesTool.name).toBe("Grep");
   });
 
   it("context lines: before/after show surrounding lines with markers", async () => {

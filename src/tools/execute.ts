@@ -14,12 +14,12 @@ export function describeCall(name: string, argsJson: string): string {
   const s = (v: unknown) => (typeof v === "string" ? v : "");
   const en = getLang() === "en";
   switch (name) {
-    case "exec_shell": return `$ ${s(a.command) || name}`;
-    case "write_file": return en ? `Write ${s(a.path)}` : `写入 ${s(a.path)}`;
-    case "edit_file": case "multi_edit": return en ? `Edit ${s(a.path)}` : `编辑 ${s(a.path)}`;
-    case "notebook_edit": return en ? `Edit notebook ${s(a.path)}` : `编辑笔记本 ${s(a.path)}`;
-    case "fetch_url": return en ? `Fetch ${s(a.url)}` : `抓取 ${s(a.url)}`;
-    case "web_search": return en ? `Search ${s(a.query)}` : `搜索 ${s(a.query)}`;
+    case "Bash": return `$ ${s(a.command) || name}`;
+    case "Write": return en ? `Write ${s(a.path)}` : `写入 ${s(a.path)}`;
+    case "Edit": case "MultiEdit": return en ? `Edit ${s(a.path)}` : `编辑 ${s(a.path)}`;
+    case "NotebookEdit": return en ? `Edit notebook ${s(a.path)}` : `编辑笔记本 ${s(a.path)}`;
+    case "WebFetch": return en ? `Fetch ${s(a.url)}` : `抓取 ${s(a.url)}`;
+    case "WebSearch": return en ? `Search ${s(a.query)}` : `搜索 ${s(a.query)}`;
     default: {
       const v = s(a.path) || s(a.command) || s(a.url) || s(a.query);
       return v ? `${name} ${v}` : name;
@@ -115,7 +115,7 @@ export async function executeToolCalls(
   }
 
   // 1. 逐次裁决:产出"待运行"集合与即时拒绝消息。
-  // async for-of:exec_shell 的 Bash 工具需 AST 解析(精确子命令提取 + too-complex fail-closed)。
+  // async for-of:Bash 的 Bash 工具需 AST 解析(精确子命令提取 + too-complex fail-closed)。
   const gatedRequests: ApprovalRequest[] = [];
   const results = new Map<string, ToolMessage>();
   const toRun = new Set<string>();
@@ -201,7 +201,7 @@ export async function executeToolCalls(
     if (isSafe(tc)) batch.push(tc);
     else {
       await flush(); // 屏障:先跑完已积累的安全批
-      // ③ 错误级联:本批里前一个 exec_shell 已失败 → 跳过后续 exec/write,
+      // ③ 错误级联:本批里前一个 Bash 已失败 → 跳过后续 exec/write,
       // 防"npm install 挂了还接着 npm run build"这类连锁错误(对标 CC Bash 级联)。
       if (barrierAborted) {
         results.set(tc.id, { role: "tool", tool_call_id: tc.id, content: "已跳过:本批前一个命令失败,为避免连锁错误未执行。请先处理上一个错误再重试。" });

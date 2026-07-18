@@ -19,7 +19,7 @@ function htmlToText(html: string): string {
 }
 
 export const fetchUrlTool = defineTool({
-  name: "fetch_url",
+  name: "WebFetch",
   description: "抓取一个网页 URL,去掉 script/style 和全部标签后返回纯文本,默认最多 20000 字符(可用 max_chars 调)," +
     "超长会截断。30 秒超时,慢站/坏 URL 不会卡住整个回合。拒绝内网/环回/云元数据地址(SSRF 防护,防止被诱导拿这个" +
     "工具去探内网)。只拉原始 HTML,不执行 JS——重度依赖客户端渲染(SPA)的页面,拿到的可能只是空壳,读不到真实内容," +

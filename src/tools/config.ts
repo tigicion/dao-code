@@ -10,7 +10,7 @@ const VALID_MODES = new Set(["default", "acceptEdits", "plan", "bypassPermission
 // 对标 CC Config 工具:读写运行时配置项。支持全局(~/.dao/settings.json)和项目级(.dao/settings.json)。
 // 目前支持 setting: permissions.defaultMode, theme。后续可扩展。
 export const configTool = defineTool({
-  name: "config",
+  name: "Config",
   description:
     "读取或设置 dao 配置项。不传 value 时返回当前值;传 value 时写入。" +
     "支持 setting: 'permissions.defaultMode'(权限模式:default/acceptEdits/plan/bypassPermissions/auto)、" +

@@ -16,7 +16,7 @@ beforeEach(() => {
   home = mkdtempSync(path.join(os.tmpdir(), "dao-memread-home-"));
 });
 
-describe("memory_read(按名或关键词查,吸收原 memory_search)", () => {
+describe("MemoryRead(按名或关键词查,吸收原 memory_search)", () => {
   it("精确名 → 回整句全文(项目级),含元信息,零模型", async () => {
     const dir = path.join(root, ".dao", "memory");
     await writeMemory(dir, newMemory({ name: "emoji-skLabelNode-显示问号", text: "emoji 用 SKLabelNode 会显示?,需 UIGraphicsImageRenderer", type: "procedural", today: "2026-06-18", importance: 8 }));

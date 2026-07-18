@@ -79,8 +79,8 @@ describe("buildForkedMessages", () => {
       role: "assistant",
       content: "let me check",
       tool_calls: [
-        { id: "tc-1", type: "function", function: { name: "read_file", arguments: '{"path":"a.ts"}' } },
-        { id: "tc-2", type: "function", function: { name: "grep_files", arguments: '{"pattern":"foo"}' } },
+        { id: "tc-1", type: "function", function: { name: "Read", arguments: '{"path":"a.ts"}' } },
+        { id: "tc-2", type: "function", function: { name: "Grep", arguments: '{"pattern":"foo"}' } },
       ],
     };
     const result = buildForkedMessages("调查 foo", assistant);
@@ -143,7 +143,7 @@ describe("buildForkContextMessages", () => {
     const tailAssistant: AssistantMessage = {
       role: "assistant",
       content: "让我读一下文件",
-      tool_calls: [{ id: "tc-1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "tc-1", type: "function", function: { name: "Read", arguments: "{}" } }],
     };
     const parent: ChatMessage[] = [
       { role: "system", content: "SYS" },

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { taskStopTool } from "./task_stop.js";
 import { createTaskManager } from "../agent/tasks.js";
 
-describe("task_stop", () => {
+describe("TaskStop", () => {
   it("停止手动建的任务 → canceled", async () => {
     const taskManager = createTaskManager();
     const id = taskManager.create("任务A");

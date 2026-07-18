@@ -115,9 +115,9 @@ describe("wrapToolExec", () => {
     setBackend(backend);
     const inner = async (calls: ToolCall[]): Promise<ToolMessage[]> =>
       calls.map((c) => ({ role: "tool", tool_call_id: c.id, content: `result-${c.id}` }));
-    const out = await wrapToolExec(inner as any)([tc("a", "read_file"), tc("b", "edit")], {} as any, {} as any, {} as any);
+    const out = await wrapToolExec(inner as any)([tc("a", "Read"), tc("b", "Edit")], {} as any, {} as any, {} as any);
     expect(out).toHaveLength(2);
-    expect(spans.map((s) => s.name).sort()).toEqual(["tool.edit", "tool.read_file"]);
+    expect(spans.map((s) => s.name).sort()).toEqual(["tool.Edit", "tool.Read"]);
     expect(spans.every((s) => s.spanType === "TOOL" && s.ended)).toBe(true);
   });
 
@@ -128,7 +128,7 @@ describe("wrapToolExec", () => {
       { role: "tool", tool_call_id: "a", content: "ok 内容" },
       { role: "tool", tool_call_id: "b", content: "Error: boom" },
     ];
-    await wrapToolExec(inner as any)([tc("a", "read_file"), tc("b", "run_shell")], {} as any, {} as any, {} as any);
+    await wrapToolExec(inner as any)([tc("a", "Read"), tc("b", "run_shell")], {} as any, {} as any, {} as any);
     const errs = events.filter((e) => e.name === "tool_error");
     expect(errs).toHaveLength(1);
     expect(errs[0]!.attributes).toMatchObject({ tool: "run_shell" });

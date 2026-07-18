@@ -128,13 +128,13 @@ describe("runTurn", () => {
   });
 
   it("tool_call 参数是半截/非法 JSON(如单次输出被截断)→ 落库版本清洗成合法 JSON,不污染历史", async () => {
-    // 根因(真实撞见:20260717-143212-b8wt,glm-5.2 经火山方舟):模型单次 write_file 写超大
+    // 根因(真实撞见:20260717-143212-b8wt,glm-5.2 经火山方舟):模型单次 Write 写超大
     // 文件,JSON 参数生成到一半被截断,dispatch 本地解析失败(报"invalid JSON arguments"),
     // 但这条半截 JSON 的 assistant 消息此前会原样存进 session.messages——下一轮把它重发给
     // API 时,校验更严格的 provider(ARK)直接 400 Invalid request body,把整个会话卡死。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
-    const badToolCall = { id: "c0", type: "function" as const, function: { name: "write_file", arguments: '{"content": "开头没写完' } };
+    const badToolCall = { id: "c0", type: "function" as const, function: { name: "Write", arguments: '{"content": "开头没写完' } };
     const streamChatMock = scripted([
       turn([], { role: "assistant", content: null, tool_calls: [badToolCall] }),
       turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
@@ -142,18 +142,18 @@ describe("runTurn", () => {
     await runTurn({
       session: s, config, registry: emptyReg(), ctx, gate: stubGate,
       streamChat: streamChatMock,
-      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "Error: invalid JSON arguments for write_file" }],
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "c0", content: "Error: invalid JSON arguments for Write" }],
       write: () => {},
     });
     const stored = s.messages.find(
       (m): m is AssistantMessage => m.role === "assistant" && !!m.tool_calls?.some((tc) => tc.id === "c0"),
     )!;
     expect(stored.tool_calls![0]!.function.arguments).toBe("{}"); // 落库版本清洗成合法 JSON
-    expect(stored.tool_calls![0]!.function.name).toBe("write_file"); // 只清洗 arguments,不动其它字段
+    expect(stored.tool_calls![0]!.function.name).toBe("Write"); // 只清洗 arguments,不动其它字段
   });
 
   it("主备模型都遇到网络/超时类异常 → 退避后整轮重试,不让整个episode崩溃退出", async () => {
-    // 根因(真实撞见:terminal-bench make-mips-interpreter):模型试图单次write_file写入
+    // 根因(真实撞见:terminal-bench make-mips-interpreter):模型试图单次Write写入
     // 千行级大文件,主模型先抛异常触发回退到flash,flash随后也120s空闲超时——此前这里
     // 直接上抛,整个进程崩溃退出(NonZeroAgentExitCodeError exit 1),900s+预算和此前
     // 全部真实进展作废。现在退避后把usedFallback重置、给主模型再来一次机会。
@@ -415,7 +415,7 @@ describe("runTurn", () => {
     let sentModel = "";
     const assistantWithTool: AssistantMessage = {
       role: "assistant", content: null,
-      tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }],
     };
     const toolMsgs: ToolMessage[] = [{ role: "tool", tool_call_id: "c0", content: "R" }];
     const calls = scripted([
@@ -444,7 +444,7 @@ describe("runTurn", () => {
     s.addUser("go");
     const assistantWithTool: AssistantMessage = {
       role: "assistant", content: null,
-      tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }],
     };
     const calls = scripted([
       turn([], assistantWithTool), // 第1轮:调工具
@@ -469,7 +469,7 @@ describe("runTurn", () => {
     s.addUser("go");
     const assistantWithTool: AssistantMessage = {
       role: "assistant", content: null,
-      tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }],
     };
     const calls = scripted([
       turn([], assistantWithTool), // 第0轮:调工具
@@ -491,7 +491,7 @@ describe("runTurn", () => {
     const s = new Session("SYS", "m");
     s.addUser("go");
     const calls = scripted([
-      turn([], { role: "assistant", content: null, tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }] }),
+      turn([], { role: "assistant", content: null, tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }] }),
       turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
     ]);
     let compactCalls = 0;
@@ -510,7 +510,7 @@ describe("runTurn", () => {
     const s = new Session("SYS", "m");
     s.addUser("go");
     // 连续 5 个非推进回合(只读),第 5 个触发进度提醒;第 6 回合收尾。
-    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "Read", arguments: "{}" } }] })();
     const turns = [readTurn, readTurn, readTurn, readTurn, readTurn, () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })()];
     let i = 0;
     await runTurn({
@@ -531,7 +531,7 @@ describe("runTurn", () => {
     // 空转 20+ 轮,但 dao_stdout.txt 里一次"进度提醒"都搜不到,一度误判成机制没生效)。
     const s = new Session("SYS", "m");
     s.addUser("go");
-    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "Read", arguments: "{}" } }] })();
     const turns = [readTurn, readTurn, readTurn, readTurn, readTurn, () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })()];
     let i = 0;
     const written: string[] = [];
@@ -552,7 +552,7 @@ describe("runTurn", () => {
     // 卡住的窗口已经浪费了。第1次就要直接给"写脚本/跑命令/哪怕写不完整版本也要落地"这条。
     const s = new Session("SYS", "m");
     s.addUser("go");
-    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "Read", arguments: "{}" } }] })();
     const turns = [
       ...Array.from({ length: 5 }, () => readTurn),
       () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
@@ -577,7 +577,7 @@ describe("runTurn", () => {
   it("同一次卡住连续两次触发进度提醒 → 第2次强调'已经提醒过仍没推进',同样带具体动作", async () => {
     const s = new Session("SYS", "m");
     s.addUser("go");
-    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "Read", arguments: "{}" } }] })();
     // 连续 10 个非推进回合:第5轮触发第1次提醒,第10轮触发第2次(应升级措辞)。
     const turns = [
       ...Array.from({ length: 10 }, () => readTurn),
@@ -601,8 +601,8 @@ describe("runTurn", () => {
   it("卡住期间中途真的推进过一次 → 计数清零,后续再卡住重新从通用措辞开始", async () => {
     const s = new Session("SYS", "m");
     s.addUser("go");
-    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
-    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write_file", arguments: "{}" } }] })();
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "Read", arguments: "{}" } }] })();
+    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "Write", arguments: "{}" } }] })();
     // 5轮空转(触发第1次提醒)→ 1轮真实推进(清零)→ 再5轮空转(应该又是"第1次",不是"第2次")。
     const turns = [
       ...Array.from({ length: 5 }, () => readTurn),
@@ -619,21 +619,21 @@ describe("runTurn", () => {
       maxTurns: 15,
     });
     const sys = s.messages.filter((m) => m.role === "system").map((m) => String(m.content));
-    // 两次触发都应该是"第1次"(通用措辞),因为中途的 write_file 把 stuckAdviceCount 清零了。
+    // 两次触发都应该是"第1次"(通用措辞),因为中途的 Write 把 stuckAdviceCount 清零了。
     expect(sys.filter((c) => c.includes("[进度提醒]") && !c.includes("第")).length).toBe(2);
     expect(sys.some((c) => c.includes("第2次"))).toBe(false);
   });
 
   it("同一会话反复卡住又被零星编辑清零 → 第3次即使是'新的一次卡住'也要升级措辞,不能无限靠清零规避", async () => {
     // 根因(内省复盘 make-mips-interpreter 时发现):模型卡在同一个printf/内存字节问题上
-    // 反复假设了两个多小时,期间进度提醒确实触发过3次,但每次都被穿插的零星edit_file清零了
+    // 反复假设了两个多小时,期间进度提醒确实触发过3次,但每次都被穿插的零星Edit清零了
     // stuckAdviceCount,导致每次都只拿到"第1次"的通用措辞,从未真正升级——跟raman-fitting
     // 那次发现的检测盲区同一个根因。totalStuckEvents不受清零影响,累计到3次就该升级,
     // 不管当前这次"卡住"是不是刚重新开始计数的。
     const s = new Session("SYS", "m");
     s.addUser("go");
-    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "read_file", arguments: "{}" } }] })();
-    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write_file", arguments: "{}" } }] })();
+    const readTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "r", type: "function", function: { name: "Read", arguments: "{}" } }] })();
+    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "Write", arguments: "{}" } }] })();
     // 3轮"5轮空转+1轮零星编辑清零"循环,第3次卡住触发时 totalStuckEvents 应达到3、需要升级。
     const cycle = [...Array.from({ length: 5 }, () => readTurn), writeTurn];
     const turns = [
@@ -660,7 +660,7 @@ describe("runTurn", () => {
     const s = new Session("SYS", "m");
     s.addUser("go");
     // maxTurns=6 → t===1 时命中 t===maxTurns-5,用推进型工具调用避免同时触发进度提醒混淆断言。
-    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write_file", arguments: "{}" } }] })();
+    const writeTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "Write", arguments: "{}" } }] })();
     const turns = [writeTurn, writeTurn, writeTurn, writeTurn, writeTurn, () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })()];
     let i = 0;
     const written: string[] = [];
@@ -729,8 +729,8 @@ describe("runTurn", () => {
 
   it("omits write/exec tools in plan mode", async () => {
     const r = new ToolRegistry();
-    r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
-    r.register(defineTool({ name: "write_file", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "" }));
+    r.register(defineTool({ name: "Read", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
+    r.register(defineTool({ name: "Write", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "" }));
     const s = new Session("SYS", "m");
     s.addUser("plan something");
     s.toggleMode();
@@ -748,7 +748,7 @@ describe("runTurn", () => {
       executeToolCalls: async () => [],
       write: () => {},
     });
-    expect(sentTools).toEqual(["read_file"]);
+    expect(sentTools).toEqual(["Read"]);
   });
 
   it("stops at maxTurns", async () => {
@@ -800,7 +800,7 @@ describe("runTurn", () => {
     // 模拟:模型答完(带 tool_calls)随即用户 abort —— 工具尚未执行。
     const partialWithTool: AssistantMessage = {
       role: "assistant", content: "partial",
-      tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }],
     };
     await runTurn({
       session: s,
@@ -879,14 +879,14 @@ describe("runTurn", () => {
 
   it("blocks write/exec tool calls at execution in plan mode (does not dispatch them)", async () => {
     const r = new ToolRegistry();
-    r.register(defineTool({ name: "read_file", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
-    r.register(defineTool({ name: "write_file", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "" }));
+    r.register(defineTool({ name: "Read", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));
+    r.register(defineTool({ name: "Write", description: "", capability: "write", approval: "required", schema: z.object({}), handler: async () => "" }));
     const s = new Session("SYS", "m");
     s.addUser("create a file");
     s.toggleMode(); // → plan
     let executedCalls = 0;
     const calls = scripted([
-      turn([], { role: "assistant", content: null, tool_calls: [{ id: "w0", type: "function", function: { name: "write_file", arguments: "{}" } }] }),
+      turn([], { role: "assistant", content: null, tool_calls: [{ id: "w0", type: "function", function: { name: "Write", arguments: "{}" } }] }),
       turn([{ kind: "content", text: "can't in plan" }], { role: "assistant", content: "can't in plan" }),
     ]);
     await runTurn({
@@ -899,7 +899,7 @@ describe("runTurn", () => {
       executeToolCalls: (async (cs: any) => { executedCalls += cs.length; return cs.map((c: any) => ({ role: "tool", tool_call_id: c.id, content: "RAN" })); }) as any,
       write: () => {},
     });
-    expect(executedCalls).toBe(0); // write_file never dispatched in plan
+    expect(executedCalls).toBe(0); // Write never dispatched in plan
     const toolMsg = s.messages.find((m) => m.role === "tool");
     expect(toolMsg?.content).toContain("不可用");
   });
@@ -935,7 +935,7 @@ describe("runTurn", () => {
     s.addUser("go");
     const toolCall = (id: string): AssistantMessage => ({
       role: "assistant", content: null,
-      tool_calls: [{ id, type: "function", function: { name: "exec_shell", arguments: "{}" } }],
+      tool_calls: [{ id, type: "function", function: { name: "Bash", arguments: "{}" } }],
     });
     const calls = scripted([
       turn([], toolCall("c0")),
@@ -961,7 +961,7 @@ describe("runTurn", () => {
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("go");
     const calls = scripted([
-      turn([], { role: "assistant", content: null, tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }] }),
+      turn([], { role: "assistant", content: null, tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }] }),
       turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
     ]);
     await runTurn({
@@ -978,11 +978,11 @@ describe("runTurn", () => {
   function regWithAgent() {
     const r = new ToolRegistry();
     r.register(defineTool({
-      name: "write_file", description: "d", descriptionEn: "d", capability: "write", approval: "auto",
+      name: "Write", description: "d", descriptionEn: "d", capability: "write", approval: "auto",
       schema: z.object({}), handler: async () => "",
     }));
     r.register(defineTool({
-      name: "agent", description: "d", descriptionEn: "d", capability: "plan", approval: "auto",
+      name: "Agent", description: "d", descriptionEn: "d", capability: "plan", approval: "auto",
       schema: z.object({}), handler: async () => "",
     }));
     return r;
@@ -993,7 +993,7 @@ describe("runTurn", () => {
     s.addUser("go");
     const writeCall: AssistantMessage = {
       role: "assistant", content: null,
-      tool_calls: [{ id: "c0", type: "function", function: { name: "write_file", arguments: "{}" } }],
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Write", arguments: "{}" } }],
     };
     const calls = scripted([
       turn([], writeCall), // 第0轮:写文件
@@ -1019,11 +1019,11 @@ describe("runTurn", () => {
     s.addUser("go");
     const writeCall: AssistantMessage = {
       role: "assistant", content: null,
-      tool_calls: [{ id: "c0", type: "function", function: { name: "write_file", arguments: "{}" } }],
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Write", arguments: "{}" } }],
     };
     const verifyCall: AssistantMessage = {
       role: "assistant", content: null,
-      tool_calls: [{ id: "c1", type: "function", function: { name: "agent", arguments: '{\"agent_type\":\"verify\",\"task\":\"verify\"}' } }],
+      tool_calls: [{ id: "c1", type: "function", function: { name: "Agent", arguments: '{"agent_type":"verify","task":"verify"}' } }],
     };
     const calls = scripted([
       turn([], writeCall),
@@ -1052,12 +1052,12 @@ describe("sanitizeHistoryForResume", () => {
     // 进程把这类坏消息存进了 state.json;之后用修复后的新版 dao 续写,原样加载回来又会
     // 撞上同一个 400 Invalid request body——sanitizeForHistory 只清洗"本进程新生成"的
     // 消息,不覆盖"续写时加载进来的旧历史",所以续写路径需要单独再过一遍。
-    const badToolCall = { id: "c0", type: "function" as const, function: { name: "write_file", arguments: '{"content": "半截没写完' } };
+    const badToolCall = { id: "c0", type: "function" as const, function: { name: "Write", arguments: '{"content": "半截没写完' } };
     const messages = [
       { role: "system" as const, content: "SYS" },
       { role: "user" as const, content: "hi" },
       { role: "assistant" as const, content: null, tool_calls: [badToolCall] },
-      { role: "tool" as const, tool_call_id: "c0", content: "Error: invalid JSON arguments for write_file" },
+      { role: "tool" as const, tool_call_id: "c0", content: "Error: invalid JSON arguments for Write" },
     ];
     const cleaned = sanitizeHistoryForResume(messages);
     const assistant = cleaned.find((m) => m.role === "assistant") as AssistantMessage;
@@ -1067,7 +1067,7 @@ describe("sanitizeHistoryForResume", () => {
   });
 
   it("合法 JSON 的历史原样返回,不做无谓改写", () => {
-    const goodToolCall = { id: "c0", type: "function" as const, function: { name: "read_file", arguments: '{"path": "a.ts"}' } };
+    const goodToolCall = { id: "c0", type: "function" as const, function: { name: "Read", arguments: '{"path": "a.ts"}' } };
     const messages = [
       { role: "assistant" as const, content: null, tool_calls: [goodToolCall] },
     ];

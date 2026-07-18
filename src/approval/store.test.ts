@@ -22,15 +22,15 @@ describe("always-approved store", () => {
   });
 
   it("persists and reloads approved tool names", async () => {
-    await appendAlwaysApproved(file, "write_file");
+    await appendAlwaysApproved(file, "Write");
     const set = await loadAlwaysApproved(file);
-    expect(set.has("write_file")).toBe(true);
+    expect(set.has("Write")).toBe(true);
   });
 
   it("does not duplicate an already-approved tool", async () => {
-    await appendAlwaysApproved(file, "write_file");
-    await appendAlwaysApproved(file, "write_file");
+    await appendAlwaysApproved(file, "Write");
+    await appendAlwaysApproved(file, "Write");
     const raw = await fs.readFile(file, "utf8");
-    expect(JSON.parse(raw)).toEqual(["write_file"]);
+    expect(JSON.parse(raw)).toEqual(["Write"]);
   });
 });

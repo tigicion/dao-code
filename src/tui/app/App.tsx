@@ -26,14 +26,14 @@ const MAX_LIVE_LINES = 12; // 流式动态区尾部行数的【上限】;实际�
 const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
 const REASONING_CAP = 6; // 思考块默认最多显示几行(ctrl+o / --verbose 全显)
 // 这些工具的结果正文值得在 ⎿ 子块里展示(对标 CC:Bash/Grep 显输出,Read 只显计数)。
-const ECHO_OUTPUT = new Set(["exec_shell", "exec_shell_poll", "grep_files", "web_search", "fetch_url"]);
+const ECHO_OUTPUT = new Set(["Bash", "BashOutput", "Grep", "WebSearch", "WebFetch"]);
 
 // 斜杠命令清单(补全菜单 + Tab 补全共用,单一真相源):命令名 + 顺序即菜单展示顺序。
 // 每条描述走 i18n 键 cmd.<name>(精炼一行,对标 CC 命令面板),渲染处用 t("cmd."+name) 取值。
 const COMMAND_META: ReadonlyArray<string> = [
   "model", "plan", "mode", "skills", "init", "context", "tasks", "mcp", "diff", "doctor",
   "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume",
-  "rewind", "branch", "rename", "export", "copy", "btw", "config", "effort", "status", "plugin",
+  "rewind", "branch", "rename", "export", "copy", "btw", "Config", "effort", "status", "plugin",
   "account", "simplify", "remember", "debug-session", "skillify", "batch",
   "loop", "theme", "bypass", "goal", "dod", "restore", "clear", "compact", "cost", "session",
   "audit", "help", "exit",
@@ -79,38 +79,38 @@ const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
 
 // 工具动作词(toolStart 时参数尚在流式中,只有名字)——用于 live 进度行。
 const VERB: Record<string, string> = {
-  read_file: "ui.verb.readFile", list_dir: "ui.verb.listDir", grep_files: "ui.verb.grepFiles", file_search: "ui.verb.fileSearch",
-  exec_shell: "ui.verb.execShell", exec_shell_poll: "ui.verb.execPoll", exec_shell_kill: "ui.verb.execKill",
-  write_file: "ui.verb.writeFile", edit_file: "ui.verb.editFile", multi_edit: "ui.verb.multiEdit", notebook_edit: "ui.verb.notebookEdit", web_search: "ui.verb.webSearch",
-  fetch_url: "ui.verb.fetchUrl", memory_write: "ui.verb.memoryWrite", todo_write: "ui.verb.todoWrite", ask_user: "ui.verb.askUser", agent: "ui.verb.agent",
+  Read: "ui.verb.readFile", ListDir: "ui.verb.listDir", Grep: "ui.verb.grepFiles", Glob: "ui.verb.fileSearch",
+  Bash: "ui.verb.execShell", BashOutput: "ui.verb.execPoll", KillShell: "ui.verb.execKill",
+  Write: "ui.verb.writeFile", Edit: "ui.verb.editFile", MultiEdit: "ui.verb.multiEdit", NotebookEdit: "ui.verb.notebookEdit", WebSearch: "ui.verb.webSearch",
+  WebFetch: "ui.verb.fetchUrl", MemoryWrite: "ui.verb.memoryWrite", TodoWrite: "ui.verb.todoWrite", AskUserQuestion: "ui.verb.askUser", agent: "ui.verb.agent",
 };
 const toolVerb = (name: string): string => (VERB[name] ? t(VERB[name]!) : name);
 
-// 工具调用的"意图/命令"标签:展示意图而非工具名(read_file → 读取 src/foo.ts)。
+// 工具调用的"意图/命令"标签:展示意图而非工具名(Read → 读取 src/foo.ts)。
 function activityLabel(name: string, argsJson: string): string {
   let a: Record<string, unknown> = {};
   try { a = JSON.parse(argsJson) as Record<string, unknown>; } catch {}
   const s = (v: unknown) => (typeof v === "string" ? v : "");
   const q = (v: unknown) => JSON.stringify(s(v));
   switch (name) {
-    case "read_file": return `${toolVerb(name)} ${s(a.path)}${a.offset ? ` :${a.offset}` : ""}`;
-    case "list_dir": return `${toolVerb(name)} ${s(a.path) || "."}`;
-    case "grep_files": return `${toolVerb(name)} ${q(a.pattern)}${a.glob ? ` (${s(a.glob)})` : ""}`;
-    case "file_search": return `${toolVerb(name)} ${s(a.glob)}`;
-    case "exec_shell": return `$ ${s(a.command).split("\n")[0]!.slice(0, 80)}`;
-    case "exec_shell_poll": return t("ui.tool.execPoll");
-    case "exec_shell_kill": return t("ui.tool.execKill");
-    case "write_file": return `${toolVerb(name)} ${s(a.path)}`;
-    case "edit_file": return `${toolVerb(name)} ${s(a.path)}`;
-    case "multi_edit": return `${toolVerb(name)} ${s(a.path)}${Array.isArray(a.edits) ? t("ui.tool.editGroups", a.edits.length) : ""}`;
-    case "notebook_edit": return `${toolVerb(name)} ${s(a.path)} #${typeof a.cell_index === "number" ? a.cell_index : "?"}`;
-    case "web_search": return `${toolVerb(name)} ${q(a.query)}`;
-    case "fetch_url": return `${toolVerb(name)} ${s(a.url)}`;
-    case "memory_write": return `${toolVerb(name)} ${s(a.text).slice(0, 50)}`;
-    case "todo_write": return t("ui.tool.todoWrite");
-    case "ask_user": return toolVerb(name);
-    case "agent": return Array.isArray(a.tasks) ? t("ui.tool.agentParallel", a.tasks.length) : t("ui.tool.agentOne", s(a.task).slice(0, 50));
-    case "skill": return `Skill(${s(a.name) || "?"})`; // 入参名(name/slug,插件技能为 plugin:slug)
+    case "Read": return `${toolVerb(name)} ${s(a.path)}${a.offset ? ` :${a.offset}` : ""}`;
+    case "ListDir": return `${toolVerb(name)} ${s(a.path) || "."}`;
+    case "Grep": return `${toolVerb(name)} ${q(a.pattern)}${a.glob ? ` (${s(a.glob)})` : ""}`;
+    case "Glob": return `${toolVerb(name)} ${s(a.glob)}`;
+    case "Bash": return `$ ${s(a.command).split("\n")[0]!.slice(0, 80)}`;
+    case "BashOutput": return t("ui.tool.execPoll");
+    case "KillShell": return t("ui.tool.execKill");
+    case "Write": return `${toolVerb(name)} ${s(a.path)}`;
+    case "Edit": return `${toolVerb(name)} ${s(a.path)}`;
+    case "MultiEdit": return `${toolVerb(name)} ${s(a.path)}${Array.isArray(a.edits) ? t("ui.tool.editGroups", a.edits.length) : ""}`;
+    case "NotebookEdit": return `${toolVerb(name)} ${s(a.path)} #${typeof a.cell_index === "number" ? a.cell_index : "?"}`;
+    case "WebSearch": return `${toolVerb(name)} ${q(a.query)}`;
+    case "WebFetch": return `${toolVerb(name)} ${s(a.url)}`;
+    case "MemoryWrite": return `${toolVerb(name)} ${s(a.text).slice(0, 50)}`;
+    case "TodoWrite": return t("ui.tool.todoWrite");
+    case "AskUserQuestion": return toolVerb(name);
+    case "Agent": return Array.isArray(a.tasks) ? t("ui.tool.agentParallel", a.tasks.length) : t("ui.tool.agentOne", s(a.task).slice(0, 50));
+    case "Skill": return `Skill(${s(a.name) || "?"})`; // 入参名(name/slug,插件技能为 plugin:slug)
     default: return name;
   }
 }
@@ -121,15 +121,15 @@ function resultDetail(name: string, ok: boolean, content: string): string {
   if (!ok) return lines[0]!.slice(0, 120); // 报错首行
   const n = lines.length;
   switch (name) {
-    case "read_file": return t("ui.detail.lines", n);
-    case "list_dir": return content.startsWith("(") ? content : t("ui.detail.items", n);
-    case "grep_files": return content.startsWith("(") ? content : t("ui.detail.matches", n);
-    case "file_search": return content.startsWith("(") ? content : t("ui.detail.found", n);
-    case "write_file": return t("ui.detail.lines", n); // 合成行数,不回显工具层中文(英文 locale 下不漏「N 行」)
-    case "exec_shell": return lines.filter((l) => l.trim()).slice(-1)[0]?.slice(0, 100) ?? "";
-    case "web_search": return content.startsWith("(") ? content : t("ui.detail.results", content.split("\n\n").length);
-    case "fetch_url": return t("ui.detail.chars", content.length);
-    case "skill": { // 工具返回 `# Skill: <真实名>…`;找不到时返回"未找到 skill…"(也走 ok 分支)
+    case "Read": return t("ui.detail.lines", n);
+    case "ListDir": return content.startsWith("(") ? content : t("ui.detail.items", n);
+    case "Grep": return content.startsWith("(") ? content : t("ui.detail.matches", n);
+    case "Glob": return content.startsWith("(") ? content : t("ui.detail.found", n);
+    case "Write": return t("ui.detail.lines", n); // 合成行数,不回显工具层中文(英文 locale 下不漏「N 行」)
+    case "Bash": return lines.filter((l) => l.trim()).slice(-1)[0]?.slice(0, 100) ?? "";
+    case "WebSearch": return content.startsWith("(") ? content : t("ui.detail.results", content.split("\n\n").length);
+    case "WebFetch": return t("ui.detail.chars", content.length);
+    case "Skill": { // 工具返回 `# Skill: <真实名>…`;找不到时返回"未找到 skill…"(也走 ok 分支)
       if (content.startsWith("未找到")) return lines[0]!.slice(0, 80);
       const m = content.match(/^# Skill:\s*(.+)$/m);
       return m ? t("ui.tool.skillLoaded", " " + m[1]!.trim()) : t("ui.tool.skillLoaded", "");
@@ -190,7 +190,7 @@ export function App(deps: AppDeps) {
   const [exitArmed, setExitArmed] = useState(false);
   const exitArmedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (exitArmedTimer.current) clearTimeout(exitArmedTimer.current); }, []);
-  // 结构化选择(ask_user 带 options):单选用 数字/↑↓ + Enter;多选用 checkbox(空格/数字切换 + Enter)。
+  // 结构化选择(AskUserQuestion 带 options):单选用 数字/↑↓ + Enter;多选用 checkbox(空格/数字切换 + Enter)。
   // 自动附"其他(自己输入)"(进 askInput 子模式)与"先讨论一下"两项。
   const [choice, setChoice] = useState<{ question: string; options: string[]; multi: boolean; resolve: (s: string) => void } | null>(null);
   const [choiceIdx, setChoiceIdx] = useState(0);
@@ -330,25 +330,25 @@ export function App(deps: AppDeps) {
         const ok = !contentStr.startsWith("Error") && !contentStr.includes("拒绝");
         const name = call.function.name;
         let pushed = false;
-        if (ok && (name === "edit_file" || name === "multi_edit")) {
-          // edit/multi_edit:红绿 diff(行号来自工具结果,高亮在 Row 渲染)。
+        if (ok && (name === "Edit" || name === "MultiEdit")) {
+          // edit/MultiEdit:红绿 diff(行号来自工具结果,高亮在 Row 渲染)。
           try {
             const a = JSON.parse(call.function.arguments) as { path?: string; old_string?: string; new_string?: string; edits?: Array<{ old_string: string; new_string: string }> };
             const path = String(a.path ?? "");
-            // 收集所有 ```diff 块(edit_file:1 个;multi_edit:每编辑 1 个)
+            // 收集所有 ```diff 块(Edit:1 个;MultiEdit:每编辑 1 个)
             const allDm = [...contentStr.matchAll(/```diff\n([\s\S]*?)\n```/g)];
             const rows = allDm.length ? allDm.flatMap(m => m[1]!.split("\n")) : undefined;
-            const rm = name === "multi_edit" && a.edits
+            const rm = name === "MultiEdit" && a.edits
               ? Array.from({ length: a.edits.length }, () => "")
               : toLines(String(a.old_string ?? ""));
-            const ad = name === "multi_edit" && a.edits
+            const ad = name === "MultiEdit" && a.edits
               ? Array.from({ length: a.edits.length }, () => "")
               : toLines(String(a.new_string ?? ""));
             pushItem({ id: nextId(), kind: "diff", path, removed: rm, added: ad, lang: langFromPath(path), startLine: undefined, rows });
             pushed = true;
           } catch { /* 参数非 JSON,退回轻量工具行 */ }
         }
-        if (!pushed && ok && name === "todo_write") {
+        if (!pushed && ok && name === "TodoWrite") {
           // todo:渲染成复选框清单(对标 CC),就地体现进度。
           pushItem({ id: nextId(), kind: "todo", items: parseTodoResult(contentStr) });
           pushed = true;

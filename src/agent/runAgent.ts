@@ -17,7 +17,7 @@ import { loadAgentMemoryPrompt } from "./agent_memory.js";
 export { filterIncompleteToolCalls };
 
 // 记忆 agent 强制找回的工具(即使 tools/disallowedTools 把它们排除了)——没有读写能力,记忆等于白设。
-const FORCED_MEMORY_TOOLS = ["read_file", "write_file", "edit_file"];
+const FORCED_MEMORY_TOOLS = ["Read", "Write", "Edit"];
 
 // ---- 类型 ----
 
@@ -60,7 +60,7 @@ export interface RunAgentParams {
   /** 父会话的完整项目指令(CLAUDE.md/DAO.md/gitStatus 等已组装好的 system prompt);
    *  agentDef.omitClaudeMd!==true 时拼进子代理 system prompt,省 token 的一次性 agent(explore/plan)不拼。 */
   projectInstructions?: string;
-  /** 后台子代理给父发 mid-run 消息的出口(message_parent 工具用);前台子代理不传 */
+  /** 后台子代理给父发 mid-run 消息的出口(MessageParent 工具用);前台子代理不传 */
   messageParent?: (message: string) => void;
   /** 缓存安全参数回调(后台摘要用) */
   onCacheSafeParams?: (params: CacheSafeParams) => void;
@@ -233,7 +233,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     agentGate = parentGate.withModeOverride(agentPermMode);
   }
 
-  // abort 控制器:不论同步/异步都真实创建——task_stop/cancel 要能对任何子代理生效,
+  // abort 控制器:不论同步/异步都真实创建——TaskStop/cancel 要能对任何子代理生效,
   // 不能等它被标记 isAsync 才有 controller 可中止(前台子代理转后台前也可能被取消)。
   // - 调用方已传(前台路径由 agent.ts 的 registerAgentForeground 发,自己管链父信号的时机;
   //   异步路径是 taskManager.registerAsyncAgent 发的独立 controller)-> 直接用,这里不再重复链——

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { scrubbedEnv } from "./tools/safe_env.js";
 
 // 会话启动时探测一次(语言运行时 + git 分支/脏状态),塞进系统提示词的 Environment 段落,
-// 省掉模型自己用 exec_shell 摸索"这台机器有没有 python3/go/当前在哪个分支"的早期回合。
+// 省掉模型自己用 Bash 摸索"这台机器有没有 python3/go/当前在哪个分支"的早期回合。
 // 灵感来自 stanford-iris-lab/meta-harness 的 environment bootstrapping,但探测在本地 spawn,
 // 远比其对远程沙箱 exec 的延迟低,超时预算相应收紧。
 //

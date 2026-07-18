@@ -3,21 +3,21 @@ import { defineTool } from "./types.js";
 
 // 按名加载一个 skill 的正文指令(渐进式披露:启动只列 name+description,需要时用本工具取正文)。
 export const skillTool = defineTool({
-  name: "skill",
+  name: "Skill",
   description:
     "加载一个开箱即用 skill 的完整指令并据此执行。启动时你只看到每个 skill 的名字+一句话描述(渐进式披露," +
     "省上下文),完整正文要靠本工具按需取。【强制要求】:当任务匹配可用 skill 列表里的某个 skill 时," +
     "必须先调用本工具加载它、再做其它任何回应或动作;绝不只口头提到某个 skill 而不实际调用它——" +
     "看到匹配就是调用的时机,不是先问用户要不要用。加载进来的正文是【必须照做的流程】,优先级高于你自己的默认习惯," +
-    "只在用户当前明确指令、安全/证据、或模型选型政策这几件事上让步;里面若有步骤清单就用 todo_write 逐条建 todo" +
-    "按序执行,若要求给用户选项/确认就必须用 ask_user,不能自己脑内替用户做了决定。别为已经加载过的同一个 skill 重复调用。可选 args 传参给技能(如 '-m \"Fix bug\"' 或 '123')。",
+    "只在用户当前明确指令、安全/证据、或模型选型政策这几件事上让步;里面若有步骤清单就用 TodoWrite 逐条建 todo" +
+    "按序执行,若要求给用户选项/确认就必须用 AskUserQuestion,不能自己脑内替用户做了决定。别为已经加载过的同一个 skill 重复调用。可选 args 传参给技能(如 '-m \"Fix bug\"' 或 '123')。",
   descriptionEn:
     "Loads a ready-to-use skill's full instructions and executes accordingly. At startup you only see each skill's name + one-line description (progressive disclosure, " +
     "saves context) — the full body must be fetched via this tool when needed. [MANDATORY]: When a task matches a skill in the available skill list, you MUST call this " +
     "tool to load it before taking any other action or response; never just mention a skill name without actually loading it — a match is the trigger to call it, not a " +
     "reason to ask the user first whether to use it. The loaded body is a [MUST-FOLLOW procedure], outranking your own default habits — it only yields to the user's " +
-    "current explicit instruction, safety/evidence, or model-selection policy. If it contains a step list, track it with todo_write and execute in order; if it calls " +
-    "for giving the user options/confirmation, you must use ask_user rather than deciding on the user's behalf. Don't repeatedly load the same already-loaded skill. Optional args passes parameters to the skill (e.g. '-m \"Fix bug\"' or '123').",
+    "current explicit instruction, safety/evidence, or model-selection policy. If it contains a step list, track it with TodoWrite and execute in order; if it calls " +
+    "for giving the user options/confirmation, you must use AskUserQuestion rather than deciding on the user's behalf. Don't repeatedly load the same already-loaded skill. Optional args passes parameters to the skill (e.g. '-m \"Fix bug\"' or '123').",
   capability: "read",
   approval: "auto",
   schema: z.object({
@@ -49,8 +49,8 @@ export const skillTool = defineTool({
     const follow =
       `\n\n---\n[执行约束] 以上 skill 正文是【必须照做的流程指令】,不是可选信息:优先级高于你的默认习惯,` +
       `仅让位于用户当前明确指令、安全/证据,以及 DAO 的模型/上下文选型政策(技能不得据此换模型、或事事开新上下文/派子代理)。` +
-      `若它含步骤/清单,立即用 todo_write 逐条建 todo 并按序执行;` +
-      `含"给用户选项 / 确认 / 分阶段"的步骤【必须】执行(用 ask_user 给选项),不要跳过、不要只在脑子里走。`;
+      `若它含步骤/清单,立即用 TodoWrite 逐条建 todo 并按序执行;` +
+      `含"给用户选项 / 确认 / 分阶段"的步骤【必须】执行(用 AskUserQuestion 给选项),不要跳过、不要只在脑子里走。`;
     return `# Skill: ${s.name}\n${loc}\n${argsNote}${text}${follow}`;
   },
 });

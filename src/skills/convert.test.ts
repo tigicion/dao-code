@@ -4,15 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import { makeSkillAdapter, convertSystemPrompt } from "./convert.js";
 
-const DAO = new Set(["read_file", "edit_file", "exec_shell"]);
-const catalog = "read_file — 读文件\nedit_file — 改文件\nexec_shell — 跑命令";
+const DAO = new Set(["Read", "Edit", "Bash"]);
+const catalog = "Read — 读文件\nEdit — 改文件\nBash — 跑命令";
 
 let home: string;
 beforeEach(async () => { home = await fs.mkdtemp(path.join(os.tmpdir(), "dao-adapt-")); });
 afterEach(async () => { await fs.rm(home, { recursive: true, force: true }); });
 
 describe("convertSystemPrompt 模型档/子代理映射", () => {
-  const sys = convertSystemPrompt("read_file — 读文件");
+  const sys = convertSystemPrompt("Read — 读文件");
   it("把外来模型档映射到 dao 的 flash/pro", () => {
     expect(sys).toContain("deepseek-v4-flash");
     expect(sys).toContain("deepseek-v4-pro");
@@ -34,17 +34,17 @@ describe("makeSkillAdapter", () => {
   it("dao 原生技能:不调 flash,原样返回", async () => {
     let called = 0;
     const adapt = makeSkillAdapter({ daoTools: DAO, catalog, homeDir: home, callFlash: async () => { called++; return "X"; } });
-    const body = "先 `read_file` 再 `edit_file`";
+    const body = "先 `Read` 再 `Edit`";
     expect(await adapt(body)).toBe(body);
     expect(called).toBe(0);
   });
 
   it("外来技能:flash 转换一次,按 hash 缓存,二次命中缓存不再调 flash", async () => {
     let called = 0;
-    const adapt = makeSkillAdapter({ daoTools: DAO, catalog, homeDir: home, callFlash: async () => { called++; return "用 read_file 读、exec_shell 跑"; } });
-    const foreign = "use the `Read` tool then `Bash`";
-    expect(await adapt(foreign)).toBe("用 read_file 读、exec_shell 跑");
-    expect(await adapt(foreign)).toBe("用 read_file 读、exec_shell 跑"); // 第二次走缓存
+    const adapt = makeSkillAdapter({ daoTools: DAO, catalog, homeDir: home, callFlash: async () => { called++; return "用 Read 读、Bash 跑"; } });
+    const foreign = "use the `WebFetch` tool then `MultiEdit`";
+    expect(await adapt(foreign)).toBe("用 Read 读、Bash 跑"); // flash 转换后结果
+    expect(await adapt(foreign)).toBe("用 Read 读、Bash 跑"); // 第二次走缓存
     expect(called).toBe(1); // 只调了一次
   });
 

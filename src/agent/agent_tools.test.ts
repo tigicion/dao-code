@@ -45,67 +45,67 @@ const customAgent: AgentDef = {
 };
 
 describe("ALL_AGENT_DISALLOWED_TOOLS", () => {
-  it("包含 agent/ask_user/task_stop", () => {
-    expect(ALL_AGENT_DISALLOWED_TOOLS.has("agent")).toBe(true);
-    expect(ALL_AGENT_DISALLOWED_TOOLS.has("ask_user")).toBe(true);
-    expect(ALL_AGENT_DISALLOWED_TOOLS.has("task_stop")).toBe(true);
+  it("包含 agent/AskUserQuestion/TaskStop", () => {
+    expect(ALL_AGENT_DISALLOWED_TOOLS.has("Agent")).toBe(true);
+    expect(ALL_AGENT_DISALLOWED_TOOLS.has("AskUserQuestion")).toBe(true);
+    expect(ALL_AGENT_DISALLOWED_TOOLS.has("TaskStop")).toBe(true);
   });
 });
 
 describe("ASYNC_AGENT_ALLOWED_TOOLS", () => {
-  it("含 message_parent(后台子代理给父发 mid-run 消息的唯一出口,DAO 特有,漏掉等于后台子代理哑掉)", () => {
-    expect(ASYNC_AGENT_ALLOWED_TOOLS.has("message_parent")).toBe(true);
+  it("含 MessageParent(后台子代理给父发 mid-run 消息的唯一出口,DAO 特有,漏掉等于后台子代理哑掉)", () => {
+    expect(ASYNC_AGENT_ALLOWED_TOOLS.has("MessageParent")).toBe(true);
   });
 });
 
 describe("filterToolsForAgent", () => {
   it("内置 agent 过滤全局禁用工具", () => {
-    const r = mkRegistry(["agent", "ask_user", "read_file", "grep_files"]);
+    const r = mkRegistry(["Agent", "AskUserQuestion", "Read", "Grep"]);
     const filtered = filterToolsForAgent({ tools: r, isBuiltIn: true, isAsync: false });
     const names = [...filtered["tools" as never] as Map<string, unknown>].map(([, v]) => (v as { name: string }).name);
-    expect(names).not.toContain("agent");
-    expect(names).not.toContain("ask_user");
-    expect(names).toContain("read_file");
+    expect(names).not.toContain("Agent");
+    expect(names).not.toContain("AskUserQuestion");
+    expect(names).toContain("Read");
   });
 
   it("异步 agent 只保留白名单工具", () => {
-    const r = mkRegistry(["read_file", "ask_user", "agent", "exec_shell"]);
+    const r = mkRegistry(["Read", "AskUserQuestion", "Agent", "Bash"]);
     const filtered = filterToolsForAgent({ tools: r, isBuiltIn: false, isAsync: true });
     const names = [...filtered["tools" as never] as Map<string, unknown>].map(([, v]) => (v as { name: string }).name);
-    expect(names).toContain("read_file");
-    expect(names).toContain("exec_shell");
-    expect(names).not.toContain("ask_user");
-    expect(names).not.toContain("agent");
+    expect(names).toContain("Read");
+    expect(names).toContain("Bash");
+    expect(names).not.toContain("AskUserQuestion");
+    expect(names).not.toContain("Agent");
   });
 });
 
 describe("resolveAgentTools", () => {
   it("tools=undefined -> 全部(减禁用)", () => {
-    const r = mkRegistry(["read_file", "agent", "grep_files"]);
+    const r = mkRegistry(["Read", "Agent", "Grep"]);
     const { resolvedTools, hasWildcard } = resolveAgentTools(builtinAgent, r, false);
     expect(hasWildcard).toBe(true);
     // resolvedTools 是 ToolRegistry,检查不含 agent
     const names = [...(resolvedTools as any).tools.keys()];
-    expect(names).toContain("read_file");
-    expect(names).not.toContain("agent");
+    expect(names).toContain("Read");
+    expect(names).not.toContain("Agent");
   });
 
   it("tools 白名单 -> 只含白名单", () => {
-    const agent: AgentDef = { ...customAgent, tools: ["read_file", "grep_files"] };
-    const r = mkRegistry(["read_file", "grep_files", "exec_shell", "agent"]);
+    const agent: AgentDef = { ...customAgent, tools: ["Read", "Grep"] };
+    const r = mkRegistry(["Read", "Grep", "Bash", "Agent"]);
     const { resolvedTools, hasWildcard } = resolveAgentTools(agent, r, false);
     expect(hasWildcard).toBe(false);
     const names = [...(resolvedTools as any).tools.keys()];
-    expect(names).toEqual(["read_file", "grep_files"]);
+    expect(names).toEqual(["Read", "Grep"]);
   });
 
   it("disallowedTools 排除", () => {
-    const agent: AgentDef = { ...customAgent, disallowedTools: ["exec_shell"] };
-    const r = mkRegistry(["read_file", "exec_shell", "grep_files"]);
+    const agent: AgentDef = { ...customAgent, disallowedTools: ["Bash"] };
+    const r = mkRegistry(["Read", "Bash", "Grep"]);
     const { resolvedTools } = resolveAgentTools(agent, r, false);
     const names = [...(resolvedTools as any).tools.keys()];
-    expect(names).not.toContain("exec_shell");
-    expect(names).toContain("read_file");
+    expect(names).not.toContain("Bash");
+    expect(names).toContain("Read");
   });
 });
 
@@ -122,7 +122,7 @@ describe("createProgressTracker", () => {
     t.updateFromMessage({
       role: "assistant",
       content: "hello",
-      tool_calls: [{ id: "1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+      tool_calls: [{ id: "1", type: "function", function: { name: "Read", arguments: "{}" } }],
     } as never);
     expect(t.getProgress().toolUseCount).toBe(1);
   });

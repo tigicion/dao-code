@@ -11,11 +11,11 @@ export interface ToolContext {
   // 项目身份根目录:memory/MCP/LSP/skills/settings/审计日志 等子系统都按它定位,启动时定一次,
   // 不随 worktree 切换而变——即使当前在某个 worktree 里干活,这些子系统仍指向"真正的项目"。
   workspaceRoot: string;
-  // 路径解析根目录(文件读写/exec_shell/verify 等"在哪干活"用它);未设时回退到 workspaceRoot。
-  // 只有 enter_worktree/exit_worktree 会改它——两者是分开的概念:workspaceRoot 回答"这是哪个项目",
+  // 路径解析根目录(文件读写/Bash/verify 等"在哪干活"用它);未设时回退到 workspaceRoot。
+  // 只有 EnterWorktree/ExitWorktree 会改它——两者是分开的概念:workspaceRoot 回答"这是哪个项目",
   // cwd 回答"现在文件改动落在哪个目录"。别把两者混用,否则会出现"改的文件不在你以为的地方"这种 bug。
   cwd?: string;
-  // 当前通过 enter_worktree 进入的 worktree(未在 worktree 会话里则为空);exit_worktree 靠它做
+  // 当前通过 EnterWorktree 进入的 worktree(未在 worktree 会话里则为空);ExitWorktree 靠它做
   // keep/remove 判断,并在退出时把 cwd 恢复到进入前的值。
   activeWorktree?: {
     root: string;
@@ -28,12 +28,12 @@ export interface ToolContext {
   readFiles?: Set<string>;
   // P2-23 读时元信息(mtime/size):写前复核,文件自上次读后被外部改动则拒绝(防覆盖并发改动)。
   readMeta?: Map<string, { mtime: number; size: number }>;
-  // 向用户提问(ask_user 用);注入,便于测试。
+  // 向用户提问(AskUserQuestion 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
-  // 结构化选择(ask_user 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
+  // 结构化选择(AskUserQuestion 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
   // 自动附"其他(自己输入)"与"先讨论一下"两项;返回选中项文本(多选逗号分隔)/自填内容/讨论标记。
   askChoice?: (question: string, options: string[], multi?: boolean) => Promise<string>;
-  // 网络抓取(web_search/fetch_url 用);注入,默认全局 fetch。
+  // 网络抓取(WebSearch/WebFetch 用);注入,默认全局 fetch。
   fetchImpl?: typeof fetch;
   // ---- 子代理系统(新:runAgent 统一接口) ----
   // 子代理派发(返回 AsyncGenerator,逐条 yield 消息)
@@ -65,16 +65,16 @@ export interface ToolContext {
   sendToTask?: (id: string, message: string) => boolean;
   // (后台子代理用)给父代理发 mid-run 消息;由 runAgent 的 messageParent 参数绑定到本任务 id。前台子代理为 undefined。
   messageParent?: (message: string) => void;
-  // 直达人类桌面的即时通知(notify_user 用);与 messageParent 不同——不经任何代理层排队,当下就弹。
+  // 直达人类桌面的即时通知(NotifyUser 用);与 messageParent 不同——不经任何代理层排队,当下就弹。
   notifyUser?: (message: string) => void;
-  // 按关键词搜 MCP 工具并激活命中项(tool_search 用);激活后从下一次工具调用起才会出现在发给模型的
+  // 按关键词搜 MCP 工具并激活命中项(ToolSearch 用);激活后从下一次工具调用起才会出现在发给模型的
   // 工具列表里——MCP 工具默认不发,避免连了很多 server 时内置工具集合以外的部分拖累前缀缓存。
   searchTools?: (query: string) => string;
   // lsp 工具用:按文件类型路由到对应 language server(懒启动/复用),未配置对应类型时返回 error。
   lsp?: LspManager;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
   createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
-  // 完整任务管理器引用(task_create/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create/registerAsyncAgent/
+  // 完整任务管理器引用(TaskCreate/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create/registerAsyncAgent/
   // registerAgentForeground,不是并行的第二套系统——agent 工具的后台/前台切换也走它。
   taskManager?: TaskManager;
   // auto 模式下子代理结束后审查整段转录的分类器(对标 CC classifyHandoffIfNeeded)。
@@ -86,7 +86,7 @@ export interface ToolContext {
   skills?: { name: string; description: string; whenToUse?: string; paths?: string[]; slug?: string; body: string; dir: string }[];
   // skill 工具加载某技能后回调:记录使用频率(用于发现/列表加权)。注入便于测试。
   recordSkillUse?: (name: string) => void;
-  // skill_install 装完后:把新装技能加载进【当前会话】(追加式,便宜、无需重启)。返回新加载的技能名。
+  // SkillInstall 装完后:把新装技能加载进【当前会话】(追加式,便宜、无需重启)。返回新加载的技能名。
   // 交互/headless 都可(纯追加)。未注入(如子代理)=不支持,装完仍需重启生效。
   loadInstalledSkills?: (scope: "user" | "project") => Promise<string[]>;
   // 外来技能(为 CC/Codex/Gemini 等所写)正文 → DAO 适配:检测+按用途转换工具名(无字典,缓存)。
@@ -94,17 +94,17 @@ export interface ToolContext {
   adaptSkill?: (body: string) => Promise<string>;
   // 子代理嵌套深度(防递归);主 agent 为 0/undefined,子代理内为 1。
   subagentDepth?: number;
-  // 当前会话模型名(read_file 读图片时检查是否支持多模态)。
+  // 当前会话模型名(Read 读图片时检查是否支持多模态)。
   sessionModel?: string;
   // 切换会话模式(plan/normal);plan_mode 工具用。省略则不支持模式切换(子代理等场景)。
   setMode?: (mode: "normal" | "plan") => void;
   // 暂存工具返回的图片数据,由 execute.ts 在构建 ToolMessage 时读取并清空。
   currentImageData?: { base64: string; mediaType: string };
-  // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
+  // 当前日期(ISO,YYYY-MM-DD);MemoryWrite 据此记 created/lastUsed。注入便于测试。
   today?: string;
   // 用户主目录(用户级记忆 ~/.dao 的根);默认 os.homedir()。注入便于测试隔离真实主目录。
   homeDir?: string;
-  // 中途取消信号(ESC/超时):工具据此提前终止(如 exec_shell 给子进程发 SIGTERM)。
+  // 中途取消信号(ESC/超时):工具据此提前终止(如 Bash 给子进程发 SIGTERM)。
   signal?: AbortSignal;
   // 申请访问工作区外路径(读类工具用):返回是否获批。未注入(非交互)默认拒绝。
   // 一次授权后同会话/本仓库后续外部读不再追问(减少阻塞)。
@@ -146,7 +146,7 @@ export interface Tool {
   // 覆盖更宽的判定(如 exec 检出 download-execute),返回 null = 不干预。规则引擎判 allow 后才咨询它。
   checkPermissions?: (argsJson: string) => "deny" | "ask" | null;
   // 延迟加载(对标 CC shouldDefer):true 时初始只发 name+简短描述(不发完整 parameters),
-  // 模型需用 tool_search 查询后才返回完整 schema 并激活。减少低频工具的 token 开销。
+  // 模型需用 ToolSearch 查询后才返回完整 schema 并激活。减少低频工具的 token 开销。
   shouldDefer?: boolean;
 }
 

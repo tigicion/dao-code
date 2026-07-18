@@ -5,7 +5,7 @@ import { todoStore } from "./todo_store.js";
 beforeEach(() => todoStore.reset());
 const ctx = { workspaceRoot: "/tmp" };
 
-describe("todo_write tool", () => {
+describe("TodoWrite tool", () => {
   it("renders todos with status icons and stores them", async () => {
     const out = await todoWriteTool.handler(
       {
@@ -46,7 +46,7 @@ describe("todo_write tool", () => {
   it("declares plan capability and auto approval", () => {
     expect(todoWriteTool.capability).toBe("plan");
     expect(todoWriteTool.approval).toBe("auto");
-    expect(todoWriteTool.name).toBe("todo_write");
+    expect(todoWriteTool.name).toBe("TodoWrite");
   });
 
   it("all ≥3 items completed → appends a verification nudge", async () => {

@@ -31,7 +31,7 @@ function mount() {
   return { ...r, getAskChoice: () => askChoice! };
 }
 
-describe("multi-select (ask_user)", () => {
+describe("multi-select (AskUserQuestion)", () => {
   // 断言中文选择器文案,固定中文(默认 locale 为 en)。
   beforeEach(() => setLang("zh"));
 

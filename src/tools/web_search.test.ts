@@ -16,7 +16,7 @@ function fetchReturning(html: string, status = 200): typeof fetch {
   return (async () => new Response(html, { status })) as unknown as typeof fetch;
 }
 
-describe("web_search tool", () => {
+describe("WebSearch tool", () => {
   it("parses titles, decoded urls, and snippets from DDG html", async () => {
     const out = await webSearchTool.handler(
       { query: "anything" },
@@ -76,6 +76,6 @@ describe("web_search tool", () => {
   it("declares network capability and suggest approval", () => {
     expect(webSearchTool.capability).toBe("network");
     expect(webSearchTool.approval).toBe("suggest");
-    expect(webSearchTool.name).toBe("web_search");
+    expect(webSearchTool.name).toBe("WebSearch");
   });
 });

@@ -32,7 +32,7 @@ describe("formatAudit", () => {
   });
   it("含噪音 → 汇总 + 删除提示", () => {
     const rows: AuditRow[] = [
-      { tier: "用户", mem: mem({ name: "noise1", text: "用户使用 grep_files 工具", type: "user" }), flag: "noise", reason: "x" },
+      { tier: "用户", mem: mem({ name: "noise1", text: "用户使用 Grep 工具", type: "user" }), flag: "noise", reason: "x" },
       { tier: "项目", mem: mem({ name: "good1", type: "semantic", importance: 8 }), flag: "ok", reason: "" },
     ];
     const out = formatAudit(rows, TODAY);

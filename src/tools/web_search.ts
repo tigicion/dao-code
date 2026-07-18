@@ -25,16 +25,16 @@ function decodeDdgUrl(href: string): string {
 }
 
 export const webSearchTool = defineTool({
-  name: "web_search",
+  name: "WebSearch",
   description: "用 DuckDuckGo 联网搜索,返回若干条结果(标题、URL、摘要),默认 5 条、最多 10 条(max_results 调)。" +
     "30 秒超时。只有摘要,没有正文——摘要能回答问题就直接用,需要完整内容(具体数据、代码示例、长文细节)时" +
-    "对看起来最相关的那条结果 URL 再调 fetch_url,别对着摘要瞎猜细节。查的是当下的网络实时结果,不是你训练数据里的旧知识——" +
+    "对看起来最相关的那条结果 URL 再调 WebFetch,别对着摘要瞎猜细节。查的是当下的网络实时结果,不是你训练数据里的旧知识——" +
     "涉及'最新版本/最近发生的事'这类时效性问题时优先用它而不是凭记忆回答。举例:用户问某个库最新版本改了什么," +
     "别直接报你训练数据里记得的旧版本信息,先搜一下确认现在真实的最新情况。DuckDuckGo 搜的是公开网页,搜不到" +
     "私有仓库/内网文档/需要登录的页面,这类内容还是得靠用户直接提供或本地文件读取。",
   descriptionEn: "Searches the web via DuckDuckGo, returning results (title, URL, snippet), 5 by default, up to 10 (adjustable via max_results). 30s timeout. " +
     "Snippets only, no page content — use the snippet directly if it already answers the question; when you need full content (specific data, code examples, " +
-    "long-form detail), call fetch_url on whichever result URL looks most relevant, don't guess at details from the snippet alone. This queries live current " +
+    "long-form detail), call WebFetch on whichever result URL looks most relevant, don't guess at details from the snippet alone. This queries live current " +
     "results, not your training-data knowledge — for time-sensitive questions ('latest version', 'what just happened'), prefer this over answering from memory. " +
     "Example: user asks what changed in a library's latest release — don't answer from the stale version you remember, search first to confirm the real current state. " +
     "DuckDuckGo only reaches public web pages — private repos, internal docs, or login-gated pages won't show up; those still need the user to provide them directly " +

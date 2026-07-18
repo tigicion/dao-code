@@ -83,7 +83,7 @@ export function getMemoryScopeDisplay(
 /**
  * 加载 agent 持久记忆并返回 prompt 文本(对标 CC loadAgentMemoryPrompt)。
  * 在 runAgent 阶段 2 追加到 system prompt。
- * agent 通过 read_file/write_file/edit_file 直接读写 memory.md。
+ * agent 通过 Read/Write/Edit 直接读写 memory.md。
  */
 export function loadAgentMemoryPrompt(
   agentType: string,
@@ -112,7 +112,7 @@ export function loadAgentMemoryPrompt(
   return `## 持久 Agent 记忆
 
 你有持久记忆,存储在 ${memoryFile}。
-你可以用 read_file 读取记忆、用 write_file/edit_file 更新记忆。
+你可以用 Read 读取记忆、用 Write/Edit 更新记忆。
 
 记忆使用指南:
 - 只记耐久且可泛化的:项目结构、关键决策、踩过的坑、用户偏好

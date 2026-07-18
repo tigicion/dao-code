@@ -11,7 +11,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { await fs.rm(src, { recursive: true, force: true }); await fs.rm(ws, { recursive: true, force: true }); });
 
-describe("skill_install 工具", () => {
+describe("SkillInstall 工具", () => {
   it("声明 exec + 需审批", () => {
     expect(skillInstallTool.capability).toBe("exec");
     expect(skillInstallTool.approval).toBe("required");

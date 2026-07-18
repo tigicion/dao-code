@@ -27,7 +27,7 @@ function makeCtx(): ToolContext {
   return { workspaceRoot: repo, createWorktree: (id: string) => createWorktree(repo, id) };
 }
 
-describe("exit_worktree", () => {
+describe("ExitWorktree", () => {
   it("不在 worktree 会话里时是 no-op", async () => {
     const ctx = makeCtx();
     const out = await exitWorktreeTool.handler({ action: "keep" }, ctx);

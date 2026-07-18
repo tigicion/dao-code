@@ -12,8 +12,8 @@ export interface DecideParams {
   rules: PermissionsConfig;
 }
 
-// 读也会泄漏的目标:凭据/密钥material。不分 capability、不分读写——read_file 读一遍 id_rsa
-// 跟 exec_shell 里 cat 一遍,结果都是私钥内容进了模型上下文,没道理只挡后者。
+// 读也会泄漏的目标:凭据/密钥material。不分 capability、不分读写——Read 读一遍 id_rsa
+// 跟 Bash 里 cat 一遍,结果都是私钥内容进了模型上下文,没道理只挡后者。
 const SECRET_TARGET =
   /\.ssh\/|id_rsa|id_ed25519|id_ecdsa|authorized_keys|\.aws\/|\.npmrc|\.netrc|credentials|\.dao\/config\.json|\/etc\/(shadow|gshadow|ssl\/private|ssh\/ssh_host_\w+_key)\b/;
 
@@ -33,15 +33,15 @@ export function isSensitiveCall(toolName: string, argsJson: string): boolean {
   return !!id?.value && SENSITIVE_TARGET.test(id.value);
 }
 
-// 从 exec_shell 的 argsJson 取出 command 字符串(解析失败→空串,快速路径据此不放行)。
+// 从 Bash 的 argsJson 取出 command 字符串(解析失败→空串,快速路径据此不放行)。
 function extractCommand(argsJson: string): string {
   try { return (JSON.parse(argsJson) as { command?: string })?.command ?? ""; }
   catch { return ""; }
 }
 
-// S2.1 危险 shell 命令(rm -rf /、curl|sh、提权…):exec_shell 专属判定。
+// S2.1 危险 shell 命令(rm -rf /、curl|sh、提权…):Bash 专属判定。
 export function isDangerousCall(toolName: string, argsJson: string): boolean {
-  if (toolName !== "exec_shell") return false;
+  if (toolName !== "Bash") return false;
   try { return isDangerousCommand((JSON.parse(argsJson) as { command?: string })?.command ?? "") != null; }
   catch { return false; }
 }
@@ -62,19 +62,19 @@ function mustConfirm(p: DecideParams): boolean {
   // 做不完——跟 SECRET_TARGET(真实泄密风险)不是同一个风险等级,不该用同一条免疫规则。
   // 非 yolo 模式(default/acceptEdits/auto)下这类目标依然要确认,行为不变。
   if (p.mode !== "bypassPermissions" && (p.capability === "write" || p.capability === "exec") && WRITE_ONLY_SENSITIVE_TARGET.test(id.value)) {
-    const isReadOnlyExec = p.toolName === "exec_shell" && isReadOnlyShellCommand(extractCommand(p.argsJson));
+    const isReadOnlyExec = p.toolName === "Bash" && isReadOnlyShellCommand(extractCommand(p.argsJson));
     if (!isReadOnlyExec) return true;
   }
   return isDangerousCall(p.toolName, p.argsJson);
 }
 
 // auto 模式安全白名单(对标 CC SAFE_YOLO_ALLOWLISTED_TOOLS):只读/搜索/任务管理/计划类工具
-// 即便被升级到"需确认"也直接放行,省一次分类器调用。exec_shell/外部写不在内,必须过分类器。
-// 网络查询(web_search/fetch_url)auto 下放行:属"读取型"取信息,deny 规则仍能覆盖;fetch_url 自带 SSRF 挡内网/元数据。
+// 即便被升级到"需确认"也直接放行,省一次分类器调用。Bash/外部写不在内,必须过分类器。
+// 网络查询(WebSearch/WebFetch)auto 下放行:属"读取型"取信息,deny 规则仍能覆盖;WebFetch 自带 SSRF 挡内网/元数据。
 const AUTO_ALLOWLIST = new Set([
-  "read_file", "grep_files", "file_search", "list_dir",
-  "todo_write", "ask_user", "memory_read", "skill", "echo",
-  "web_search", "fetch_url",
+  "Read", "Grep", "Glob", "ListDir",
+  "TodoWrite", "AskUserQuestion", "MemoryRead", "Skill", "echo",
+  "WebSearch", "WebFetch",
 ]);
 
 // 单次工具调用的权限裁决,1:1 复刻 CC 优先级:
@@ -98,11 +98,11 @@ export function decide(p: DecideParams): Decision {
 // 非 Bash 工具走同步 decide。
 // 对标 CC bashToolHasPermission:步骤 0(AST parse)→ too-complex fail-closed → 规则匹配。
 export async function decideAsync(p: DecideParams): Promise<Decision> {
-  if (p.toolName !== "exec_shell") return decide(p);
+  if (p.toolName !== "Bash") return decide(p);
   const id = toCcIdentity(p.toolName, p.argsJson);
   if (!id) return decide(p);
 
-  // 动态 import:避免非 exec_shell 路径加载 AST 模块(~7000 行)
+  // 动态 import:避免非 Bash 路径加载 AST 模块(~7000 行)
   const { evaluateWithAst } = await import("./rules.js");
   const ruleDec = await evaluateWithAst(p.rules, id);
 
@@ -112,8 +112,8 @@ export async function decideAsync(p: DecideParams): Promise<Decision> {
   if (ruleDec === "ask") return "ask";
   if (ruleDec === "allow") return "allow";
 
-  // 只读 shell 命令:不分模式一律快速放行(同 decideBase 的逻辑,这里 toolName 恒为 exec_shell,
-  // 已在函数顶部 return decide(p) 分流掉了非 exec_shell 的情况)。不含 plan,理由同 decideBase。
+  // 只读 shell 命令:不分模式一律快速放行(同 decideBase 的逻辑,这里 toolName 恒为 Bash,
+  // 已在函数顶部 return decide(p) 分流掉了非 Bash 的情况)。不含 plan,理由同 decideBase。
   if (p.mode !== "plan" && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
 
   // 无规则命中 → 模式 + 能力默认
@@ -153,11 +153,11 @@ function decideBase(p: DecideParams): Decision {
   if (ruleDec === "allow") return "allow";
 
   // 只读 shell 命令(ls/cat/git status/find 不带 -delete…):不分模式一律快速放行,免一次审批——
-  // exec_shell 的 capability 标了 "exec" 不代表这次调用真有副作用,没道理因为工具本身的分类就问。
+  // Bash 的 capability 标了 "exec" 不代表这次调用真有副作用,没道理因为工具本身的分类就问。
   // 已过上面的 mustConfirm(SECRET_TARGET/危险命令双保险 fail-closed),这里再判一次纯读安全即可。
   // 不含 plan:plan 模式跳过了 mustConfirm(见上面 `p.mode !== "plan"` 那个条件),SECRET_TARGET
   // 检查没跑过,这里如果也放行会让 `cat ~/.ssh/id_rsa` 绕过凭据保护——保持 plan 原有"exec 一律 deny"。
-  if (p.mode !== "plan" && p.toolName === "exec_shell" && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
+  if (p.mode !== "plan" && p.toolName === "Bash" && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
 
   // 无规则命中 → 模式 + 能力默认
   const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";

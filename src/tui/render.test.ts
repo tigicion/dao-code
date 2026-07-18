@@ -34,17 +34,17 @@ describe("renderStream", () => {
     const w: string[] = [];
     await renderStream(
       gen(
-        [{ kind: "content", text: "正文" }, { kind: "tool_call", index: 0, name: "read_file" }],
+        [{ kind: "content", text: "正文" }, { kind: "tool_call", index: 0, name: "Read" }],
         {
           role: "assistant",
           content: "正文",
-          tool_calls: [{ id: "c0", type: "function", function: { name: "read_file", arguments: "{}" } }],
+          tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }],
         },
       ),
       (s) => w.push(s),
     );
     const out = strip(w.join(""));
-    expect(out.indexOf("正文")).toBeLessThan(out.indexOf("read_file"));
-    expect(out).toContain("→ read_file");
+    expect(out.indexOf("正文")).toBeLessThan(out.indexOf("Read"));
+    expect(out).toContain("→ Read");
   });
 });

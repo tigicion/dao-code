@@ -17,7 +17,7 @@ function fakeLsp(overrides: Partial<Record<string, (...a: unknown[]) => unknown>
   return { resolve: () => ({ client }) };
 }
 
-describe("lsp", () => {
+describe("LSP", () => {
   it("goToDefinition 路由到 client.definition", async () => {
     const out = await lspTool.handler({ operation: "goToDefinition", filePath: "a.ts", line: 1, character: 1 }, { workspaceRoot: "/w", lsp: fakeLsp() as never });
     expect(out).toBe("def-result");

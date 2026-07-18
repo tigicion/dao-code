@@ -16,7 +16,7 @@ function makeCtx(taskManager: ReturnType<typeof createTaskManager>): ToolContext
   return { workspaceRoot: process.cwd(), taskManager };
 }
 
-describe("monitor", () => {
+describe("Monitor", () => {
   it("command 模式:stdout 按行推送为通知,进程退出后任务 completed", async () => {
     const taskManager = createTaskManager();
     const ctx = makeCtx(taskManager);
@@ -36,7 +36,7 @@ describe("monitor", () => {
     expect(joined).toContain("task-notification"); // 进程退出触发的最终结算通知
   });
 
-  it("task_stop(cancel)取消后终止底层进程,任务转为 canceled", async () => {
+  it("TaskStop(cancel)取消后终止底层进程,任务转为 canceled", async () => {
     const taskManager = createTaskManager();
     const ctx = makeCtx(taskManager);
     const out = await monitorTool.handler(

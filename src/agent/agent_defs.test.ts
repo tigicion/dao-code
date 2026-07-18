@@ -20,8 +20,8 @@ description: 测试 agent
     const raw = `---
 name: reviewer
 description: 代码审查
-tools: "read_file, grep_files"
-disallowedTools: "write_file"
+tools: "Read, Grep"
+disallowedTools: "Write"
 model: deepseek-v4-flash
 permissionMode: plan
 maxTurns: 50
@@ -36,8 +36,8 @@ initialPrompt: "/review"
 审查代码`;
     const def = parseAgentDef("reviewer", raw) as AgentDef;
     expect(def!.agentType).toBe("reviewer");
-    expect(def!.tools).toEqual(["read_file", "grep_files"]);
-    expect(def!.disallowedTools).toEqual(["write_file"]);
+    expect(def!.tools).toEqual(["Read", "Grep"]);
+    expect(def!.disallowedTools).toEqual(["Write"]);
     expect(def!.model).toBe("deepseek-v4-flash");
     expect(def!.permissionMode).toBe("plan");
     expect(def!.maxTurns).toBe(50);

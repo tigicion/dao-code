@@ -77,7 +77,7 @@ describe("agent tool", () => {
   it("declares plan capability and auto approval", () => {
     expect(agentTool.capability).toBe("plan");
     expect(agentTool.approval).toBe("auto");
-    expect(agentTool.name).toBe("agent");
+    expect(agentTool.name).toBe("Agent");
   });
 
   it("depth >= 1(子代理内)拒绝派发——agent 工具本就对子代理全局禁用,这里是防御性第二道防线", async () => {
@@ -170,7 +170,7 @@ describe("agent tool", () => {
     expect(calls[0].isAsync).toBe(true);
   });
 
-  it("background 子代理调用 messageParent → 进父的任务通知队列(message_parent 工具的唯一出口)", async () => {
+  it("background 子代理调用 messageParent → 进父的任务通知队列(MessageParent 工具的唯一出口)", async () => {
     const fn = (params: any): AsyncGenerator<ChatMessage, void> => {
       async function* gen(): AsyncGenerator<ChatMessage, void> {
         params.messageParent?.("跑到一半了");
@@ -236,7 +236,7 @@ describe("agent tool", () => {
     expect(abortController.signal.aborted).toBe(false); // 已在转后台时解绑,父 abort 不再连带
   });
 
-  it("前台任务正常跑完 → taskManager 里状态结算为 completed(不留 running,不被 cancelAll/task_stop 误伤)", async () => {
+  it("前台任务正常跑完 → taskManager 里状态结算为 completed(不留 running,不被 cancelAll/TaskStop 误伤)", async () => {
     const { fn } = fakeRunAgent("单任务结果");
     const taskManager = createTaskManager();
     const ctx = mkCtx({ runAgent: fn, taskManager });

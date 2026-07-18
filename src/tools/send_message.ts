@@ -6,7 +6,7 @@ import { defineTool } from "./types.js";
 // 对标 CC SendUserMessage:给用户发可见消息(支持 markdown + 文件附件)。
 // 与直接输出文本的区别:attachments 可附文件(图片/diff/log);status 标注意图(主动推送 vs 回复)。
 export const sendMessageTool = defineTool({
-  name: "send_message",
+  name: "SendUserMessage",
   description:
     "给用户发一条可见消息(支持 markdown)。attachments 可附带文件路径(图片/diff/log 等)。" +
     "status: 'normal'=回复用户刚问的;'proactive'=主动推送(后台任务完成、发现阻塞、未问主动汇报)。" +

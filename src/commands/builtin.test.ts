@@ -5,10 +5,10 @@ describe("runBuiltinCommand", () => {
   it("simplify → 质量清理 prompt", () => {
     expect(runBuiltinCommand("simplify", "")?.prompt).toContain("质量清理");
   });
-  it("remember 无参 → 用法;有参 → 含事实 + memory_write", () => {
+  it("remember 无参 → 用法;有参 → 含事实 + MemoryWrite", () => {
     expect(runBuiltinCommand("remember", "")?.output).toContain("用法");
     const r = runBuiltinCommand("remember", "用户偏好简洁");
-    expect(r?.prompt).toContain("memory_write");
+    expect(r?.prompt).toContain("MemoryWrite");
     expect(r?.prompt).toContain("用户偏好简洁");
   });
   it("debug-session → 读 .dao/sessions,带问题描述", () => {

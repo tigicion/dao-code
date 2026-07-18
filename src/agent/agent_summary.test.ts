@@ -7,7 +7,7 @@ const msgsWithTool: ChatMessage[] = [
   {
     role: "assistant",
     content: "",
-    tool_calls: [{ id: "1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+    tool_calls: [{ id: "1", type: "function", function: { name: "Read", arguments: "{}" } }],
   },
 ];
 
@@ -28,7 +28,7 @@ describe("startAgentSummarization", () => {
     );
     await new Promise((r) => setTimeout(r, 30));
     stop();
-    expect(updateSummary).toHaveBeenCalledWith("task-1", expect.stringContaining("read_file"));
+    expect(updateSummary).toHaveBeenCalledWith("task-1", expect.stringContaining("Read"));
   });
 
   it("stop() 后不再触发摘要", async () => {

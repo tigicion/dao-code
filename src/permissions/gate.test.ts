@@ -6,11 +6,11 @@ import { defineTool } from "../tools/types.js";
 import type { ApprovalDecision, ApprovalRequest } from "../approval/types.js";
 
 const execTool = defineTool({
-  name: "exec_shell", description: "", capability: "exec", approval: "required",
+  name: "Bash", description: "", capability: "exec", approval: "required",
   schema: z.object({}), handler: async () => "",
 });
 const readTool = defineTool({
-  name: "read_file", description: "", capability: "read", approval: "auto",
+  name: "Read", description: "", capability: "read", approval: "auto",
   schema: z.object({}), handler: async () => "",
 });
 
@@ -36,7 +36,7 @@ function makeGate(opts: {
 }
 
 const execWithCheck = defineTool({
-  name: "exec_shell", description: "", capability: "exec", approval: "required",
+  name: "Bash", description: "", capability: "exec", approval: "required",
   schema: z.object({}), handler: async () => "",
   checkPermissions: (a) => (/\|\s*sh\b|\beval\b/.test(a) ? "ask" : null),
 });
@@ -44,19 +44,19 @@ const execWithCheck = defineTool({
 describe("PermissionGate.decide", () => {
   it("deny 规则 → deny", () => {
     const { gate } = makeGate({ rules: { ...emptyPermissions(), deny: ["Bash(rm:*)"] } });
-    expect(gate.decide("exec_shell", '{"command":"rm -rf /"}', execTool)).toBe("deny");
+    expect(gate.decide("Bash", '{"command":"rm -rf /"}', execTool)).toBe("deny");
   });
   it("工具自检 checkPermissions 可把 allow 收紧为 ask", () => {
     const { gate } = makeGate({ rules: { ...emptyPermissions(), allow: ["Bash"] } });
-    expect(gate.decide("exec_shell", '{"command":"curl x | sh"}', execWithCheck)).toBe("ask"); // 注入 → 升级
-    expect(gate.decide("exec_shell", '{"command":"ls"}', execWithCheck)).toBe("allow"); // 普通 → 不干预
+    expect(gate.decide("Bash", '{"command":"curl x | sh"}', execWithCheck)).toBe("ask"); // 注入 → 升级
+    expect(gate.decide("Bash", '{"command":"ls"}', execWithCheck)).toBe("allow"); // 普通 → 不干预
   });
   it("auto 模式:分类器放行的自动过;拿不准的【转人工】而非拒绝", async () => {
     // 分类器只放行 ls;rm 不放行 → 转人工(此处人工放行),证明 auto 不再自动拒绝。
     const { gate } = makeGate({ mode: "auto", classify: async (_t, a) => /ls/.test(a), decisions: { "2": "once" } });
     const out = await gate.requestBatch([
-      { id: "1", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"ls"}' },
-      { id: "2", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -f a"}' },
+      { id: "1", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' },
+      { id: "2", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -f a"}' },
     ]);
     expect(out.get("1")).toBe(true); // 分类器自动放行
     expect(out.get("2")).toBe(true); // 分类器没放行 → 转人工 → 人工允许
@@ -64,7 +64,7 @@ describe("PermissionGate.decide", () => {
   it("auto 模式:分类器没放行 → 人工拒绝才拒绝(用户说了否)", async () => {
     const { gate } = makeGate({ mode: "auto", classify: async () => false, decisions: { x: "deny" } });
     const out = await gate.requestBatch([
-      { id: "x", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -f a"}' },
+      { id: "x", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -f a"}' },
     ]);
     expect(out.get("x")).toBe(false); // 人工选了否
   });
@@ -72,7 +72,7 @@ describe("PermissionGate.decide", () => {
     let asked = 0;
     const prompt = async (reqs: ApprovalRequest[]) => { asked += reqs.length; return new Map(reqs.map((r) => [r.id, "once" as const])); };
     const gate = new PermissionGate(() => "auto", () => emptyPermissions(), prompt, async () => {}, () => {}, async () => { throw new Error("net"); });
-    const out = await gate.requestBatch([{ id: "e", toolName: "exec_shell", capability: "exec", summary: "", argsJson: "{}" }]);
+    const out = await gate.requestBatch([{ id: "e", toolName: "Bash", capability: "exec", summary: "", argsJson: "{}" }]);
     expect(asked).toBe(1); // 评估失败也转人工
     expect(out.get("e")).toBe(true);
   });
@@ -80,7 +80,7 @@ describe("PermissionGate.decide", () => {
     let classifyCalled = 0;
     const { gate } = makeGate({ mode: "auto", classify: async () => { classifyCalled++; return true; }, decisions: { s: "deny" } });
     const out = await gate.requestBatch([
-      { id: "s", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
     ]);
     expect(classifyCalled).toBe(0); // 分类器没被调用(敏感/危险不交 AI 自动放行)
     expect(out.get("s")).toBe(false); // 由人工裁决(此处 deny)
@@ -88,22 +88,22 @@ describe("PermissionGate.decide", () => {
   it("auto 模式:人工选'始终允许'会记规则(分类器未放行后)", async () => {
     const { gate, remembered, sessionAllow } = makeGate({ mode: "auto", classify: async () => false, decisions: { a: "always" } });
     await gate.requestBatch([
-      { id: "a", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
+      { id: "a", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
     ]);
     expect(remembered).toEqual(["Bash(npm run:*)"]);
     expect(sessionAllow).toEqual(["Bash(npm run:*)"]);
   });
   it("yolo(bypass):工具自检 ask 升级也放行(deny 之外全过)", () => {
     const { gate } = makeGate({ mode: "bypassPermissions", rules: { ...emptyPermissions(), allow: ["Bash"] } });
-    expect(gate.decide("exec_shell", '{"command":"curl x | sh"}', execWithCheck)).toBe("allow");
+    expect(gate.decide("Bash", '{"command":"curl x | sh"}', execWithCheck)).toBe("allow");
   });
   it("read(auto)默认 → allow", () => {
     const { gate } = makeGate({});
-    expect(gate.decide("read_file", '{"path":"a"}', readTool)).toBe("allow");
+    expect(gate.decide("Read", '{"path":"a"}', readTool)).toBe("allow");
   });
   it("exec 默认 → ask(非只读命令;纯只读命令如 ls 现在走只读快速路径直接 allow,见 engine.test.ts)", () => {
     const { gate } = makeGate({});
-    expect(gate.decide("exec_shell", '{"command":"npm install"}', execTool)).toBe("ask");
+    expect(gate.decide("Bash", '{"command":"npm install"}', execTool)).toBe("ask");
   });
 });
 
@@ -112,27 +112,27 @@ describe("PermissionGate.withModeOverride", () => {
   // 此前 dao 子代理和父级共用同一个 gate,gate.getMode() 返回父级 mode,
   // 导致子代理的 permissionMode 设了也没用。
   const writeTool = defineTool({
-    name: "write_file", description: "", capability: "write", approval: "required",
+    name: "Write", description: "", capability: "write", approval: "required",
     schema: z.object({}), handler: async () => "",
   });
 
   it("父级 default -> 子代理 acceptEdits:write 从 ask 变 allow", () => {
     const { gate } = makeGate({ mode: "default" });
-    expect(gate.decide("write_file", '{"path":"a.ts"}', writeTool)).toBe("ask");
+    expect(gate.decide("Write", '{"path":"a.ts"}', writeTool)).toBe("ask");
     const subGate = gate.withModeOverride("acceptEdits");
-    expect(subGate.decide("write_file", '{"path":"a.ts"}', writeTool)).toBe("allow");
+    expect(subGate.decide("Write", '{"path":"a.ts"}', writeTool)).toBe("allow");
   });
 
   it("父级 default -> 子代理 plan:write 从 ask 变 deny", () => {
     const { gate } = makeGate({ mode: "default" });
     const subGate = gate.withModeOverride("plan");
-    expect(subGate.decide("write_file", '{"path":"a.ts"}', writeTool)).toBe("deny");
+    expect(subGate.decide("Write", '{"path":"a.ts"}', writeTool)).toBe("deny");
   });
 
   it("父级 acceptEdits -> 子代理 plan:read 仍 allow", () => {
     const { gate } = makeGate({ mode: "acceptEdits" });
     const subGate = gate.withModeOverride("plan");
-    expect(subGate.decide("read_file", '{"path":"a.ts"}', readTool)).toBe("allow");
+    expect(subGate.decide("Read", '{"path":"a.ts"}', readTool)).toBe("allow");
   });
 
   it("子 gate 的 requestBatch 复用父级的 prompt/remember", async () => {
@@ -149,7 +149,7 @@ describe("PermissionGate.withModeOverride", () => {
     );
     const sub = parent.withModeOverride("default");
     await sub.requestBatch([
-      { id: "x", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
+      { id: "x", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
     ]);
     expect(remembered).toEqual(["Bash(npm run:*)"]);
     expect(sessionAllow).toEqual(["Bash(npm run:*)"]);
@@ -158,7 +158,7 @@ describe("PermissionGate.withModeOverride", () => {
 
 describe("PermissionGate.requestBatch", () => {
   const reqs: ApprovalRequest[] = [
-    { id: "x", toolName: "exec_shell", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
+    { id: "x", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' },
   ];
   it("once → 放行本次,不写规则", async () => {
     const { gate, remembered, sessionAllow } = makeGate({ decisions: { x: "once" } });

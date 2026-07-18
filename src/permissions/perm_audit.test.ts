@@ -13,8 +13,8 @@ describe("perm_audit sink", () => {
     let mode = "default";
     const s = createPermAuditSink(dir, () => mode, {} as NodeJS.ProcessEnv);
     mode = "auto"; // sink 创建后改 mode
-    s.decided("write_file", "write", "ask-approved", "ask");
-    expect(read(dir)[0]).toMatchObject({ tool: "write_file", cap: "write", mode: "auto", decision: "ask-approved", source: "ask" });
+    s.decided("Write", "write", "ask-approved", "ask");
+    expect(read(dir)[0]).toMatchObject({ tool: "Write", cap: "write", mode: "auto", decision: "ask-approved", source: "ask" });
   });
 
   it("DAO_PERM_AUDIT=0 → no-op", () => {
@@ -26,15 +26,15 @@ describe("perm_audit sink", () => {
 
   it("summarize 询问率,询问率高在前", () => {
     const ev: PermTraceEvent[] = [
-      { kind: "decided", ts: 0, tool: "write_file", cap: "write", mode: "default", decision: "ask-approved", source: "ask" },
-      { kind: "decided", ts: 0, tool: "write_file", cap: "write", mode: "default", decision: "ask-denied", source: "ask" },
-      { kind: "decided", ts: 0, tool: "read_file", cap: "read", mode: "default", decision: "allow", source: "rule" },
+      { kind: "decided", ts: 0, tool: "Write", cap: "write", mode: "default", decision: "ask-approved", source: "ask" },
+      { kind: "decided", ts: 0, tool: "Write", cap: "write", mode: "default", decision: "ask-denied", source: "ask" },
+      { kind: "decided", ts: 0, tool: "Read", cap: "read", mode: "default", decision: "allow", source: "rule" },
     ];
     const stats = summarizePermTrace(ev);
-    const w = stats.find((s) => s.tool === "write_file")!;
+    const w = stats.find((s) => s.tool === "Write")!;
     expect(w).toMatchObject({ askApproved: 1, askDenied: 1 });
     expect(w.askRate).toBeCloseTo(1);
-    expect(stats[0]!.tool).toBe("write_file");
+    expect(stats[0]!.tool).toBe("Write");
     expect(formatPermReport(stats)).toContain("询问率");
   });
 });

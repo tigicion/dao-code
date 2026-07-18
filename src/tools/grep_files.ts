@@ -35,7 +35,7 @@ const TYPE_EXTENSIONS: Record<string, string[]> = {
 };
 
 export const grepFilesTool = defineTool({
-  name: "grep_files",
+  name: "Grep",
   description:
     "在工作区内按内容(正则,JS 语法)搜索文本文件。mode=content(默认)返回 路径:行号:行内容;mode=files 只返回命中文件名," +
     "只想知道哪些文件有匹配、不需要看具体行时用它更省。可用 glob(如 *.ts)过滤文件名、path 限定搜索子目录、" +
@@ -43,7 +43,7 @@ export const grepFilesTool = defineTool({
     "上下文行:before/after/context 显示匹配行前/后/前后各 N 行(对标 CC Grep -A/-B/-C)," +
     "便于理解匹配处的上下文。head_limit 限制返回条数(默认 200),offset 跳过前 N 条(分页)。" +
     "multiline=true 启用跨行匹配(. 匹配换行符,模式可跨行)。\n" +
-    "内容搜索优先用本工具,不要用 exec_shell 拼 grep/rg--结果格式统一、不占审批。\n" +
+    "内容搜索优先用本工具,不要用 Bash 拼 grep/rg--结果格式统一、不占审批。\n" +
     "边界:结果最多 head_limit 条(默认 200,文件级或行级,按 mode 定),单行超 300 字符会截断;二进制文件自动跳过,不会读出乱码。" +
     "查无结果时会把'在哪个目录、按什么正则/glob 搜的'原样回显--据此判断是不是 path 设窄了或 pattern 写错了," +
     "别对着同一次失败的搜索盲目重试。搜大型仓库时如果结果被截断(提示会说明),缩小 path 或收紧 pattern/glob 再搜," +
@@ -54,7 +54,7 @@ export const grepFilesTool = defineTool({
     "type for file type filtering (js/ts/py/go/rust/java...).\n" +
     "Context lines: before/after/context show N lines before/after/around matches (like CC Grep -A/-B/-C). " +
     "head_limit caps result count (default 200), offset skips first N results (pagination). multiline=true enables cross-line matching (. matches newlines).\n" +
-    "Prefer this over shelling out to grep/rg via exec_shell - consistent output format, no approval needed.\n" +
+    "Prefer this over shelling out to grep/rg via Bash - consistent output format, no approval needed.\n" +
     "Boundaries: at most head_limit results (default 200, file- or line-level depending on mode); lines over 300 chars are truncated; binary files are silently skipped, never returned as garbage. " +
     "An empty result echoes back exactly where and with what pattern/glob it searched - use that to tell whether path was too narrow or the pattern is wrong, rather than blindly " +
     "retrying the same failed search. If results were truncated (the message says so) on a large repo, narrow path or tighten pattern/glob and search again - don't assume you've " +

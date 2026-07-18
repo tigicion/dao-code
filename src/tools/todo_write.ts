@@ -21,13 +21,13 @@ function completionNudge(todos: { status: TodoStatus }[]): string {
 }
 
 export const todoWriteTool = defineTool({
-  name: "todo_write",
+  name: "TodoWrite",
   description:
     "维护单层任务清单——【每次调用传完整列表】,不是增量补丁,少传的项就等于删掉了。状态 pending/in_progress/completed;" +
     "同一时刻最多一个 in_progress(可以是 0 个,不强制必须有一个在跑),多于一个会报错。用于拆解多步任务、边做边更新。" +
     "3 步以上的任务主动用它,别憋到最后一次性罗列;每完成一步就立刻把它标 completed、下一步标 in_progress 再传完整列表," +
     "不要攒到最后一起改。传空数组 = 清空整个清单。这是给你自己和用户看的轻量进度清单,不是任务对象系统——" +
-    "要追踪真正在后台跑的子任务(有 id、能查状态和结果)用 task_create/task_list 那一套。同一时刻两个都" +
+    "要追踪真正在后台跑的子任务(有 id、能查状态和结果)用 TaskCreate/TaskList 那一套。同一时刻两个都" +
     "标 in_progress 会直接报错、整表都不会生效,发现报错就检查是不是漏改了上一步的状态。\n" +
     "每个任务可选 activeForm(进行式描述,如 'Running tests'),有则 UI 显示进行式而非祈使式;省略时用 content。",
   descriptionEn:
@@ -36,7 +36,7 @@ export const todoWriteTool = defineTool({
     "Use to decompose multi-step tasks and update as you go. Use proactively for tasks with 3+ steps rather than listing everything at the end; as soon as a step " +
     "completes, mark it completed and the next one in_progress, then pass the full updated list — don't batch changes until the end. Passing an empty array clears " +
     "the whole list. This is a lightweight progress checklist for you and the user to see, not a task-object system — for tracking actual background subtasks " +
-    "(with an id, queryable status/result), use the task_create/task_list family instead. Having two items in_progress at once errors outright and the whole list " +
+    "(with an id, queryable status/result), use the TaskCreate/TaskList family instead. Having two items in_progress at once errors outright and the whole list " +
     "is rejected — if you hit that error, check whether you forgot to update the previous step's status." +
     "Each task optionally takes activeForm (present continuous, e.g. 'Running tests'); if provided, UI shows it instead of content; falls back to content when omitted.",
   capability: "plan",

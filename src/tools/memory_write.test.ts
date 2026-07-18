@@ -19,7 +19,7 @@ afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("memory_write tool", () => {
+describe("MemoryWrite tool", () => {
   it("records a project-scope memory as typed md", async () => {
     const out = await memoryWriteTool.handler({ text: "本项目用 vitest" }, ctx());
     expect(out).toContain("已记住");
@@ -84,6 +84,6 @@ describe("memory_write tool", () => {
   it("declares plan capability and auto approval", () => {
     expect(memoryWriteTool.capability).toBe("plan");
     expect(memoryWriteTool.approval).toBe("auto");
-    expect(memoryWriteTool.name).toBe("memory_write");
+    expect(memoryWriteTool.name).toBe("MemoryWrite");
   });
 });

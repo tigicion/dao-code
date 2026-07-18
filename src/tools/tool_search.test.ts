@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { toolSearchTool } from "./tool_search.js";
 
-describe("tool_search", () => {
+describe("ToolSearch", () => {
   it("调用 ctx.searchTools 并返回结果", async () => {
     const out = await toolSearchTool.handler(
       { query: "issue" },

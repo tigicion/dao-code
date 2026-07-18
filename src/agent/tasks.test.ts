@@ -105,7 +105,7 @@ describe("集成:后台子代理 mid-run 消息流回父", () => {
     const tm = createTaskManager();
     let release!: (v: string) => void;
     const id = tm.launch("调查任务", (_signal, taskId) => {
-      // 模拟子代理中途用 message_parent → runBackgroundAgent 绑定的 messageParent = emitFromTask(taskId, .)
+      // 模拟子代理中途用 MessageParent → runBackgroundAgent 绑定的 messageParent = emitFromTask(taskId, .)
       tm.emitFromTask(taskId, "中间发现:配置在 config.ts");
       return new Promise<string>((res) => { release = res; });
     });
@@ -212,7 +212,7 @@ describe("registerAgentForeground:taskId 与 agentId 统一,cancel 真实生效"
     expect(tm.get(taskId)?.status).toBe("canceled");
   });
 
-  it("send() 发的消息用同一个 id 就能被 drainPending 读到(task_send 的实际投递路径)", () => {
+  it("send() 发的消息用同一个 id 就能被 drainPending 读到(TaskSend 的实际投递路径)", () => {
     const tm = createTaskManager();
     const { taskId } = tm.registerAgentForeground({ agentId: "agent-xyz123", description: "跑一个" });
     expect(tm.send(taskId, "追加指令")).toBe(true);
@@ -236,7 +236,7 @@ describe("settle():前台任务正常/异常收尾,不重复入队通知", () =>
     expect(tm.get(taskId)?.status).toBe("failed");
   });
 
-  it("已经结算过的任务再 settle()/cancel() 都不再生效(防止跑完的前台任务被 cancelAll()/task_stop 误伤)", () => {
+  it("已经结算过的任务再 settle()/cancel() 都不再生效(防止跑完的前台任务被 cancelAll()/TaskStop 误伤)", () => {
     const tm = createTaskManager();
     const { taskId, abortController } = tm.registerAgentForeground({ agentId: "agent-abc", description: "跑一个" });
     tm.settle(taskId);

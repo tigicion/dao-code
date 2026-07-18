@@ -15,7 +15,7 @@ afterAll(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
-describe("list_dir tool", () => {
+describe("ListDir tool", () => {
   it("lists entries with a trailing slash on directories, sorted", async () => {
     const out = await listDirTool.handler({}, { workspaceRoot: root });
     expect(out).toBe("file.txt\nsub/");
@@ -33,7 +33,7 @@ describe("list_dir tool", () => {
   it("declares read capability and auto approval", () => {
     expect(listDirTool.capability).toBe("read");
     expect(listDirTool.approval).toBe("auto");
-    expect(listDirTool.name).toBe("list_dir");
+    expect(listDirTool.name).toBe("ListDir");
   });
 
   it("工作区外路径:未授权返回 Error(不再硬抛)", async () => {

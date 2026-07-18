@@ -14,7 +14,7 @@ export function routeScope(type: MemoryType): Scope {
 }
 import { parseMemoryFile, serializeMemory } from "./frontmatter.js";
 
-// 文件名/ id 派生:title(或退化用 text)→ slug。记忆去重与 memory_write 共用。
+// 文件名/ id 派生:title(或退化用 text)→ slug。记忆去重与 MemoryWrite 共用。
 export function slug(s: string): string {
   return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "mem";
 }
@@ -26,7 +26,7 @@ export function projectIdOf(workspaceRoot: string): string {
 }
 
 // knowledge 层注入过滤:只留【本项目学到的】(origin 命中)或【手动 locked 钉住的(视为通用)】。
-// 无 origin 的历史条目 = 来源项目未知 → 不自动注入(仍可被 memory_read 按名取)。
+// 无 origin 的历史条目 = 来源项目未知 → 不自动注入(仍可被 MemoryRead 按名取)。
 // project/user 层不过滤:project 本就按工作区目录隔离,user 本就该全局。
 export function keepKnowledgeForProject<T extends { origin?: string; locked?: boolean }>(
   m: T,
