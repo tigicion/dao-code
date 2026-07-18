@@ -132,6 +132,11 @@ export function logEvents(inner: TurnEvents, store: SessionStore): TurnEvents {
       const t = text.trim();
       if (t) store.append({ t: "notice", text: t });
     },
+    userMessage: (text) => {
+      inner.userMessage?.(text);
+      const t = text.trim();
+      if (t) store.append({ t: "user", text: t });
+    },
   };
 }
 

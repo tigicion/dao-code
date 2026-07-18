@@ -71,6 +71,12 @@ export interface AppDeps {
   subscribeTasks?: (cb: () => void) => void;
   // 当前运行中的后台任务数(状态栏展示)。
   runningTasks?: () => number;
+  // 运行中排队的用户补充输入(steering):敲回车时调用,推进真正的队列(index 侧),
+  // 下一个工具轮边界由 runTurn 的 drainPending 消费——不用等当前这一整个回合跑完。
+  queueSteering?: (text: string) => void;
+  // 取走并清空排队队列的全部内容:ESC 取消排队时用(丢弃返回值,不回填输入框);
+  // 回合结束后仍有残留(极窄竞态窗口未被消费)时的兜底路径也用它取走内容开新回合补上。
+  drainSteering?: () => string[];
   // 账户(profile)交互:/account 无参弹选择器(切换/增/删,空列表直接走粘贴引导)。省略则退回文本命令。
   listAccounts?: () => { name: string; active: boolean; detail: string }[];
   switchAccount?: (name: string) => void; // 切换激活账户(异步解析+生效,下一回合读 cfg)

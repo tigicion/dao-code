@@ -10,6 +10,9 @@ export interface TurnEvents {
   toolStart(call: { index: number; name: string }): void;
   toolResult(call: ToolCall, msg: ToolMessage): void;
   notice(text: string): void;
+  // 运行中排队的用户补充输入,在下一个工具轮边界被真正注入模型上下文时触发(而非入队那一刻)——
+  // 让渲染层能在正确的时间点把它当一条真正的 user 消息展示出来。省略则调用方按 notice 处理。
+  userMessage?(text: string): void;
 }
 
 // 消费一轮流式增量,发事件;返回拼好的 assistant 消息。
@@ -76,6 +79,9 @@ export function plainEvents(write: (s: string) => void): TurnEvents {
     },
     notice(text) {
       write(text);
+    },
+    userMessage(text) {
+      write(`\n> ${text}\n`);
     },
   };
 }

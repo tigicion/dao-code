@@ -25,7 +25,6 @@ export const ASYNC_AGENT_ALLOWED_TOOLS = new Set([
   "skill",
   "memory_write", "memory_read",
   "notify_user",
-  "verify_done",
   "message_parent", // 后台子代理给父发 mid-run 消息的唯一出口(DAO 特有,不在 spec 原清单内)
 ]);
 

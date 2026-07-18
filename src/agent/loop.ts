@@ -51,7 +51,7 @@ export function sanitizeHistoryForResume(messages: ChatMessage[]): ChatMessage[]
   return messages.map((m) => (m.role === "assistant" ? sanitizeForHistory(m) : m));
 }
 
-// L4.5 收尾锚点:本会话是否碰过代码/命令(写文件/改文件/跑 shell)却从没调用过 verify_done。
+// L4.5 收尾锚点:本会话是否碰过代码/命令(写文件/改文件/跑 shell)却从没调用过 verify 子代理。
 // 纯文字提示(工具描述里的话术、todo_write 全勾提醒)有个共同盲区——都得指望模型"恰好用到某个
 // 特定工具"才有机会触发,像 protein-assembly、filter-js-from-html 这类会话里模型全程没用过
 // todo_write,那些提示就完全没被看到。这个检测不依赖任何特定工具是否被用过,直接扫整个会话
@@ -64,7 +64,13 @@ function touchedCodeWithoutVerify(messages: ChatMessage[]): boolean {
     if (m.role !== "assistant") continue;
     for (const tc of m.tool_calls ?? []) {
       if (CODE_TOUCHING_TOOLS.has(tc.function.name)) touchedCode = true;
-      if (tc.function.name === "verify_done") calledVerify = true;
+      // 检测是否派了 verify 子代理(agent 工具 + agent_type=verify)
+      if (tc.function.name === "agent") {
+        try {
+          const args = JSON.parse(tc.function.arguments);
+          if (args.agent_type === "verify") calledVerify = true;
+        } catch { /* 参数未成形 */ }
+      }
     }
   }
   return touchedCode && !calledVerify;
@@ -325,9 +331,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       events.notice("\n[轮内接近上限,自动压缩…]\n");
       await deps.compact();
     }
-    // SendMessage:回合边界消费父代理追加的指令(注入为 user 消息)。
+    // SendMessage/运行中排队输入:回合边界消费追加的指令(注入为 user 消息)。userMessage 事件让渲染层
+    // 在真正注入的这一刻(而不是用户敲回车排队的那一刻)才展示,时间点对得上模型实际看到它的时机。
     if (deps.drainPending) {
-      for (const m of deps.drainPending()) session.messages.push({ role: "user", content: `[追加指令] ${m}` });
+      for (const m of deps.drainPending()) {
+        session.messages.push({ role: "user", content: `[追加指令] ${m}` });
+        events.userMessage?.(m);
+      }
     }
     // 异步挑战者结论:回合边界 drain 注入为 system advisory(本回合内接住即当轮生效)。
     // 注入时给用户可见提示(与失败式挑战者的 events.notice 一致),否则路径①静默、无从感知。
@@ -396,22 +406,19 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // 执行仍用原始 assistant/toolCalls(dispatch 报错信息不受影响);落库换成清洗过的版本。
     session.messages.push(sanitizeForHistory(assistant));
     if (toolCalls.length === 0) {
-      // L4.5 收尾前锚点:纯文本回合(模型认为已经可以结束了)——但如果本会话碰过代码/命令、
-      // 却从没调用过 verify_done,先提醒一次、给它一轮机会自己决定要不要验证,而不是直接放行。
-      // 只在这一刻检测(不提前),因为提前提醒等于又变回"指望模型记住早先某句话",
-      // 这里是结构性地卡在循环真正要退出的那一点。
-      const hasVerifyDone = tools.some((t) => t.function.name === "verify_done");
-      if (!verifyReminderShown && hasVerifyDone && session.mode !== "plan" && touchedCodeWithoutVerify(session.messages)) {
+      // L4.5 收尾前锚点:纯文本回合(模型认为已经可以结束了)--但如果本会话碰过代码/命令、
+      // 却从没派过 verify 子代理,先提醒一次、给它一轮机会自己决定要不要验证,而不是直接放行。
+      if (!verifyReminderShown && tools.some((t) => t.function.name === "agent") && session.mode !== "plan" && touchedCodeWithoutVerify(session.messages)) {
         verifyReminderShown = true;
         session.messages.push({
           role: "system",
           content:
-            "[收尾前检查] 本次会话里你调用过写文件/改文件/跑命令这类工具,但从未调用过 verify_done。" +
-            "在正式收尾前:如果这个改动有办法验证,现在就调用 verify_done(或者自己真的把验收路径跑一遍," +
-            "而不是凭读代码/凭记忆判断);如果确实没有可验证的地方,直接说明原因也可以,不必强行调用。",
+            "[收尾前检查] 本次会话里你调用过写文件/改文件/跑命令这类工具,但从未派 verify 子代理做独立验证。" +
+            "如果这是非琐碎改动(3+ 文件编辑、后端/API 改动、基础设施变更),在正式收尾前派 verify 子代理验证;" +
+            "如果是琐碎改动,自己真的把验收路径跑一遍,而不是凭读代码/凭记忆判断。",
         });
-        events.notice("\n[收尾前提醒:未调用 verify_done]\n");
-        continue; // 不 return,消耗一轮预算,让模型对这条提醒做出真实回应
+        events.notice("\n[收尾前提醒:未派 verify 子代理]\n");
+        continue;
       }
       return; // 纯文本回合(含被打断只剩 content):直接结束
     }
@@ -495,7 +502,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       const escalate = stuckAdviceCount > 1 || totalStuckEvents >= 3;
       advisories.push(
         !escalate
-          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请调用 verify_done 收尾;如果确实卡住了,用 ask_user 向用户求助,不要空转。`
+          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请派 verify 子代理验证后收尾;如果确实卡住了,用 ask_user 向用户求助,不要空转。`
           : stuckAdviceCount > 1
             ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,用 ask_user 求助或如实汇报现状。`
             : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,用 ask_user 求助或如实汇报现状。`,
@@ -504,7 +511,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       events.notice(`\n[进度提醒${label}:已连续 ${noProgress} 轮无实质推进]\n`);
     }
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
-      advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时 verify_done 验收或向用户汇报现状)。`);
+      advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时派 verify 子代理验证或向用户汇报现状)。`);
       events.notice(`\n[轮数提醒:接近最大轮数 ${t + 1}/${maxTurns}]\n`);
     }
     // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者。检测(廉价纯函数)与应对(贵的 LLM)解耦:

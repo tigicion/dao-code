@@ -73,7 +73,7 @@ function mustConfirm(p: DecideParams): boolean {
 // 网络查询(web_search/fetch_url)auto 下放行:属"读取型"取信息,deny 规则仍能覆盖;fetch_url 自带 SSRF 挡内网/元数据。
 const AUTO_ALLOWLIST = new Set([
   "read_file", "grep_files", "file_search", "list_dir",
-  "todo_write", "ask_user", "memory_read", "skill", "verify_done", "echo",
+  "todo_write", "ask_user", "memory_read", "skill", "echo",
   "web_search", "fetch_url",
 ]);
 

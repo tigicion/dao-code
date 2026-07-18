@@ -28,7 +28,7 @@ export const sendMessageTool = defineTool({
     // 读取附件文件内容(如果可读)
     if (args.attachments && args.attachments.length > 0) {
       for (const p of args.attachments) {
-        const abs = path.isAbsolute(p) ? p : path.join(ctx.workspaceRoot, p);
+        const abs = path.isAbsolute(p) ? p : path.join(ctx.cwd ?? ctx.workspaceRoot, p);
         try {
           const content = await fs.readFile(abs, "utf8");
           const name = path.basename(p);

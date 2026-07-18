@@ -167,10 +167,10 @@ export const execShellTool = defineTool({
         "如果你确实需要等待(如等端口可用),用 exec_shell 的 background 参数起后台命令配合 exec_shell_poll 轮询输出,而不是阻塞式 sleep。";
     }
     if (args.background) {
-      const id = processManager.start(args.command, ctx.workspaceRoot);
+      const id = processManager.start(args.command, (ctx.cwd ?? ctx.workspaceRoot));
       return `已在后台启动(id=${id})。用 exec_shell_poll 读取输出,exec_shell_kill 结束。`;
     }
-    const r = await runForeground(args.command, ctx.workspaceRoot, args.timeout ?? 120000, ctx.signal, args.dangerouslyDisableSandbox);
+    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 120000, ctx.signal, args.dangerouslyDisableSandbox);
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
@@ -183,13 +183,13 @@ export const execShellTool = defineTool({
     // 只在"我们自己的超时"打断时才自动修(不含用户主动 abort,那种不该附加额外动作);
     // 用 dpkg --configure -a 这个幂等、安全的标准恢复命令,失败也不影响本次调用正常返回。
     if (r.timedOut && PKG_MGR_TIMEOUT_RE.test(args.command)) {
-      let fix = await runForeground("dpkg --configure -a", ctx.workspaceRoot, 30000);
+      let fix = await runForeground("dpkg --configure -a", (ctx.cwd ?? ctx.workspaceRoot), 30000);
       if (fix.code !== 0) {
         // 真实撞见(merge-diff-arc-agi-task 复测):第一次恢复尝试就失败过——猜测是刚被杀掉的
         // 包管理器进程还没来得及释放 dpkg 锁,恢复命令撞了个空。等一小段时间再试一次,
         // dpkg --configure -a 本身幂等安全,重试不会有副作用,只是给锁释放留出窗口。
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        fix = await runForeground("dpkg --configure -a", ctx.workspaceRoot, 30000);
+        fix = await runForeground("dpkg --configure -a", (ctx.cwd ?? ctx.workspaceRoot), 30000);
       }
       parts.push(
         fix.code === 0
@@ -197,6 +197,6 @@ export const execShellTool = defineTool({
           : `[自动恢复失败] 检测到包管理器命令被超时打断,尝试 \`dpkg --configure -a\` 修复但仍失败(已重试1次)——继续前建议手动确认 dpkg 状态。${fix.stderr.trim() ? `\n[恢复命令输出]\n${fix.stderr.trim()}` : ""}`,
       );
     }
-    return spillOutput(parts.join("\n"), ctx.workspaceRoot);
+    return spillOutput(parts.join("\n"), (ctx.cwd ?? ctx.workspaceRoot));
   },
 });

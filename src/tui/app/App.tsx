@@ -81,7 +81,7 @@ const toLines = (s: string): string[] => s.replace(/\n$/, "").split("\n");
 const VERB: Record<string, string> = {
   read_file: "ui.verb.readFile", list_dir: "ui.verb.listDir", grep_files: "ui.verb.grepFiles", file_search: "ui.verb.fileSearch",
   exec_shell: "ui.verb.execShell", exec_shell_poll: "ui.verb.execPoll", exec_shell_kill: "ui.verb.execKill",
-  write_file: "ui.verb.writeFile", edit_file: "ui.verb.editFile", multi_edit: "ui.verb.multiEdit", notebook_edit: "ui.verb.notebookEdit", verify_done: "ui.verb.verifyDone", web_search: "ui.verb.webSearch",
+  write_file: "ui.verb.writeFile", edit_file: "ui.verb.editFile", multi_edit: "ui.verb.multiEdit", notebook_edit: "ui.verb.notebookEdit", web_search: "ui.verb.webSearch",
   fetch_url: "ui.verb.fetchUrl", memory_write: "ui.verb.memoryWrite", todo_write: "ui.verb.todoWrite", ask_user: "ui.verb.askUser", agent: "ui.verb.agent",
 };
 const toolVerb = (name: string): string => (VERB[name] ? t(VERB[name]!) : name);
@@ -104,7 +104,6 @@ function activityLabel(name: string, argsJson: string): string {
     case "edit_file": return `${toolVerb(name)} ${s(a.path)}`;
     case "multi_edit": return `${toolVerb(name)} ${s(a.path)}${Array.isArray(a.edits) ? t("ui.tool.editGroups", a.edits.length) : ""}`;
     case "notebook_edit": return `${toolVerb(name)} ${s(a.path)} #${typeof a.cell_index === "number" ? a.cell_index : "?"}`;
-    case "verify_done": return toolVerb(name);
     case "web_search": return `${toolVerb(name)} ${q(a.query)}`;
     case "fetch_url": return `${toolVerb(name)} ${s(a.url)}`;
     case "memory_write": return `${toolVerb(name)} ${s(a.text).slice(0, 50)}`;
@@ -128,7 +127,6 @@ function resultDetail(name: string, ok: boolean, content: string): string {
     case "file_search": return content.startsWith("(") ? content : t("ui.detail.found", n);
     case "write_file": return t("ui.detail.lines", n); // 合成行数,不回显工具层中文(英文 locale 下不漏「N 行」)
     case "exec_shell": return lines.filter((l) => l.trim()).slice(-1)[0]?.slice(0, 100) ?? "";
-    case "verify_done": return lines.filter((l) => l.includes("验收")).slice(-1)[0] ?? lines.slice(-1)[0]!.slice(0, 80);
     case "web_search": return content.startsWith("(") ? content : t("ui.detail.results", content.split("\n\n").length);
     case "fetch_url": return t("ui.detail.chars", content.length);
     case "skill": { // 工具返回 `# Skill: <真实名>…`;找不到时返回"未找到 skill…"(也走 ok 分支)
@@ -383,6 +381,12 @@ export function App(deps: AppDeps) {
         const t = text.trim();
         if (t) pushItem({ id: nextId(), kind: "notice", text: t });
       },
+      // 排队的补充输入真正被下一个工具轮消费时触发(而非敲回车排队的那一刻)——这时才展示成
+      // 一条真正的 user 消息,并把本地排队镜像的队首去掉(FIFO,和入队顺序一一对应)。
+      userMessage: (text) => {
+        pushItem({ id: nextId(), kind: "user", text: pastePreview(text) });
+        setQueued((q) => q.slice(1));
+      },
     };
   }
 
@@ -521,18 +525,24 @@ export function App(deps: AppDeps) {
   const procRef = useRef(false);
   async function processNotifications() {
     if (procRef.current || busyRef.current) return;
-    // 优先处理排队的用户输入(steering),再处理后台任务通知。
+    // 正常情况下排队输入在上一个回合的下一个工具轮边界就被 drainPending 消费掉了(见 runAgentTurn
+    // 里 events.userMessage),这里是兜底:极窄的竞态窗口(模型刚给出最终答案、回合已经收尾,
+    // 但用户在这之间敲了回车)会让输入漏在队列里没被那个已经结束的回合消费——直接从真实队列
+    // (deps.drainSteering,不是本地镜像)取走,开一个新回合补上,避免漏发也避免和已消费的重复。
     if (queued.length > 0) {
-      const next = queued[0]!;
-      procRef.current = true;
-      try {
-        setQueued((q) => q.slice(1));
-        pushItem({ id: nextId(), kind: "user", text: pastePreview(next) });
-        await runAgentTurn(next);
-      } finally {
-        procRef.current = false;
+      const leftover = deps.drainSteering?.() ?? [];
+      if (leftover.length > 0) {
+        procRef.current = true;
+        try {
+          setQueued([]);
+          for (const m of leftover) pushItem({ id: nextId(), kind: "user", text: pastePreview(m) });
+          await runAgentTurn(leftover.join("\n\n"));
+        } finally {
+          procRef.current = false;
+        }
+        return;
       }
-      return;
+      setQueued([]); // 真实队列已空(已被上一个回合正常消费完),本地镜像跟着清空
     }
     const notes = deps.drainNotifications?.() ?? [];
     if (notes.length === 0) return;
@@ -801,9 +811,22 @@ export function App(deps: AppDeps) {
       return;
     }
     if (key.escape && busy) {
+      // 有还没被消费的排队输入:先只取消这些排队输入,不打断正在跑的回合——第二次 ESC 才真正中断。
+      // 取消的内容不回填输入框(和下面"中断当前回合"的回填语义不一样,避免和用户当前草稿混在一起)。
+      if (queued.length > 0) {
+        deps.drainSteering?.();
+        setQueued([]);
+        pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.steeringCancelled") });
+        return;
+      }
       controllerRef.current?.abort();
       // 回填:输入框为空时,把刚中断的那条提交放回去,方便改了再发(不覆盖已打的新草稿)。
-      if (!input.trim() && lastSubmitRef.current) setField({ text: lastSubmitRef.current, cursor: lastSubmitRef.current.length });
+      if (!input.trim() && lastSubmitRef.current) {
+        setField({ text: lastSubmitRef.current, cursor: lastSubmitRef.current.length });
+        // 让紧接着的一次 ↓ 能直接清空(复用历史导航"浏览到末尾即回到空白"的既有逻辑),不用逐字删除。
+        const h = history.current;
+        if (h.length && h[h.length - 1] === lastSubmitRef.current) histIdx.current = h.length - 1;
+      }
       return;
     }
     if (key.ctrl && ch === "c") {
@@ -836,10 +859,16 @@ export function App(deps: AppDeps) {
       return;
     }
     if (busy) {
-      // 运行中:支持排队输入(steering)。回车排队,当前回合结束后按序处理。
+      // 运行中:支持排队输入(steering)。回车排队,下一个工具轮边界(不用等整个回合跑完)就会被注入。
       if (key.return) {
         const v = field.text.trim();
-        if (v) { const ev = expandPastes(v); setQueued((q) => [...q, typeof ev === "string" ? ev : JSON.stringify(ev)]); pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.queued", v.slice(0, 50)) }); }
+        if (v) {
+          const ev = expandPastes(v);
+          const s = typeof ev === "string" ? ev : JSON.stringify(ev);
+          setQueued((q) => [...q, s]);
+          deps.queueSteering?.(s);
+          pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.queued", v.slice(0, 50)) });
+        }
         setField({ text: "", cursor: 0 });
         return;
       }

@@ -30,7 +30,7 @@ export const fileSearchTool = defineTool({
     path: z.string().optional().describe("搜索子目录,默认工作区根"),
   }),
   handler: async (args, ctx) => {
-    const { abs: root, external } = classifyPath(ctx.workspaceRoot, args.path ?? ".");
+    const { abs: root, external } = classifyPath(ctx.cwd ?? ctx.workspaceRoot, args.path ?? ".");
     if (external && !(await (ctx.approveExternalRead?.(root) ?? Promise.resolve(false)))) {
       return msg(
         `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`,
