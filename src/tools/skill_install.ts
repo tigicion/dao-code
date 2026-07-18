@@ -20,6 +20,7 @@ export const skillInstallTool = defineTool({
     "Installed skills auto-load into the current session and are usable in this same conversation; no restart needed.",
   capability: "exec", // git clone + 写文件
   approval: "required",
+  shouldDefer: true,
   schema: z.object({
     source: z.string().min(1).describe("git URL(如 https://github.com/obra/superpowers-skills)或本地路径"),
     scope: z.enum(["user", "project"]).optional().describe("user=~/.dao/skills(跨项目,默认);project=当前项目 .dao/skills"),

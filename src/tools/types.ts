@@ -82,6 +82,8 @@ export interface ToolContext {
   subagentDepth?: number;
   // 当前会话模型名(read_file 读图片时检查是否支持多模态)。
   sessionModel?: string;
+  // 切换会话模式(plan/normal);plan_mode 工具用。省略则不支持模式切换(子代理等场景)。
+  setMode?: (mode: "normal" | "plan") => void;
   // 暂存工具返回的图片数据,由 execute.ts 在构建 ToolMessage 时读取并清空。
   currentImageData?: { base64: string; mediaType: string };
   // 当前日期(ISO,YYYY-MM-DD);memory_write 据此记 created/lastUsed。注入便于测试。
@@ -131,6 +133,9 @@ export interface Tool {
   // 工具自身的参数级权限自检(对标 CC tool.checkPermissions):仅能【收紧】——返回 "deny"/"ask"
   // 覆盖更宽的判定(如 exec 检出 download-execute),返回 null = 不干预。规则引擎判 allow 后才咨询它。
   checkPermissions?: (argsJson: string) => "deny" | "ask" | null;
+  // 延迟加载(对标 CC shouldDefer):true 时初始只发 name+简短描述(不发完整 parameters),
+  // 模型需用 tool_search 查询后才返回完整 schema 并激活。减少低频工具的 token 开销。
+  shouldDefer?: boolean;
 }
 
 // 定义单个工具时用,保留 handler 参数的精确类型(z.infer<S>)。
@@ -144,6 +149,7 @@ export interface ToolDefinition<S extends ZodTypeAny> {
   approval: Approval;
   handler: (args: z.infer<S>, ctx: ToolContext) => Promise<string>;
   checkPermissions?: (argsJson: string) => "deny" | "ask" | null;
+  shouldDefer?: boolean;
 }
 
 export function defineTool<S extends ZodTypeAny>(def: ToolDefinition<S>): Tool {

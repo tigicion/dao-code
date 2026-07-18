@@ -24,6 +24,7 @@ export const notebookEditTool = defineTool({
     "this tool only touches the cells array, it doesn't validate other notebook metadata (kernelspec etc.).",
   capability: "write",
   approval: "required",
+  shouldDefer: true,
   schema: z.object({
     path: z.string().describe(".ipynb 文件路径(相对工作区根)"),
     cell_index: z.number().int().min(0).describe("目标单元格下标(0 起)"),

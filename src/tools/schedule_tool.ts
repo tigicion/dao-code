@@ -22,6 +22,7 @@ export const scheduleTool = defineTool({
     "machine's approval policy allows unattended execution, otherwise the task will likely hang or accomplish nothing when it fires.",
   capability: "exec",
   approval: "required",
+  shouldDefer: true,
   schema: z.object({
     action: z.enum(["add", "list", "remove"]).describe("add 添加 / list 列出 / remove 删除"),
     cron: z.string().optional().describe("add:5 字段 cron,如 '0 9 * * *'(每天 9 点)"),

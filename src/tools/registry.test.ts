@@ -176,3 +176,62 @@ describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => 
     expect(r.searchAndActivateMcp("  ")).toContain("请提供搜索关键词");
   });
 });
+
+
+const mkDeferred = (name: string, description: string) =>
+  defineTool({ name, description, capability: "read", approval: "auto", shouldDefer: true, schema: z.object({ x: z.string() }), handler: async () => "" });
+
+describe("ToolRegistry 延迟加载(shouldDefer)", () => {
+  it("deferred 工具初始只发简短描述 + 空 parameters", () => {
+    const r = new ToolRegistry();
+    r.register(mkDeferred("cron_create", "创建定时任务。支持循环和一次性。"));
+    const api = r.toApiTools();
+    expect(api).toHaveLength(1);
+    expect(api[0]!.function.name).toBe("cron_create");
+    expect(api[0]!.function.description).toBe("创建定时任务");
+    const params = api[0]!.function.parameters as any;
+    expect(params.properties).toEqual({});
+  });
+
+  it("非 deferred 工具不受影响", () => {
+    const r = new ToolRegistry();
+    r.register(mk("read_file"));
+    r.register(mkDeferred("cron_create", "创建定时任务。"));
+    const api = r.toApiTools();
+    expect(api).toHaveLength(2);
+    expect(api[0]!.function.name).toBe("read_file");
+    expect(api[1]!.function.description).toBe("创建定时任务");
+  });
+
+  it("searchAndActivateDeferred 激活后 toApiTools 发完整 schema", () => {
+    const r = new ToolRegistry();
+    r.register(mkDeferred("cron_create", "创建定时任务。支持循环和一次性。"));
+    let api = r.toApiTools();
+    expect((api[0]!.function.parameters as any).properties).toEqual({});
+    const out = r.searchAndActivateDeferred("cron");
+    expect(out).toContain("cron_create");
+    expect(out).toContain("已激活");
+    api = r.toApiTools();
+    expect((api[0]!.function.parameters as any).properties).toHaveProperty("x");
+  });
+
+  it("已激活的 deferred 工具不再被搜索到", () => {
+    const r = new ToolRegistry();
+    r.register(mkDeferred("cron_create", "创建定时任务。"));
+    r.searchAndActivateDeferred("cron");
+    const out = r.searchAndActivateDeferred("cron");
+    expect(out).toContain("没有延迟加载工具匹配");
+  });
+
+  it("查无命中 -> 提示", () => {
+    const r = new ToolRegistry();
+    r.register(mkDeferred("cron_create", "创建定时任务。"));
+    const out = r.searchAndActivateDeferred("不存在的xyz");
+    expect(out).toContain("没有延迟加载工具匹配");
+  });
+
+  it("空查询 -> 提示", () => {
+    const r = new ToolRegistry();
+    expect(r.searchAndActivateDeferred("")).toContain("请提供搜索关键词");
+  });
+});

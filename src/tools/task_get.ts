@@ -17,6 +17,7 @@ export const taskGetTool = defineTool({
     "naturally empty — don't read that as a query failure; check the status field first to decide whether to keep waiting or something else is wrong.",
   capability: "read",
   approval: "auto",
+  shouldDefer: true,
   schema: z.object({
     id: z.string().min(1).describe("任务 id"),
   }),

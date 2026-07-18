@@ -89,4 +89,33 @@ describe("todo_write tool", () => {
     );
     expect(out).not.toContain("verify_done");
   });
+
+  it("activeForm overrides content in output when provided", async () => {
+    const out = await todoWriteTool.handler(
+      {
+        todos: [
+          { content: "Run tests", status: "in_progress", activeForm: "Running tests" },
+          { content: "Build project", status: "pending", activeForm: "Building project" },
+        ],
+      },
+      ctx,
+    );
+    expect(out).toContain("▶ Running tests");
+    expect(out).not.toContain("▶ Run tests");
+    expect(out).toContain("☐ Building project");
+    expect(out).not.toContain("☐ Build project");
+    const stored = todoStore.get();
+    expect(stored[0]?.activeForm).toBe("Running tests");
+    expect(stored[0]?.content).toBe("Run tests");
+  });
+
+  it("activeForm omitted -> falls back to content", async () => {
+    const out = await todoWriteTool.handler(
+      {
+        todos: [{ content: "Write code", status: "in_progress" }],
+      },
+      ctx,
+    );
+    expect(out).toContain("▶ Write code");
+  });
 });

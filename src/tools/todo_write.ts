@@ -43,8 +43,9 @@ export const todoWriteTool = defineTool({
     todos: z
       .array(
         z.object({
-          content: z.string(),
+          content: z.string().describe("祈使式描述,如 'Run tests'"),
           status: z.enum(["pending", "in_progress", "completed"]),
+          activeForm: z.string().optional().describe("进行式描述(对标 CC),如 'Running tests';省略时用 content"),
         }),
       )
       .describe("完整任务列表"),
@@ -56,6 +57,6 @@ export const todoWriteTool = defineTool({
     }
     todoStore.set(args.todos);
     if (args.todos.length === 0) return "(任务清单已清空)";
-    return args.todos.map((t) => `${ICON[t.status]} ${t.content}`).join("\n") + completionNudge(args.todos);
+    return args.todos.map((t) => `${ICON[t.status]} ${t.activeForm ?? t.content}`).join("\n") + completionNudge(args.todos);
   },
 });

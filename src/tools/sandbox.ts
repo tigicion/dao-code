@@ -38,8 +38,8 @@ export interface SpawnSpec { file: string; args: string[] }
 
 // 返回沙箱化后的 spawn 目标(file+args,shell:false 调用);
 // 未启用→null(照常 shell 执行);启用但沙箱不可用→{error}。
-export function sandboxSpawn(command: string, cwd: string): SpawnSpec | { error: string } | null {
-  if (!sandboxActive()) return null;
+export function sandboxSpawn(command: string, cwd: string, disableSandbox?: boolean): SpawnSpec | { error: string } | null {
+  if (!sandboxActive() || disableSandbox) return null;
   if (process.platform === "darwin") {
     const bin = binPath("sandbox-exec");
     if (!bin) return { error: "DAO_SANDBOX=1 但找不到 sandbox-exec" };
