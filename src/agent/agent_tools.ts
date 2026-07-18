@@ -121,7 +121,7 @@ function resolveActivityDescription(msg: ChatMessage): string {
 
 export function createProgressTracker(): ProgressTracker {
   const start = Date.now();
-  let tokenCount = 0;
+  const tokenCount = 0; // 已知技术债:AssistantMessage 无 usage 字段,暂不能累计
   let toolUseCount = 0;
   let lastActivity: AgentProgress["lastActivity"];
 
