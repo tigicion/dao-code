@@ -1,6 +1,7 @@
 import type { ZodTypeAny, z } from "zod";
 import type { Mode } from "./tools_for_mode.js";
 import type { TaskManager } from "../agent/tasks.js";
+import type { ClassifyResult } from "../agent/agent_handoff.js";
 import type { LspManager } from "../lsp/manager.js";
 
 export type Capability = "read" | "write" | "exec" | "network" | "plan";
@@ -62,6 +63,11 @@ export interface ToolContext {
   // 完整任务管理器引用(task_create/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create/registerAsyncAgent/
   // registerAgentForeground,不是并行的第二套系统——agent 工具的后台/前台切换也走它。
   taskManager?: TaskManager;
+  // auto 模式下子代理结束后审查整段转录的分类器(对标 CC classifyHandoffIfNeeded)。
+  // 传入紧凑 transcript(JSONL),返回 {shouldBlock, reason} 或 {unavailable}。非 auto 模式下不会被调用。
+  handoffClassifyFn?: (transcript: string) => Promise<ClassifyResult>;
+  // 当前权限模式(auto/default/acceptEdits/plan/bypassPermissions);handoff 审查只在 auto 模式触发
+  permissionMode?: string;
   // 可用 skill(名字+描述+触发条件+slug+正文+目录),供 skill 工具按需加载正文。
   skills?: { name: string; description: string; whenToUse?: string; paths?: string[]; slug?: string; body: string; dir: string }[];
   // skill 工具加载某技能后回调:记录使用频率(用于发现/列表加权)。注入便于测试。

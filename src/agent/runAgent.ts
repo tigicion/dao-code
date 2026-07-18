@@ -247,14 +247,6 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     initialMessages.push({ role: "system", content: `[hook 注入的上下文]\n${startOutcome.additionalContext}` });
   }
 
-  // 缓存安全参数回调(后台摘要用)
-  if (onCacheSafeParams) {
-    onCacheSafeParams({
-      systemPrompt: agentSystemPrompt,
-      forkContextMessages: initialMessages,
-    });
-  }
-
   // 转录:写入初始消息 + 元数据(fire-and-forget)
   const subagentsDir = params.subagentsDir ?? defaultSubagentDir();
   for (const m of initialMessages) void recordSidechainMessage(subagentsDir, agentId, m).catch(() => {});
@@ -272,6 +264,16 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   // 替换默认 system message 为组装好的消息序列(已在上面保证包含 system 消息)
   sub.messages = [...initialMessages];
 
+  // 缓存安全参数回调(后台摘要用)--必须在 sub 创建后触发,传 sub.messages 引用而非
+  // initialMessages 静态快照:summarizer 持有引用后,runTurn 往 sub.messages push 的消息
+  // 能被 summarizer 看到。此前传 initialMessages,摘要永远只有初始 system+user,tool_calls 恒为 0。
+  if (onCacheSafeParams) {
+    onCacheSafeParams({
+      systemPrompt: agentSystemPrompt,
+      forkContextMessages: sub.messages,
+    });
+  }
+
   // 子代理 ToolContext:独立 readFiles/readMeta(不污染父);worktreePath 存在时覆盖工作区根
   const subDepth = (toolUseContext.subagentDepth ?? 0) + 1;
   const subCtx: ToolContext = {
@@ -286,43 +288,69 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     ...(agentAbortController ? { signal: agentAbortController.signal } : {}),
   };
 
-  // ---- 阶段 5:查询循环 ----
+  // ---- 阶段 5:查询循环(边跑边 yield,不等 runTurn 整个跑完) ----
 
   const tracker = createProgressTracker();
+  const POLL_MS = Number(process.env.DAO_AGENT_POLL_MS) || 200;
+  let yieldedCount = initialMessages.length;
+
+  // yield sub.messages 中尚未 yield 的新消息
+  const yieldNewMessages = function* (): Generator<ChatMessage> {
+    while (yieldedCount < sub.messages.length) {
+      const msg = sub.messages[yieldedCount]!;
+      onQueryProgress?.();
+      tracker.updateFromMessage(msg);
+      void recordSidechainMessage(subagentsDir, agentId, msg).catch(() => {});
+      yieldedCount++;
+      yield msg;
+    }
+  };
 
   try {
     if (runTurn && config && streamChat && executeToolCalls && gate) {
       // 子代理输出攒 buffer(防并发子代理 write 交织)
       const buf: string[] = [];
-      await runTurn({
-        session: sub,
-        config,
-        registry: resolvedTools,
-        ctx: subCtx,
-        gate,
-        streamChat,
-        executeToolCalls,
-        write: (s) => buf.push(s),
-        signal: agentAbortController?.signal,
-        drainPending,
-        background: true, // 子代理:遇 529 不重试/不回退
-        selfChallenge: true, // 子代理跑确定性卡住检测
-        maxTurns: maxTurnsOverride ?? agentDef.maxTurns ?? 200,
-        ...(auditSink ? { auditSink, auditId: { agent: "sub" as const, subId: agentId, depth: subDepth } } : {}),
-      });
+      let runTurnError: unknown;
+
+      // runTurn 在后台跑,往 sub.messages push 消息;同时轮询新消息逐条 yield
+      const runTurnPromise = (async () => {
+        await runTurn({
+          session: sub,
+          config,
+          registry: resolvedTools,
+          ctx: subCtx,
+          gate,
+          streamChat,
+          executeToolCalls,
+          write: (s) => buf.push(s),
+          signal: agentAbortController?.signal,
+          drainPending,
+          background: true, // 子代理:遇 529 不重试/不回退
+          selfChallenge: true, // 子代理跑确定性卡住检测
+          maxTurns: maxTurnsOverride ?? agentDef.maxTurns ?? 200,
+          ...(auditSink ? { auditSink, auditId: { agent: "sub" as const, subId: agentId, depth: subDepth } } : {}),
+        });
+      })();
+
+      // 轮询循环:runTurn 跑着的同时,新消息逐条 yield 给上层
+      while (true) {
+        yield* yieldNewMessages();
+        const settled = await Promise.race([
+          runTurnPromise.then(() => true).catch((e) => { runTurnError = e; return true; }),
+          new Promise<boolean>((r) => setTimeout(() => r(false), POLL_MS)),
+        ]);
+        if (settled) break;
+      }
+
+      // flush runTurn 可能 push 的最后几条(resolve 和最后一次 poll 之间的竞态)
+      yield* yieldNewMessages();
 
       // flush 子代理输出
       if (buf.length) write(buf.join(""));
-    }
 
-    // yield 生成的新消息(排除初始消息)
-    for (let i = initialMessages.length; i < sub.messages.length; i++) {
-      const msg = sub.messages[i]!;
-      onQueryProgress?.();
-      tracker.updateFromMessage(msg);
-      // 逐条转录(fire-and-forget)
-      void recordSidechainMessage(subagentsDir, agentId, msg).catch(() => {});
-      yield msg;
+      if (runTurnError) throw runTurnError;
+    } else {
+      // 无 runTurn(测试环境):没有消息要 yield
     }
 
     // 转录落盘

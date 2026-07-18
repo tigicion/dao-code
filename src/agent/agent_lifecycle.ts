@@ -4,6 +4,7 @@
 import type { ChatMessage } from "../client/types.js";
 import { finalizeAgentTool } from "./agent_tools.js";
 import { startAgentSummarization } from "./agent_summary.js";
+import { classifyHandoffIfNeeded } from "./agent_handoff.js";
 import type { CacheSafeParams } from "./runAgent.js";
 
 export interface AsyncAgentTaskManager {
@@ -25,6 +26,12 @@ export interface RunAsyncAgentLifecycleOpts {
   taskManager: AsyncAgentTaskManager;
   /** 可注入(测试用);默认走真实的 startAgentSummarization */
   startSummarization?: typeof startAgentSummarization;
+  /** auto 模式 handoff 安全审查:子代理结束后审查转录 */
+  classifyFn?: (transcript: string) => Promise<import("./agent_handoff.js").ClassifyResult>;
+  /** 当前权限模式(classifyHandoffIfNeeded 用,仅 auto 触发) */
+  permissionMode?: string;
+  /** 子代理消息(供 handoff 审查用) */
+  abortSignal?: AbortSignal;
 }
 
 export async function runAsyncAgentLifecycle(opts: RunAsyncAgentLifecycleOpts): Promise<void> {
@@ -58,7 +65,19 @@ export async function runAsyncAgentLifecycle(opts: RunAsyncAgentLifecycleOpts): 
     }
 
     const result = finalize();
-    const text = result.content.map((c) => c.text).join("\n") || "(无输出)";
+    let text = result.content.map((c) => c.text).join("\n") || "(无输出)";
+    // auto 模式 handoff 安全审查:子代理结束后审查整段转录
+    if (opts.classifyFn && opts.permissionMode) {
+      const warning = await classifyHandoffIfNeeded({
+        agentMessages: [{ role: "user", content: opts.prompt }, ...messages],
+        permissionMode: opts.permissionMode,
+        abortSignal: opts.abortSignal ?? new AbortController().signal,
+        subagentType: opts.agentType ?? "general-purpose",
+        totalToolUseCount: result.totalToolUseCount,
+        classifyFn: opts.classifyFn,
+      });
+      if (warning) text = `${warning}\n\n${text}`;
+    }
     opts.taskManager.update(opts.taskId, { status: "completed", result: text });
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
