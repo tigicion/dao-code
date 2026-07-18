@@ -24,6 +24,7 @@ export const notifyUserTool = defineTool({
     "hit a fork that needs their decision — notify them then, rather than assuming they're watching the terminal the whole time.",
   capability: "plan",
   approval: "auto",
+  shouldDefer: true,
   schema: z.object({
     message: z.string().min(1).describe("要通知的内容(简明,会显示在系统通知里)"),
   }),

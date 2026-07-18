@@ -20,6 +20,7 @@ export const taskUpdateTool = defineTool({
     "'done' in conversation without updating its status.",
   capability: "plan",
   approval: "auto",
+  shouldDefer: true,
   schema: z.object({
     id: z.string().min(1).describe("任务 id"),
     description: z.string().optional().describe("新描述(可选)"),

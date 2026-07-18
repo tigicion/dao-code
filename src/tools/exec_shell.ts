@@ -26,6 +26,7 @@ function runForeground(
   cwd: string,
   timeout: number,
   signal?: AbortSignal,
+  disableSandbox?: boolean,
 ): Promise<ForegroundResult> {
   return new Promise((resolve) => {
     // 用 spawn + detached(进程组)+ 杀整组:exec/kill 只杀 shell,Linux 下子进程(如 sleep)会存活,
@@ -37,7 +38,7 @@ function runForeground(
     let stderr = "";
     let capped = false;
     // S4 沙箱:启用则裹进 Seatbelt/bubblewrap(工作区可写、其余只读);未启用照常 shell 执行。
-    const sb = sandboxSpawn(command, cwd);
+    const sb = sandboxSpawn(command, cwd, disableSandbox);
     if (sb && "error" in sb) { resolve({ stdout: "", stderr: `沙箱不可用:${sb.error}`, code: 1, aborted: false, timedOut: false }); return; }
     const child = sb
       ? spawn(sb.file, sb.args, { cwd, detached: true, env: scrubbedEnv() })
@@ -138,15 +139,20 @@ export const execShellTool = defineTool({
   approval: "required",
   schema: z.object({
     command: z.string().describe("要执行的 shell 命令"),
+    description: z.string().optional().describe("命令的语义描述(用于审计日志,如 'List files in current directory')"),
     background: z.boolean().optional().describe("是否后台运行(长任务/服务)"),
     timeout: z.number().int().min(1).optional().describe("前台超时(毫秒),默认 120000"),
+    dangerouslyDisableSandbox: z.boolean().optional().describe("设为 true 绕过沙箱(DAO_SANDBOX=1 时生效);仅在确认沙箱导致命令失败时使用,会强制审批"),
   }),
   // 参数级自检:危险命令(rm -rf /、curl|sh、提权、写裸盘…)→ 强制确认,即便有放宽规则放行
   // (checkPermissions 只能收紧)。完整黑名单见 permissions/bash_safety.ts。
   checkPermissions: (argsJson) => {
     try {
-      const { command } = JSON.parse(argsJson) as { command?: string };
-      if (typeof command === "string" && (isDangerousCommand(command) || hasSuspiciousUnicode(command))) return "ask"; // S1.1 同形/零宽伪装也强制确认
+      const parsed = JSON.parse(argsJson) as { command?: string; dangerouslyDisableSandbox?: boolean };
+      // 危险命令(rm -rf /、curl|sh、提权、写裸盘…)-> 强制确认,即便有放宽规则放行
+      if (typeof parsed.command === "string" && (isDangerousCommand(parsed.command) || hasSuspiciousUnicode(parsed.command))) return "ask";
+      // dangerouslyDisableSandbox=true -> 强制审批(绕过沙箱是高风险操作)
+      if (parsed.dangerouslyDisableSandbox === true) return "ask";
     } catch { /* 参数未成形 */ }
     return null;
   },
@@ -162,7 +168,7 @@ export const execShellTool = defineTool({
       const id = processManager.start(args.command, ctx.workspaceRoot);
       return `已在后台启动(id=${id})。用 exec_shell_poll 读取输出,exec_shell_kill 结束。`;
     }
-    const r = await runForeground(args.command, ctx.workspaceRoot, args.timeout ?? 120000, ctx.signal);
+    const r = await runForeground(args.command, ctx.workspaceRoot, args.timeout ?? 120000, ctx.signal, args.dangerouslyDisableSandbox);
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);

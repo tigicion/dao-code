@@ -24,6 +24,7 @@ export const taskCreateTool = defineTool({
     "or it'll hang showing running forever.",
   capability: "plan",
   approval: "auto",
+  shouldDefer: true,
   schema: z.object({
     description: z.string().min(1).describe("任务描述(简明扼要,会展示给用户)"),
   }),

@@ -59,4 +59,79 @@ describe("ask_user tool", () => {
     expect(askUserTool.approval).toBe("auto");
     expect(askUserTool.name).toBe("ask_user");
   });
+
+  // ---- 多问题模式(questions 数组) ----
+
+  it("asks multiple questions sequentially and joins results", async () => {
+    const asked: string[] = [];
+    const out = await askUserTool.handler(
+      {
+        questions: [
+          { question: "用什么框架?", options: [{ label: "React" }, { label: "Vue" }] },
+          { question: "用什么语言?", options: [{ label: "TypeScript" }, { label: "JavaScript" }] },
+        ],
+      },
+      {
+        workspaceRoot: "/tmp",
+        ask: async () => "不该走到这",
+        askChoice: async (q) => { asked.push(q); return q.includes("框架") ? "React" : "TypeScript"; },
+      },
+    );
+    expect(asked).toEqual(["用什么框架?", "用什么语言?"]);
+    expect(out).toBe("React\nTypeScript");
+  });
+
+  it("structured options with description are passed as 'label - description'", async () => {
+    let receivedOpts: string[] = [];
+    await askUserTool.handler(
+      {
+        questions: [
+          {
+            question: "认证方式?",
+            options: [
+              { label: "OAuth", description: "第三方授权" },
+              { label: "API Key", description: "简单直接" },
+            ],
+          },
+        ],
+      },
+      {
+        workspaceRoot: "/tmp",
+        ask: async () => "不该走到这",
+        askChoice: async (_q, opts) => { receivedOpts = opts; return "OAuth"; },
+      },
+    );
+    expect(receivedOpts).toEqual(["OAuth - 第三方授权", "API Key - 简单直接"]);
+  });
+
+  it("throws when both question and questions are provided", async () => {
+    await expect(
+      askUserTool.handler(
+        { question: "a?", questions: [{ question: "b?" }] },
+        { workspaceRoot: "/tmp", ask: async () => "x" },
+      ),
+    ).rejects.toThrow(/二选一/);
+  });
+
+  it("throws when neither question nor questions is provided", async () => {
+    await expect(
+      askUserTool.handler({}, { workspaceRoot: "/tmp", ask: async () => "x" }),
+    ).rejects.toThrow(/必须传/);
+  });
+
+  it("shorthand mode still works (backward compat)", async () => {
+    const out = await askUserTool.handler(
+      { question: "选哪个?", options: ["A", "B"], multiSelect: true },
+      {
+        workspaceRoot: "/tmp",
+        ask: async () => "不该走到这",
+        askChoice: async (_q, opts, multi) => {
+          expect(multi).toBe(true);
+          expect(opts).toEqual(["A", "B"]);
+          return "A";
+        },
+      },
+    );
+    expect(out).toBe("A");
+  });
 });

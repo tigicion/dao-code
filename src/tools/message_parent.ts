@@ -24,6 +24,7 @@ export const messageParentTool = defineTool({
     "the parent sees them in order, never reordered or overwritten by an earlier one.",
   capability: "plan",
   approval: "auto",
+  shouldDefer: true,
   schema: z.object({
     message: z.string().min(1).describe("发给父代理的中途消息(进度/发现/问题)"),
   }),

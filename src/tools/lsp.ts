@@ -31,6 +31,7 @@ export const lspTool = defineTool({
     "a server configured in .dao/lsp.json — errors with what's missing rather than silently degrading into a guessed answer.",
   capability: "read",
   approval: "auto",
+  shouldDefer: true,
   schema: z.object({
     operation: z.enum(OPS).describe("要执行的 LSP 操作"),
     filePath: z.string().min(1).describe("文件路径(相对工作区根目录);workspaceSymbol 时用它决定去哪个 server 查"),

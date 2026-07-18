@@ -55,6 +55,8 @@ export class ToolRegistry implements ToolDispatcher {
   // 一次(不可避免,调用新工具前模型必须先在某一轮看到它的 schema),但只在真正用到某个 MCP 工具时才发生,
   // 不是每轮都发全部。
   private activatedMcp = new Set<string>();
+  // 延迟加载工具(shouldDefer=true)初始只发 name+简短描述;被 tool_search 激活后发完整 schema。
+  private activatedDeferred = new Set<string>();
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
@@ -85,6 +87,29 @@ export class ToolRegistry implements ToolDispatcher {
       `\n\n(以上 ${hits.length} 个工具已激活,从下一次工具调用起可直接调用它们。)`;
   }
 
+  // 搜索延迟加载(shouldDefer=true)的内置工具,命中的立即激活(下一轮发完整 schema)。
+  // 返回给模型的确认文本(完整 JSON Schema,供其直接调用)。
+  searchAndActivateDeferred(query: string, lang?: Lang): string {
+    const q = query.trim().toLowerCase();
+    if (!q) return "请提供搜索关键词。";
+    const hits: Tool[] = [];
+    for (const t of this.tools.values()) {
+      if (!t.shouldDefer) continue;
+      if (this.activatedDeferred.has(t.name)) continue; // 已激活的不再搜
+      const desc = (lang === "en" && t.descriptionEn ? t.descriptionEn : t.description).toLowerCase();
+      if (t.name.toLowerCase().includes(q) || desc.includes(q)) hits.push(t);
+    }
+    if (hits.length === 0) return `没有延迟加载工具匹配「${query}」。`;
+    for (const t of hits) this.activatedDeferred.add(t.name);
+    // 返回完整 JSON Schema 让模型直接可用
+    return hits.map((t) => {
+      const desc = t.prompt ? t.prompt({ lang: lang === "en" ? "en" : "zh" })
+        : (lang === "en" && t.descriptionEn ? t.descriptionEn : t.description);
+      const params = t.apiParameters ?? toJsonSchema(t.schema);
+      return `${t.name}: ${desc}\n参数: ${JSON.stringify(params)}`;
+    }).join("\n\n") + `\n\n(以上 ${hits.length} 个工具已激活,从下一次工具调用起可直接调用它们。)`;
+  }
+
   // 按工具名白名单建子集(自定义 agent 类型的 tools 限制用);保持插入顺序。
   subset(names: Set<string>): ToolRegistry {
     const r = new ToolRegistry();
@@ -102,15 +127,31 @@ export class ToolRegistry implements ToolDispatcher {
   toApiTools(predicate?: (tool: Tool) => boolean, lang?: Lang): ApiTool[] {
     return [...this.tools.values()]
       .filter((t) => (predicate ? predicate(t) : true))
-      .map((t) => ({
-        type: "function" as const,
-        function: {
-          name: t.name,
-          description: t.prompt ? t.prompt({ lang: lang === "en" ? "en" : "zh" })
-            : (lang === "en" && t.descriptionEn ? t.descriptionEn : t.description),
-          parameters: t.apiParameters ?? toJsonSchema(t.schema),
-        },
-      }));
+      .map((t) => {
+        const desc = t.prompt ? t.prompt({ lang: lang === "en" ? "en" : "zh" })
+          : (lang === "en" && t.descriptionEn ? t.descriptionEn : t.description);
+        // 延迟加载且未激活:只发 name + 简短描述(第一句),不发 parameters
+        const isDeferred = t.shouldDefer && !this.activatedDeferred.has(t.name);
+        if (isDeferred) {
+          const shortDesc = desc.split(/[。\n]/)[0]!.slice(0, 80);
+          return {
+            type: "function" as const,
+            function: {
+              name: t.name,
+              description: shortDesc,
+              parameters: { type: "object", properties: {}, additionalProperties: false },
+            },
+          };
+        }
+        return {
+          type: "function" as const,
+          function: {
+            name: t.name,
+            description: desc,
+            parameters: t.apiParameters ?? toJsonSchema(t.schema),
+          },
+        };
+      });
   }
 
   async dispatch(name: string, rawArgs: string, ctx: ToolContext): Promise<string> {

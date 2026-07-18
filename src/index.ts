@@ -72,6 +72,10 @@ import { taskListTool } from "./tools/task_list.js";
 import { taskGetTool } from "./tools/task_get.js";
 import { taskUpdateTool } from "./tools/task_update.js";
 import { taskStopTool } from "./tools/task_stop.js";
+import { enterPlanModeTool, exitPlanModeTool } from "./tools/plan_mode.js";
+import { configTool } from "./tools/config.js";
+import { sendMessageTool } from "./tools/send_message.js";
+import { cronCreateTool, cronDeleteTool, cronListTool } from "./tools/cron_tools.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
 import { loadMcpConfig, connectMcpServers, type ElicitHandler } from "./mcp/mcp.js";
 import { loadLspConfig } from "./lsp/config.js";
@@ -499,6 +503,9 @@ async function main() {
     execShellTool, execShellPollTool, execShellKillTool,
     grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
     taskCreateTool, taskListTool, taskGetTool, taskUpdateTool, taskStopTool, notifyUserTool,
+    enterPlanModeTool, exitPlanModeTool,
+    configTool, sendMessageTool,
+    cronCreateTool, cronDeleteTool, cronListTool,
   ]) {
     registry.register(t);
   }
@@ -862,7 +869,17 @@ async function main() {
     fetchImpl: fetch,
     today,
     notifyUser: (m: string) => notify("dao", m), // notify_user 用;主会话与子代理均可(复用现成的桌面通知)
-    searchTools: (q: string) => registry.searchAndActivateMcp(q), // tool_search 用
+    setMode: (mode: "normal" | "plan") => {
+      session.mode = mode;
+      if (mode === "normal") permModeOverride = null; // 退出 plan 时清覆盖
+    },
+    searchTools: (q: string) => {
+      // 先搜延迟加载的内置工具,再搜 MCP 工具;两者结果合并返回
+      const deferredHits = registry.searchAndActivateDeferred(q, lang);
+      const mcpHits = registry.searchAndActivateMcp(q);
+      if (deferredHits.startsWith("没有") && mcpHits.startsWith("没有")) return mcpHits;
+      return [deferredHits, mcpHits].filter((s) => !s.startsWith("没有")).join("\n\n");
+    },
     lsp: lspManager, // lsp 工具用
     verifyCommand: process.env.DAO_VERIFY_CMD?.trim() || undefined,
   };

@@ -22,6 +22,7 @@ export const taskStopTool = defineTool({
     "work, dispatch a fresh one via agent/task_create.",
   capability: "exec",
   approval: "auto",
+  shouldDefer: true,
   schema: z.object({
     id: z.string().min(1).describe("任务 id"),
   }),
