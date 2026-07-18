@@ -257,6 +257,110 @@ describe("runTurn", () => {
     expect(askedOptions.length).toBe(2);
   });
 
+  it("限流(429):交互场景菜单列出其它账号,选中后切换并用新账号重试", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const baseUrlsUsed: string[] = [];
+    const switchedTo: string[] = [];
+    const liveConfig = { baseUrl: "https://old", apiKey: "sk-old" };
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      baseUrlsUsed.push(opts.baseUrl);
+      if (call === 1) {
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          throw Object.assign(new Error("API error 429: rate_limit_exceeded"), { status: 429 });
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        yield { kind: "content", text: "切换后成功" };
+        return { role: "assistant", content: "切换后成功" };
+      })();
+    }) as any;
+    let askedOptions: string[] = [];
+    const interactiveCtx = {
+      ...ctx,
+      askChoice: async (_q: string, opts: string[]) => {
+        askedOptions = opts;
+        return opts.find((o) => o.includes("work"))!; // 选"切到账号「work」重试"
+      },
+    };
+    await runTurn({
+      session: s, config: liveConfig, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+      listOtherAccounts: () => [{ name: "work" }, { name: "backup" }],
+      switchAccountAndWait: async (name) => {
+        switchedTo.push(name);
+        liveConfig.baseUrl = "https://work"; // 模拟 index.ts 里对活引用 cfg 的原地修改
+        liveConfig.apiKey = "sk-work";
+        return true;
+      },
+    });
+    expect(askedOptions).toEqual([
+      "等待后用当前模型重试",
+      "切到账号「work」重试",
+      "切到账号「backup」重试",
+      "中止本轮(稍后可用 /account 切换账号)",
+    ]);
+    expect(switchedTo).toEqual(["work"]);
+    expect(call).toBe(2);
+    expect(baseUrlsUsed).toEqual(["https://old", "https://work"]); // 第二次请求确实用了切换后的 baseUrl
+    expect(s.messages.at(-1)).toEqual({ role: "assistant", content: "切换后成功" });
+  });
+
+  it("限流(429):切换账号失败时不静默吞掉,报错并中止", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    const noticed: string[] = [];
+    const streamChatMock = (() =>
+      (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        throw Object.assign(new Error("API error 429: rate_limit_exceeded"), { status: 429 });
+      })()) as any;
+    const interactiveCtx = {
+      ...ctx,
+      askChoice: async (_q: string, opts: string[]) => opts.find((o) => o.includes("work"))!,
+    };
+    await expect(
+      runTurn({
+        session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
+        streamChat: streamChatMock,
+        executeToolCalls: async () => [],
+        write: (t) => noticed.push(t),
+        listOtherAccounts: () => [{ name: "work" }],
+        switchAccountAndWait: async () => false, // 模拟凭据解析失败
+      }),
+    ).rejects.toThrow(/限流|429/);
+    expect(noticed.some((t) => t.includes("切换到账号「work」失败"))).toBe(true);
+  });
+
+  it("限流(429):没有 listOtherAccounts 时菜单不出现账号选项(行为同现状)", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let askedOptions: string[] = [];
+    const streamChatMock = (() =>
+      (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        throw Object.assign(new Error("API error 429: rate_limit_exceeded"), { status: 429 });
+      })()) as any;
+    const interactiveCtx = {
+      ...ctx,
+      askChoice: async (_q: string, opts: string[]) => {
+        askedOptions = opts;
+        return opts.at(-1)!; // 中止
+      },
+    };
+    await expect(
+      runTurn({
+        session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
+        streamChat: streamChatMock,
+        executeToolCalls: async () => [],
+        write: () => {},
+      }),
+    ).rejects.toThrow(/限流|429/);
+    expect(askedOptions).toEqual(["等待后用当前模型重试", "中止本轮(稍后可用 /account 切换账号)"]);
+  });
+
   it("过载/超时类(非限流):交互场景问用户,选\"等待\"则原地重试(不自动换模型)", async () => {
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");

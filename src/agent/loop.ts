@@ -86,6 +86,12 @@ export interface TurnDeps {
   shouldCompact?: () => boolean;
   // L1.3 模型回退:主模型持续过载/异常时,本回合临时改用此模型跑完(如 flash)。省略=不回退。
   fallbackModel?: string;
+  // 限流菜单用:返回除当前激活账号外的全部账号名(交互场景,配合 askChoice 里的"切到账号 X"选项)。
+  // 省略/返回空数组 = 菜单不出现账号切换选项,行为同现状。
+  listOtherAccounts?: () => { name: string }[];
+  // 切到指定账号并【等凭据真正解析完成】才返回(不能 fire-and-forget,否则切换后立刻重试会用错 apiKey)。
+  // false = 账号不存在或凭据解析失败。
+  switchAccountAndWait?: (name: string) => Promise<boolean>;
   // P2-11 编辑后诊断:本轮有写/改文件时调用,返回非空则作为 [诊断] 系统消息回灌给模型自查自改。
   diagnose?: () => Promise<string | undefined>;
   // 背景运行(子代理/后台任务):遇 529 过载不在客户端重试、loop 也不回退,防并行子代理级联放大。
@@ -221,9 +227,14 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         if (!deps.background && (rateLimited || genericRecoverable) && deps.ctx.askChoice) {
           events.notice(`\n[⚠ 请求失败] ${msg}\n`);
           const canOfferFallback = !rateLimited && !!deps.fallbackModel && !usedFallback;
+          // 限流时菜单动态列出除当前账号外的全部账号(不猜"最合适的",账号数量不定时都摆出来,用户自己选)。
+          const accountOptions = rateLimited
+            ? (deps.listOtherAccounts?.() ?? []).map((a) => ({ label: `切到账号「${a.name}」重试`, name: a.name }))
+            : [];
           const options = [
             "等待后用当前模型重试",
             ...(canOfferFallback ? [`换成备用模型「${deps.fallbackModel}」试试(本回合)`] : []),
+            ...accountOptions.map((o) => o.label),
             rateLimited ? "中止本轮(稍后可用 /account 切换账号)" : "中止本轮",
           ];
           const choice = await deps.ctx.askChoice(
@@ -244,6 +255,18 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
             usedFallback = true;
             events.notice(`\n[已按你的选择临时切到 ${deps.fallbackModel}…]\n`);
             continue;
+          }
+          // 切账号是持久的(等同手动 /account),不是"仅本轮"——账号被限流之后没理由下一轮切回去。
+          const matchedAccount = accountOptions.find((o) => o.label === choice);
+          if (matchedAccount && deps.switchAccountAndWait) {
+            const ok = await deps.switchAccountAndWait(matchedAccount.name);
+            if (ok) {
+              events.notice(`\n[已切换到账号「${matchedAccount.name}」,继续重试…]\n`);
+              continue;
+            }
+            // 失败不静默吞掉、不重试同账号(会立刻再撞同一个 429)——落到下面的 throw,把切换失败的原因和
+            // 原始限流错误一起交给用户,而不是悄悄回到等待/中止的选项让用户自己再猜一次发生了什么。
+            events.notice(`\n[切换到账号「${matchedAccount.name}」失败(账号不存在或凭据解析失败),仍在原账号]\n`);
           }
           throw new Error(
             `已中止:${rateLimited ? "当前账号触发限流(请求频率/配额超限)。可运行 /account 切换到其它账号后重新发送消息。" : "已按你的选择中止本轮。"}\n原始错误:${msg}`,
