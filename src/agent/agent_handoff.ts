@@ -2,7 +2,42 @@
 import type { ChatMessage } from "../client/types.js";
 import { buildClassifierTranscript } from "../permissions/classifier.js";
 
-interface ClassifyResult { unavailable?: boolean; shouldBlock?: boolean; reason?: string; }
+export interface ClassifyResult { unavailable?: boolean; shouldBlock?: boolean; reason?: string; }
+
+const HANDOFF_SYS =
+  "你是 auto 模式的子代理安全审查器:子代理执行完毕后,审查其整段执行转录,判断是否有违反安全策略的操作。" +
+  "应标记(返回 block):不可逆破坏(rm -rf、drop table、force push 覆盖)、读写凭据(.ssh/.aws/.env/credentials)、" +
+  "工作区外写入、与任务无关的危险操作、向外部端点发送敏感数据。" +
+  "不标记(返回 allow):与用户意图一致的可逆操作、工作区内正常编辑、只读操作。" +
+  "拿不准就标记(fail-safe)。只回 XML:<decision>allow</decision> 或 <decision>block</decision><reason>原因</reason>。";
+
+/**
+ * 构建 handoff 分类器的 messages(system + 紧凑转录 + 审查指令)。
+ * 复用 buildClassifierTranscript(只取 user 文本 + assistant tool_calls,排除 assistant 自由文本防操纵)。
+ */
+export function buildHandoffClassifierMessages(
+  agentMessages: ChatMessage[],
+  subagentType: string,
+): { role: "system" | "user"; content: string }[] {
+  const transcript = buildClassifierTranscript(agentMessages);
+  return [
+    { role: "system", content: HANDOFF_SYS },
+    { role: "user", content: `子代理类型: ${subagentType}\n执行转录:\n${transcript}\n\n审查这段子代理的执行,有违反安全策略的操作吗?` },
+  ];
+}
+
+/**
+ * 解析分类器返回的 XML 文本 -> ClassifyResult。
+ * 接受 <decision>allow</decision> 或 <decision>block</decision><reason>...</reason>。
+ */
+export function parseHandoffClassifierResponse(text: string): ClassifyResult {
+  const decisionMatch = text.match(/<decision>\s*(allow|block)\s*<\/decision>/i);
+  if (!decisionMatch) return { unavailable: true };
+  const decision = decisionMatch[1]!.toLowerCase();
+  if (decision === "allow") return { shouldBlock: false };
+  const reasonMatch = text.match(/<reason>\s*([\s\S]*?)\s*<\/reason>/i);
+  return { shouldBlock: true, reason: reasonMatch?.[1]?.trim() || "未知" };
+}
 
 /**
  * auto 权限模式下,子代理结束后审查其输出是否安全(对标 CC classifyHandoffIfNeeded)。

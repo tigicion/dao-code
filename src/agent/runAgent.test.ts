@@ -293,4 +293,68 @@ describe("runAgent 阶段接线", () => {
     expect(transcript).not.toBeNull();
     expect(transcript!.messages.some((m) => m.role === "assistant")).toBe(true);
   });
+
+  it("onCacheSafeParams 传的是 sub.messages 引用(随 runTurn 增长),不是 initialMessages 静态快照", async () => {
+    let capturedRef: ChatMessage[] | undefined;
+    const params = baseParams({
+      onCacheSafeParams: (p) => { capturedRef = p.forkContextMessages; },
+      runTurn: async (deps) => {
+        // 回调已经在阶段 4 触发了,此刻 capturedRef 应指向 sub.messages
+        // runTurn 还没 push 新消息,长度应等于初始消息数
+        expect(capturedRef).toBeDefined();
+        const lenBefore = capturedRef!.length;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+        // push 后 capturedRef 应同步增长(同一引用)
+        expect(capturedRef!.length).toBe(lenBefore + 1);
+      },
+    });
+    await drain(runAgent(params));
+    // 跑完后 capturedRef 应包含 runTurn push 的消息
+    expect(capturedRef!.some((m) => m.role === "assistant")).toBe(true);
+  });
+
+  it("消息在 runTurn 期间逐条 yield(而非跑完后一次性),验证流式", async () => {
+    // runTurn 分两阶段 push 消息,中间等一下--如果 runAgent 是流式的,
+    // 第一条消息应该在 runTurn 还没返回时就能 yield 出来。
+    let firstMessageYielded = false;
+    let runTurnReturned = false;
+    const params = baseParams({
+      runTurn: async (deps) => {
+        deps.session.messages.push({ role: "assistant", content: "第一条" });
+        // 等一小段时间,让轮询有机会 yield
+        await new Promise((r) => setTimeout(r, 50));
+        deps.session.messages.push({ role: "assistant", content: "第二条" });
+        runTurnReturned = true;
+      },
+    });
+    const out: ChatMessage[] = [];
+    for await (const m of runAgent(params)) {
+      out.push(m);
+      if (out.length === 1) firstMessageYielded = !runTurnReturned; // 第一条 yield 时 runTurn 还没返回
+    }
+    expect(out.length).toBe(2);
+    expect(out[0]!.content).toBe("第一条");
+    expect(out[1]!.content).toBe("第二条");
+    expect(firstMessageYielded).toBe(true); // 第一条在 runTurn 返回前就 yield 了
+  });
+
+  it("runTurn 抛错 -> 已 yield 的消息不丢,错误重新抛出", async () => {
+    const params = baseParams({
+      runTurn: async (deps) => {
+        deps.session.messages.push({ role: "assistant", content: "成功消息" });
+        await new Promise((r) => setTimeout(r, 50));
+        throw new Error("runTurn 炸了");
+      },
+    });
+    const out: ChatMessage[] = [];
+    let caught: Error | undefined;
+    try {
+      for await (const m of runAgent(params)) out.push(m);
+    } catch (e) {
+      caught = e as Error;
+    }
+    expect(out.length).toBe(1); // 成功消息不丢
+    expect(out[0]!.content).toBe("成功消息");
+    expect(caught!.message).toBe("runTurn 炸了");
+  });
 });

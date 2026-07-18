@@ -5,17 +5,23 @@ import type { AgentDef } from "../agent/agent_defs.js";
 import { FORK_AGENT, buildForkContextMessages } from "../agent/fork_agent.js";
 import { finalizeAgentTool } from "../agent/agent_tools.js";
 import { runAsyncAgentLifecycle, type AsyncAgentTaskManager } from "../agent/agent_lifecycle.js";
+import { classifyHandoffIfNeeded } from "../agent/agent_handoff.js";
 
-// 子代理模型名归一化:模型常把 "deepseek-v4-pro" 写成 "deepseek-v4"/"pro"/"flash" → raw 传 API 会失败。
-// 含 flash/pro 的归到对应全名;已是有效全名保留;其余(如裸 "deepseek-v4")→ undefined(继承父模型),
-// 绝不把无效名透传给 API(实测一次子代理派发因 "deepseek-v4" 失败)。
+// 子代理模型名归一化:模型常把 "deepseek-v4-pro" 写成 "deepseek-v4"/"pro"/"flash" -> raw 传 API 会失败。
+// 已知模型名(含 kimi-k2.6/glm-5.2 等多 provider)原样保留;deepseek 简称归一;无法识别 -> undefined(继承父模型)。
+import { MODELS_BY_PROVIDER } from "../config/profiles.js";
+
+const ALL_KNOWN_MODELS = new Set(
+  Object.values(MODELS_BY_PROVIDER).flat().map((m) => m.toLowerCase()),
+);
+
 export function normalizeModel(m: string | undefined): string | undefined {
   if (!m) return undefined;
   const s = m.trim().toLowerCase();
-  if (s === "deepseek-v4-pro" || s === "deepseek-v4-flash") return s;
+  if (ALL_KNOWN_MODELS.has(s)) return m.trim();
   if (s.includes("flash")) return "deepseek-v4-flash";
   if (s.includes("pro")) return "deepseek-v4-pro";
-  return undefined; // 无法识别 → 继承父模型,不透传无效名
+  return undefined;
 }
 
 function randomAgentId(): string {
@@ -166,6 +172,9 @@ export const agentTool = defineTool({
             messageParent: (m) => { ctx.taskManager!.emitFromTask(bg.agentId, m); },
           }),
           taskManager: taskManagerAdapter,
+          classifyFn: ctx.handoffClassifyFn,
+          permissionMode: ctx.permissionMode,
+          abortSignal: bg.abortController.signal,
         });
         return `已后台启动子代理${type ? `(类型 ${type})` : ""}(${bg.agentId});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
       }
@@ -174,9 +183,13 @@ export const agentTool = defineTool({
       if (!isolate && ctx.taskManager && taskManagerAdapter) {
         const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
         const fg = ctx.taskManager.registerAgentForeground({ agentId, description: t.slice(0, 50), autoBackgroundMs: ms });
+        // 前台转后台时需要把缓存安全参数透传给 runAsyncAgentLifecycle 的 makeStream;
+        // runAgent 在阶段 4(sub 创建后)触发 onCacheSafeParams,此时前台已在跑、可能随时转后台。
+        let cacheSafeParams: { systemPrompt: string; forkContextMessages: ChatMessage[] } | undefined;
         const iterator = runAgent({
           agentDef, promptMessages, forkContextMessages, useExactTools: fork,
           isAsync: false, override: { agentId }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
+          onCacheSafeParams: (p) => { cacheSafeParams = p; },
           messageParent: (m) => { ctx.taskManager!.emitFromTask(fg.taskId, m); },
         })[Symbol.asyncIterator]();
 
@@ -188,6 +201,10 @@ export const agentTool = defineTool({
           ]);
           if (raced.kind === "bg") {
             // 前台->后台无缝切换:复用同一个 iterator 继续消费,不重跑。
+            // onCacheSafeParams 透传:若前台阶段已触发过(正常情况),用已有的 cacheSafeParams
+            // 启动摘要器;若尚未触发(runAgent 还没到阶段 4),makeStream 的 onCacheSafeParams 回调
+            // 由 runAsyncAgentLifecycle 调用 makeStream 时传入--但 iterator 已在跑,不会再触发。
+            // 因此这里直接用 cacheSafeParams(若已有)启动摘要,makeStream 回调做兜底。
             void runAsyncAgentLifecycle({
               taskId: fg.taskId,
               agentId,
@@ -195,8 +212,15 @@ export const agentTool = defineTool({
               isBuiltInAgent,
               prompt: t,
               model: resolvedModelForDisplay,
-              makeStream: () => ({ [Symbol.asyncIterator]: () => iterator }) as AsyncGenerator<ChatMessage, void>,
+              makeStream: (onCacheSafeParams) => {
+                // 前台已触发过 -> 用已有的;否则用 makeStream 传入的(虽然 iterator 不会再调)
+                const params = cacheSafeParams;
+                if (params) onCacheSafeParams(params);
+                return { [Symbol.asyncIterator]: () => iterator } as AsyncGenerator<ChatMessage, void>;
+              },
               taskManager: taskManagerAdapter,
+              classifyFn: ctx.handoffClassifyFn,
+              permissionMode: ctx.permissionMode,
             });
             return `子代理运行超过 ${Math.round(ms / 1000)}s,已自动转入后台(${fg.taskId});完成后会通知你。你可以先继续别的或结束本轮。`;
           }
@@ -207,7 +231,16 @@ export const agentTool = defineTool({
         const result = finalizeAgentTool(messages, agentId, {
           prompt: t, model: resolvedModelForDisplay, agentType: agentDef.agentType, startTime: Date.now(), isAsync: false, isBuiltInAgent,
         });
-        const text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
+        let text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
+        // auto 模式 handoff 安全审查
+        if (ctx.handoffClassifyFn && ctx.permissionMode) {
+          const warning = await classifyHandoffIfNeeded({
+            agentMessages: [...promptMessages, ...messages], permissionMode: ctx.permissionMode,
+            abortSignal: new AbortController().signal, subagentType: agentDef.agentType,
+            totalToolUseCount: result.totalToolUseCount, classifyFn: ctx.handoffClassifyFn,
+          });
+          if (warning) text = `${warning}\n\n${text}`;
+        }
         return finishWithWorktree(text, worktree);
       }
 
@@ -220,7 +253,16 @@ export const agentTool = defineTool({
       const result = finalizeAgentTool(messages, agentId, {
         prompt: t, model: resolvedModelForDisplay, agentType: agentDef.agentType, startTime: Date.now(), isAsync: false, isBuiltInAgent,
       });
-      const text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
+      let text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
+      // auto 模式 handoff 安全审查
+      if (ctx.handoffClassifyFn && ctx.permissionMode) {
+        const warning = await classifyHandoffIfNeeded({
+          agentMessages: [...promptMessages, ...messages], permissionMode: ctx.permissionMode,
+          abortSignal: new AbortController().signal, subagentType: agentDef.agentType,
+          totalToolUseCount: result.totalToolUseCount, classifyFn: ctx.handoffClassifyFn,
+        });
+        if (warning) text = `${warning}\n\n${text}`;
+      }
       return finishWithWorktree(text, worktree);
     };
 

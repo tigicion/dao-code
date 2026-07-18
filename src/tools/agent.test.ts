@@ -13,10 +13,20 @@ describe("normalizeModel — 子代理模型名兜底", () => {
     expect(normalizeModel("flash")).toBe("deepseek-v4-flash");
     expect(normalizeModel("Pro")).toBe("deepseek-v4-pro");
   });
-  it("无法识别(裸 deepseek-v4 / 乱写)→ undefined 继承父模型,不透传无效名", () => {
+  it("无法识别(裸 deepseek-v4 / 乱写)-> undefined 继承父模型,不透传无效名", () => {
     expect(normalizeModel("deepseek-v4")).toBeUndefined();
     expect(normalizeModel("gpt-4")).toBeUndefined();
     expect(normalizeModel(undefined)).toBeUndefined();
+  });
+  it("多 provider 模型名原样保留(不归一化成 undefined)", () => {
+    expect(normalizeModel("kimi-k2.6")).toBe("kimi-k2.6");
+    expect(normalizeModel("glm-5.2")).toBe("glm-5.2");
+    expect(normalizeModel("doubao-seed-2.0-pro")).toBe("doubao-seed-2.0-pro");
+    expect(normalizeModel("ernie-5.1")).toBe("ernie-5.1");
+  });
+  it("大小写不敏感但保留原始大小写", () => {
+    expect(normalizeModel("Kimi-K2.6")).toBe("Kimi-K2.6");
+    expect(normalizeModel("GLM-5.2")).toBe("GLM-5.2");
   });
 });
 
@@ -192,6 +202,25 @@ describe("agent tool", () => {
     expect(out).toContain("自动转入后台");
   });
 
+  it("前台转后台路径传了 onCacheSafeParams(此前没传,摘要器不会启动)", async () => {
+    const prev = process.env.DAO_AUTO_BACKGROUND_MS;
+    process.env.DAO_AUTO_BACKGROUND_MS = "10";
+    let onCacheSafeParamsReceived = false;
+    const fn = (params: any): AsyncGenerator<ChatMessage, void> => {
+      async function* gen(): AsyncGenerator<ChatMessage, void> {
+        params.onCacheSafeParams?.({ systemPrompt: "SYS", forkContextMessages: [] });
+        onCacheSafeParamsReceived = true;
+        await new Promise(() => {});
+      }
+      return gen();
+    };
+    const taskManager = createTaskManager();
+    const ctx = mkCtx({ runAgent: fn, taskManager });
+    await agentTool.handler({ task: "慢任务" } as any, ctx);
+    process.env.DAO_AUTO_BACKGROUND_MS = prev;
+    expect(onCacheSafeParamsReceived).toBe(true);
+  });
+
   it("tasks 数组 → 并行派发并汇总", async () => {
     const { fn } = fakeRunAgent((params) => `R:${params.promptMessages[0].content}`);
     const ctx = mkCtx({ runAgent: fn });
@@ -262,4 +291,60 @@ describe("agent tool", () => {
     expect(out).toBe("看了一下没改");
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
+
+  // ---- handoff 安全审查接线测试 ----
+
+  it("auto 模式同步路径 -> 调 handoffClassifyFn,返回结果前缀警告", async () => {
+    const { fn } = fakeRunAgent("done");
+    let called = false;
+    const ctx = mkCtx({
+      runAgent: fn,
+      permissionMode: "auto",
+      handoffClassifyFn: async () => { called = true; return { shouldBlock: true, reason: "删了文件" }; },
+    });
+    const out = await agentTool.handler({ task: "x" } as any, ctx);
+    expect(called).toBe(true);
+    expect(out).toContain("安全警告");
+    expect(out).toContain("删了文件");
+    expect(out).toContain("done");
+  });
+
+  it("非 auto 模式同步路径 -> 不调 handoffClassifyFn", async () => {
+    const { fn } = fakeRunAgent("done");
+    let called = false;
+    const ctx = mkCtx({
+      runAgent: fn,
+      permissionMode: "default",
+      handoffClassifyFn: async () => { called = true; return { shouldBlock: false }; },
+    });
+    const out = await agentTool.handler({ task: "x" } as any, ctx);
+    expect(called).toBe(false);
+    expect(out).toBe("done");
+  });
+
+  it("auto 模式 handoff allowed -> 不前缀警告,原样返回", async () => {
+    const { fn } = fakeRunAgent("clean");
+    const ctx = mkCtx({
+      runAgent: fn,
+      permissionMode: "auto",
+      handoffClassifyFn: async () => ({ shouldBlock: false }),
+    });
+    const out = await agentTool.handler({ task: "x" } as any, ctx);
+    expect(out).toBe("clean");
+  });
+
+  it("auto 模式后台路径 -> 传了 classifyFn + permissionMode 给 runAsyncAgentLifecycle", async () => {
+    const { fn: neverFn } = neverEndingRunAgent();
+    const taskManager = createTaskManager();
+    const ctx = mkCtx({
+      runAgent: neverFn,
+      taskManager,
+      permissionMode: "auto",
+      handoffClassifyFn: async () => ({ shouldBlock: false }),
+    });
+    // 只验证不报错(后台路径立即返回),classifyFn 会在子代理完成后才被调
+    const out = await agentTool.handler({ task: "耗时", background: true } as any, ctx);
+    expect(out).toContain("已后台启动");
+  });
+
 });
