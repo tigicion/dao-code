@@ -1030,7 +1030,11 @@ async function main() {
       agentDefs,
       runAgent: ctx.runAgent!,
       registerAsyncAgent: (o) => taskManager.registerAsyncAgent(o),
-      runAsyncAgentLifecycle: async () => {},
+      taskManager: {
+        appendMessage: (id, m) => taskManager.appendMessage(id, m),
+        updateSummary: (id, s) => taskManager.updateSummary(id, s),
+        update: (id, patch) => taskManager.update(id, patch),
+      },
     });
     return `已恢复子代理 ${agentId}。`;
   };

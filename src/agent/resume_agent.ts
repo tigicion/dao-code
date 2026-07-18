@@ -4,6 +4,8 @@ import path from "node:path";
 import type { ChatMessage } from "../client/types.js";
 import { ONE_SHOT_AGENT_TYPES } from "./agent_tools.js";
 import type { AgentDef } from "./agent_defs.js";
+import type { CacheSafeParams } from "./runAgent.js";
+import { runAsyncAgentLifecycle, type AsyncAgentTaskManager } from "./agent_lifecycle.js";
 
 /** 逐条写入 sidechain 转录(fire-and-forget) */
 export async function recordSidechainMessage(subagentsDir: string, agentId: string, message: ChatMessage): Promise<void> {
@@ -59,11 +61,18 @@ export async function resumeAgentBackground(opts: {
   prompt: string;
   subagentsDir: string;
   agentDefs: AgentDef[];
-  runAgent: (params: any) => AsyncGenerator<ChatMessage, void>;
+  runAgent: (params: {
+    agentDef: AgentDef;
+    promptMessages: ChatMessage[];
+    isAsync: boolean;
+    override?: { abortController?: AbortController; agentId?: string };
+    worktreePath?: string;
+    onCacheSafeParams?: (params: CacheSafeParams) => void;
+  }) => AsyncGenerator<ChatMessage, void>;
   registerAsyncAgent: (opts: { agentId: string; description: string }) => { agentId: string; abortController: AbortController };
-  runAsyncAgentLifecycle: (opts: unknown) => Promise<void>;
+  taskManager: AsyncAgentTaskManager;
 }): Promise<{ agentId: string; description: string; outputFile: string }> {
-  const { agentId, prompt, subagentsDir, agentDefs } = opts;
+  const { agentId, prompt, subagentsDir, agentDefs, taskManager } = opts;
   const [transcript, meta] = await Promise.all([getAgentTranscript(subagentsDir, agentId), readAgentMetadata(subagentsDir, agentId)]);
   if (!transcript) throw new Error(`未找到子代理转录:${agentId}`);
   if (meta?.agentType && ONE_SHOT_AGENT_TYPES.has(meta.agentType)) {
@@ -75,6 +84,24 @@ export async function resumeAgentBackground(opts: {
   const promptMessages: ChatMessage[] = [...resumedMessages, { role: "user", content: prompt }];
   const description = meta?.description ?? "(恢复)";
   const bgTask = opts.registerAsyncAgent({ agentId, description });
-  void opts.runAsyncAgentLifecycle({ taskId: bgTask.agentId, abortController: bgTask.abortController, makeStream: () => opts.runAgent({ agentDef, promptMessages, isAsync: true }), description, agentIdForCleanup: agentId });
+
+  void runAsyncAgentLifecycle({
+    taskId: bgTask.agentId,
+    agentId,
+    agentType: meta?.agentType,
+    isBuiltInAgent: agentDef.source === "built-in",
+    prompt,
+    model: meta?.model ?? "deepseek-v4-pro",
+    makeStream: (onCacheSafeParams) => opts.runAgent({
+      agentDef,
+      promptMessages,
+      isAsync: true,
+      override: { abortController: bgTask.abortController, agentId },
+      worktreePath: meta?.worktreePath,
+      onCacheSafeParams,
+    }),
+    taskManager,
+  });
+
   return { agentId, description, outputFile: path.join(subagentsDir, `${agentId}.jsonl`) };
 }
