@@ -1,10 +1,10 @@
-# DAO 子代理系统全面对齐 CC 实现计划
+# DAO 子代理系统实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 DAO 子代理系统从单文件 `runSubagent` 全面重写为对标 CC 的多模块 AsyncGenerator 架构,含 Agent 定义扩展、执行引擎、工具过滤、同步/异步切换、恢复、Fork、Hooks、Memory、MCP、摘要、进度追踪、Handoff Classifier。
+**Goal:** 将 DAO 子代理系统从单文件 `runSubagent` 全面重写为多模块 AsyncGenerator 架构,含 Agent 定义扩展、执行引擎、工具过滤、同步/异步切换、恢复、Fork、Hooks、Memory、MCP、摘要、进度追踪、Handoff Classifier。
 
-**Architecture:** 平移移植 CC `tools/AgentTool/` 的文件结构到 `agent/` 目录。执行引擎从 `Promise<string>` 改为 `AsyncGenerator<Message>`,上层通过 race generator.next() vs backgroundSignal 实现前台->后台无缝切换。Agent 定义对齐 CC frontmatter schema(不兼容旧 5 字段)。
+**Architecture:** 平移移植 CC `tools/AgentTool/` 的文件结构到 `agent/` 目录。执行引擎从 `Promise<string>` 改为 `AsyncGenerator<Message>`,上层通过 race generator.next() vs backgroundSignal 实现前台->后台无缝切换。Agent 定义统一 frontmatter schema(不兼容旧 5 字段)。
 
 **Tech Stack:** TypeScript ESM, Node ≥ 20, Zod, Vitest
 
@@ -450,7 +450,7 @@ Expected: PASS
 
 ```bash
 git add src/agent/agent_defs.ts src/agent/agent_defs.test.ts
-git commit -m "feat(agent): 重写 agent_defs.ts - 对齐 CC AgentDef schema
+git commit -m "feat(agent): 重写 agent_defs.ts - 优化 AgentDef schema
 
 Co-Authored-By: Dao <noreply@dao-code>"
 ```
@@ -1004,7 +1004,7 @@ Expected: PASS
 
 ```bash
 git add src/agent/bundled_agents.ts src/agent/bundled_agents.test.ts
-git commit -m "feat(agent): 重写 bundled_agents.ts - 对齐 CC 内置 agent 定义
+git commit -m "feat(agent): 重写 bundled_agents.ts - 优化内置 agent 定义
 
 Co-Authored-By: Dao <noreply@dao-code>"
 ```
@@ -1133,7 +1133,7 @@ import { resolveAgentTools, createProgressTracker, type ProgressTracker } from "
 
 // ---- 类型 ----
 
-/** runAgent 的参数(对标 CC runAgent 的参数对象) */
+/** runAgent 的参数(参考 runAgent 的参数对象) */
 export interface RunAgentParams {
   /** agent 定义(含 system prompt / 工具 / 模型 / 权限) */
   agentDef: AgentDef;
@@ -1199,7 +1199,7 @@ export interface CacheSafeParams {
 // ---- 模型解析 ----
 
 /**
- * 解析 agent 模型(对标 CC getAgentModel)。
+ * 解析 agent 模型(参考 getAgentModel)。
  * 优先级:调用级 model > agent 定义 model > inherit(父模型)
  */
 export function getAgentModel(
@@ -1218,7 +1218,7 @@ export function getAgentModel(
 // ---- 消息过滤 ----
 
 /**
- * 过滤未配对 tool_use 的 assistant 消息(对标 CC filterIncompleteToolCalls)。
+ * 过滤未配对 tool_use 的 assistant 消息(参考 filterIncompleteToolCalls)。
  * 防止 fork 上下文中有孤儿 tool_call 导致 API 报错。
  */
 export function filterIncompleteToolCalls(messages: ChatMessage[]): ChatMessage[] {
@@ -1254,7 +1254,7 @@ function createAgentId(): string {
 
 /**
  * 逐条写入 sidechain 转录(fire-and-forget,失败不影响运行)。
- * 对标 CC recordSidechainTranscript -- 每条消息追加一行 JSON。
+ * 参考 recordSidechainTranscript -- 每条消息追加一行 JSON。
  */
 async function recordSidechainMessage(agentId: string, messages: ChatMessage[]): Promise<void> {
   const dir = getSubagentDir();
@@ -1264,7 +1264,7 @@ async function recordSidechainMessage(agentId: string, messages: ChatMessage[]):
   await fs.appendFile(file, lines, "utf8").catch(() => {});
 }
 
-/** 写入 agent 元数据(对标 CC writeAgentMetadata) */
+/** 写入 agent 元数据(参考 writeAgentMetadata) */
 async function writeAgentMetadata(
   agentId: string,
   meta: { agentType: string; description?: string; worktreePath?: string; model?: string },
@@ -1278,7 +1278,7 @@ async function writeAgentMetadata(
 // ---- 执行引擎 ----
 
 /**
- * 子代理执行引擎(对标 CC runAgent)。
+ * 子代理执行引擎(参考 runAgent)。
  * AsyncGenerator:逐条 yield ChatMessage,上层可消费消息流。
  *
  * 7 个阶段:
@@ -1647,7 +1647,7 @@ Expected: FAIL - module not found
 import type { ChatMessage, AssistantMessage, UserMessage, ContentPart } from "../client/types.js";
 import type { BuiltInAgentDef } from "./agent_defs.js";
 
-// ---- 常量(对标 CC constants/xml.ts) ----
+// ---- 常量(参考 constants/xml.ts) ----
 
 /** fork-boilerplate XML 标签名:包裹 fork 子代理的规则 directive */
 export const FORK_BOILERPLATE_TAG = "fork-boilerplate";
@@ -1655,12 +1655,12 @@ export const FORK_BOILERPLATE_TAG = "fork-boilerplate";
 /** directive 文本前缀(渲染时剥离,仅标记 directive 起始) */
 export const FORK_DIRECTIVE_PREFIX = "你的指令: ";
 
-// ---- FORK_AGENT 定义(对标 CC FORK_AGENT) ----
+// ---- FORK_AGENT 定义(参考 FORK_AGENT) ----
 
 /**
  * Fork agent 的合成定义(不注册到 BUNDLED_AGENTS)。
  *
- * fork 路径由 `fork: true` 参数触发(对标 CC 省略 subagent_type)。
+ * fork 路径由 `fork: true` 参数触发(对应省略 subagent_type)。
  * - tools = undefined + useExactTools = 直接用父的工具池(缓存对齐)
  * - model = inherit(继承父模型,保持上下文长度一致)
  * - getSystemPrompt 返回空:实际用 override.systemPrompt 传父的 rendered prompt(字节级一致,缓存命中)
@@ -1679,7 +1679,7 @@ export const FORK_AGENT: BuiltInAgentDef = {
 /**
  * 检测消息列表中是否已有 fork-boilerplate 标签(防递归 fork)。
  * fork 子保留了 agent 工具(缓存对齐),但不能再 fork。
- * 对标 CC isInForkChild。
+ * 参考 isInForkChild。
  */
 export function isInForkChild(messages: ChatMessage[]): boolean {
   return messages.some((m) => {
@@ -1697,7 +1697,7 @@ export function isInForkChild(messages: ChatMessage[]): boolean {
   });
 }
 
-// ---- fork 消息构建(对标 CC buildForkedMessages) ----
+// ---- fork 消息构建(参考 buildForkedMessages) ----
 
 /**
  * 所有 fork 子共享的 tool_result 占位符文本。
@@ -1706,7 +1706,7 @@ export function isInForkChild(messages: ChatMessage[]): boolean {
 const FORK_PLACEHOLDER_RESULT = "Fork 已启动 - 后台处理中";
 
 /**
- * 构建 fork 子代理的 directive 消息(对标 CC buildChildMessage)。
+ * 构建 fork 子代理的 directive 消息(参考 buildChildMessage)。
  * 包含 fork-boilerplate 标签 + 规则 + 指令。
  * 中文版,结构化输出格式。
  */
@@ -1740,7 +1740,7 @@ ${FORK_DIRECTIVE_PREFIX}${directive}`;
 }
 
 /**
- * 构建 fork 子代理的对话消息(对标 CC buildForkedMessages)。
+ * 构建 fork 子代理的对话消息(参考 buildForkedMessages)。
  *
  * 为前缀缓存共享,所有 fork 子必须产生字节一致的 API 请求前缀:
  * 1. 保留完整的父 assistant 消息(所有 tool_use blocks)
@@ -1788,7 +1788,7 @@ export function buildForkedMessages(
 }
 
 /**
- * worktree 隔离 fork 子代理的路径翻译提示(对标 CC buildWorktreeNotice)。
+ * worktree 隔离 fork 子代理的路径翻译提示(参考 buildWorktreeNotice)。
  * 告知子代理:继承的上下文路径指向父目录,需翻译到 worktree;编辑前重读文件。
  */
 export function buildWorktreeNotice(parentCwd: string, worktreeCwd: string): string {
@@ -1974,7 +1974,7 @@ function sanitizeAgentTypeForPath(agentType: string): string {
 }
 
 /**
- * 返回 agent 记忆目录(对标 CC getAgentMemoryDir)。
+ * 返回 agent 记忆目录(参考 getAgentMemoryDir)。
  * - user: <home>/.dao/agents/memory/<agentType>/
  * - project: <cwd>/.dao/agents/memory/<agentType>/
  * - local: <cwd>/.dao/agents/memory/<agentType>/local/
@@ -1997,7 +1997,7 @@ export function getAgentMemoryDir(
 
 /**
  * 返回 agent 记忆文件入口路径(MEMORY.md)。
- * 对标 CC getAgentMemoryEntrypoint。
+ * 参考 getAgentMemoryEntrypoint。
  */
 export function getAgentMemoryEntrypoint(
   agentType: string,
@@ -2010,7 +2010,7 @@ export function getAgentMemoryEntrypoint(
 /**
  * 检查路径是否在 agent 记忆目录内(任意 scope)。
  * 安全:先 normalize 防止 .. 路径穿越绕过。
- * 对标 CC isAgentMemoryPath。
+ * 参考 isAgentMemoryPath。
  */
 export function isAgentMemoryPath(absolutePath: string, homeDir?: string): boolean {
   const normalizedPath = normalize(absolutePath);
@@ -2030,7 +2030,7 @@ export function isAgentMemoryPath(absolutePath: string, homeDir?: string): boole
 }
 
 /**
- * 返回 scope 的显示文本(对标 CC getMemoryScopeDisplay)。
+ * 返回 scope 的显示文本(参考 getMemoryScopeDisplay)。
  */
 export function getMemoryScopeDisplay(
   memory: AgentMemoryScope | undefined,
@@ -2050,7 +2050,7 @@ export function getMemoryScopeDisplay(
 }
 
 /**
- * 加载 agent 持久记忆并返回 prompt 文本(对标 CC loadAgentMemoryPrompt)。
+ * 加载 agent 持久记忆并返回 prompt 文本(参考 loadAgentMemoryPrompt)。
  * 在 runAgent 阶段 2 追加到 system prompt。
  * memory scope 决定存储路径和提示语。
  *
@@ -2236,12 +2236,12 @@ import { runHooks, type HookSpec, type HookOutcome } from "../hooks/hooks.js";
 /**
  * Agent hook 注册表:agentId -> 注册的 hooks。
  * 在 runAgent 阶段 3 注册,阶段 7(finally)清除。
- * 对标 CC sessionHooks(sessionHooks.delete(agentId))。
+ * 参考 sessionHooks(sessionHooks.delete(agentId))。
  */
 export type AgentHookRegistry = Map<string, AgentHooks>;
 
 /**
- * 注册 agent 的 frontmatter hooks 到注册表(对标 CC registerFrontmatterHooks)。
+ * 注册 agent 的 frontmatter hooks 到注册表(参考 registerFrontmatterHooks)。
  *
  * 这些 hooks 在 agent 生命周期内生效:
  * - SubagentStart:会话创建后、首轮查询前执行
@@ -2261,7 +2261,7 @@ export function registerAgentHooks(
 }
 
 /**
- * 清除 agent 的所有 hooks(对标 CC clearSessionHooks)。
+ * 清除 agent 的所有 hooks(参考 clearSessionHooks)。
  * 在 runAgent 的 finally 阶段调用。
  *
  * @param agentId agent 唯一标识
@@ -2275,7 +2275,7 @@ export function clearAgentHooks(
 }
 
 /**
- * 执行 SubagentStart hooks 并收集 additionalContext(对标 CC executeSubagentStartHooks)。
+ * 执行 SubagentStart hooks 并收集 additionalContext(参考 executeSubagentStartHooks)。
  *
  * 在 runAgent 阶段 3 调用:注册 hooks 后、首轮查询前。
  * hook 的 additionalContext 输出作为 initial message 注入。
@@ -2316,7 +2316,7 @@ export async function executeSubagentStartHooks(
 }
 
 /**
- * 执行 SubagentStop hooks(对标 CC clearSessionHooks 时的 Stop 执行)。
+ * 执行 SubagentStop hooks(参考 clearSessionHooks 时的 Stop 执行)。
  *
  * 在 runAgent 阶段 7(finally)调用。
  * 不收集 additionalContext(会话已结束),只执行命令。
@@ -2532,7 +2532,7 @@ import type { AgentDef } from "./agent_defs.js";
 /**
  * 格式化单行 agent 描述(用于 agent 列表)。
  * 格式: - <type>: <whenToUse> (Tools: <tools>)
- * 对标 CC formatAgentLine。
+ * 参考 formatAgentLine。
  */
 export function formatAgentLine(agent: AgentDef): string {
   const toolsDescription = getToolsDescription(agent);
@@ -2540,7 +2540,7 @@ export function formatAgentLine(agent: AgentDef): string {
 }
 
 /**
- * 获取 agent 的工具描述文本(对标 CC getToolsDescription)。
+ * 获取 agent 的工具描述文本(参考 getToolsDescription)。
  * - 有白名单:列出具体工具
  * - 有黑名单:"全部工具除了 X, Y, Z"
  * - 同时有:白名单过滤黑名单后列出
@@ -2566,7 +2566,7 @@ export function getToolsDescription(agent: Pick<AgentDef, "tools" | "disallowedT
 }
 
 /**
- * 生成 agent 工具的描述 prompt(对标 CC getPrompt)。
+ * 生成 agent 工具的描述 prompt(参考 getPrompt)。
  *
  * 内容包含:
  * 1. 工具概述(什么是 agent 工具)
@@ -3137,7 +3137,7 @@ Expected: FAIL
 
 - [ ] **Step 3: Write agent.ts + update types.ts**
 
-完整代码见 spec Section 15 的 schema 和 handler 伪代码,实现时对标 CC `AgentTool.tsx` 的 call() 方法。核心流程:
+完整代码见 spec Section 15 的 schema 和 handler 伪代码,实现时参考 `AgentTool.tsx` 的 call() 方法。核心流程:
 
 1. 防御性嵌套检查(depth >= 1)
 2. fork + model/mode 互斥检查
@@ -3361,7 +3361,7 @@ Expected: Build succeeds
 
 ```bash
 git add -A
-git commit -m "refactor(agent): 删除旧 subagent.ts + 修复引用 - 全面对齐 CC
+git commit -m "refactor(agent): 删除旧 subagent.ts + 修复引用 - 全面重写
 
 Co-Authored-By: Dao <noreply@dao-code>"
 ```

@@ -4,7 +4,7 @@
 
 DAO CODE 现有子代理系统是单文件 `agent/subagent.ts`(~80 行),`runSubagent(deps): Promise<string>` 接口,功能仅覆盖基础派发。Claude Code(CC)的子代理系统是 `tools/AgentTool/` 下 10+ 文件的完整框架,包含执行引擎、定义加载、工具过滤、恢复、Fork、Hooks、Memory、MCP、摘要、Handoff 等子系统。
 
-本设计将 DAO 子代理系统全面对齐 CC,采用平移移植方案:按 CC 文件结构 1:1 拆分,字段名/函数签名/执行流程尽可能对齐,DAO 特有逻辑(缓存审计/profile 系统/中文 prompt)保留。
+本设计将 DAO 子代理系统全面重写,采用平移移植方案:按 CC 文件结构 1:1 拆分,字段名/函数签名/执行流程尽可能对齐,DAO 特有逻辑(缓存审计/profile 系统/中文 prompt)保留。
 
 **不兼容变更**:现有 `AgentDef` 接口(5 字段)直接替换为新 schema,不做兼容映射。
 
@@ -12,24 +12,24 @@ DAO CODE 现有子代理系统是单文件 `agent/subagent.ts`(~80 行),`runSuba
 
 ```
 agent/
-├── runAgent.ts          # 执行引擎(AsyncGenerator,对标 CC runAgent.ts)
+├── runAgent.ts          # 执行引擎(AsyncGenerator,参考 runAgent.ts)
 ├── agent_defs.ts        # Agent 定义加载/解析(扩展现有,不兼容替换)
 ├── bundled_agents.ts    # 内置 agent 定义(扩展现有,不兼容替换)
-├── agent_tools.ts       # 工具过滤/结果汇总/进度追踪(对标 CC agentToolUtils.ts)
-├── agent_prompt.ts      # 工具描述 prompt 生成(对标 CC prompt.ts)
-├── resume_agent.ts      # 子代理恢复(对标 CC resumeAgent.ts)
-├── fork_agent.ts        # Fork 机制(对标 CC forkSubagent.ts)
+├── agent_tools.ts       # 工具过滤/结果汇总/进度追踪(参考 agentToolUtils.ts)
+├── agent_prompt.ts      # 工具描述 prompt 生成(参考 prompt.ts)
+├── resume_agent.ts      # 子代理恢复(参考 resumeAgent.ts)
+├── fork_agent.ts        # Fork 机制(参考 forkSubagent.ts)
 ├── agent_memory.ts      # Agent 持久记忆(user/project/local scope)
-├── agent_summary.ts     # 后台 agent 定期摘要(对标 CC agentSummary.ts)
+├── agent_summary.ts     # 后台 agent 定期摘要(参考 agentSummary.ts)
 ├── agent_hooks.ts       # Agent 生命周期 hooks(SubagentStart/SubagentStop)
-├── agent_mcp.ts         # Agent 专属 MCP 服务器(对标 CC initializeAgentMcpServers)
+├── agent_mcp.ts         # Agent 专属 MCP 服务器(参考 initializeAgentMcpServers)
 ├── tasks.ts             # 后台任务管理器(扩展现有,加进度追踪)
 ├── worktree.ts          # git worktree 隔离(现有,基本不动)
 ├── loop.ts              # 回合循环(现有,对接 generator 模式)
 ├── ...其他现有文件不动
 ```
 
-`tools/agent.ts` 保留为工具入口(schema + handler),对标 CC `AgentTool.tsx`。
+`tools/agent.ts` 保留为工具入口(schema + handler),参考 `AgentTool.tsx`。
 
 **关键变更**:
 - `runSubagent(deps): Promise<string>` → `runAgent(params): AsyncGenerator<Message, void>` — 执行引擎从返回字符串变为逐条 yield 消息
@@ -47,7 +47,7 @@ agent/
 
 ## 2. Agent 定义模型
 
-对齐 CC `BaseAgentDefinition`，DAO `AgentDef` 替换为完整 union 类型。
+统一 `BaseAgentDefinition`，DAO `AgentDef` 替换为完整 union 类型。
 
 ### 基础字段
 
@@ -55,7 +55,7 @@ agent/
 // agent/agent_defs.ts
 
 export interface BaseAgentDef {
-  agentType: string;              // 唯一标识(对齐 CC agentType)
+  agentType: string;              // 唯一标识(统一 agentType)
   whenToUse: string;              // 给父 agent 看的"何时用"描述
   tools?: string[];               // 工具白名单(支持 '*' 通配)
   disallowedTools?: string[];     // 工具黑名单

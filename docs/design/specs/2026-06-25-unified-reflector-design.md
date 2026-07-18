@@ -145,7 +145,7 @@ text:  string   // 完整事实(feedback 带"为什么/怎么用")
 
 1. **回合中途 steering 流式插入**:把 TUI `queued` 接到 `loop.drainPending`(已存在,现仅子代理 SendMessage 用),让用户回合未完成时的输入在**下一个工具轮边界**注入(append-only、缓存安全)。CC 没有此功能(Issue #30492),DAO 已有底层管线,领先。
 2. **反思 advisory 流式展示**:fork 边生成边流到界面一个独立块(像 CC 展示 thinking);上下文注入仍 append-only/回合边界(展示≠注入,解耦)。
-3. **默认 commit 署名 `Co-Authored-By: DAO CODE`**:DAO 自身代提交时默认加 DAO 署名尾注(对标 CC 的 Claude 署名)。系统提示现无任何 commit 指引 → 加一行即可,很好做。可设开关关闭。
+3. **默认 commit 署名 `Co-Authored-By: DAO CODE`**:DAO 自身代提交时默认加 DAO 署名尾注(参考 的 Claude 署名)。系统提示现无任何 commit 指引 → 加一行即可,很好做。可设开关关闭。
 
 ## 10. 风险
 

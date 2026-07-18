@@ -1,4 +1,4 @@
-# 子代理对齐 CC · Part B(双向事件驱动通信)Implementation Plan
+# 子代理统一 · Part B(双向事件驱动通信)Implementation Plan
 
 > **实施状态(2026-07-18 复核)**:目标已达成,实现路径与本计划的差异主要是宿主从 `index.ts:585` 的旧 `runSubagent` 迁到了 `runAgent.ts` 引擎,具体接线点不同但能力对齐:
 > - `taskManager.emitFromTask` → 达成,`src/agent/tasks.ts:208`。

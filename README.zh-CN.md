@@ -82,7 +82,7 @@ Dao Code(命令 `dao`)是终端原生的 AI 编码助手:在你的终端里读�
 
 Ink 富渲染 + 太极开屏 + 亮暗自适应;`@` 引文件、slash Tab 补全、**steering(回合运行中打字排队)**、带行号+语法高亮的 diff、思考块、todo 复选框、道家动词 spinner;**ESC 一键打断**(模型流与 shell 一并停);非 TTY 自动回退纯文本 REPL。
 
-> **基本功(对标 CC,均已落地)**:24 个工具 · `allow/ask/deny` 分层权限 + `auto` 智能审批 + 安全纵深(密钥扫描/SSRF/沙箱/钥匙串)· Skills(含**外来技能自动适配**工具名与模型档)· MCP(stdio + HTTP/SSE,tools/resources/prompts)· Hooks(5 生命周期事件)· 自定义子代理 / slash 命令 / 插件 · profile 多账户(`/account`)· OS 定时调度(`/schedule`)。详见 [扩展系统](#-扩展系统)与下方工具一览。
+> **基本功(均已落地)**:24 个工具 · `allow/ask/deny` 分层权限 + `auto` 智能审批 + 安全纵深(密钥扫描/SSRF/沙箱/钥匙串)· Skills(含**外来技能自动适配**工具名与模型档)· MCP(stdio + HTTP/SSE,tools/resources/prompts)· Hooks(5 生命周期事件)· 自定义子代理 / slash 命令 / 插件 · profile 多账户(`/account`)· OS 定时调度(`/schedule`)。详见 [扩展系统](#-扩展系统)与下方工具一览。
 
 ---
 
@@ -148,7 +148,7 @@ npm install && npm run build && npm link   # 之后可全局 dao
 
 > 启动时加 `--yolo`(如 `dao --yolo` / `dao --yolo "任务"`)可一开始就进入自动批准;运行中用 `/yolo` 随时开关。
 > `dao --verbose`(或 `--debug`)**启动**即进入详尽模式:工具结果全量、思考全量、并展示工具的原样参数。
-> 普通 `dao` 启动时默认截断,运行中按 **Ctrl+O** 展开/收起全量(对标 CC);已打印进滚动区的历史无法原地改,故展开时会把最近一条折叠内容补充显示一次。
+> 普通 `dao` 启动时默认截断,运行中按 **Ctrl+O** 展开/收起全量;已打印进滚动区的历史无法原地改,故展开时会把最近一条折叠内容补充显示一次。
 
 ---
 

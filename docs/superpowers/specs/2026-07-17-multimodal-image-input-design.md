@@ -82,7 +82,7 @@ Ink 的 `usePaste` 在 macOS 下收到空粘贴时（终端发空 bracketed past
 
 1. `fs.readFile(abs)` 读原始 buffer。
 2. 检测 magic bytes 确认真实格式（不信任扩展名）。
-3. 大小护栏：超过 5MB 的图片做 resize 缩小（对标 CC 的 `maybeResizeAndDownsampleImageBuffer`）。
+3. 大小护栏：超过 5MB 的图片做 resize 缩小（参考 的 `maybeResizeAndDownsampleImageBuffer`）。
 4. 返回结构化结果：`[image: <base64> | <mediaType> | <width>x<height>]`。
 
 **工具结果如何变成 API 的 image_url**：`read_file` 返回值是 `string`，进入 `ToolMessage.content`（OpenAI API 的 tool role content 只能是 string）。解决方案：
@@ -95,7 +95,7 @@ Ink 的 `usePaste` 在 macOS 下收到空粘贴时（终端发空 bracketed past
 
 ### 4. 压缩时丢弃图片
 
-对标 CC 的 `stripImagesFromMessages`：压缩时把所有 `ContentPart[]` 中的 `image_url` block 替换为 `[image]` 文字标记。图片只在当轮有效，压缩后只保留文字描述。
+参考 的 `stripImagesFromMessages`：压缩时把所有 `ContentPart[]` 中的 `image_url` block 替换为 `[image]` 文字标记。图片只在当轮有效，压缩后只保留文字描述。
 
 - 在 `compact.ts` 的压缩逻辑中，遍历 `UserMessage.content`，如果是数组且含 `image_url`，替换为 `{ type: "text", text: "[image]" }`。
 - microCompact 同理。

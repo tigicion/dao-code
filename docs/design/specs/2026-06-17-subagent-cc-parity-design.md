@@ -1,4 +1,4 @@
-# 设计:DAO 子代理与编排对齐 CC(A 派发/注册表 + B 双向通信)
+# 设计:DAO 子代理与编排统一设计(A 派发/注册表 + B 双向通信)
 
 > 目标:把 DAO 的**子代理派发 + 类型注册表(A)**与**模型驱动编排的通信模型(B)**对齐 Claude Code。
 > CC 的确定性 Workflow 引擎(C)**不在本设计内**——担心 DeepSeek 在"生成并推理可执行编排脚本"上不够稳,暂缓(见记忆 cc-workflow-engine-deferred)。
@@ -6,7 +6,7 @@
 ## 背景与现状(ground truth)
 - 派发工具 `agent`:`task / tasks[]≤20 / background / agent_type / isolate / fork`(`src/tools/agent.ts:13-37`)。
 - 类型注册表运行时**已生效**:agent_type 的专属 prompt 追加、`registry.subset(tools)` 工具白名单、`def?.model ?? session.model` 模型覆盖均已应用(`src/index.ts:587-593`);定义来自 `.dao/agents/*.md` + 内置 `explore`/`verify`(`src/agent/agent_defs.ts`、`bundled_agents.ts`),优先级 plugins→user→project。
-- 上下文隔离/回传:fresh `Session`、隔离 readFiles、只回传 final message、transcript 落盘(`src/agent/subagent.ts:33-67`)——**已对齐 CC,本设计不动**。
+- 上下文隔离/回传:fresh `Session`、隔离 readFiles、只回传 final message、transcript 落盘(`src/agent/subagent.ts:33-67`)——**已统一,本设计不动**。
 - 通信:`taskManager.send(id,msg)→drainPending(id)` **单向** + 回合边界 `drainNotifications` **轮询**(`src/agent/tasks.ts`),无父↔运行中子代理双向、无完成即唤醒。
 
 ## 范围

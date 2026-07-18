@@ -56,7 +56,7 @@ const handoffClassifyFn = (transcript: string) => {
 
 #### F-3: 接线点
 
-两处,对齐 CC 的双调用点:
+两处,统一 的双调用点:
 
 **同步路径**(`agent.ts` 的 `runOne` 兜底路径 + 有 taskManager 的前台路径):
 - `finalizeAgentTool` 之后、`return` 之前调 `classifyHandoffIfNeeded`。

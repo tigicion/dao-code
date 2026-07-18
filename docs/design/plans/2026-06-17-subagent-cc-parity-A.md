@@ -1,4 +1,4 @@
-# 子代理对齐 CC · Part A(派发/注册表)Implementation Plan
+# 子代理统一 · Part A(派发/注册表)Implementation Plan
 
 > **实施状态(2026-07-18 复核)**:目标已达成,但实现路径与本计划分叉——本计划假设的 `runSubagent`(options 对象)与 `src/agent/subagent.ts` 已在后续迭代中整体替换为 `src/agent/runAgent.ts` 统一引擎(`df96500` 删除 `subagent.ts`,`e8c8d8d` 切到 `ctx.runAgent`)。以下逐条按"本计划目标是否达成"复核,不再按原 Task 的具体行号/函数名核对(那些引用已随重构失效):
 > - 内置 general-purpose/explore/plan/verify 注册表 → 达成,现在 `src/agent/bundled_agents.ts`。
@@ -10,7 +10,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** 把 DAO 子代理的**派发参数(调用级 model/mode 覆盖)**与**类型注册表(内置 general-purpose/plan、排除式 tools、默认 general-purpose)**对齐 CC,并把嵌套放开到一层——全程不引入破坏前缀缓存的 bug。
+**Goal:** 把 DAO 子代理的**派发参数(调用级 model/mode 覆盖)**与**类型注册表(内置 general-purpose/plan、排除式 tools、默认 general-purpose)**统一设计,并把嵌套放开到一层——全程不引入破坏前缀缓存的 bug。
 
 **Architecture:** 先把 `runSubagent` 从 6+ 位置参重构成 options 对象(无行为变化)打好地基;再依次加 registry 排除能力 → agent_defs 排除式解析 → 内置类型 + 默认 general-purpose + model/mode 解析 → agent 工具 schema 的 model/mode 入参与 fork 护栏 → 嵌套深度与深度感知并发 → 缓存安全/集成测试。
 
@@ -287,7 +287,7 @@ describe("BUNDLED_AGENTS", () => {
 ```
   改为(默认 general-purpose;include 子集→再减 exclude;model/mode 解析):
 ```ts
-    // 省略 agent_type 时默认用 general-purpose(对齐 CC);找不到该内置则回退裸 systemPrompt。
+    // 省略 agent_type 时默认用 general-purpose(统一);找不到该内置则回退裸 systemPrompt。
     const def = agentDefs.find((d) => d.name === (agentType ?? "general-purpose"));
     const sp = def ? `${systemPrompt}\n\n# 你的专用角色(${def.name})\n${def.prompt}` : systemPrompt;
     let reg = def?.tools ? registry.subset(new Set(def.tools)) : registry;
