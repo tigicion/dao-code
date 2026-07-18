@@ -1,5 +1,9 @@
 # 设计:F(子代理 handoff 安全审查) + G(runAgent 消息逐条流式)
 
+> **实施状态(2026-07-18 复核)**:F 与 G 均已落地。
+> - F:`classifyHandoffIfNeeded` 已接线,三条调用路径(`src/tools/agent.ts:329/358` 同步与兜底、`src/agent/agent_lifecycle.ts:71` 异步)+ 顶层 `src/index.ts:950 handoffClassifyFn`(flash 模型分类)+ `permissionMode` getter(`src/index.ts:946`)。`src/tools/agent.test.ts:338-390` 有专门测试验证三条路径都真调用了分类器。
+> - G:`src/agent/runAgent.ts` 阶段 5 已按下方 G-5 记录的"事件驱动"版本实现(非最初设计的 200ms 轮询):`withPushNotifier`(`runAgent.ts:138`)包一层 `sub.messages`,`push()` 时同步唤醒查询循环(`runAgent.ts:380` 起),`DAO_AGENT_POLL_MS` 未再出现。
+>
 > **背景**:子代理系统 review 中发现两个故意延期的问题,需要设计而非随手接线。
 > F: `classifyHandoffIfNeeded` 函数已写好但生产代码从未调用--auto 模式下子代理执行完不做安全审查就返回。
 > G: `runAgent` 等 `runTurn` 整个跑完才一次性 yield 消息,不是逐条流式--后台子代理的进度/中途发现无法实时流回父代理。
