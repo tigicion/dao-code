@@ -16,6 +16,22 @@ export class PermissionGate implements ApprovalGate {
     private classify?: (toolName: string, argsJson: string) => Promise<boolean>, // auto 模式:AI 代替人工裁决
   ) {}
 
+  /**
+   * 创建一个用指定 mode 覆盖的子 gate(供子代理用)。
+   * 规则/prompt/remember/classify 全部复用父级;只有裁决用的 mode 不同。
+   * 对标 CC runAgent 中 agentGetAppState() 把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
+   */
+  withModeOverride(mode: PermissionMode): PermissionGate {
+    return new PermissionGate(
+      () => mode,
+      this.getRules,
+      this.prompt,
+      this.onRemember,
+      this.addSessionAllow,
+      this.classify,
+    );
+  }
+
   // 同步裁决:用于非 Bash 工具或 legacy 路径。
   decide(toolName: string, argsJson: string, tool: Tool): GateDecision {
     const d = decide({

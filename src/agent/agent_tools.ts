@@ -1,7 +1,6 @@
 // src/agent/agent_tools.ts
 import type { ChatMessage, AssistantMessage } from "../client/types.js";
 import { ToolRegistry } from "../tools/registry.js";
-import type { Mode } from "../tools/tools_for_mode.js";
 import type { AgentDef } from "./agent_defs.js";
 import type { Tool } from "../tools/types.js";
 
@@ -39,12 +38,10 @@ export function filterToolsForAgent({
   tools,
   isBuiltIn,
   isAsync = false,
-  permissionMode,
 }: {
   tools: ToolRegistry;
   isBuiltIn: boolean;
   isAsync?: boolean;
-  permissionMode?: Mode;
 }): ToolRegistry {
   const internal = tools as unknown as { tools: Map<string, Tool> };
   const filtered = new ToolRegistry();
@@ -58,7 +55,7 @@ export function filterToolsForAgent({
 }
 
 export function resolveAgentTools(
-  agentDef: Pick<AgentDef, "tools" | "disallowedTools" | "source" | "permissionMode">,
+  agentDef: Pick<AgentDef, "tools" | "disallowedTools" | "source">,
   availableTools: ToolRegistry,
   isAsync = false,
 ): { resolvedTools: ToolRegistry; hasWildcard: boolean } {
@@ -67,7 +64,6 @@ export function resolveAgentTools(
     tools: availableTools,
     isBuiltIn,
     isAsync,
-    permissionMode: agentDef.permissionMode,
   });
 
   const disallowedSet = new Set(agentDef.disallowedTools ?? []);
