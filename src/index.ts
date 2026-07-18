@@ -946,6 +946,7 @@ async function main() {
     ...params,
     toolUseContext: ctx,
     availableTools: registry,
+    projectInstructions: systemPrompt, // CLAUDE.md/DAO.md/gitStatus 等;omitClaudeMd 的 agent(explore/plan)自己会跳过
     config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey },
     streamChat,
     executeToolCalls,
