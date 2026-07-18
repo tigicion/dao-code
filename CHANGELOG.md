@@ -8,10 +8,18 @@
 - **百度千帆 Token Plan provider(`qianfan`)**:OpenAI 兼容直连 `https://qianfan.baidubce.com/v2/tokenplan/personal`,模型沿用 `deepseek-v4-pro`/`deepseek-v4-flash`(与官方一致),协议层零改动;校验探针复用火山同款最小 `chat/completions` 探针(该路径同样无 `/models`,已用真实 key 实测确认 404)。另支持该 Token Plan 的 `glm-5.2`(千帆专属,kimi-k2.6/ernie-5.1 仍不支持)。
 - **`/model` 按 provider 校验 + 循环**:新增 `MODELS_BY_PROVIDER` 注册表,`/model`(无参)在当前 provider 已知模型间循环(deepseek/火山两档 pro/flash;千帆多一档 glm-5.2),`/model <name>` 对不在该 provider 列表里的模型给出可选项提示,不再是无校验自由文本。
 - **`/account` 加账户支持选择 provider**:此前新建账户会静默硬编码 `deepseek`,无法通过 UI 添加第二个火山/千帆账户;现在粘贴 key 后会问一句 provider(回车默认 deepseek)。
+- **限流时菜单直接切换账号**:交互场景触发限流(429)时,选择菜单动态列出除当前账号外的全部账号,选中即可切换并立即用新账号重试同一请求,不用中止本轮再手动跑 `/account`。切换是持久的(等同手动切换),不是仅本轮临时借用。
+- **`enter_worktree`/`exit_worktree` 工具**:仅在用户明确要求时,把文件读写/`exec_shell`/`verify_done` 的路径解析根切到一个新建的 git worktree,项目身份(memory/MCP/LSP/skills/settings)不受影响,仍指向原项目。
+- **`monitor` 工具**:起一个后台监控,把命令的 stdout 按行(200ms 内的多行合并)实时推送成通知,不用像 `exec_shell_poll` 那样反复主动轮询。
+- **`task_output` 工具**:增量读取一个后台子代理任务自上次查询以来新产生的中间消息,运行中就能看进度,不用等 `task_get` 给最终结果。
+- **运行中排队输入(steering)改为回合内直接注入**:敲回车排队的补充输入现在会在当前回合的下一个工具轮边界直接注入,不用等整个回合跑完才当新一轮处理;ESC 支持两段式——排队未消费时先只取消排队,再按一次才真正中断当前回合;中断回填输入框后按 ↓ 可一键清空,不用逐字删除。
 
 ### 变更
 - **账户切换/新增全字段同步**:`/account` 切换或新增账户后,除已有的 `baseUrl`/`apiKey` 外,`provider` 与实际发请求用的 `session.model` 现在也会同步更新(此前遗漏,靠"各 provider 模型串巧合相同"才未暴露);反思节奏判定改读实时 `provider`,不再用启动时的快照。
 - **`/logout` 文案修正**:准确描述"删除整个账户(provider/baseUrl/model/key 一起删)",不再暗示"只清了 key"。
+- **工具体系对齐 Claude Code**:`grep_files`/`todo_write`/`exec_shell`/`skill`/`ask_user` 参数补齐;低频工具(`notebook_edit`/`cron_*`/`task_*`/`lsp`/`config`/`plan_mode`/`enter_worktree`/`exit_worktree`/`monitor` 等)改为延迟加载,需 `tool_search` 激活后才发完整 schema;工具名统一改为 PascalCase 命名风格(如 `Grep`/`Glob`/`Bash`)。
+- **进度提醒机制默认关闭**:连续多轮无实质推进时追加的静态提醒(`noProgress` 计数器驱动),此前无条件生效,现在需要显式传 `--progress-advice` 才开启——这是和 `--reflect-challenger`(挑战者/纠偏者 LLM fork)完全独立的另一套机制。
+- **移除 `verify_done` 工具**:收尾验证统一改为派 `verify` 子代理独立验证,非琐碎改动(3+ 文件编辑、后端/API 改动、基础设施变更)强制要求。
 
 ## [0.4.1] - 2026-07-08
 
