@@ -1021,6 +1021,7 @@ async function main() {
     write: subagentWrite,
     drainPending: params.isAsync ? () => taskManager.drainPending(params.override?.agentId ?? "") : undefined,
     auditSink: cacheSink,
+    subagentsDir: path.join(workspaceRoot, ".dao", "subagents"),
   });
   ctx.forkMessages = session.messages;
   ctx.resumeAgent = async (agentId, prompt) => {
