@@ -86,6 +86,9 @@ export interface TurnDeps {
   shouldCompact?: () => boolean;
   // L1.3 模型回退:主模型持续过载/异常时,本回合临时改用此模型跑完(如 flash)。省略=不回退。
   fallbackModel?: string;
+  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒):默认关闭,--progress-advice 才开。
+  // 和 reflect/selfChallenge(挑战者/纠偏者,LLM fork)是完全独立的机制,不依赖它们。
+  progressAdvice?: boolean;
   // 限流菜单用:返回除当前激活账号外的全部账号名(交互场景,配合 askChoice 里的"切到账号 X"选项)。
   // 省略/返回空数组 = 菜单不出现账号切换选项,行为同现状。
   listOtherAccounts?: () => { name: string }[];
@@ -475,7 +478,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     if (progressed) { noProgress = 0; stuckAdviceCount = 0; } else { noProgress++; }
     // 提醒【追加】进对话(append-only,缓存安全),而非每轮拼到请求尾部又撤(那会反复废缓存)。
     const advisories: string[] = [];
-    if (noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
+    if (deps.progressAdvice && noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
       stuckAdviceCount++;
       totalStuckEvents++;
       // 首次(且本会话此前也没反复卡住过):通用措辞。第2次起同一次卡住还没缓解,或者
