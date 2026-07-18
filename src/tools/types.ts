@@ -34,6 +34,7 @@ export interface ToolContext {
     model?: string;
     mode?: Mode;
     forkContextMessages?: import("../client/types.js").ChatMessage[];
+    useExactTools?: boolean;
     worktreePath?: string;
     description?: string;
     onCacheSafeParams?: (params: { systemPrompt: string; forkContextMessages: import("../client/types.js").ChatMessage[] }) => void;

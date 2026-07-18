@@ -41,6 +41,8 @@ export interface RunAgentParams {
   };
   /** 调用级模型覆盖(优先级最高) */
   model?: string;
+  /** 调用级权限模式覆盖(优先级:调用级 > agentDef.permissionMode > normal) */
+  mode?: Mode;
   /** 回合上限覆盖 */
   maxTurns?: number;
   /** 预组装工具池 */
@@ -142,6 +144,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     forkContextMessages,
     override,
     model: modelOverride,
+    mode: modeOverride,
     maxTurns: maxTurnsOverride,
     availableTools,
     useExactTools = false,
@@ -176,11 +179,8 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     resolvedTools = result.resolvedTools;
   }
 
-  // 权限模式:agent 定义覆盖父的(除非父是 auto/bypass)
-  let agentMode: Mode = "normal";
-  if (agentDef.permissionMode) {
-    agentMode = agentDef.permissionMode;
-  }
+  // 权限模式:调用级 > agentDef.permissionMode > normal
+  const agentMode: Mode = modeOverride ?? agentDef.permissionMode ?? "normal";
 
   // abort 控制器:异步=独立(不随父 ESC 死);同步=共享父的
   const agentAbortController = override?.abortController

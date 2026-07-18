@@ -195,6 +195,33 @@ describe("runAgent 阶段接线", () => {
     expect(existsSync(marker)).toBe(true);
   });
 
+  it("调用级 mode 覆盖 agentDef.permissionMode(优先级:调用级 > agentDef > normal)", async () => {
+    let capturedMode: string | undefined;
+    const params = baseParams({
+      agentDef: { agentType: "t", whenToUse: "", source: "built-in", permissionMode: "normal", getSystemPrompt: () => "SYS" } as BuiltInAgentDef,
+      mode: "plan",
+      runTurn: async (deps) => {
+        capturedMode = deps.session.mode;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    await drain(runAgent(params));
+    expect(capturedMode).toBe("plan");
+  });
+
+  it("未传调用级 mode 时,回退到 agentDef.permissionMode", async () => {
+    let capturedMode: string | undefined;
+    const params = baseParams({
+      agentDef: { agentType: "t", whenToUse: "", source: "built-in", permissionMode: "plan", getSystemPrompt: () => "SYS" } as BuiltInAgentDef,
+      runTurn: async (deps) => {
+        capturedMode = deps.session.mode;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    await drain(runAgent(params));
+    expect(capturedMode).toBe("plan");
+  });
+
   it("worktreePath 覆盖子代理的 workspaceRoot", async () => {
     let capturedWorkspaceRoot: string | undefined;
     const params = baseParams({

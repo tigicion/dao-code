@@ -8,6 +8,7 @@ import {
   buildChildMessage,
   buildWorktreeNotice,
   isInForkChild,
+  buildForkContextMessages,
 } from "./fork_agent.js";
 import type { ChatMessage, AssistantMessage, UserMessage } from "../client/types.js";
 
@@ -120,6 +121,49 @@ describe("isInForkChild", () => {
       },
     ];
     expect(isInForkChild(msgs)).toBe(true);
+  });
+});
+
+describe("buildForkContextMessages", () => {
+  it("父消息干净结束(最后一条不是带 tool_calls 的 assistant)→ 整段父消息 + 一条 directive user 消息", () => {
+    const parent: ChatMessage[] = [
+      { role: "system", content: "SYS" },
+      { role: "user", content: "帮我查一下" },
+      { role: "assistant", content: "查完了,结论是 X" },
+    ];
+    const result = buildForkContextMessages(parent, "调查 X 的细节");
+    expect(result.length).toBe(4);
+    expect(result.slice(0, 3)).toEqual(parent);
+    expect(result[3]!.role).toBe("user");
+    const content = result[3] as UserMessage;
+    expect(typeof content.content === "string" ? content.content : "").toContain(`<${FORK_BOILERPLATE_TAG}>`);
+  });
+
+  it("父消息尾部是带 tool_calls 的未完成 assistant → 保留该 assistant + 占位 tool_result + directive(不丢弃已产出的内容)", () => {
+    const tailAssistant: AssistantMessage = {
+      role: "assistant",
+      content: "让我读一下文件",
+      tool_calls: [{ id: "tc-1", type: "function", function: { name: "read_file", arguments: "{}" } }],
+    };
+    const parent: ChatMessage[] = [
+      { role: "system", content: "SYS" },
+      { role: "user", content: "帮我查一下" },
+      tailAssistant,
+    ];
+    const result = buildForkContextMessages(parent, "接着查");
+    // 前缀(system+user)原样保留,随后是 [assistant(tool_calls), user(占位结果+directive)]
+    expect(result[0]).toEqual(parent[0]);
+    expect(result[1]).toEqual(parent[1]);
+    expect(result[2]!.role).toBe("assistant");
+    expect((result[2] as AssistantMessage).tool_calls).toEqual(tailAssistant.tool_calls);
+    expect(result[3]!.role).toBe("user");
+    expect(result.length).toBe(4);
+  });
+
+  it("空父消息 → 只有一条 directive 消息", () => {
+    const result = buildForkContextMessages([], "从零开始查");
+    expect(result.length).toBe(1);
+    expect(result[0]!.role).toBe("user");
   });
 });
 
