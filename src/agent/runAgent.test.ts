@@ -133,7 +133,7 @@ describe("runAgent 阶段接线", () => {
       },
     });
     await drain(runAgent(params));
-    expect(capturedMessages![0]).toEqual({ role: "system", content: "我是子代理系统提示" });
+    expect(capturedMessages![0]).toEqual({ role: "system", content: expect.stringContaining("我是子代理系统提示") });
   });
 
   it("内置 agent 默认(omitClaudeMd 未设)拼上父级 projectInstructions(否则子代理完全拿不到 CLAUDE.md/项目上下文)", async () => {
@@ -356,5 +356,75 @@ describe("runAgent 阶段接线", () => {
     expect(out.length).toBe(1); // 成功消息不丢
     expect(out[0]!.content).toBe("成功消息");
     expect(caught!.message).toBe("runTurn 炸了");
+  });
+
+  it("同步子代理也拿到真实 abortController(此前 isAsync:false 时 signal 恒 undefined,task_stop/cancel 无 controller 可 abort)", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const params = baseParams({
+      isAsync: false,
+      runTurn: async (deps) => {
+        capturedSignal = deps.signal;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    for await (const _m of runAgent(params)) { /* drain */ }
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal!.aborted).toBe(false);
+  });
+
+  it("同步子代理链上父的 signal:父在子还没跑完时 abort,子的 signal 也 abort(保留'父 ESC 连带杀子'的原行为)", async () => {
+    // 注意:必须在 runTurn 执行期间(finally 清理之前)观察 abort 传导——子代理跑完后
+    // finally 会主动解绑这条监听器(修复了监听器永久挂在父 signal 上的泄漏),所以"跑完之后
+    // 父再 abort"不该再影响已经结束的子代理,这里验证的是"还在跑的时候"父 abort 会连带杀子。
+    const parentAbort = new AbortController();
+    let observedAbortDuringRun = false;
+    const params = baseParams({
+      isAsync: false,
+      toolUseContext: { workspaceRoot: "/tmp", signal: parentAbort.signal },
+      runTurn: async (deps) => {
+        expect(deps.signal!.aborted).toBe(false);
+        parentAbort.abort();
+        observedAbortDuringRun = deps.signal!.aborted;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    for await (const _m of runAgent(params)) { /* drain */ }
+    expect(observedAbortDuringRun).toBe(true);
+  });
+
+  it("跑完之后清理监听器:子代理正常结束后,父再 abort 不再影响它(修复监听器永久挂在父 signal 上的泄漏)", async () => {
+    const parentAbort = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+    const params = baseParams({
+      isAsync: false,
+      toolUseContext: { workspaceRoot: "/tmp", signal: parentAbort.signal },
+      runTurn: async (deps) => {
+        capturedSignal = deps.signal;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    for await (const _m of runAgent(params)) { /* drain */ }
+    parentAbort.abort(); // 子代理早就跑完了,这次 abort 不该再传导
+    expect(capturedSignal!.aborted).toBe(false);
+  });
+
+  it("调用方传入 override.abortController 时(前台路径由 agent.ts 自己管父信号链,不走 runAgent 内部兜底链),不重复挂监听器,但独立 abort 依然生效", async () => {
+    const parentAbort = new AbortController();
+    const ownController = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+    const params = baseParams({
+      isAsync: false,
+      toolUseContext: { workspaceRoot: "/tmp", signal: parentAbort.signal },
+      override: { abortController: ownController },
+      runTurn: async (deps) => {
+        capturedSignal = deps.signal;
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    for await (const _m of runAgent(params)) { /* drain */ }
+    expect(capturedSignal).toBe(ownController.signal);
+    // 独立 abort(模拟 taskManager.cancel())依然生效,不需要父也一起死
+    ownController.abort();
+    expect(capturedSignal!.aborted).toBe(true);
   });
 });

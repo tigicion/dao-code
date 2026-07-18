@@ -28,6 +28,11 @@ export interface TaskManager {
   // 不接受手动改 status,防止和自动结算打架——但 description 任何时候都能改)。
   // status 改为 completed/failed 时,和 promise 结算路径一样入队 <task-notification>。
   update(id: string, patch: { status?: "completed" | "failed" | "canceled"; result?: string; description?: string }): boolean;
+  // 前台任务在"没有转后台、正常跑完"这条路径上结算:running -> completed,但不入队 <task-notification>
+  // (结果已经作为工具调用本身的返回值同步交给父代理了,再入队会在下一回合边界重复投递同一个结果)。
+  // 只做状态收尾,好让 cancelAll()/task_stop 别把一个早就跑完的前台任务当成还在运行的任务去"中止"。
+  // status 默认 completed;runOne 内部抛错时传 "failed" 结算(错误本身已经作为异常同步抛给父代理)。
+  settle(id: string, status?: "completed" | "failed"): boolean;
   // 给运行中的任务追加一条消息(SendMessage),由其在下一个工具回合边界消费。
   send(id: string, message: string): boolean;
   // 运行中任务给父代理发一条 mid-run 消息(进度/发现/提问):入通知队列 + 触发 onChange。
@@ -42,8 +47,13 @@ export interface TaskManager {
   cancel(id: string): boolean;
   cancelAll(): void;
   onChange(cb: () => void): void; // 任务状态变化(启动/完成/失败/取消)时回调,驱动 UI 刷新与通知处理
-  // 新增:前台 agent 注册(可被 auto-background 或手动转后台)
-  registerAgentForeground(opts: { agentId: string; description: string; autoBackgroundMs?: number }): { taskId: string; backgroundSignal: Promise<void>; cancelAutoBackground: () => void };
+  // 新增:前台 agent 注册(可被 auto-background 或手动转后台)。taskId 恒等于 agentId(与
+  // registerAsyncAgent 用同一套 id 空间)——此前这里另起一个 task-N 计数器,和子代理自己的
+  // agentId 是两套不相干的 id,导致 task_send/cancel 用 task-N 发消息,而子代理的 drainPending
+  // 却用 agentId 去读,两边永远对不上号,消息发了等于没发。
+  // 内部自建 abortController 并随结果返回(与 registerAsyncAgent 同一套写法)——调用方不用自己
+  // new 一个再传进来,这样 cancel()/task_stop 才能真正中止这个还在跑的子代理,而不是只翻状态位。
+  registerAgentForeground(opts: { agentId: string; description: string; autoBackgroundMs?: number }): { taskId: string; abortController: AbortController; backgroundSignal: Promise<void>; cancelAutoBackground: () => void };
   // 新增:后台 agent 注册(独立 AbortController)
   registerAsyncAgent(opts: { agentId: string; description: string }): { agentId: string; abortController: AbortController };
   // 新增:更新任务摘要
@@ -181,6 +191,14 @@ export function createTaskManager(): TaskManager {
       notify();
       return true;
     },
+    settle(id, status = "completed") {
+      const t = tasks.get(id);
+      if (!t || t.status !== "running") return false;
+      t.status = status;
+      t.endedAt = Date.now();
+      notify();
+      return true;
+    },
     send(id, message) {
       const t = tasks.get(id);
       if (!t || t.status !== "running") return false;
@@ -223,14 +241,16 @@ export function createTaskManager(): TaskManager {
       onChangeCb = cb;
     },
     registerAgentForeground(opts) {
-      const id = `task-${++counter}`;
+      const id = opts.agentId;
+      const ac = new AbortController();
       tasks.set(id, { id, description: opts.description, status: "running", startedAt: Date.now() });
+      controllers.set(id, ac);
       let bgResolve: () => void;
       const backgroundSignal = new Promise<void>((res) => { bgResolve = res; });
       let timer: ReturnType<typeof setTimeout> | undefined;
       if (opts.autoBackgroundMs) timer = setTimeout(() => bgResolve(), opts.autoBackgroundMs);
       notify();
-      return { taskId: id, backgroundSignal, cancelAutoBackground: () => { if (timer) clearTimeout(timer); } };
+      return { taskId: id, abortController: ac, backgroundSignal, cancelAutoBackground: () => { if (timer) clearTimeout(timer); } };
     },
     registerAsyncAgent(opts) {
       const id = opts.agentId;

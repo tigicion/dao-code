@@ -984,7 +984,9 @@ async function main() {
     gate,
     runTurn,
     write: subagentWrite,
-    drainPending: params.isAsync ? () => taskManager.drainPending(params.override?.agentId ?? "") : undefined,
+    // 不再按 isAsync 门控:task_send 对前台子代理(转后台前/后)一样要能送达,taskManager.drainPending
+    // 对未注册的 id 只是无害地返回 [],不区分 isAsync 也没有额外代价。
+    drainPending: () => taskManager.drainPending(params.override?.agentId ?? ""),
     auditSink: cacheSink,
     subagentsDir: path.join(workspaceRoot, ".dao", "subagents"),
   });

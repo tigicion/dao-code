@@ -44,7 +44,9 @@ export const agentTool = defineTool({
     "价值就是复用缓存,换模型/换模式会让这份缓存作废。agent_type 指定自定义子代理类型(有专属 prompt/工具白名单),不给就是通用子代理。" +
     "拿到结果后留个心眼:子代理返回的是它自称做了什么,不是你亲眼确认过的事实——它可能把「应该改好了」当「已经改好了」报回来。" +
     "涉及代码改动、修 bug、跑测试这类子任务,回来后花一次工具调用亲自复核关键结论(读一下实际 diff、跑一下它说过的命令)," +
-    "不要原样把子代理的自述转述给用户当作你自己验证过的结论。",
+    "不要原样把子代理的自述转述给用户当作你自己验证过的结论。\n" +
+    "何时不该用:要读某个具体文件路径,直接 read_file;要搜某个类/函数定义,直接 grep_files/file_search;只需在 2-3 个文件里搜代码,直接 read_file。这些简单搜索不值得派子代理。\n" +
+    "写 prompt 的指引:像给刚进门的聪明同事 brief--子代理没看过当前对话,不知道你试过什么、为什么这个任务重要。说清目标与背景、已排除的方向、需要判断而非窄指令的上下文。需要短回复就说『200 字以内回报』。查/定位:给确切命令;调查:给问题而非规定步骤。别写『基于你的发现修复 bug』--那是把综合判断推给子代理;写能证明你理解了的 prompt:含文件路径、行号、具体改什么。",
   descriptionEn:
     "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
     "Task description must be self-contained — the subagent has no current conversation context. " +
@@ -60,7 +62,9 @@ export const agentTool = defineTool({
     "is reusing the cache, and switching model/mode invalidates that cache. agent_type selects a custom subagent type (with its own prompt/tool allowlist); omit for a generic subagent. " +
     "Trust but verify what comes back: a subagent's summary describes what it claims it did, not what you've confirmed happened — it may report \"should be fixed\" as " +
     "\"fixed\". For subtasks touching code changes, bug fixes, or tests, spend one follow-up tool call checking the actual result yourself (read the real diff, run the " +
-    "command it says it ran) before reporting the subagent's account to the user as your own verified conclusion.",
+    "command it says it ran) before reporting the subagent's account to the user as your own verified conclusion.\n" +
+    "When NOT to use: to read a specific file path, use read_file directly; to search for a class/function definition, use grep_files/file_search directly; to search within 2-3 specific files, use read_file directly. These simple searches don't warrant a subagent.\n" +
+    "Writing the prompt: brief the agent like a smart colleague who just walked into the room - it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters. Explain what you're trying to accomplish and why. Describe what you've already learned or ruled out. Give enough context that the agent can make judgment calls rather than just following a narrow instruction. If you need a short response, say so. Lookups: hand over the exact command. Investigations: hand over the question - prescribed steps become dead weight when the premise is wrong. Don't write 'based on your findings, fix the bug' - that pushes synthesis onto the agent; write prompts that prove you understood: include file paths, line numbers, what specifically to change.",
   capability: "plan",
   approval: "auto",
   schema: z.object({
@@ -96,6 +100,14 @@ export const agentTool = defineTool({
       .optional()
       .describe("调用级权限模式覆盖:plan=只读规划。省略则继承 agent 定义/默认模式。与 fork 互斥。"),
   }),
+  // 动态描述生成(对标 CC getPrompt):产出会话内固定的完整描述(含 when-not-to-use / writing-prompt / 示例),
+  // 不含 agent 列表(agent 列表在 system prompt 层,变更不 bust 工具 schema 缓存)。
+  prompt: ({ lang }) => {
+    if (lang === "en") {
+      return AGENT_TOOL_PROMPT_EN;
+    }
+    return AGENT_TOOL_PROMPT_ZH;
+  },
   handler: async (args, ctx) => {
     // 防御性嵌套检查:agent 工具本就在 ALL_AGENT_DISALLOWED_TOOLS 里对所有子代理全局禁用,
     // 子代理的工具池里根本没有这个工具——这里是第二道防线,正常不会触发。
@@ -182,66 +194,97 @@ export const agentTool = defineTool({
       // ---- 同步路径,可中途转后台(isolate 保持恒同步跑完,不参与自动转后台)----
       if (!isolate && ctx.taskManager && taskManagerAdapter) {
         const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
+        // abortController 由 registerAgentForeground 建好返回(而非 runAgent 内部私建)——这样它才能
+        // 同时注册进 taskManager,让 cancel()/task_stop 对这个还在跑的子代理真正生效(不止翻状态位)。
         const fg = ctx.taskManager.registerAgentForeground({ agentId, description: t.slice(0, 50), autoBackgroundMs: ms });
+        const { abortController } = fg;
+        // 父信号链自己管(不让 runAgent 内部兜底链):这里是唯一知道"转后台"这个时机的地方——
+        // 转后台后要显式解绑,否则父 ESC 会连带杀掉一个刚被送去后台、本该独立于父生命周期的任务;
+        // 正常跑完也要解绑,否则监听器永远挂在父的 signal 上(父 signal 贯穿整个会话、被反复复用)。
+        let detachParentAbort: (() => void) | undefined;
+        if (ctx.signal) {
+          if (ctx.signal.aborted) abortController.abort();
+          else {
+            const onParentAbort = () => abortController.abort();
+            const parentSignal = ctx.signal;
+            parentSignal.addEventListener("abort", onParentAbort, { once: true });
+            detachParentAbort = () => parentSignal.removeEventListener("abort", onParentAbort);
+          }
+        }
         // 前台转后台时需要把缓存安全参数透传给 runAsyncAgentLifecycle 的 makeStream;
         // runAgent 在阶段 4(sub 创建后)触发 onCacheSafeParams,此时前台已在跑、可能随时转后台。
         let cacheSafeParams: { systemPrompt: string; forkContextMessages: ChatMessage[] } | undefined;
         const iterator = runAgent({
           agentDef, promptMessages, forkContextMessages, useExactTools: fork,
-          isAsync: false, override: { agentId }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
+          isAsync: false, override: { agentId, abortController }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
           onCacheSafeParams: (p) => { cacheSafeParams = p; },
           messageParent: (m) => { ctx.taskManager!.emitFromTask(fg.taskId, m); },
         })[Symbol.asyncIterator]();
 
         const messages: ChatMessage[] = [];
-        while (true) {
-          const raced = await Promise.race([
-            iterator.next().then((r) => ({ kind: "msg" as const, r })),
-            fg.backgroundSignal.then(() => ({ kind: "bg" as const })),
-          ]);
-          if (raced.kind === "bg") {
-            // 前台->后台无缝切换:复用同一个 iterator 继续消费,不重跑。
-            // onCacheSafeParams 透传:若前台阶段已触发过(正常情况),用已有的 cacheSafeParams
-            // 启动摘要器;若尚未触发(runAgent 还没到阶段 4),makeStream 的 onCacheSafeParams 回调
-            // 由 runAsyncAgentLifecycle 调用 makeStream 时传入--但 iterator 已在跑,不会再触发。
-            // 因此这里直接用 cacheSafeParams(若已有)启动摘要,makeStream 回调做兜底。
-            void runAsyncAgentLifecycle({
-              taskId: fg.taskId,
-              agentId,
-              agentType: agentDef.agentType,
-              isBuiltInAgent,
-              prompt: t,
-              model: resolvedModelForDisplay,
-              makeStream: (onCacheSafeParams) => {
-                // 前台已触发过 -> 用已有的;否则用 makeStream 传入的(虽然 iterator 不会再调)
-                const params = cacheSafeParams;
-                if (params) onCacheSafeParams(params);
-                return { [Symbol.asyncIterator]: () => iterator } as AsyncGenerator<ChatMessage, void>;
-              },
-              taskManager: taskManagerAdapter,
-              classifyFn: ctx.handoffClassifyFn,
-              permissionMode: ctx.permissionMode,
-            });
-            return `子代理运行超过 ${Math.round(ms / 1000)}s,已自动转入后台(${fg.taskId});完成后会通知你。你可以先继续别的或结束本轮。`;
+        try {
+          while (true) {
+            const raced = await Promise.race([
+              iterator.next().then((r) => ({ kind: "msg" as const, r })),
+              fg.backgroundSignal.then(() => ({ kind: "bg" as const })),
+            ]);
+            if (raced.kind === "bg") {
+              // 转后台:先解绑父信号链——这个任务往后独立于父的生命周期,父 ESC/本轮结束不该再牵连它。
+              detachParentAbort?.();
+              // 前台->后台无缝切换:复用同一个 iterator 继续消费,不重跑(不像 CC 那样销毁重启一个
+              // isAsync:true 的新 runAgent)——之所以敢这么做,是因为 agentId/taskId 已统一成同一个 id、
+              // abortController 也是 registerAgentForeground 建好注册进 taskManager 的真实 controller,
+              // task_send/cancel 从子代理一开始就能生效,不需要靠"转成 isAsync"才激活,复用 iterator 不会丢这两个能力。
+              // onCacheSafeParams 透传:若前台阶段已触发过(正常情况),用已有的 cacheSafeParams
+              // 启动摘要器;若尚未触发(runAgent 还没到阶段 4),makeStream 的 onCacheSafeParams 回调
+              // 由 runAsyncAgentLifecycle 调用 makeStream 时传入--但 iterator 已在跑,不会再触发。
+              // 因此这里直接用 cacheSafeParams(若已有)启动摘要,makeStream 回调做兜底。
+              void runAsyncAgentLifecycle({
+                taskId: fg.taskId,
+                agentId,
+                agentType: agentDef.agentType,
+                isBuiltInAgent,
+                prompt: t,
+                model: resolvedModelForDisplay,
+                makeStream: (onCacheSafeParams) => {
+                  // 前台已触发过 -> 用已有的;否则用 makeStream 传入的(虽然 iterator 不会再调)
+                  const params = cacheSafeParams;
+                  if (params) onCacheSafeParams(params);
+                  return { [Symbol.asyncIterator]: () => iterator } as AsyncGenerator<ChatMessage, void>;
+                },
+                taskManager: taskManagerAdapter,
+                classifyFn: ctx.handoffClassifyFn,
+                permissionMode: ctx.permissionMode,
+              });
+              return `子代理运行超过 ${Math.round(ms / 1000)}s,已自动转入后台(${fg.taskId});完成后会通知你。你可以先继续别的或结束本轮。`;
+            }
+            if (raced.r.done) break;
+            messages.push(raced.r.value);
           }
-          if (raced.r.done) break;
-          messages.push(raced.r.value);
-        }
-        fg.cancelAutoBackground();
-        const result = finalizeAgentTool(messages, agentId, {
-          prompt: t, model: resolvedModelForDisplay, agentType: agentDef.agentType, startTime: Date.now(), isAsync: false, isBuiltInAgent,
-        });
-        let text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
-        // auto 模式 handoff 安全审查
-        if (ctx.handoffClassifyFn && ctx.permissionMode) {
-          const warning = await classifyHandoffIfNeeded({
-            agentMessages: [...promptMessages, ...messages], permissionMode: ctx.permissionMode,
-            abortSignal: new AbortController().signal, subagentType: agentDef.agentType,
-            totalToolUseCount: result.totalToolUseCount, classifyFn: ctx.handoffClassifyFn,
+          fg.cancelAutoBackground();
+          detachParentAbort?.(); // 正常跑完:摘掉父信号监听器,不留在父 signal 上等永远不会来的 abort
+          ctx.taskManager.settle(fg.taskId); // running -> completed,别让 cancelAll()/task_stop 把跑完的任务当成还在跑
+          const result = finalizeAgentTool(messages, agentId, {
+            prompt: t, model: resolvedModelForDisplay, agentType: agentDef.agentType, startTime: Date.now(), isAsync: false, isBuiltInAgent,
           });
-          if (warning) text = `${warning}\n\n${text}`;
+          let text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
+          // auto 模式 handoff 安全审查
+          if (ctx.handoffClassifyFn && ctx.permissionMode) {
+            const warning = await classifyHandoffIfNeeded({
+              agentMessages: [...promptMessages, ...messages], permissionMode: ctx.permissionMode,
+              abortSignal: new AbortController().signal, subagentType: agentDef.agentType,
+              totalToolUseCount: result.totalToolUseCount, classifyFn: ctx.handoffClassifyFn,
+            });
+            if (warning) text = `${warning}\n\n${text}`;
+          }
+          return finishWithWorktree(text, worktree);
+        } catch (e) {
+          // 异常路径同样要收尾:不摘监听器会漏在父 signal 上;不 settle 的话这个任务会在
+          // taskManager 里永远挂着 "running"(错误已经作为异常同步抛给父代理,不需要再入队通知)。
+          detachParentAbort?.();
+          ctx.taskManager.settle(fg.taskId, "failed");
+          throw e;
         }
-        return finishWithWorktree(text, worktree);
       }
 
       // ---- 兜底路径:无 taskManager(极简测试环境)或 isolate——直接跑完,不做后台切换 ----

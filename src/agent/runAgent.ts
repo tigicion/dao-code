@@ -4,6 +4,8 @@ import type { ChatMessage } from "../client/types.js";
 import type { ToolContext, Tool } from "../tools/types.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type { Mode } from "../tools/tools_for_mode.js";
+import type { PermissionMode } from "../permissions/settings.js";
+import { PermissionGate } from "../permissions/gate.js";
 import { Session } from "../session/session.js";
 import type { TurnDeps } from "./loop.js";
 import type { AgentDef } from "./agent_defs.js";
@@ -125,6 +127,22 @@ function createAgentId(): string {
   return `agent-${randomUUID().slice(0, 8)}`;
 }
 
+/**
+ * 给消息数组包一层 push 通知:每次 push 后同步调用 notify()。
+ * 用于查询循环感知 runTurn 往 sub.messages 塞了新消息——同进程同事件循环内的数组变化,
+ * 没必要靠定时轮询感知,notify 在 push 内同步触发,不引入额外延迟。
+ * 只重写这一个数组实例的 push(不影响 Array.prototype),其余数组行为(length/索引/展开)不变。
+ */
+function withPushNotifier(arr: ChatMessage[], notify: () => void): ChatMessage[] {
+  const push = arr.push.bind(arr);
+  arr.push = (...items: ChatMessage[]) => {
+    const result = push(...items);
+    notify();
+    return result;
+  };
+  return arr;
+}
+
 // ---- 执行引擎 ----
 
 /**
@@ -186,15 +204,53 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     resolvedTools = result.resolvedTools;
   }
 
-  // 权限模式:调用级 > agentDef.permissionMode > normal
-  const agentMode: Mode = modeOverride ?? agentDef.permissionMode ?? "normal";
+  // 权限模式解析(对标 CC:agentDef.permissionMode ?? 'acceptEdits')。
+  // agentDef.permissionMode 可为 Mode(normal/plan)或 PermissionMode(default/acceptEdits/plan/auto/bypassPermissions)。
+  // - plan:只读模式(Session.mode=plan + gate mode=plan,write/exec 被 deny)
+  // - acceptEdits/default/auto/bypassPermissions:Session.mode=normal,gate 用该 PermissionMode
+  // - normal/undefined:继承父级(Session.mode=normal,gate 用父级 mode)
+  const rawPermMode = modeOverride ?? agentDef.permissionMode;
+  const agentMode: Mode = rawPermMode === "plan" ? "plan" : "normal";
 
-  // abort 控制器:异步=独立(不随父 ESC 死);同步=共享父的
-  const agentAbortController = override?.abortController
-    ? override.abortController
-    : isAsync
-      ? new AbortController()
-      : (undefined as unknown as AbortController); // 同步由 runTurn 的 signal 透传
+  // 子代理权限门:用子代理自己的 mode 裁决,而非继承父级 session 的 mode。
+  // 对标 CC runAgent 的 agentGetAppState():把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
+  // 此前 dao 子代理和父级共用同一个 gate 对象,gate.getMode() 返回父级 session 的 mode,
+  // 导致子代理的 permissionMode 设了也没用--explore(plan 模式)在父级 default 模式下仍按 default 裁决。
+  const parentGate = gate as unknown as PermissionGate | undefined;
+  let agentGate = gate;
+  if (parentGate instanceof PermissionGate) {
+    const parentMode = (gate as unknown as { getMode: () => PermissionMode }).getMode();
+    // 解析子代理的 PermissionMode:
+    // - plan -> "plan"
+    // - acceptEdits/default/auto/bypassPermissions -> 直接用
+    // - normal/undefined -> 继承父级(父 acceptEdits 子也 acceptEdits)
+    const agentPermMode: PermissionMode =
+      rawPermMode === "plan" ? "plan"
+      : rawPermMode === "normal" || rawPermMode === undefined ? parentMode
+      : rawPermMode;
+    agentGate = parentGate.withModeOverride(agentPermMode);
+  }
+
+  // abort 控制器:不论同步/异步都真实创建——task_stop/cancel 要能对任何子代理生效,
+  // 不能等它被标记 isAsync 才有 controller 可中止(前台子代理转后台前也可能被取消)。
+  // - 调用方已传(前台路径由 agent.ts 的 registerAgentForeground 发,自己管链父信号的时机;
+  //   异步路径是 taskManager.registerAsyncAgent 发的独立 controller)-> 直接用,这里不再重复链——
+  //   调用方对"什么时候该断开父信号"(比如转后台那一刻)有自己的判断,这里瞎链一道反而定不下来
+  //   什么时候该解绑。
+  // - 调用方没传(isolate/fork/兜底等没有自己管理生命周期的路径):这里兜底新建 + 自动链父信号
+  //   (保留"父 ESC 连带杀子"),并在 finally 里摘掉监听器,避免同一个父 signal 上永久堆监听器。
+  const agentAbortController = override?.abortController ?? new AbortController();
+  let detachParentAbort: (() => void) | undefined;
+  if (!override?.abortController && !isAsync && toolUseContext.signal) {
+    const parentSignal = toolUseContext.signal;
+    if (parentSignal.aborted) {
+      agentAbortController.abort();
+    } else {
+      const onParentAbort = () => agentAbortController.abort();
+      parentSignal.addEventListener("abort", onParentAbort, { once: true });
+      detachParentAbort = () => parentSignal.removeEventListener("abort", onParentAbort);
+    }
+  }
 
   // ---- 阶段 2:上下文构建 ----
 
@@ -216,8 +272,16 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
       : `${projectInstructions}\n\n# 你的专用角色(${agentDef.agentType})\n${own}`;
   }
 
+  // 环境信息追加(对标 CC enhanceSystemPromptWithEnvDetails):子代理需要知道 cwd/platform/工具列表,
+  // 否则它不知道自己在哪个目录、用什么命令。fork 路径已有父的完整 prompt(含环境信息),不重复追加。
+  if (!override?.systemPrompt) {
+    const cwd = worktreePath ?? toolUseContext.workspaceRoot ?? process.cwd();
+    const toolNames = resolvedTools.toApiTools().map((t) => t.function.name).sort().join(", ");
+    agentSystemPrompt += `\n\n# 环境信息\n工作目录: ${cwd}\n平台: ${process.platform}\n可用工具: ${toolNames}`;
+  }
+
   // ---- 阶段 3:Agent 级资源初始化 ----
-  // Skills:Phase 1 不实现(预加载 skill 作为 initial message)
+  // Skills:agentDef.skills 预加载指定 skill 正文作为 system 消息(对标 CC agent 预加载 skills)。
   // MCP:Phase 1 不实现(agent_mcp.ts 预留接口,计划文档里也没有任务真正创建它)
 
   // Memory:agentDef.memory 设置时追加记忆 prompt,并强制找回 read/write/edit(即使被 disallowedTools 排除)
@@ -243,6 +307,26 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   const initialMessages: ChatMessage[] = forkContextMessages
     ? [...contextMessages, ...promptMessages]
     : [{ role: "system", content: agentSystemPrompt }, ...promptMessages];
+  // initialPrompt:作为首条 user 消息注入(对标 CC agent initialPrompt)。
+  if (agentDef.initialPrompt) {
+    initialMessages.push({ role: "user", content: agentDef.initialPrompt });
+  }
+  // criticalSystemReminder:作为 system 消息注入(对标 CC criticalSystemReminder_EXPERIMENTAL)。
+  // append-only 进 session.messages,缓存安全;每轮发给 LLM,压缩也不会丢。
+  if (agentDef.criticalSystemReminder) {
+    initialMessages.push({ role: "system", content: agentDef.criticalSystemReminder });
+  }
+  // skills 预加载:把指定 skill 正文作为 system 消息注入(对标 CC agent skills 预加载)。
+  if (agentDef.skills && agentDef.skills.length > 0) {
+    const allSkills = toolUseContext.skills ?? [];
+    for (const skillName of agentDef.skills) {
+      const skill = allSkills.find((s) => s.name === skillName || s.slug === skillName);
+      if (skill) {
+        initialMessages.push({ role: "system", content: `[预加载技能: ${skill.name}]
+${skill.body}` });
+      }
+    }
+  }
   if (startOutcome.additionalContext) {
     initialMessages.push({ role: "system", content: `[hook 注入的上下文]\n${startOutcome.additionalContext}` });
   }
@@ -261,8 +345,12 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
 
   const sub = new Session(agentSystemPrompt, resolvedModel);
   sub.mode = agentMode;
-  // 替换默认 system message 为组装好的消息序列(已在上面保证包含 system 消息)
-  sub.messages = [...initialMessages];
+  // 替换默认 system message 为组装好的消息序列(已在上面保证包含 system 消息)。
+  // 包一层 push 通知:runTurn 往 sub.messages push 新消息时同步唤醒下面的查询循环——
+  // 同进程同事件循环内自己写的数组,没道理靠"每 200ms 醒来看一眼长度变没变"的轮询感知
+  // 自己的变化,那样中间消息最多要攒够一个轮询周期才 yield 得出去,纯属浪费。
+  let wakeQueryLoop: (() => void) | undefined;
+  sub.messages = withPushNotifier([...initialMessages], () => wakeQueryLoop?.());
 
   // 缓存安全参数回调(后台摘要用)--必须在 sub 创建后触发,传 sub.messages 引用而非
   // initialMessages 静态快照:summarizer 持有引用后,runTurn 往 sub.messages push 的消息
@@ -284,14 +372,12 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     sessionModel: resolvedModel,
     ...(worktreePath ? { workspaceRoot: worktreePath } : {}),
     ...(messageParent ? { messageParent } : {}),
-    // fork 路径保留父的 signal;异步路径用独立 controller
-    ...(agentAbortController ? { signal: agentAbortController.signal } : {}),
+    signal: agentAbortController.signal,
   };
 
   // ---- 阶段 5:查询循环(边跑边 yield,不等 runTurn 整个跑完) ----
 
   const tracker = createProgressTracker();
-  const POLL_MS = Number(process.env.DAO_AGENT_POLL_MS) || 200;
   let yieldedCount = initialMessages.length;
 
   // yield sub.messages 中尚未 yield 的新消息
@@ -311,19 +397,20 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
       // 子代理输出攒 buffer(防并发子代理 write 交织)
       const buf: string[] = [];
       let runTurnError: unknown;
+      const resolvedGate = agentGate!; // agentGate !== undefined:gate 已在 if 条件中检查,agentGate 要么是 gate 要么是 withModeOverride 的产物
 
-      // runTurn 在后台跑,往 sub.messages push 消息;同时轮询新消息逐条 yield
+      // runTurn 在后台跑,往 sub.messages push 消息;push 时 withPushNotifier 同步唤醒下面的查询循环
       const runTurnPromise = (async () => {
         await runTurn({
           session: sub,
           config,
           registry: resolvedTools,
           ctx: subCtx,
-          gate,
+          gate: resolvedGate,
           streamChat,
           executeToolCalls,
           write: (s) => buf.push(s),
-          signal: agentAbortController?.signal,
+          signal: agentAbortController.signal,
           drainPending,
           background: true, // 子代理:遇 529 不重试/不回退
           selfChallenge: true, // 子代理跑确定性卡住检测
@@ -332,17 +419,19 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
         });
       })();
 
-      // 轮询循环:runTurn 跑着的同时,新消息逐条 yield 给上层
+      // 事件驱动:每轮先把已产出的消息 yield 完,再"睡到下一次 push 或 runTurn 结束"为止——
+      // 不设固定周期轮询,wake 由 push 同步触发,runTurnPromise 由 runTurn 结束触发,谁先到算谁。
       while (true) {
         yield* yieldNewMessages();
         const settled = await Promise.race([
           runTurnPromise.then(() => true).catch((e) => { runTurnError = e; return true; }),
-          new Promise<boolean>((r) => setTimeout(() => r(false), POLL_MS)),
+          new Promise<boolean>((resolve) => { wakeQueryLoop = () => resolve(false); }),
         ]);
+        wakeQueryLoop = undefined;
         if (settled) break;
       }
 
-      // flush runTurn 可能 push 的最后几条(resolve 和最后一次 poll 之间的竞态)
+      // flush runTurn 可能在最后一次 wake 之后又 push 的消息(resolve 和 yield 之间的竞态)
       yield* yieldNewMessages();
 
       // flush 子代理输出
@@ -361,6 +450,10 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
 
   } finally {
     // ---- 阶段 7:清理 ----
+    // - 摘掉兜底链的父 abort 监听器(若有):不摘的话,同一个父 signal 被反复派发的
+    //   isolate/fork/兜底子代理每次都挂一个 {once:true} 监听器,正常跑完的那些永远不触发、
+    //   永远不会自动摘,长会话攒下去就是无界的监听器 + 闭包泄漏。
+    detachParentAbort?.();
     // - Hooks 注销 + 执行 SubagentStop(会话已结束,不再收集 additionalContext)
     await executeSubagentStopHooks(agentId, agentDef.agentType, hookRegistry, worktreePath ?? toolUseContext.workspaceRoot).catch(() => {});
     clearAgentHooks(agentId, hookRegistry);

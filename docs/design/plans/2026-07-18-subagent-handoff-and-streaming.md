@@ -202,7 +202,7 @@ if (runTurnError) throw runTurnError;
 - **runTurn 抛错**:`runTurnPromise.catch` 捕获,设 `runTurnError`,break 循环后 throw。已 yield 的消息不丢。
 - **abort**:`runTurn` 内部处理 abort(返回 void),轮询循环正常 break。
 - **无 runTurn(测试环境)**:`runTurnPromise` 立即 resolve,while 循环跑一次就 break,行为同旧版。
-- **POLL_MS=200**:200ms 轮询间隔,对 CPU 无感,对用户感知足够实时。可通过环境变量 `DAO_AGENT_POLL_MS` 调整。
+- **~~POLL_MS=200~~(已改为事件驱动)**:最初方案是 200ms 轮询,后来发现同进程同事件循环内自己写的数组没道理靠轮询感知自己的变化——改为给 `sub.messages` 包一层 `withPushNotifier`,`runTurn` 每次 `push()` 时同步唤醒查询循环,不再有固定周期、不再有中间消息的轮询延迟,`DAO_AGENT_POLL_MS` 环境变量已随之移除。
 
 ### 文件影响
 
