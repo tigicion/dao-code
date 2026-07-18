@@ -1,5 +1,13 @@
 # 子代理对齐 CC · Part A(派发/注册表)Implementation Plan
 
+> **实施状态(2026-07-18 复核)**:目标已达成,但实现路径与本计划分叉——本计划假设的 `runSubagent`(options 对象)与 `src/agent/subagent.ts` 已在后续迭代中整体替换为 `src/agent/runAgent.ts` 统一引擎(`df96500` 删除 `subagent.ts`,`e8c8d8d` 切到 `ctx.runAgent`)。以下逐条按"本计划目标是否达成"复核,不再按原 Task 的具体行号/函数名核对(那些引用已随重构失效):
+> - 内置 general-purpose/explore/plan/verify 注册表 → 达成,现在 `src/agent/bundled_agents.ts`。
+> - 排除式 `*, !tool` 工具白名单 → 达成,`src/agent/agent_defs.ts` + `registry.subsetExcluding`(`registry.ts:96`)。
+> - 调用级 model/mode 覆盖 + fork 互斥护栏 → 达成,`src/tools/agent.ts:177-182`。
+> - 嵌套深度放到一层 + 深度感知并发 → 已实现(现行代码里核对,未逐条比对具体阈值取值是否与本计划一致)。
+> - 缓存安全集成测试(Task 7)→ 未按本计划的占位断言方式落地,但 `fork_agent.test.ts`、`cache_prefix.test.ts` 等现存测试覆盖了等价断言。
+> 下方 Task 清单的具体代码片段(行号、函数签名)保留作历史记录,不代表当前代码状态,勿按图索骥去找。checkbox 未勾选是本计划自身的遗留状态,不代表功能未完成——判断进度请以代码 + git log 为准,不要信这份文档的 checkbox。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** 把 DAO 子代理的**派发参数(调用级 model/mode 覆盖)**与**类型注册表(内置 general-purpose/plan、排除式 tools、默认 general-purpose)**对齐 CC,并把嵌套放开到一层——全程不引入破坏前缀缓存的 bug。

@@ -1,5 +1,12 @@
 # 子代理对齐 CC · Part B(双向事件驱动通信)Implementation Plan
 
+> **实施状态(2026-07-18 复核)**:目标已达成,实现路径与本计划的差异主要是宿主从 `index.ts:585` 的旧 `runSubagent` 迁到了 `runAgent.ts` 引擎,具体接线点不同但能力对齐:
+> - `taskManager.emitFromTask` → 达成,`src/agent/tasks.ts:208`。
+> - `message_parent` 工具 + `ToolContext.messageParent` → 达成,`src/tools/message_parent.ts` + `src/agent/tasks.ts:208 emitFromTask` 接线。
+> - 非 TTY 回合边界 drain + 自动续跑 → 达成,三处消费点(`repl.ts`、`loop.ts`、`App.tsx`)都接了 `drainNotifications`。
+> - 双向父↔子通信 → 达成(`task_send`→`drainPending`,子→父→`message_parent`/`emitFromTask`)。此外,本计划完成之后又补上了一个本计划未覆盖的缺口:父代理给**已结束**的子代理发消息时会自动从磁盘转录 resume(`task_send.ts`,`ctx.resumeAgent`),不只是对运行中任务生效。
+> 下方 Task 清单的具体代码片段(行号、旧 `runSubagent` 签名)保留作历史记录,不代表当前代码状态。checkbox 未勾选不代表未完成——判断进度请以代码 + git log 为准。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** 补齐"运行中后台子代理 → 父代理"的 mid-run 通信(进度/发现/提问),并让它经事件驱动自动续跑流回父模型——TTY 与非 TTY 两条路径都覆盖,零副作用。
