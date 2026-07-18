@@ -190,6 +190,61 @@ describe("adopt 的手动结束防御(补齐与 launch 一致的竞态保护)", 
   });
 });
 
+describe("registerAgentForeground:taskId 与 agentId 统一,cancel 真实生效", () => {
+  it("taskId 恒等于传入的 agentId(此前另起 task-N 计数器,和子代理的 drainPending 用的 agentId 对不上号)", () => {
+    const tm = createTaskManager();
+    const { taskId } = tm.registerAgentForeground({ agentId: "agent-xyz123", description: "跑一个" });
+    expect(taskId).toBe("agent-xyz123");
+  });
+
+  it("自建并返回 abortController(与 registerAsyncAgent 同一套写法,调用方不用自己 new 再传进来)", () => {
+    const tm = createTaskManager();
+    const { abortController } = tm.registerAgentForeground({ agentId: "agent-xyz123", description: "跑一个" });
+    expect(abortController).toBeInstanceOf(AbortController);
+    expect(abortController.signal.aborted).toBe(false);
+  });
+
+  it("cancel() 真的 abort 返回的 controller(此前前台任务没注册 controller,cancel 只翻状态位不中止真实工作)", () => {
+    const tm = createTaskManager();
+    const { taskId, abortController } = tm.registerAgentForeground({ agentId: "agent-xyz123", description: "跑一个" });
+    expect(tm.cancel(taskId)).toBe(true);
+    expect(abortController.signal.aborted).toBe(true);
+    expect(tm.get(taskId)?.status).toBe("canceled");
+  });
+
+  it("send() 发的消息用同一个 id 就能被 drainPending 读到(task_send 的实际投递路径)", () => {
+    const tm = createTaskManager();
+    const { taskId } = tm.registerAgentForeground({ agentId: "agent-xyz123", description: "跑一个" });
+    expect(tm.send(taskId, "追加指令")).toBe(true);
+    expect(tm.drainPending("agent-xyz123")).toEqual(["追加指令"]); // 用 agentId 读,而非另一个 task-N
+  });
+});
+
+describe("settle():前台任务正常/异常收尾,不重复入队通知", () => {
+  it("settle() 默认结算为 completed,不入队 <task-notification>(结果已经作为工具返回值同步交给父代理)", () => {
+    const tm = createTaskManager();
+    const { taskId } = tm.registerAgentForeground({ agentId: "agent-abc", description: "跑一个" });
+    expect(tm.settle(taskId)).toBe(true);
+    expect(tm.get(taskId)?.status).toBe("completed");
+    expect(tm.hasPending()).toBe(false); // 没有入队通知,不会在下一回合边界重复投递
+  });
+
+  it("settle(id,'failed') 结算为 failed", () => {
+    const tm = createTaskManager();
+    const { taskId } = tm.registerAgentForeground({ agentId: "agent-abc", description: "跑一个" });
+    expect(tm.settle(taskId, "failed")).toBe(true);
+    expect(tm.get(taskId)?.status).toBe("failed");
+  });
+
+  it("已经结算过的任务再 settle()/cancel() 都不再生效(防止跑完的前台任务被 cancelAll()/task_stop 误伤)", () => {
+    const tm = createTaskManager();
+    const { taskId, abortController } = tm.registerAgentForeground({ agentId: "agent-abc", description: "跑一个" });
+    tm.settle(taskId);
+    expect(tm.cancel(taskId)).toBe(false); // 已结束,cancel 拒绝生效
+    expect(abortController.signal.aborted).toBe(false); // 没有被误 abort
+  });
+});
+
 describe("通知 XML 转义(防破坏父代理解析)", () => {
   it("mid-run 消息与 description 里的 < > & 及字面 </message> 被转义", async () => {
     const tm = createTaskManager();
