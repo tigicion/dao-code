@@ -28,6 +28,53 @@ function randomAgentId(): string {
   return `agent-${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
 }
 
+// AgentTool 动态描述(会话内固定,不含 agent 列表 -> 工具 schema 缓存安全)。
+// agent 列表在 system prompt 的"可用子代理类型"段,变更不 bust 工具描述缓存。
+const AGENT_TOOL_PROMPT_ZH =
+  "把独立子任务派发给子代理:它用同样的工具自主跑完、只返回最终结果(你看不到中间过程)。" +
+  "任务描述要自包含--子代理没有当前对话上下文。传 task 派单个;传 tasks 数组并行派发并汇总。" +
+  "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行。子代理内不能再派子代理(不支持嵌套)。" +
+  "单个前台子代理跑超过 60 秒自动转后台。并行最多 10 个同时跑、其余排队。\n" +
+  "四个可选调用方式互斥:isolate(git worktree 隔离改文件)、fork(继承完整上下文+复用前缀缓存,近乎免费)、" +
+  "model(临时换模型省钱,但会让前缀缓存失效)、mode=plan(只读规划)。fork 与 model/mode 天生冲突。" +
+  "agent_type 指定子代理类型(见系统 prompt 的'可用子代理类型');省略则用通用子代理。\n" +
+  "拿到结果后留个心眼:子代理返回的是它自称做了什么,不是你亲眼确认过的事实。" +
+  "涉及代码改动的子任务,回来后亲自复核关键结论,不要原样转述子代理的自述。\n" +
+  "何时不该用:要读某个具体文件路径,直接 read_file;要搜某个类/函数定义,直接 grep_files/file_search;" +
+  "只需在 2-3 个文件里搜代码,直接 read_file。这些简单搜索不值得派子代理。\n" +
+  "写 prompt 的指引:像给刚进门的聪明同事 brief--子代理没看过当前对话,不知道你试过什么、为什么这个任务重要。" +
+  "说清目标与背景、已排除的方向、需要判断而非窄指令的上下文。需要短回复就说『200 字以内回报』。" +
+  "查/定位:给确切命令;调查:给问题而非规定步骤。别写『基于你的发现修复 bug』--那是把综合判断推给子代理;" +
+  "写能证明你理解了的 prompt:含文件路径、行号、具体改什么。\n" +
+  "示例:\n" +
+  "派 explore 子代理并行调查(非 fork):\n" +
+  "  agent({ task: \"查清 src/auth/ 下所有密码校验逻辑的调用链,报告每个入口点和校验规则\", agent_type: \"explore\" })\n" +
+  "fork 自己做分支尝试(继承上下文,省缓存):\n" +
+  "  agent({ task: \"把 ValidationError 改成继承 AppError 并更新所有 catch 块\", fork: true })";
+
+const AGENT_TOOL_PROMPT_EN =
+  "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
+  "Task description must be self-contained - the subagent has no current conversation context. Pass task for a single dispatch; pass tasks array for parallel dispatch with aggregated results. " +
+  "Parallel tasks MUST be mutually independent; tasks modifying the same files must not be parallelized. No nesting (a subagent cannot dispatch its own subagent). " +
+  "A foreground subagent auto-promotes to background after 60s. At most 10 parallel, the rest queue.\n" +
+  "Four optional modes are mutually exclusive: isolate (git worktree isolation), fork (inherits full context + reuses prefix cache, nearly free), " +
+  "model (temporarily switch models - invalidates prefix cache), mode=plan (read-only planning). fork conflicts with model/mode. " +
+  "agent_type selects a subagent type (see 'Available Subagent Types' in system prompt); omit for generic subagent.\n" +
+  "Trust but verify: a subagent's summary describes what it claims it did, not what you've confirmed. " +
+  "For code-change subtasks, verify key results yourself before reporting.\n" +
+  "When NOT to use: to read a specific file path, use read_file directly; to search for a class/function definition, use grep_files/file_search directly; " +
+  "to search within 2-3 specific files, use read_file directly. These simple searches don't warrant a subagent.\n" +
+  "Writing the prompt: brief the agent like a smart colleague who just walked into the room - it hasn't seen this conversation. " +
+  "Explain what you're trying to accomplish and why. Describe what you've already learned or ruled out. " +
+  "Give enough context for judgment calls. If you need a short response, say so. Lookups: hand over the exact command. " +
+  "Investigations: hand over the question - prescribed steps become dead weight when the premise is wrong. " +
+  "Don't write 'based on your findings, fix the bug' - that pushes synthesis onto the agent; write prompts that prove you understood: include file paths, line numbers, what specifically to change.\n" +
+  "Examples:\n" +
+  "Dispatch explore subagent for parallel investigation (non-fork):\n" +
+  "  agent({ task: \"Trace all password validation call chains under src/auth/, report each entry point and validation rule\", agent_type: \"explore\" })\n" +
+  "Fork yourself for a branch attempt (inherits context, saves cache):\n" +
+  "  agent({ task: \"Change ValidationError to extend AppError and update all catch blocks\", fork: true })";
+
 export const agentTool = defineTool({
   name: "agent",
   description:
@@ -86,7 +133,11 @@ export const agentTool = defineTool({
     isolate: z
       .boolean()
       .optional()
-      .describe("git worktree 隔离:子代理在独立工作树+分支里改文件,并行改文件互不冲突。改动留在分支供事后 review/merge。"),
+      .describe("git worktree 隔离的快捷方式(等同 isolation:\"worktree\")。"),
+    isolation: z
+      .enum(["worktree", "remote"])
+      .optional()
+      .describe("隔离模式:worktree=在独立 git 工作树里改文件;remote=在 headless 子进程里跑(独立进程,无缓存复用)。与 fork 互斥。"),
     fork: z
       .boolean()
       .optional()
@@ -132,13 +183,16 @@ export const agentTool = defineTool({
 
     const runAgent = ctx.runAgent;
     const fork = !!args.fork;
-    const isolate = !fork && !!args.isolate && !!ctx.createWorktree;
-    const reqModel = normalizeModel(args.model); // 归一化/兜底:无效模型名不透传给 API
-    const reqMode = args.mode;
-
     const agentDef: AgentDef = fork
       ? FORK_AGENT
       : (agentDefs.find((d) => d.agentType === (type ?? "general-purpose")) ?? FORK_AGENT);
+    // isolation 优先:显式 isolation 参数 > isolate boolean 快捷方式 > agent 定义 isolation。
+    // remote = headless 子进程(暂未实现,回退到 worktree 并提示);worktree = git 工作树隔离。
+    const isolationMode = args.isolation ?? (args.isolate ? "worktree" : undefined) ?? agentDef.isolation;
+    const isolate = !fork && isolationMode === "worktree" && !!ctx.createWorktree;
+    const isRemote = !fork && isolationMode === "remote";
+    const reqModel = normalizeModel(args.model); // 归一化/兜底:无效模型名不透传给 API
+    const reqMode = args.mode;
 
     const taskManagerAdapter: AsyncAgentTaskManager | undefined = ctx.taskManager
       ? {
@@ -154,7 +208,9 @@ export const agentTool = defineTool({
       const shouldRunAsync = !!args.background || !!agentDef.background;
 
       let worktree: { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | undefined;
-      if (isolate) {
+      // isolation: worktree 和 remote 都创建 git worktree(隔离的工作副本)。
+      // remote 的终极形态是 headless 子进程(独立进程隔离),但当前阶段与 worktree 等价。
+      if ((isolate || isRemote) && ctx.createWorktree) {
         const wt = ctx.createWorktree!(`a${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`);
         if (wt) worktree = wt;
       }

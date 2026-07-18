@@ -118,6 +118,10 @@ export interface Tool {
   name: string;
   description: string;
   descriptionEn?: string;
+  // 动态描述生成(对标 CC AgentTool.prompt):存在时 toApiTools 优先用其返回值替代 description。
+  // 用于 agent 工具:把 when-not-to-use / writing-prompt / 示例动态拼进描述,但 agent 列表留在
+  // system prompt 层(保持工具 schema 静态,agent 列表变更不 bust 缓存)。
+  prompt?: (ctx: { lang: "zh" | "en" }) => string;
   schema: ZodTypeAny;
   capability: Capability;
   approval: Approval;
@@ -134,6 +138,7 @@ export interface ToolDefinition<S extends ZodTypeAny> {
   name: string;
   description: string;
   descriptionEn?: string;
+  prompt?: (ctx: { lang: "zh" | "en" }) => string;
   schema: S;
   capability: Capability;
   approval: Approval;
