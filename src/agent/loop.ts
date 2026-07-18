@@ -51,31 +51,6 @@ export function sanitizeHistoryForResume(messages: ChatMessage[]): ChatMessage[]
   return messages.map((m) => (m.role === "assistant" ? sanitizeForHistory(m) : m));
 }
 
-// L4.5 收尾锚点:本会话是否碰过代码/命令(写文件/改文件/跑 shell)却从没调用过 verify 子代理。
-// 纯文字提示(工具描述里的话术、TodoWrite 全勾提醒)有个共同盲区——都得指望模型"恰好用到某个
-// 特定工具"才有机会触发,像 protein-assembly、filter-js-from-html 这类会话里模型全程没用过
-// TodoWrite,那些提示就完全没被看到。这个检测不依赖任何特定工具是否被用过,直接扫整个会话
-// 历史,在循环真正"要收尾"(纯文本回合、没有更多工具调用)那一刻锚定判断。
-const CODE_TOUCHING_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
-function touchedCodeWithoutVerify(messages: ChatMessage[]): boolean {
-  let touchedCode = false;
-  let calledVerify = false;
-  for (const m of messages) {
-    if (m.role !== "assistant") continue;
-    for (const tc of m.tool_calls ?? []) {
-      if (CODE_TOUCHING_TOOLS.has(tc.function.name)) touchedCode = true;
-      // 检测是否派了 verify 子代理(agent 工具 + agent_type=verify)
-      if (tc.function.name === "Agent") {
-        try {
-          const args = JSON.parse(tc.function.arguments);
-          if (args.agent_type === "verify") calledVerify = true;
-        } catch { /* 参数未成形 */ }
-      }
-    }
-  }
-  return touchedCode && !calledVerify;
-}
-
 export interface TurnDeps {
   session: Session;
   config: { baseUrl: string; apiKey: string };
@@ -315,7 +290,6 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   };
 
   let budgetWarned = false;
-  let verifyReminderShown = false; // L4.5 只提醒一次,防止模型仍不调用时死循环纠缠
   let emptyTruncation = false; // 本次 requestAssistant 是否命中"reasoning 耗尽预算、content 全程为空"
   for (let t = 0; t < maxTurns; t++) {
     if (signal?.aborted) return; // 上一轮工具执行后被取消,直接收尾
@@ -406,20 +380,6 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // 执行仍用原始 assistant/toolCalls(dispatch 报错信息不受影响);落库换成清洗过的版本。
     session.messages.push(sanitizeForHistory(assistant));
     if (toolCalls.length === 0) {
-      // L4.5 收尾前锚点:纯文本回合(模型认为已经可以结束了)--但如果本会话碰过代码/命令、
-      // 却从没派过 verify 子代理,先提醒一次、给它一轮机会自己决定要不要验证,而不是直接放行。
-      if (!verifyReminderShown && tools.some((t) => t.function.name === "Agent") && session.mode !== "plan" && touchedCodeWithoutVerify(session.messages)) {
-        verifyReminderShown = true;
-        session.messages.push({
-          role: "system",
-          content:
-            "[收尾前检查] 本次会话里你调用过写文件/改文件/跑命令这类工具,但从未派 verify 子代理做独立验证。" +
-            "如果这是非琐碎改动(3+ 文件编辑、后端/API 改动、基础设施变更),在正式收尾前派 verify 子代理验证;" +
-            "如果是琐碎改动,自己真的把验收路径跑一遍,而不是凭读代码/凭记忆判断。",
-        });
-        events.notice("\n[收尾前提醒:未派 verify 子代理]\n");
-        continue;
-      }
       return; // 纯文本回合(含被打断只剩 content):直接结束
     }
     // 取消发生在记录 assistant(tool_calls) 之后、执行之前(模型已答完、用户随即 ESC):
