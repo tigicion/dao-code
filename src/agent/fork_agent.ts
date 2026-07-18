@@ -127,6 +127,20 @@ export function buildForkedMessages(
 }
 
 /**
+ * 构建 fork 子代理的完整上下文消息(对标 CC buildForkedMessages 的调用编排,spec §13)。
+ * 1. 若父消息尾部是带 tool_calls 的未完成 assistant:保留它(占位 tool_result 补全,不丢弃已产出内容)+ directive
+ * 2. 否则:整段父消息原样保留 + 一条 directive user 消息
+ * 结果只有最后一条不同 → 字节级复用父前缀,最大化缓存命中。
+ */
+export function buildForkContextMessages(parentMessages: ChatMessage[], directive: string): ChatMessage[] {
+  const last = parentMessages[parentMessages.length - 1];
+  if (last && last.role === "assistant" && (last as AssistantMessage).tool_calls?.length) {
+    return [...parentMessages.slice(0, -1), ...buildForkedMessages(directive, last as AssistantMessage)];
+  }
+  return [...parentMessages, { role: "user", content: buildChildMessage(directive) } as UserMessage];
+}
+
+/**
  * worktree 隔离 fork 子代理的路径翻译提示(对标 CC buildWorktreeNotice)。
  * 告知子代理:继承的上下文路径指向父目录,需翻译到 worktree;编辑前重读文件。
  */

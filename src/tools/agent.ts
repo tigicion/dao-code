@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { defineTool } from "./types.js";
+import type { ChatMessage } from "../client/types.js";
+import type { AgentDef } from "../agent/agent_defs.js";
+import { FORK_AGENT, buildForkContextMessages } from "../agent/fork_agent.js";
+import { finalizeAgentTool } from "../agent/agent_tools.js";
+import { runAsyncAgentLifecycle, type AsyncAgentTaskManager } from "../agent/agent_lifecycle.js";
 
 // 子代理模型名归一化:模型常把 "deepseek-v4-pro" 写成 "deepseek-v4"/"pro"/"flash" → raw 传 API 会失败。
 // 含 flash/pro 的归到对应全名;已是有效全名保留;其余(如裸 "deepseek-v4")→ undefined(继承父模型),
@@ -13,6 +18,10 @@ export function normalizeModel(m: string | undefined): string | undefined {
   return undefined; // 无法识别 → 继承父模型,不透传无效名
 }
 
+function randomAgentId(): string {
+  return `agent-${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
+}
+
 export const agentTool = defineTool({
   name: "agent",
   description:
@@ -20,9 +29,9 @@ export const agentTool = defineTool({
     "任务描述要自包含——子代理没有当前对话上下文。" +
     "传 task 派单个;传 tasks 数组则并行派发多个并汇总(适合可并行的独立调查/分析)。" +
     "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行,以免互相冲突。" +
-    "嵌套上限 2 层(子代理里再派子代理,超限会拒绝——请自己完成或拆小任务)。" +
+    "子代理内不能再派子代理(不支持嵌套)。" +
     "单个前台子代理跑超过默认 60 秒会自动转后台(不阻塞你,完成后通知)。" +
-    "并行任务默认最多 10 个同时跑(嵌套派发时放宽到 20),其余排队,不代表真的全部同时执行。\n" +
+    "并行任务默认最多 10 个同时跑,其余排队,不代表真的全部同时执行。\n" +
     "四个可选调用方式互斥、别混用:isolate(独立 git worktree 里改文件,并行改文件不冲突,改动留在分支供你事后 review/merge)、" +
     "fork(继承你当前完整上下文+复用前缀缓存,近乎免费,适合带全量背景做分支尝试)、model(临时换模型,通常为了省钱跑廉价任务," +
     "但换模型本身会让前缀缓存失效,不够便宜的任务不划算)、mode=plan(只读规划模式)。fork 和 model/mode 天生冲突——fork 的" +
@@ -35,9 +44,9 @@ export const agentTool = defineTool({
     "Task description must be self-contained — the subagent has no current conversation context. " +
     "Pass task for a single dispatch; pass tasks array for parallel dispatch with aggregated results (ideal for parallel independent investigation/analysis). " +
     "Parallel tasks MUST be mutually independent with no dependencies; tasks that modify the same files must not be parallelized to avoid conflicts. " +
-    "Nesting cap: 2 levels (a subagent dispatching its own subagent beyond that is rejected — do it yourself or split into smaller tasks). " +
+    "A subagent cannot dispatch its own subagent (no nesting). " +
     "A single foreground subagent running past a default 60s threshold auto-promotes to background (doesn't block you; notified on completion). " +
-    "Parallel tasks run at most 10 concurrently by default (throttled to 20 for nested dispatches) — the rest queue, so not all tasks truly run simultaneously.\n" +
+    "Parallel tasks run at most 10 concurrently by default — the rest queue, so not all tasks truly run simultaneously.\n" +
     "Four optional dispatch modes are mutually exclusive, don't mix them: isolate (edits happen in an isolated git worktree, safe to parallelize file changes, " +
     "changes are left on a branch for you to review/merge afterward), fork (inherits your full current context + reuses the prefix cache, nearly free — good for a " +
     "branch attempt with full background), model (temporarily switch models, usually to run a cheap task on a cheaper model — but switching itself invalidates the " +
@@ -79,73 +88,147 @@ export const agentTool = defineTool({
     mode: z
       .enum(["normal", "plan"])
       .optional()
-      .describe("调用级权限模式覆盖:plan=只读规划。省略则继承主会话模式。与 fork 互斥。"),
+      .describe("调用级权限模式覆盖:plan=只读规划。省略则继承 agent 定义/默认模式。与 fork 互斥。"),
   }),
   handler: async (args, ctx) => {
-    if ((ctx.subagentDepth ?? 0) >= 2) {
-      return "已达子代理嵌套上限(2 层):为防递归放大与成本失控,这一层不能再派子代理。请自己完成这件事,或把它拆小后在结论里回报需要继续的部分。";
+    // 防御性嵌套检查:agent 工具本就在 ALL_AGENT_DISALLOWED_TOOLS 里对所有子代理全局禁用,
+    // 子代理的工具池里根本没有这个工具——这里是第二道防线,正常不会触发。
+    if ((ctx.subagentDepth ?? 0) >= 1) {
+      return "子代理内不能再派子代理(不支持嵌套)。请自己完成这件事,或把它拆小后在结论里回报需要继续的部分。";
     }
-    if (!ctx.runSubagent) {
+    if (!ctx.runAgent) {
       return "当前环境不支持子代理。";
     }
+    const agentDefs = ctx.agentDefinitions ?? [];
     const type = args.agent_type;
-    if (type && ctx.agentTypes && !ctx.agentTypes.some((a) => a.name === type)) {
-      const avail = ctx.agentTypes.map((a) => a.name).join(", ") || "(无)";
+    if (type && !agentDefs.some((d) => d.agentType === type)) {
+      const avail = agentDefs.map((d) => d.agentType).join(", ") || "(无)";
       return `未知子代理类型「${type}」。可用:${avail}。`;
+    }
+    if (args.fork && (args.model || args.mode)) {
+      return "fork 与 model/mode 覆盖互斥:fork 的价值是复用父代理的前缀缓存,而换模型/改模式会让该缓存失效、fork 失去意义。请去掉 model/mode,或改用普通子代理(去掉 fork)。";
     }
     if (args.background && (args.model || args.mode)) {
       return "后台子代理暂不支持 model/mode 覆盖(后续版本补)。若要换模型跑后台:去掉 model/mode,或为该用途定义一个带 model 的 agent_type 再用 background。";
     }
-    // 后台模式:每个任务后台启动,立即返回 id;完成后经通知队列回灌(主循环不阻塞)。
-    if (args.background && ctx.runBackgroundAgent) {
-      const list = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
-      if (list.length === 0) return "请提供 task 或 tasks。";
-      const ids = list.map((t) => ctx.runBackgroundAgent!(t, type));
-      return `已后台启动 ${ids.length} 个子代理${type ? `(类型 ${type})` : ""}(${ids.join(", ")});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
-    }
-    const run = ctx.runSubagent;
-    if (args.fork && (args.model || args.mode)) {
-      return "fork 与 model/mode 覆盖互斥:fork 的价值是复用父代理的前缀缓存,而换模型/改模式会让该缓存失效、fork 失去意义。请去掉 model/mode,或改用普通子代理(去掉 fork)。";
-    }
-    const reqModel = normalizeModel(args.model); // 归一化/兜底:无效模型名不透传给 API
-    const fork = !!args.fork && !!ctx.runForkAgent; // ② fork 优先(继承父上下文 + 复用缓存)
+
+    const runAgent = ctx.runAgent;
+    const fork = !!args.fork;
     const isolate = !fork && !!args.isolate && !!ctx.createWorktree;
-    // 隔离运行:为该子代理建 worktree,在其中跑;改动留在分支供 review。非 git 仓库则回退共享。
+    const reqModel = normalizeModel(args.model); // 归一化/兜底:无效模型名不透传给 API
+    const reqMode = args.mode;
+
+    const agentDef: AgentDef = fork
+      ? FORK_AGENT
+      : (agentDefs.find((d) => d.agentType === (type ?? "general-purpose")) ?? FORK_AGENT);
+
+    const taskManagerAdapter: AsyncAgentTaskManager | undefined = ctx.taskManager
+      ? {
+          appendMessage: (id, m) => ctx.taskManager!.appendMessage(id, m),
+          updateSummary: (id, s) => ctx.taskManager!.updateSummary(id, s),
+          update: (id, patch) => ctx.taskManager!.update(id, patch),
+        }
+      : undefined;
+
+    // 单个子任务:派发一个子代理,返回最终文本(或后台/转后台提示)。
     const runOne = async (t: string): Promise<string> => {
-      if (fork) return ctx.runForkAgent!(t, ctx.signal);
+      const agentId = randomAgentId();
+      const shouldRunAsync = !!args.background || !!agentDef.background;
+
+      let worktree: { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | undefined;
       if (isolate) {
         const wt = ctx.createWorktree!(`a${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`);
-        if (wt) {
-          const r = await run({ task: t, signal: ctx.signal, agentType: type, workspaceRoot: wt.root, model: reqModel, mode: args.mode });
-          // P2-48 清理策略(对标 CC):有改动→保留分支供 review/merge;无改动→自动删,不留垃圾 worktree。
-          if (wt.hasChanges()) return `${r}\n[隔离:改动在分支 ${wt.branch}(已保留,可 review/merge)]`;
-          wt.cleanup();
-          return r;
-        }
+        if (wt) worktree = wt;
       }
-      return run({ task: t, signal: ctx.signal, agentType: type, model: reqModel, mode: args.mode });
+
+      const promptMessages: ChatMessage[] = fork ? [] : [{ role: "user", content: t }];
+      const forkContextMessages = fork
+        ? buildForkContextMessages(ctx.forkMessages ?? [], `[fork 子任务:只做这件事并返回结论,不要改动主任务状态] ${t}`)
+        : undefined;
+      const resolvedModelForDisplay = reqModel ?? agentDef.model ?? "deepseek-v4-pro";
+      const isBuiltInAgent = agentDef.source === "built-in";
+
+      // ---- 异步(后台)路径 ----
+      if (shouldRunAsync) {
+        if (!ctx.taskManager || !taskManagerAdapter) return "当前环境不支持后台子代理。";
+        const bg = ctx.taskManager.registerAsyncAgent({ agentId, description: t.slice(0, 50) });
+        void runAsyncAgentLifecycle({
+          taskId: bg.agentId,
+          agentId,
+          agentType: agentDef.agentType,
+          isBuiltInAgent,
+          prompt: t,
+          model: resolvedModelForDisplay,
+          makeStream: (onCacheSafeParams) => runAgent({
+            agentDef, promptMessages, forkContextMessages, useExactTools: fork,
+            isAsync: true, override: { abortController: bg.abortController, agentId },
+            worktreePath: worktree?.root, model: reqModel, mode: reqMode, onCacheSafeParams,
+          }),
+          taskManager: taskManagerAdapter,
+        });
+        return `已后台启动子代理${type ? `(类型 ${type})` : ""}(${bg.agentId});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
+      }
+
+      // ---- 同步路径,可中途转后台(isolate 保持恒同步跑完,不参与自动转后台)----
+      if (!isolate && ctx.taskManager && taskManagerAdapter) {
+        const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
+        const fg = ctx.taskManager.registerAgentForeground({ agentId, description: t.slice(0, 50), autoBackgroundMs: ms });
+        const iterator = runAgent({
+          agentDef, promptMessages, forkContextMessages, useExactTools: fork,
+          isAsync: false, override: { agentId }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
+        })[Symbol.asyncIterator]();
+
+        const messages: ChatMessage[] = [];
+        while (true) {
+          const raced = await Promise.race([
+            iterator.next().then((r) => ({ kind: "msg" as const, r })),
+            fg.backgroundSignal.then(() => ({ kind: "bg" as const })),
+          ]);
+          if (raced.kind === "bg") {
+            // 前台->后台无缝切换:复用同一个 iterator 继续消费,不重跑。
+            void runAsyncAgentLifecycle({
+              taskId: fg.taskId,
+              agentId,
+              agentType: agentDef.agentType,
+              isBuiltInAgent,
+              prompt: t,
+              model: resolvedModelForDisplay,
+              makeStream: () => ({ [Symbol.asyncIterator]: () => iterator }) as AsyncGenerator<ChatMessage, void>,
+              taskManager: taskManagerAdapter,
+            });
+            return `子代理运行超过 ${Math.round(ms / 1000)}s,已自动转入后台(${fg.taskId});完成后会通知你。你可以先继续别的或结束本轮。`;
+          }
+          if (raced.r.done) break;
+          messages.push(raced.r.value);
+        }
+        fg.cancelAutoBackground();
+        const result = finalizeAgentTool(messages, agentId, {
+          prompt: t, model: resolvedModelForDisplay, agentType: agentDef.agentType, startTime: Date.now(), isAsync: false, isBuiltInAgent,
+        });
+        const text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
+        return finishWithWorktree(text, worktree);
+      }
+
+      // ---- 兜底路径:无 taskManager(极简测试环境)或 isolate——直接跑完,不做后台切换 ----
+      const messages: ChatMessage[] = [];
+      for await (const m of runAgent({
+        agentDef, promptMessages, forkContextMessages, useExactTools: fork,
+        isAsync: false, override: { agentId }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
+      })) messages.push(m);
+      const result = finalizeAgentTool(messages, agentId, {
+        prompt: t, model: resolvedModelForDisplay, agentType: agentDef.agentType, startTime: Date.now(), isAsync: false, isBuiltInAgent,
+      });
+      const text = result.content.map((c) => c.text).join("\n") || "(子代理无最终输出)";
+      return finishWithWorktree(text, worktree);
     };
+
     const tasks = args.tasks?.length ? args.tasks : args.task ? [args.task] : [];
     if (tasks.length === 0) return "请提供 task 或 tasks。";
-    // 单个前台子代理:跑超过阈值(默认 60s)自动转后台,主循环不被长子任务一直阻塞。
-    if (tasks.length === 1 && !isolate && ctx.adoptBackground) {
-      const p = run({ task: tasks[0]!, signal: ctx.signal, agentType: type, model: reqModel, mode: args.mode });
-      const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<{ bg: true }>((res) => { timer = setTimeout(() => res({ bg: true }), ms); });
-      const raced = await Promise.race([p.then((r) => ({ bg: false as const, r })), timeout]);
-      if (timer) clearTimeout(timer);
-      if (!raced.bg) return raced.r;
-      const id = ctx.adoptBackground(`(自动转后台) ${tasks[0]!.slice(0, 50)}`, p);
-      return `子代理运行超过 ${Math.round(ms / 1000)}s,已自动转入后台(${id});完成后会通知你。你可以先继续别的或结束本轮。`;
-    }
     if (tasks.length === 1) return runOne(tasks[0]!);
 
     // 并行 scatter-gather + 并发限流:最多 MAX_PARALLEL 个同时跑、其余排队,避免一口气打满
     // API 连接/worktree/进程/成本。单个失败不影响其余,结果按原顺序汇总。
-    // 深度感知并发:depth1 子代理再扇出(→depth2)时允许最多 20 个并行;主代理(depth0)用默认 10。
-    const depth = ctx.subagentDepth ?? 0;
-    const MAX_PARALLEL = depth >= 1 ? 20 : (Number(process.env.DAO_MAX_PARALLEL_AGENTS) || 10);
+    const MAX_PARALLEL = Number(process.env.DAO_MAX_PARALLEL_AGENTS) || 10;
     const results: string[] = new Array(tasks.length);
     let next = 0;
     const worker = async (): Promise<void> => {
@@ -163,3 +246,11 @@ export const agentTool = defineTool({
     return results.join("\n\n---\n\n");
   },
 });
+
+// P2-48 清理策略(对标 CC):isolate 有改动 → 保留分支供 review/merge;无改动 → 自动删,不留垃圾 worktree。
+function finishWithWorktree(text: string, worktree?: { branch: string; cleanup: () => void; hasChanges: () => boolean }): string {
+  if (!worktree) return text;
+  if (worktree.hasChanges()) return `${text}\n[隔离:改动在分支 ${worktree.branch}(已保留,可 review/merge)]`;
+  worktree.cleanup();
+  return text;
+}
