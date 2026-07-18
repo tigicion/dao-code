@@ -136,6 +136,38 @@ describe("runAgent 阶段接线", () => {
     expect(capturedMessages![0]).toEqual({ role: "system", content: "我是子代理系统提示" });
   });
 
+  it("内置 agent 默认(omitClaudeMd 未设)拼上父级 projectInstructions(否则子代理完全拿不到 CLAUDE.md/项目上下文)", async () => {
+    let capturedMessages: ChatMessage[] | undefined;
+    const params = baseParams({
+      agentDef: { agentType: "general-purpose", whenToUse: "", source: "built-in", getSystemPrompt: () => "我是通用子代理" } as BuiltInAgentDef,
+      projectInstructions: "# 项目须知\n用 TypeScript,遵守 CLAUDE.md",
+      runTurn: async (deps) => {
+        capturedMessages = [...deps.session.messages];
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    await drain(runAgent(params));
+    const sysText = typeof capturedMessages![0]!.content === "string" ? capturedMessages![0]!.content as string : "";
+    expect(sysText).toContain("项目须知");
+    expect(sysText).toContain("我是通用子代理");
+  });
+
+  it("agentDef.omitClaudeMd=true 时不拼 projectInstructions(explore/plan 省 token,只留自己的角色 prompt)", async () => {
+    let capturedMessages: ChatMessage[] | undefined;
+    const params = baseParams({
+      agentDef: { agentType: "explore", whenToUse: "", source: "built-in", omitClaudeMd: true, getSystemPrompt: () => "我是探查子代理" } as BuiltInAgentDef,
+      projectInstructions: "# 项目须知\n用 TypeScript,遵守 CLAUDE.md",
+      runTurn: async (deps) => {
+        capturedMessages = [...deps.session.messages];
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    await drain(runAgent(params));
+    const sysText = typeof capturedMessages![0]!.content === "string" ? capturedMessages![0]!.content as string : "";
+    expect(sysText).not.toContain("项目须知");
+    expect(sysText).toContain("我是探查子代理");
+  });
+
   it("agentDef.memory 设置时:system prompt 追加记忆说明 + 强制找回被 disallowedTools 排除的 read/write/edit 工具", async () => {
     const pool = new ToolRegistry();
     for (const n of ["read_file", "write_file", "edit_file", "grep_files"]) pool.register(mkTool(n));

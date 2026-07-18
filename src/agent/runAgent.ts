@@ -55,6 +55,9 @@ export interface RunAgentParams {
   description?: string;
   /** sidechain 转录目录(未传时兜底用 process.cwd()/.dao/subagents) */
   subagentsDir?: string;
+  /** 父会话的完整项目指令(CLAUDE.md/DAO.md/gitStatus 等已组装好的 system prompt);
+   *  agentDef.omitClaudeMd!==true 时拼进子代理 system prompt,省 token 的一次性 agent(explore/plan)不拼。 */
+  projectInstructions?: string;
   /** 后台子代理给父发 mid-run 消息的出口(message_parent 工具用);前台子代理不传 */
   messageParent?: (message: string) => void;
   /** 缓存安全参数回调(后台摘要用) */
@@ -155,6 +158,7 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     onCacheSafeParams,
     onQueryProgress,
     messageParent,
+    projectInstructions,
     config,
     streamChat,
     executeToolCalls,
@@ -199,14 +203,17 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     ? filterIncompleteToolCalls(forkContextMessages)
     : [];
 
-  // system prompt:override(fork 用父的)> 内置 agent 闭包 > 自定义 agent frontmatter content
+  // system prompt:override(fork 用父的)> 内置 agent 闭包 > 自定义 agent frontmatter content。
+  // 除非 agentDef.omitClaudeMd(explore/plan 省 token),否则拼上父级 projectInstructions——
+  // 不拼的话子代理完全拿不到 CLAUDE.md/DAO.md/gitStatus 等项目上下文,只剩自己的角色 prompt。
   let agentSystemPrompt: string;
   if (override?.systemPrompt) {
     agentSystemPrompt = override.systemPrompt;
-  } else if (agentDef.source === "built-in") {
-    agentSystemPrompt = agentDef.getSystemPrompt({ toolUseContext });
   } else {
-    agentSystemPrompt = agentDef.getSystemPrompt();
+    const own = agentDef.source === "built-in" ? agentDef.getSystemPrompt({ toolUseContext }) : agentDef.getSystemPrompt();
+    agentSystemPrompt = agentDef.omitClaudeMd || !projectInstructions
+      ? own
+      : `${projectInstructions}\n\n# 你的专用角色(${agentDef.agentType})\n${own}`;
   }
 
   // ---- 阶段 3:Agent 级资源初始化 ----
