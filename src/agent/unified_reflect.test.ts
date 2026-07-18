@@ -110,7 +110,7 @@ describe("REFLECT_TAIL 记忆提取段", () => {
   it("含五个高信号时刻指引", () => {
     expect(REFLECT_TAIL).toContain("高信号时刻");
     expect(REFLECT_TAIL).toContain("用户纠正/反驳你时");
-    expect(REFLECT_TAIL).toContain("verify_done");
+    expect(REFLECT_TAIL).toContain("verify 子代理");
     expect(REFLECT_TAIL).toContain("同一指令在短时间内重复");
     expect(REFLECT_TAIL).toContain("跨轮次的用户行为模式");
     expect(REFLECT_TAIL).toContain("你做错但自己发现并修正了");

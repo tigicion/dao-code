@@ -47,7 +47,7 @@ export const readFileTool = defineTool({
     limit: z.number().int().min(1).optional().describe("最多读取的行数"),
   }),
   handler: async (args, ctx) => {
-    const { abs, external } = classifyPath(ctx.workspaceRoot, args.path);
+    const { abs, external } = classifyPath(ctx.cwd ?? ctx.workspaceRoot, args.path);
     if (external && !(await (ctx.approveExternalRead?.(abs) ?? Promise.resolve(false)))) {
       return msg(
         `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`,

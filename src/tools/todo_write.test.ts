@@ -60,7 +60,7 @@ describe("todo_write tool", () => {
       },
       ctx,
     );
-    expect(out).toContain("verify_done");
+    expect(out).toContain("verify 子代理");
   });
 
   it("fewer than 3 items, all completed → no nudge", async () => {
@@ -73,7 +73,7 @@ describe("todo_write tool", () => {
       },
       ctx,
     );
-    expect(out).not.toContain("verify_done");
+    expect(out).not.toContain("verify 子代理");
   });
 
   it("≥3 items but not all completed → no nudge", async () => {
@@ -87,7 +87,7 @@ describe("todo_write tool", () => {
       },
       ctx,
     );
-    expect(out).not.toContain("verify_done");
+    expect(out).not.toContain("verify 子代理");
   });
 
   it("activeForm overrides content in output when provided", async () => {

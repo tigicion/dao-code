@@ -25,7 +25,7 @@ export const listDirTool = defineTool({
     path: z.string().optional().describe("相对工作区根目录的目录路径,默认根目录"),
   }),
   handler: async (args, ctx) => {
-    const { abs, external } = classifyPath(ctx.workspaceRoot, args.path ?? ".");
+    const { abs, external } = classifyPath(ctx.cwd ?? ctx.workspaceRoot, args.path ?? ".");
     if (external && !(await (ctx.approveExternalRead?.(abs) ?? Promise.resolve(false)))) {
       return msg(
         `Error: ${args.path} 在工作区之外,未获授权访问(可在弹出的授权中放行)。`,

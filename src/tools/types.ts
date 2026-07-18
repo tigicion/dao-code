@@ -8,8 +8,22 @@ export type Capability = "read" | "write" | "exec" | "network" | "plan";
 export type Approval = "auto" | "suggest" | "required";
 
 export interface ToolContext {
-  // 工具的文件根目录;路径相对它解析。
+  // 项目身份根目录:memory/MCP/LSP/skills/settings/审计日志 等子系统都按它定位,启动时定一次,
+  // 不随 worktree 切换而变——即使当前在某个 worktree 里干活,这些子系统仍指向"真正的项目"。
   workspaceRoot: string;
+  // 路径解析根目录(文件读写/exec_shell/verify 等"在哪干活"用它);未设时回退到 workspaceRoot。
+  // 只有 enter_worktree/exit_worktree 会改它——两者是分开的概念:workspaceRoot 回答"这是哪个项目",
+  // cwd 回答"现在文件改动落在哪个目录"。别把两者混用,否则会出现"改的文件不在你以为的地方"这种 bug。
+  cwd?: string;
+  // 当前通过 enter_worktree 进入的 worktree(未在 worktree 会话里则为空);exit_worktree 靠它做
+  // keep/remove 判断,并在退出时把 cwd 恢复到进入前的值。
+  activeWorktree?: {
+    root: string;
+    branch: string;
+    cleanup: () => void;
+    hasChanges: () => boolean;
+    previousCwd: string | undefined;
+  };
   // 本会话已读文件的绝对路径集合(写工具据此判断"覆盖/编辑前是否已读");可选。
   readFiles?: Set<string>;
   // P2-23 读时元信息(mtime/size):写前复核,文件自上次读后被外部改动则拒绝(防覆盖并发改动)。
@@ -92,8 +106,6 @@ export interface ToolContext {
   homeDir?: string;
   // 中途取消信号(ESC/超时):工具据此提前终止(如 exec_shell 给子进程发 SIGTERM)。
   signal?: AbortSignal;
-  // 可执行验收命令(DoD):设了则 verify_done 跑它判完成;未设则模型据证据自判。运行时可改。
-  verifyCommand?: string;
   // 申请访问工作区外路径(读类工具用):返回是否获批。未注入(非交互)默认拒绝。
   // 一次授权后同会话/本仓库后续外部读不再追问(减少阻塞)。
   approveExternalRead?: (absPath: string) => Promise<boolean>;

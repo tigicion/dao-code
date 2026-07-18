@@ -41,7 +41,6 @@ import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
 import { memoryWriteTool } from "./tools/memory_write.js";
 import { memoryReadTool } from "./tools/memory_read.js";
-import { verifyDoneTool } from "./tools/verify.js";
 import { runAgent } from "./agent/runAgent.js";
 import { resolveLang, setLang, getLang, t, readUserLang, writeUserLang } from "./i18n/i18n.js";
 import { createTaskManager } from "./agent/tasks.js";
@@ -70,9 +69,13 @@ import { toolSearchTool } from "./tools/tool_search.js";
 import { taskCreateTool } from "./tools/task_create.js";
 import { taskListTool } from "./tools/task_list.js";
 import { taskGetTool } from "./tools/task_get.js";
+import { taskOutputTool } from "./tools/task_output.js";
+import { monitorTool } from "./tools/monitor.js";
 import { taskUpdateTool } from "./tools/task_update.js";
 import { taskStopTool } from "./tools/task_stop.js";
 import { enterPlanModeTool, exitPlanModeTool } from "./tools/plan_mode.js";
+import { enterWorktreeTool } from "./tools/enter_worktree.js";
+import { exitWorktreeTool } from "./tools/exit_worktree.js";
 import { configTool } from "./tools/config.js";
 import { sendMessageTool } from "./tools/send_message.js";
 import { cronCreateTool, cronDeleteTool, cronListTool } from "./tools/cron_tools.js";
@@ -501,9 +504,11 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, verifyDoneTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
-    taskCreateTool, taskListTool, taskGetTool, taskUpdateTool, taskStopTool, notifyUserTool,
+    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
+    taskCreateTool, taskListTool, taskGetTool, taskOutputTool, taskUpdateTool, taskStopTool, notifyUserTool,
     enterPlanModeTool, exitPlanModeTool,
+    enterWorktreeTool, exitWorktreeTool,
+    monitorTool,
     configTool, sendMessageTool,
     cronCreateTool, cronDeleteTool, cronListTool,
   ]) {
@@ -881,7 +886,6 @@ async function main() {
       return [deferredHits, mcpHits].filter((s) => !s.startsWith("没有")).join("\n\n");
     },
     lsp: lspManager, // lsp 工具用
-    verifyCommand: process.env.DAO_VERIFY_CMD?.trim() || undefined,
   };
 
   // 子代理的直接输出在 Ink 态需静默(否则 write 到 stdout 会冲掉 Ink 渲染;其最终结果仍作工具结果展示)。
@@ -1220,6 +1224,10 @@ async function main() {
   let reflectBusy = false; // 防并发:上次后台反思未完成则跳过本次
   let cadenceState = initCadence();
   const pendingReflectAdvisories: string[] = []; // 反思器 advisory(有问题才入队),回合边界 append-only 注入
+  // 运行中排队的用户补充输入(TUI 敲回车时 push):回合边界(下一个工具轮开始前)由 runTurn 的
+  // drainPending 消费、注入为 user 消息——不用等当前这一整个大回合跑完。ESC 取消排队时靠这个数组
+  // 的引用被清空(splice(0)),已经被 drainPending 取走的部分自然不受影响(取走时已经不在数组里了)。
+  const steeringQueue: string[] = [];
   const REFLECT_MAX_INTERVAL = process.env.DAO_REFLECT_EVERY === "1" ? 1 : (Number(process.env.DAO_REFLECT_MAX_INTERVAL) || 3);
   const NO_MEMORY = process.env.DAO_NO_MEMORY === "1"; // demo 对照:禁反思器记忆(注入侧另行禁)
   const REFLECT_SYNC = process.env.DAO_REFLECT_SYNC === "1"; // 测试/demo:反思同步完成再继续(否则后台 void)
@@ -1464,6 +1472,7 @@ async function main() {
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
+            drainPending: () => steeringQueue.splice(0), // 运行中排队的补充输入:下一个工具轮边界注入,不等整个大回合跑完
             events: logEvents(events, store), // 渲染的同时写日志
             // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
@@ -1830,14 +1839,6 @@ async function main() {
             }
             return { handled: true, output: "❖ Coordinator 已并入长任务自主模式:已开启(auto 自动批准 + 自主推进 + 任务大时自动按研究→综合→实现→验证分阶段)。直接说出要做的较大任务即可。" };
           }
-          if (name === "dod") {
-            const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
-            if (!arg) {
-              return { handled: true, output: ctx.verifyCommand ? `当前验收命令:${ctx.verifyCommand}(/dod off 清除)` : "未设验收命令。用法:/dod <命令>(如 /dod npm test);设了则 verify_done 跑它判完成" };
-            }
-            ctx.verifyCommand = arg === "off" ? undefined : arg;
-            return { handled: true, output: ctx.verifyCommand ? `验收命令已设:${ctx.verifyCommand}` : "已清除验收命令(改为模型自判)" };
-          }
           // 内置 prompt 命令(simplify/remember/debug/skillify):展开成 prompt 跑一回合。
           if (name) {
             const args = line.trim().slice(1).split(/\s+/).slice(1).join(" ");
@@ -1921,6 +1922,8 @@ async function main() {
         drainNotifications: () => taskManager.drainNotifications(),
         subscribeTasks: (cb) => taskManager.onChange(cb),
         runningTasks: () => taskManager.running().length,
+        queueSteering: (text) => steeringQueue.push(text),
+        drainSteering: () => steeringQueue.splice(0),
         listAccounts,
         switchAccount: (n) => { switchAccount(n); },
         removeAccount,

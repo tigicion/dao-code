@@ -779,17 +779,22 @@ describe("App", () => {
     expect(f).not.toContain("read_file");
   });
 
-  it("运行中回车排队 → 当前回合结束后按序处理(steering)", async () => {
-    let resolveFirst!: () => void;
+  it("运行中回车排队 → 由 events.userMessage 在回合内直接消费,不用等整个回合结束(steering)", async () => {
+    const steeringQueue: string[] = []; // 模拟 index.ts 的真实排队队列(不是 App 自己的本地镜像)
+    let resolveGate!: () => void;
     const submitted: string[] = [];
-    const { stdin } = render(
+    const { lastFrame, stdin } = render(
       <App
         {...makeDeps({
           submit: async (t: string | ContentPart[], { events }) => {
             submitted.push(typeof t === "string" ? t : "[img]");
-            if (submitted.length === 1) await new Promise<void>((r) => { resolveFirst = r; });
+            await new Promise<void>((r) => { resolveGate = r; }); // 模拟卡在某个工具轮里
+            // 模拟 loop.ts 的 drainPending:在【同一个】回合内消费掉排队输入,不产生新的 submit 调用
+            for (const m of steeringQueue.splice(0)) events.userMessage?.(m);
             events.assistantDone({ role: "assistant", content: "done" });
           },
+          queueSteering: (text) => steeringQueue.push(text),
+          drainSteering: () => steeringQueue.splice(0),
         })}
       />,
     );
@@ -799,12 +804,79 @@ describe("App", () => {
     await delay();
     for (const ch of "next") stdin.write(ch);
     await delay();
-    stdin.write("\r"); // 运行中 → 排队
+    stdin.write("\r"); // 运行中 → 直接进真实队列,不等回合结束
     await delay();
-    resolveFirst(); // 第一回合结束 → 处理排队
+    expect(steeringQueue).toEqual(["next"]);
+    resolveGate(); // 放行,模拟"下一个工具轮"到达 drainPending
     await delay();
     await delay();
-    expect(submitted).toEqual(["go", "next"]);
+    expect(submitted).toEqual(["go"]); // 全程只有一次 submit 调用——"next" 没有另开一个新回合
+    expect(lastFrame()!).toContain("next"); // userMessage 事件把它渲染成了真正的 user 消息
+  });
+
+  it("ESC:排队未消费时先取消排队、不打断当前回合;再按一次才真正中断", async () => {
+    const steeringQueue: string[] = [];
+    let sawAbort = false;
+    const { lastFrame, stdin } = render(
+      <App
+        {...makeDeps({
+          submit: async (t, { signal }) =>
+            new Promise<void>((_resolve, reject) => {
+              signal.addEventListener("abort", () => { sawAbort = true; reject(new Error("aborted")); });
+            }),
+          queueSteering: (text) => steeringQueue.push(text),
+          drainSteering: () => steeringQueue.splice(0),
+        })}
+      />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 回合开始(永不自行结束,靠 abort 收尾)
+    await delay();
+    for (const ch of "next") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 排队
+    await delay();
+    expect(steeringQueue).toEqual(["next"]);
+
+    stdin.write("\x1b"); // 第一次 ESC:只取消排队
+    await delay();
+    expect(steeringQueue).toEqual([]); // 真实队列被清空
+    expect(sawAbort).toBe(false); // 当前回合没被打断
+    // 取消的内容没有回填进输入框:运行中的空输入框固定渲染成 "⏎ ▎"(busy 态提示符 + 空文本 + 光标)。
+    expect(lastFrame()!).toContain("⏎ ▎");
+
+    stdin.write("\x1b"); // 第二次 ESC:真正中断当前回合
+    await delay();
+    expect(sawAbort).toBe(true);
+  });
+
+  it("ESC 中断当前回合后回填输入框;紧接着按 ↓ 直接清空,不用逐字删除", async () => {
+    let resolveGate!: () => void;
+    const { lastFrame, stdin } = render(
+      <App
+        {...makeDeps({
+          submit: async () => new Promise<void>((r) => { resolveGate = r; }),
+        })}
+      />,
+    );
+    // 输入框那一行(边框内带 › / ⏎ 提示符);提交后的文本会永久留在 transcript 里也含 "hello",
+    // 不能直接对整帧断言,只找带边框字符「│」的那一行,才能分清"回填在输入框里"还是"只是 transcript 历史"。
+    const inputLine = (frame: string) => frame.split("\n").reverse().find((l) => l.includes("│") && /[›⏎]/.test(l)) ?? "";
+
+    for (const ch of "hello") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 提交,进入 busy
+    await delay();
+    stdin.write("\x1b"); // ESC 中断(无排队,直接中断)
+    await delay();
+    resolveGate(); // 放行(即使已 abort,mock 的 promise 需要有人 resolve 才会退出等待)
+    await delay();
+    expect(inputLine(lastFrame()!)).toContain("hello"); // 回填
+
+    stdin.write("\x1b[B"); // ↓
+    await delay();
+    expect(inputLine(lastFrame()!)).not.toContain("hello"); // 一步清空,不用逐字删除
   });
 
   it("长任务模式 → 状态栏显示标识", () => {

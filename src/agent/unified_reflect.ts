@@ -24,7 +24,7 @@ export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。
    把纠正内容提炼成一条规则,带"为什么"和"怎么用"。
    注意:不是记"某轮某次被纠正"这个事件,是记"被纠正之后得出的那条反例规则"。
 
-2. **verify_done / 验收命令之后用户的反应**(type=feedback 或 procedural)
+2. **verify 子代理验证之后用户的反应**(type=feedback 或 procedural)
    - 通过了、用户没追问 → 这条验证流程有效,记 procedural。
    - 用户追问"实际跑过吗""确认了吗" → 你的验证不够,记 feedback。
    - 用户要求"再跑一下""不够,还要验证 X" → 当前 DoD 标准不够,升级它。
