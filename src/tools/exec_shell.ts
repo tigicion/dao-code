@@ -115,7 +115,8 @@ export const execShellTool = defineTool({
     "在还没搞清楚一份数据/文件的状态就去探查它时要留神:某些'看起来是只读查询'的命令其实有副作用" +
     "(比如对 SQLite 数据库跑查询可能触发 WAL checkpoint、直接消耗掉本该保留的 WAL 文件;某些工具打开文件" +
     "时会自动修复/重写它)。任务是要恢复/修复某份可能损坏的原始数据时,先复制一份再动手探查,不要直接在" +
-    "唯一的原始文件上试——探查途中不可逆地毁掉本来能验证假设的原始证据,比多花一步复制的成本高得多。",
+    "唯一的原始文件上试——探查途中不可逆地毁掉本来能验证假设的原始证据,比多花一步复制的成本高得多。\n" +
+    "可选参数:description(命令语义描述,用于审计日志);dangerouslyDisableSandbox(设为 true 绕过 DAO_SANDBOX 沙箱,仅在确认沙箱导致命令失败时使用,会强制审批)。",
   descriptionEn:
     "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution waits for completion and returns stdout/stderr " +
     "plus exit code / timeout / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) — use " +
@@ -134,7 +135,8 @@ export const execShellTool = defineTool({
     "Be careful when probing a file/dataset whose state you don't fully understand yet: some commands that look read-only actually have side effects " +
     "(e.g. querying a SQLite database can trigger a WAL checkpoint that consumes the very WAL file you needed to preserve; some tools auto-repair/rewrite " +
     "a file just by opening it). When the task is to recover/repair a possibly-corrupted original file, copy it first before probing — irreversibly " +
-    "destroying the original evidence mid-investigation costs far more than the one extra copy step.",
+    "destroying the original evidence mid-investigation costs far more than the one extra copy step.\n" +
+    "Optional: description (semantic description of the command, for audit logs); dangerouslyDisableSandbox (set true to bypass DAO_SANDBOX, only when sandbox causes failure, forces approval).",
   capability: "exec",
   approval: "required",
   schema: z.object({

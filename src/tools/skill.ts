@@ -10,14 +10,14 @@ export const skillTool = defineTool({
     "必须先调用本工具加载它、再做其它任何回应或动作;绝不只口头提到某个 skill 而不实际调用它——" +
     "看到匹配就是调用的时机,不是先问用户要不要用。加载进来的正文是【必须照做的流程】,优先级高于你自己的默认习惯," +
     "只在用户当前明确指令、安全/证据、或模型选型政策这几件事上让步;里面若有步骤清单就用 todo_write 逐条建 todo" +
-    "按序执行,若要求给用户选项/确认就必须用 ask_user,不能自己脑内替用户做了决定。别为已经加载过的同一个 skill 重复调用。",
+    "按序执行,若要求给用户选项/确认就必须用 ask_user,不能自己脑内替用户做了决定。别为已经加载过的同一个 skill 重复调用。可选 args 传参给技能(如 '-m \"Fix bug\"' 或 '123')。",
   descriptionEn:
     "Loads a ready-to-use skill's full instructions and executes accordingly. At startup you only see each skill's name + one-line description (progressive disclosure, " +
     "saves context) — the full body must be fetched via this tool when needed. [MANDATORY]: When a task matches a skill in the available skill list, you MUST call this " +
     "tool to load it before taking any other action or response; never just mention a skill name without actually loading it — a match is the trigger to call it, not a " +
     "reason to ask the user first whether to use it. The loaded body is a [MUST-FOLLOW procedure], outranking your own default habits — it only yields to the user's " +
     "current explicit instruction, safety/evidence, or model-selection policy. If it contains a step list, track it with todo_write and execute in order; if it calls " +
-    "for giving the user options/confirmation, you must use ask_user rather than deciding on the user's behalf. Don't repeatedly load the same already-loaded skill.",
+    "for giving the user options/confirmation, you must use ask_user rather than deciding on the user's behalf. Don't repeatedly load the same already-loaded skill. Optional args passes parameters to the skill (e.g. '-m \"Fix bug\"' or '123').",
   capability: "read",
   approval: "auto",
   schema: z.object({
