@@ -57,9 +57,15 @@
   就已经死了。已给出两个候选修法:(a) 空响应重试的收敛提示措辞加强为强制"这次回复
   第一步必须是工具调用,不允许输出推导类自由文本";(b) 该重试请求临时调低
   `reasoning_effort`,物理限制模型没有预算重新做一遍完整推导。**2026-07-19:候选(a)
-  已实现并提交(`5f91c45`),按纪律先单独落地测效果,(b)留到(a)复测后再评估是否需要
-  叠加**——详见下方正文新增小节。二进制已按`5f91c45`重编,复测批次`evolve-round-
-  5f91c45`已提交(huoshan/volcengine账号,`--agent-timeout-multiplier 4`),结果待补。
+  单独复测(`evolve-round-5f91c45`批次,`regex-chess__agvGgew`)结果 reward=0,
+  反模式仍复现**——`dao_stdout.txt`证实提示确实注入了(命中"[思考耗尽输出预算,提示
+  收敛后重试…]",第1024行),但重试请求同样把预算耗在同一段心算推导上,再次空响应,
+  第2136行命中"连续两次空响应,结束本轮"——**坐实(a)单独不够,文字指令管不住
+  reasoning 阶段本身要展开多长**。已按纪律当场决策落地候选(b)(`e152a75`):
+  `requestAssistant`新增单次调用级`effortOverride`,只在`onEmptyTruncation`触发的
+  这次重试生效,传`"low"`物理压低思考预算,普通空响应重试不受影响。TDD 两条新用例
+  (压低生效/普通空响应不压低)。二进制已按`e152a75`重编,独立复测批次
+  `fix-effortlow-regexchess`已提交,结果待补。
 
 ---
 
@@ -3799,3 +3805,26 @@ largest-eigenval/gcode-to-text 借这批做真实重跑（此前两次都是基�
 此前因 `AccountQuotaExceeded` 作废的复测；path-tracing-reverse 借这批确认
 `9b2d2b1`(askChoice误判修复)的最终 reward（此前只观察到"过程中运行正常"，未捕获
 到最终结果）。结果待补。
+
+**部分结果已回收(2026-07-19 22:16)**：
+
+- **`gcode-to-text__rMMhLrL`**：reward=0，无 exception，22次工具调用、跨度309s/900s
+  (34%)，`dao_stdout.txt`收尾显示模型做了真实分析（PrusaSlicer M486命令、逐层
+  字符数），最终答案"Embossed text"错误（应为具体flag文本）——**与已知归因一致
+  （真实字面识别精度问题），首次拿到真实数据确认，不是新发现**。
+- **`regex-chess__agvGgew`**：reward=0，候选(a)单独不够，详见上方待闭环清单条目。
+  已落地候选(b)并提交独立复测`fix-effortlow-regexchess`。
+- largest-eigenval/make-mips-interpreter/path-tracing-reverse 三题仍在跑（binary
+  为`5f91c45`，早于candidate(b)的`e152a75`——这三题跟reasoning_effort重试改动无关，
+  不受影响，结果仍有效）。
+
+## EVOLVE：regex-chess候选修法(b)——onEmptyTruncation重试物理调低reasoning_effort
+
+见上方"待闭环事项"317b130条目的完整根因链条与改动细节。**commit**：`e152a75`。
+TDD：`loop.test.ts`新增两条用例（onEmptyTruncation重试确认effort降为"low"、普通
+空响应重试确认不受影响仍是默认档位）。全量`npx vitest run`1552/1552通过，
+`npm run typecheck`通过。二进制已按此commit重新编译。
+
+**真实复测**：提交`fix-effortlow-regexchess`(`terminal-bench/regex-chess`，
+`--ak provider=volcengine`，huoshan账号，`--agent-timeout-multiplier 4`)，与
+`evolve-round-5f91c45`批次剩余任务并行跑（互不干扰，不同job目录）。结果待补。
