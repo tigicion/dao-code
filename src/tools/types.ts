@@ -89,6 +89,9 @@ export interface ToolContext {
   // SkillInstall 装完后:把新装技能加载进【当前会话】(追加式,便宜、无需重启)。返回新加载的技能名。
   // 交互/headless 都可(纯追加)。未注入(如子代理)=不支持,装完仍需重启生效。
   loadInstalledSkills?: (scope: "user" | "project") => Promise<string[]>;
+  // 文件操作(read/write/edit/multiEdit)后触发:动态发现 .dao/skills/ + 条件 skill 路径匹配。
+  // fire-and-forget;新 skill 通过尾部 system 消息注入,不碰固定前缀。未注入(如子代理)=不触发。
+  onFileAccessed?: (filePath: string) => Promise<void>;
   // 外来技能(为 CC/Codex/Gemini 等所写)正文 → DAO 适配:检测+按用途转换工具名(无字典,缓存)。
   // dao 原生技能原样返回。skill 工具加载正文时调用。注入便于测试。
   adaptSkill?: (body: string) => Promise<string>;

@@ -124,6 +124,8 @@ export const readFileTool = defineTool({
         `\n…(File has ${lines.length} lines total; showing first ${DEFAULT_MAX_LINES} by default; use offset=${end + 1} to continue, or Grep for targeted search)`,
       )
       : "";
+    // fire-and-forget:动态发现 .dao/skills/ + 条件 skill 路径匹配(不阻塞读操作)
+    ctx.onFileAccessed?.(abs).catch(() => {});
     return body + more;
   },
 });

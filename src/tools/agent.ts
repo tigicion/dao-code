@@ -39,7 +39,8 @@ const AGENT_TOOL_PROMPT_ZH =
   "model(临时换模型省钱,但会让前缀缓存失效)、mode=plan(只读规划)。fork 与 model/mode 天生冲突。" +
   "agent_type 指定子代理类型(见系统 prompt 的'可用子代理类型');省略则用通用子代理。\n" +
   "拿到结果后留个心眼:子代理返回的是它自称做了什么,不是你亲眼确认过的事实。" +
-  "涉及代码改动的子任务,回来后亲自复核关键结论,不要原样转述子代理的自述。\n" +
+  "涉及代码改动的子任务,回来后亲自复核关键结论,不要原样转述子代理的自述。" +
+  "别重复子代理正在做的工作:如果你把一项调查派给了子代理,就不要自己也去跑同样的搜索。\n" +
   "何时不该用:要读某个具体文件路径,直接 Read;要搜某个类/函数定义,直接 Grep/Glob;" +
   "只需在 2-3 个文件里搜代码,直接 Read。这些简单搜索不值得派子代理。\n" +
   "写 prompt 的指引:像给刚进门的聪明同事 brief--子代理没看过当前对话,不知道你试过什么、为什么这个任务重要。" +
@@ -61,7 +62,8 @@ const AGENT_TOOL_PROMPT_EN =
   "model (temporarily switch models - invalidates prefix cache), mode=plan (read-only planning). fork conflicts with model/mode. " +
   "agent_type selects a subagent type (see 'Available Subagent Types' in system prompt); omit for generic subagent.\n" +
   "Trust but verify: a subagent's summary describes what it claims it did, not what you've confirmed. " +
-  "For code-change subtasks, verify key results yourself before reporting.\n" +
+  "For code-change subtasks, verify key results yourself before reporting. " +
+  "Don't duplicate work that subagents are already doing - if you delegate research to a subagent, do not also perform the same searches yourself.\n" +
   "When NOT to use: to read a specific file path, use Read directly; to search for a class/function definition, use Grep/Glob directly; " +
   "to search within 2-3 specific files, use Read directly. These simple searches don't warrant a subagent.\n" +
   "Writing the prompt: brief the agent like a smart colleague who just walked into the room - it hasn't seen this conversation. " +
@@ -91,7 +93,8 @@ export const agentTool = defineTool({
     "价值就是复用缓存,换模型/换模式会让这份缓存作废。agent_type 指定自定义子代理类型(有专属 prompt/工具白名单),不给就是通用子代理。" +
     "拿到结果后留个心眼:子代理返回的是它自称做了什么,不是你亲眼确认过的事实——它可能把「应该改好了」当「已经改好了」报回来。" +
     "涉及代码改动、修 bug、跑测试这类子任务,回来后花一次工具调用亲自复核关键结论(读一下实际 diff、跑一下它说过的命令)," +
-    "不要原样把子代理的自述转述给用户当作你自己验证过的结论。\n" +
+    "不要原样把子代理的自述转述给用户当作你自己验证过的结论。" +
+    "别重复子代理正在做的工作:如果你把一项调查派给了子代理,就不要自己也去跑同样的搜索。\n" +
     "何时不该用:要读某个具体文件路径,直接 Read;要搜某个类/函数定义,直接 Grep/Glob;只需在 2-3 个文件里搜代码,直接 Read。这些简单搜索不值得派子代理。\n" +
     "写 prompt 的指引:像给刚进门的聪明同事 brief--子代理没看过当前对话,不知道你试过什么、为什么这个任务重要。说清目标与背景、已排除的方向、需要判断而非窄指令的上下文。需要短回复就说『200 字以内回报』。查/定位:给确切命令;调查:给问题而非规定步骤。别写『基于你的发现修复 bug』--那是把综合判断推给子代理;写能证明你理解了的 prompt:含文件路径、行号、具体改什么。",
   descriptionEn:
@@ -109,7 +112,8 @@ export const agentTool = defineTool({
     "is reusing the cache, and switching model/mode invalidates that cache. agent_type selects a custom subagent type (with its own prompt/tool allowlist); omit for a generic subagent. " +
     "Trust but verify what comes back: a subagent's summary describes what it claims it did, not what you've confirmed happened — it may report \"should be fixed\" as " +
     "\"fixed\". For subtasks touching code changes, bug fixes, or tests, spend one follow-up tool call checking the actual result yourself (read the real diff, run the " +
-    "command it says it ran) before reporting the subagent's account to the user as your own verified conclusion.\n" +
+    "command it says it ran) before reporting the subagent's account to the user as your own verified conclusion. " +
+    "Don't duplicate work that subagents are already doing - if you delegate research to a subagent, do not also perform the same searches yourself.\n" +
     "When NOT to use: to read a specific file path, use Read directly; to search for a class/function definition, use Grep/Glob directly; to search within 2-3 specific files, use Read directly. These simple searches don't warrant a subagent.\n" +
     "Writing the prompt: brief the agent like a smart colleague who just walked into the room - it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters. Explain what you're trying to accomplish and why. Describe what you've already learned or ruled out. Give enough context that the agent can make judgment calls rather than just following a narrow instruction. If you need a short response, say so. Lookups: hand over the exact command. Investigations: hand over the question - prescribed steps become dead weight when the premise is wrong. Don't write 'based on your findings, fix the bug' - that pushes synthesis onto the agent; write prompts that prove you understood: include file paths, line numbers, what specifically to change.",
   capability: "plan",

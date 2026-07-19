@@ -59,6 +59,7 @@ export const writeFileTool = defineTool({
       await atomicWrite(abs, args.content);
       try { const w = await fs.stat(abs); ctx.readMeta?.set(abs, { mtime: w.mtimeMs, size: w.size }); } catch { /* ignore */ } // 写后刷新基线
       ctx.readFiles?.add(abs);
+      ctx.onFileAccessed?.(abs).catch(() => {});
       return msg(`已写入 ${args.path}(${args.content.split("\n").length} 行)`, `Wrote ${args.path} (${args.content.split("\n").length} lines)`);
     });
   },

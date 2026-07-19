@@ -279,7 +279,12 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   if (!override?.systemPrompt) {
     const cwd = worktreePath ?? toolUseContext.workspaceRoot ?? process.cwd();
     const toolNames = resolvedTools.toApiTools().map((t) => t.function.name).sort().join(", ");
-    agentSystemPrompt += `\n\n# 环境信息\n工作目录: ${cwd}\n平台: ${process.platform}\n可用工具: ${toolNames}`;
+    agentSystemPrompt +=
+      `\n\n# 环境信息\n工作目录: ${cwd}\n平台: ${process.platform} ${process.arch}\n可用工具: ${toolNames}` +
+      `\n\n# 注意` +
+      `\n- bash 调用之间 cwd 会重置,请只用绝对文件路径。` +
+      `\n- 最终回复中分享与任务相关的文件路径(用绝对路径,不用相对路径)。只在确切文本是关键信息时才包含代码片段(如你发现的 bug、调用者要求的函数签名)--不要复述你仅仅读过的代码。` +
+      `\n- 工具调用前不要使用冒号。像"让我读一下文件:"后跟一个 Read 工具调用,应写成"让我读一下文件。"(句号结尾)。`;
   }
 
   // criticalSystemReminder:追加到 system prompt 末尾(参考 criticalSystemReminder_EXPERIMENTAL)。

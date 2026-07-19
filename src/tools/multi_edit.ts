@@ -63,6 +63,7 @@ export const multiEditTool = defineTool({
         total += e.replace_all ? count : 1;
       }
       await atomicWrite(abs, text);
+      ctx.onFileAccessed?.(abs).catch(() => {});
       const diffBlock = hunks.length ? `\n${hunks.join("\n")}` : "";
       return msg(
         `已编辑 ${args.path}(${args.edits.length} 组替换,共 ${total} 处)${diffBlock}`,

@@ -80,7 +80,7 @@ import { configTool } from "./tools/config.js";
 import { sendMessageTool } from "./tools/send_message.js";
 import { cronCreateTool, cronDeleteTool, cronListTool } from "./tools/cron_tools.js";
 import { loadHooks, runHooks } from "./hooks/hooks.js";
-import { loadMcpConfig, connectMcpServers, type ElicitHandler } from "./mcp/mcp.js";
+import { loadMcpConfig, McpManager, type ElicitHandler } from "./mcp/mcp.js";
 import { loadLspConfig } from "./lsp/config.js";
 import { LspManager } from "./lsp/manager.js";
 import { lspTool } from "./tools/lsp.js";
@@ -536,18 +536,22 @@ async function main() {
   }
 
   // MCP:连配置的 server,把其工具/资源/提示注册进来(名字 mcp__server__*)。失败的 server 不影响其余/启动。
-  const mcpConfig = await loadMcpConfig([
+  const mcpConfigFiles = [
     path.join(os.homedir(), ".dao", "mcp.json"),
     path.join(workspaceRoot, ".dao", "mcp.json"),
-  ]);
+  ];
+  const mcpConfig = await loadMcpConfig(mcpConfigFiles);
   // elicitation 处理器:连接发生在 UI 就绪前,故经可变引用延迟绑定(下方 inkAsk 声明后赋值)。未绑定则婉拒。
   let mcpElicit: ElicitHandler | null = null;
-  const mcp = await connectMcpServers(mcpConfig, {
+  const mcp = new McpManager(registry, mcpConfig, {
     onElicit: (m, s) => (mcpElicit ? mcpElicit(m, s) : Promise.resolve({ action: "decline" as const })),
+    disabledFile: path.join(os.homedir(), ".dao", "mcp_state.json"),
   });
-  for (const t of mcp.tools) registry.register(t);
+  await mcp.init();
+  // MCP server 变化(toggle/reconnect/list_changed)时注入尾部 system 消息告知模型--不碰固定前缀。
+  mcp.onServerChange = (notice) => session.messages.push({ role: "system", content: notice });
   // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 ToolSearch 去找它们。
-  if (mcp.tools.length > 0) registry.register(toolSearchTool);
+  if (mcp.connectedCount > 0 || registry.countMcpTools() > 0) registry.register(toolSearchTool);
 
   // LSP:不接入任何语言的二进制,纯协议客户端;server 命令完全来自用户配置(同 MCP 的配置文件模式)。
   // 没配置任何 server 就不注册 lsp 工具(没意义,只会让模型看见一个必然报错的工具)。
@@ -701,22 +705,35 @@ async function main() {
     toggleBundled(disabledSet, names, on);
     persistDisabled();
   };
-  // 条件技能(对齐 CC 的 paths):带 paths 的技能仅当项目里有匹配文件才"在场",否则不进列表(减少无关技能稀释触发)。
-  // 无 paths = 一直在场(现状)。启动一次性算定,进固定前缀、缓存安全。
+  // 条件技能(对齐 CC 的 paths):带 paths 的技能仅当项目里有匹配文件才"在场"。
+  // 启动时做一次预扫描(保留原有行为),未匹配的进待激活池,运行时文件操作时动态匹配。
+  // 已匹配的进常驻列表(固定前缀);运行时新激活的通过尾部 system 消息注入(不碰前缀)。
   const visible = [...coreBundled, ...enabledDisk];
+  const { initConditionalPool, activateConditionalSkillsForPaths, discoverSkillDirsForPath, loadSkillsFromDirs } = await import("./skills/discover.js");
+  // 启动时预扫描:快速判断已有文件是否匹配条件 skill
   const condSkills = visible.filter((s) => s.paths && s.paths.length);
   const condMatched = new Set<string>();
   if (condSkills.length > 0) {
     const pats = condSkills.map((s) => ({ name: s.name, res: s.paths!.map(globToRegExp) }));
     let scanned = 0;
     for await (const { rel } of walkFiles(workspaceRoot)) {
-      if (++scanned > 4000) break; // 上限:只为判"有无匹配",不必走全量
+      if (++scanned > 4000) break;
       for (const p of pats) if (!condMatched.has(p.name) && p.res.some((re) => re.test(rel))) condMatched.add(p.name);
-      if (condMatched.size === condSkills.length) break; // 全命中,提前停
+      if (condMatched.size === condSkills.length) break;
     }
   }
-  // 模型可见 = 核心内置 + 启用磁盘,且(无 paths 或 项目匹配)。全部进常驻列表,skill 工具按需加载正文。
-  const skills = visible.filter((s) => !s.paths?.length || condMatched.has(s.name));
+  // 预匹配的标记为已激活(不进待激活池),其余的进待激活池等待运行时匹配
+  // initConditionalPool 把带 paths(且未预激活)的存入池,返回不含 paths 的 + 预激活的
+  // 预激活的需要在传入前移除 paths 标记(否则会被进池),用 _preActivated 区分
+  const preActivated = new Set(condMatched);
+  const skillsForPool = visible.map((s) =>
+    s.paths?.length && preActivated.has(s.name) ? { ...s, paths: undefined } : s,
+  );
+  const skills = initConditionalPool(skillsForPool);
+  // 预激活的也加入 skills 列表(它们在固定前缀里)
+  for (const s of visible) {
+    if (s.paths?.length && preActivated.has(s.name)) skills.push(s);
+  }
   // 使用频率加权(常用且最近用过的技能在发现/列表里靠前)。启动加载一次,记录时增量更新+落盘。
   let usageMap = await loadUsage(os.homedir());
   const skillsHeader = lang === "en"
@@ -928,6 +945,32 @@ async function main() {
     const lines = skillCatalogLines(fresh);
     if (lines) session.messages.push({ role: "system", content: lang === "en" ? `\n# New skills loaded (active this session; use the skill tool to load their full body before acting when they match the task)\n${lines}` : `\n# 新装 skill(本次会话已加载,匹配任务时先用 skill 工具加载其正文再动手)\n${lines}` });
     return fresh.map((s) => s.name);
+  };
+  // 文件操作后触发:动态发现 .dao/skills/ 目录 + 评估条件 skill 路径匹配。
+  // fire-and-forget(不阻塞工具返回);新 skill 通过尾部 system 消息注入(不碰固定前缀)。
+  ctx.onFileAccessed = async (filePath: string) => {
+    // 1. 动态目录发现
+    try {
+      const newDirs = await discoverSkillDirsForPath(filePath, workspaceRoot);
+      if (newDirs.length > 0) {
+        const known = new Set(skills.map((s) => s.name.toLowerCase()));
+        const fresh = await loadSkillsFromDirs(newDirs, known);
+        if (fresh.length > 0) {
+          skills.push(...fresh);
+          const lines = skillCatalogLines(fresh);
+          if (lines) session.messages.push({ role: "system", content: `\n# 动态发现 skill(本次会话已加载,匹配任务时先用 skill 工具加载其正文)\n${lines}` });
+        }
+      }
+    } catch { /* 发现失败不影响文件操作 */ }
+    // 2. 条件 skill 运行时激活
+    try {
+      const activated = activateConditionalSkillsForPaths([filePath], workspaceRoot);
+      if (activated.length > 0) {
+        skills.push(...activated);
+        const lines = skillCatalogLines(activated);
+        if (lines) session.messages.push({ role: "system", content: `\n# 条件 skill 已激活(路径匹配,本次会话已加载)\n${lines}` });
+      }
+    } catch { /* 激活失败不影响文件操作 */ }
   };
   // 外来技能适配(无翻译字典):检测为他者所写时,用 flash 按用途转换工具名,目标词表=dao 工具注册表,按 hash 缓存。
   const apiTools = registry.toApiTools(undefined, lang);
@@ -1572,8 +1615,31 @@ async function main() {
             return { handled: true, output: `后台任务(${r.length}):\n` + r.map((t) => `  ${t.id} · ${t.status} · ${t.description}`).join("\n") };
           }
           if (name === "mcp") {
-            if (mcp.servers.length === 0) return { handled: true, output: "未配置 MCP 服务器。在 ~/.dao/mcp.json 或 <项目>/.dao/mcp.json 写 mcpServers 即可。" };
-            return { handled: true, output: "MCP 服务器:\n" + mcp.servers.map((s) => `  ${s.ok ? "✓" : "✗"} ${s.name} · ${s.tools} 工具${s.resources ? ` · ${s.resources} 资源` : ""}${s.prompts ? ` · ${s.prompts} 提示` : ""}${s.error ? ` · ${s.error}` : ""}`).join("\n") };
+            const rest = line.trim().split(/\s+/).slice(1);
+            const sub = rest[0] ?? "";
+            // /mcp reconnect <name>
+            if (sub === "reconnect" && rest[1]) {
+              mcp.reconnect(rest[1]).then(() => {}).catch(() => {});
+              return { handled: true, output: `正在重连 MCP server「${rest[1]}」…(完成后会通知)` };
+            }
+            // /mcp toggle <name> [on|off]
+            if (sub === "toggle" && rest[1]) {
+              const on = rest[2] !== "off";
+              mcp.toggle(rest[1], on).then(() => {}).catch(() => {});
+              return { handled: true, output: `正在${on ? "启用" : "禁用"} MCP server「${rest[1]}」…` };
+            }
+            // /mcp add <name> <command> [args...]
+            if (sub === "add" && rest[1] && rest[2]) {
+              const serverName = rest[1]!;
+              const cmd = rest[2]!;
+              const args = rest.slice(3);
+              mcp.addServer(serverName, { command: cmd, args }, mcpConfigFiles).then(() => {}).catch(() => {});
+              return { handled: true, output: `正在添加 MCP server「${serverName}」…` };
+            }
+            // /mcp(无子命令)-- 列表展示
+            const statuses = mcp.getServerStatus();
+            if (statuses.length === 0) return { handled: true, output: "未配置 MCP 服务器。在 ~/.dao/mcp.json 或 <项目>/.dao/mcp.json 写 mcpServers 即可。" };
+            return { handled: true, output: "MCP 服务器:\n" + statuses.map((s) => `  ${s.disabled ? "⊘" : s.ok ? "✓" : "✗"} ${s.name} · ${s.tools} 工具${s.error ? ` · ${s.error}` : ""}${s.disabled ? " · 已禁用" : ""}`).join("\n") + "\n\n用法: /mcp reconnect <name> | /mcp toggle <name> [on|off] | /mcp add <name> <command> [args...]" };
           }
           if (name === "diff") {
             try {
@@ -1592,7 +1658,7 @@ async function main() {
               try { execSync(`codesign -v "${process.execPath}" 2>&1`); checks.push("✓ 二进制签名有效"); }
               catch { checks.push("✗ 二进制签名无效 → 重装:npm run bundle:install"); }
             }
-            checks.push(`· 工作区 ${workspaceRoot} · 模型 ${session.model} · ${mcp.servers.length} 个 MCP 服务器`);
+            checks.push(`· 工作区 ${workspaceRoot} · 模型 ${session.model} · ${mcp.getServerStatus().length} 个 MCP 服务器`);
             return { handled: true, output: "dao doctor:\n" + checks.map((c) => "  " + c).join("\n") };
           }
           if (name === "memory") {

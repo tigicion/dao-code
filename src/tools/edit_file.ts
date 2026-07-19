@@ -56,6 +56,7 @@ export const editFileTool = defineTool({
       // 带行号+上下文的 diff hunk(```diff 块):模型可读、TUI 据此渲染(复刻 CC)。
       const hunk = buildEditHunk(raw, args.old_string, args.new_string);
       const diffBlock = hunk.length ? `\n\`\`\`diff\n${hunk.join("\n")}\n\`\`\`` : "";
+      ctx.onFileAccessed?.(abs).catch(() => {});
       return msg(`已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处,行 ${startLine})${diffBlock}`, `Edited ${args.path} (${args.replace_all ? count : 1} replacement(s), line ${startLine})${diffBlock}`);
     });
   },

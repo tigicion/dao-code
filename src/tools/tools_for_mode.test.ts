@@ -23,11 +23,23 @@ describe("apiToolsForMode", () => {
     expect(names).toEqual(["Read"]);
   });
 
-  it("mcp__ 工具默认不出现,ToolSearch 命中激活后才出现(normal/plan 均生效)", () => {
+  it("MCP 工具 ≤ 5 时自动内联(不需 ToolSearch 激活)", () => {
     const r = reg();
     r.register(defineTool({ name: "mcp__github__create_issue", description: "建 issue", capability: "network", approval: "suggest", schema: z.object({}), handler: async () => "" }));
-    expect(apiToolsForMode(r, "normal").map((t) => t.function.name)).not.toContain("mcp__github__create_issue");
-    r.searchAndActivateMcp("issue");
+    // 1 个 MCP 工具 ≤ 阈值 -> 直接内联
     expect(apiToolsForMode(r, "normal").map((t) => t.function.name)).toContain("mcp__github__create_issue");
+  });
+
+  it("MCP 工具 > 5 时默认不出现,ToolSearch 命中激活后才出现", () => {
+    const r = reg();
+    // 注册 6 个 MCP 工具(超过阈值)
+    for (let i = 0; i < 6; i++) {
+      r.register(defineTool({ name: `mcp__srv__tool_${i}`, description: `tool ${i}`, capability: "network", approval: "suggest", schema: z.object({}), handler: async () => "" }));
+    }
+    // 超阈值 -> 默认隐藏
+    expect(apiToolsForMode(r, "normal").map((t) => t.function.name)).not.toContain("mcp__srv__tool_0");
+    // ToolSearch 激活后可见
+    r.searchAndActivateMcp("tool_0");
+    expect(apiToolsForMode(r, "normal").map((t) => t.function.name)).toContain("mcp__srv__tool_0");
   });
 });

@@ -12,7 +12,7 @@ describe("loadProjectInstructions", () => {
   it("无文件 → 空串", async () => {
     expect(loadProjectInstructions(ws)).toBe("");
   });
-  it("有 DAO.md → 只读 DAO.md,忽略 AGENTS.md/CLAUDE.md", async () => {
+  it("有 DAO.md → 读 DAO.md,忽略 AGENTS.md/CLAUDE.md", async () => {
     await fs.writeFile(path.join(ws, "DAO.md"), "dao 约定");
     await fs.writeFile(path.join(ws, "AGENTS.md"), "agents 约定");
     await fs.writeFile(path.join(ws, "CLAUDE.md"), "claude 约定");
@@ -21,16 +21,10 @@ describe("loadProjectInstructions", () => {
     expect(out).not.toContain("agents 约定");
     expect(out).not.toContain("claude 约定");
   });
-  it("无 DAO.md → 回退,AGENTS.md 优先于 CLAUDE.md", async () => {
+  it("无 DAO.md → 不回退 AGENTS.md/CLAUDE.md", async () => {
     await fs.writeFile(path.join(ws, "AGENTS.md"), "agents 约定");
     await fs.writeFile(path.join(ws, "CLAUDE.md"), "claude 约定");
-    const out = loadProjectInstructions(ws);
-    expect(out).toContain("agents 约定");
-    expect(out).not.toContain("claude 约定");
-  });
-  it("只有 CLAUDE.md → 读它(开箱兼容)", async () => {
-    await fs.writeFile(path.join(ws, "CLAUDE.md"), "claude 约定");
-    expect(loadProjectInstructions(ws)).toContain("claude 约定");
+    expect(loadProjectInstructions(ws)).toBe("");
   });
 
   it("DAO.local.md → 叠加在 DAO.md 之上(更高优先级,排在后)", async () => {
