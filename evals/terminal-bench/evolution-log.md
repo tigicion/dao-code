@@ -47,18 +47,19 @@
   验收点逐条自检,模型于是自造了一套跑得通就行的验证标准,完全没检查任务原文明写的
   "源码需从Debian包获取"这一条。**本轮未动手修**,记为下一轮EVOLVE候选(让verify_done
   要求模型逐条列出任务验收点及自检证据)。
-- [ ] **`317b130`(regex-chess心算反模式提示词修复)真实复测:reward=0,反模式复现,
+- [x] **`317b130`(regex-chess心算反模式提示词修复)真实复测:reward=0,反模式复现,
   且定位到一个新的、更早的失败机制**(2026-07-18)——详见下方正文。根因链条已机制性
   坐实:①模型确实仍反复手工推导骑士攻击的正则字符偏移(与修复目标同一模式);②但整场
   会话只在开局完成2次工具调用(`read_file`+`list_dir`,turn 0),随后turn 1的推理直接
   耗尽输出预算触发`onEmptyTruncation`,注入收敛提示重试后**仍然空响应**,命中"连续两次
   空响应,结束本轮"直接终止——`noProgress`/`ADVISE_EVERY=5`那套逐轮进度提醒机制根本
   没有机会触发(远没攒够5轮),317b130的提示词规则和这套安全网都还没来得及生效,会话
-  就已经死了。**本轮未动手修**(用户要求先看完其它失败题),已给出两个候选修法留到下轮:
-  (a) 空响应重试的收敛提示措辞加强为强制"这次回复第一步必须是工具调用,不允许输出
-  推导类自由文本";(b) 该重试请求临时调低`reasoning_effort`,物理限制模型没有预算
-  重新做一遍完整推导。这不是遗忘式搁置——根因和候选方案都已写清楚,只是实现顺序让位
-  给了本轮排查其它失败题。
+  就已经死了。已给出两个候选修法:(a) 空响应重试的收敛提示措辞加强为强制"这次回复
+  第一步必须是工具调用,不允许输出推导类自由文本";(b) 该重试请求临时调低
+  `reasoning_effort`,物理限制模型没有预算重新做一遍完整推导。**2026-07-19:候选(a)
+  已实现并提交(`5f91c45`),按纪律先单独落地测效果,(b)留到(a)复测后再评估是否需要
+  叠加**——详见下方正文新增小节。二进制已按`5f91c45`重编,复测批次`evolve-round-
+  5f91c45`已提交(huoshan/volcengine账号,`--agent-timeout-multiplier 4`),结果待补。
 
 ---
 
@@ -3745,3 +3746,56 @@ reasoning链后有没有东西能把它中断"这一层）。而现有的"空响
 
 **结论**：这批7题里6题（build-pmars已单独覆盖）全部确认为真实难度或已知问题的原始
 样本，没有新增未处理的框架级bug。
+
+## DEBUG补漏：`jobs/` 下一批 2026-07-19 晚间跑过但未记入日志的任务(用户在本会话外并行操作)
+
+发现 `jobs/` 目录下有 6 个此前未在日志出现过的目录，时间戳集中在 2026-07-19
+16:35–20:40，逐一核实：
+
+- **`verify-latest-regexchess-volc`**(`regex-chess__ocaamMR`，reward=0)、
+  **`verify-latest-buildpmars-volc`**(`build-pmars__ar6JKx6`，reward=0)：两题结果与
+  已知状态一致（regex-chess 候选修法尚未落地前的确认复现；build-pmars 的
+  `test_built_from_source` 真实难度未变），**不是新信息，不需要额外归因**。
+- **`rerun-batch1`**(largest-eigenval/build-cython-ext/gcode-to-text/
+  count-dataset-tokens 四题)：全部因 `VOLCENGINE_API_KEY not set` 失败——**数据作废**，
+  是运行时 `.env` 未配好 key 的操作失误，不是代码问题。
+- **`rerun-b1-v2`**(同四题重跑)：全部因 `_handle_sigterm`/`KeyboardInterrupt`
+  失败——**数据作废**，外部手动中止（`harbor jobs stop` 或 Ctrl-C），不是自然超时也不是
+  代码问题。
+- **`rerun-cython`**(`build-cython-ext__KvwXDFU`，独立重跑)：**reward=1，通过**。
+- **`rerun-tokens`**(`count-dataset-tokens__Jqh827V`，独立重跑)：**reward=1，通过**。
+  这两题此前在"DEBUG补漏：iter9批次"一节里被判定为"真实难度"（build-cython-ext
+  10/11测试单点miss、count-dataset-tokens token计数差20个），这次独立重跑双双转为
+  PASS——**记录观察，不改判之前的归因**：真实难度判定针对的是"模型能力/精度差距"，
+  这类差距天然带非确定性（同一模型同一任务不同次运行结果不同很常见），一次转 PASS
+  不代表之前的归因错了，只说明这两题精度差距处在模型能力的边界附近、时好时坏。
+  不需要额外动作，只是把这个观察记下来。
+
+## EVOLVE：regex-chess 候选修法(a)——收敛提示改成结构性约束
+
+**预测**（动手前）：根因见上方"复测结果：317b130未能阻止反模式复现"一节——turn 1 单次
+`streamChat` 内部就在反复心算中耗尽输出预算，`onEmptyTruncation` 触发的收敛提示原文
+"请更快收敛"只是建议，不约束回复结构，模型在重试请求里仍可能重新滑入同一条不收敛的
+推导链，第二次同样空响应，命中"连续两次空响应，结束本轮"直接终止。改在
+`src/agent/loop.ts:403-408`，把提示改成结构性约束——"第一步必须是工具调用，不允许
+先输出推导性自由文本"，并具体点名"反复心算同一类计算"该做什么（写一次性脚本跑出来）。
+预计能救：regex-chess（直接触发场景）；理论上任何"空响应重试后仍在同一条推导链里
+打转"的场景都可能受益。风险：只改变这一条系统消息的文案，不改变触发条件/重试次数
+上限，不影响其它分支。这是候选(a)，按纪律先单独落地测效果，候选(b)（重试时临时调低
+`reasoning_effort`）留到(a)复测后再评估是否需要叠加。
+
+**commit**：`5f91c45`。TDD：更新 `loop.test.ts` 既有用例的期望文案。全量
+`npx vitest run` 1546/1546 通过，`npm run typecheck` 通过。二进制已按此 commit
+重新编译（`build-binaries.sh` 打印 commit `5f91c45`，与 `git log --oneline -1` 一致）。
+
+**真实复测**：提交批次 `evolve-round-5f91c45`(`terminal-bench/regex-chess` +
+`terminal-bench/largest-eigenval` + `terminal-bench/gcode-to-text` +
+`terminal-bench/make-mips-interpreter` + `terminal-bench/path-tracing-reverse`，
+`--ak provider=volcengine`（huoshan账号，模型走 headless `--api-key`/`--provider`
+路径下 `DEFAULTS.volcengine.model` 的默认值 `deepseek-v4-pro`，未显式 `--model`
+覆盖），`--agent-timeout-multiplier 4`，`-n 4`）。除 regex-chess 验证候选(a)外，
+largest-eigenval/gcode-to-text 借这批做真实重跑（此前两次都是基础设施故障、数据
+作废，从未拿到过真实结果）；make-mips-interpreter 借这批补上`8674b28`(卡住计数升级)
+此前因 `AccountQuotaExceeded` 作废的复测；path-tracing-reverse 借这批确认
+`9b2d2b1`(askChoice误判修复)的最终 reward（此前只观察到"过程中运行正常"，未捕获
+到最终结果）。结果待补。
