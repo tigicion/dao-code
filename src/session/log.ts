@@ -45,6 +45,18 @@ export interface SessionMeta {
   done: boolean;
   messageCount: number;
   userMessageCount: number;
+  // 首条用户消息摘录(单行、已截断);无 title 时 /resume 列表拿它帮用户辨认"这是哪个会话"。
+  summary?: string;
+}
+
+// 从消息里摘出首条纯文本用户消息,压成单行、截到 SUMMARY_LEN 供 /resume 列表展示。
+// 多模态消息(content 是 ContentPart[])跳过——同 transcriptFromMessages 的取舍,只认字符串正文。
+const SUMMARY_LEN = 60;
+function firstUserExcerpt(messages: ChatMessage[]): string | undefined {
+  const m = messages.find((m) => m.role === "user" && typeof m.content === "string" && (m.content as string).trim());
+  if (!m) return undefined;
+  const flat = (m.content as string).replace(/\s+/g, " ").trim();
+  return flat.length > SUMMARY_LEN ? flat.slice(0, SUMMARY_LEN) + "…" : flat;
 }
 
 export interface SessionStore {
@@ -79,6 +91,7 @@ export function createSessionStore(baseDir: string, id?: string): SessionStore {
         id: last.id, cwd: last.cwd, title: last.title, updatedAt: last.updatedAt, done: last.done,
         messageCount: last.messages.length,
         userMessageCount: last.messages.filter((m) => m.role === "user").length,
+        summary: firstUserExcerpt(last.messages),
       };
       writeFileSync(metaPath, JSON.stringify(meta));
     } catch {}
@@ -150,6 +163,7 @@ export function loadMeta(baseDir: string, id: string): SessionMeta | null {
     return {
       id: st.id, cwd: st.cwd, title: st.title, updatedAt: st.updatedAt, done: st.done,
       messageCount: st.messages.length, userMessageCount: st.messages.filter((m) => m.role === "user").length,
+      summary: firstUserExcerpt(st.messages),
     };
   }
 }

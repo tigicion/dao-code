@@ -1744,7 +1744,7 @@ async function main() {
             // P3-29 秒列:只读轻量 meta(不解析整份 state.json),并按最近更新排序。
             const metas = listSessions(sessionsDir);
             if (metas.length === 0) return { handled: true, output: "本工作区无历史会话。" };
-            if (!id) return { handled: true, output: `历史会话(${metas.length}):\n` + metas.slice(0, 15).map((m) => `  ${m.id}${m.title ? ` — ${m.title}` : ""}${m.done ? "" : " ·未完成"}`).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
+            if (!id) return { handled: true, output: `历史会话(${metas.length}):\n` + metas.slice(0, 15).map((m) => `  ${m.id}${m.title ?? m.summary ? ` — ${m.title ?? m.summary}` : ""}${m.done ? "" : " ·未完成"}`).join("\n") + "\n用 /resume <会话id> 载入其上下文。" };
             const st = loadState(sessionsDir, id);
             if (!st) return { handled: true, output: `未找到会话:${id}(/resume 看列表)` };
             // 整盘载入上下文(继续写入当前会话文件,不动原文件);先清洗一遍,防止磁盘上的旧历史
@@ -2026,7 +2026,7 @@ async function main() {
         listResume: () =>
           listSessions(sessionsDir).map((m) => ({
             id: m.id,
-            label: `${m.id}${m.title ? ` — ${m.title}` : ""}${m.done ? "" : " ·未完成"}`,
+            label: `${m.id}${m.title ?? m.summary ? ` — ${m.title ?? m.summary}` : ""}${m.done ? "" : " ·未完成"}`,
           })),
         initialItems,
         drainNotifications: () => taskManager.drainNotifications(),

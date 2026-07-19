@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, unlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createSessionStore, loadState, findResumable, listSessions, loadMeta } from "./log.js";
@@ -79,5 +79,37 @@ describe("SessionStore", () => {
     const list = listSessions(base, "/w");
     expect(list.map((m) => m.id).sort()).toEqual([a.id, b.id].sort()); // 两个都在
     for (let i = 1; i < list.length; i++) expect(list[i - 1]!.updatedAt).toBeGreaterThanOrEqual(list[i]!.updatedAt); // 降序不变式
+  });
+
+  it("saveState 派生首条用户消息摘录到 meta.summary,帮 /resume 列表辨认会话内容", () => {
+    const s = createSessionStore(base);
+    s.saveState(stateInput("/w")); // stateInput 里首条用户消息是 "hi"
+    const meta = loadMeta(base, s.id)!;
+    expect(meta.summary).toBe("hi");
+  });
+
+  it("首条用户消息超长时摘录截断到 60 字符并加省略号,单行(换行/多空格压成单空格)", () => {
+    const s = createSessionStore(base);
+    const long = "a".repeat(80);
+    s.saveState({ ...stateInput("/w"), messages: [{ role: "user", content: `first\nline  two ${long}` }] });
+    const meta = loadMeta(base, s.id)!;
+    expect(meta.summary!.length).toBe(61); // 60 + "…"
+    expect(meta.summary).not.toContain("\n");
+    expect(meta.summary!.endsWith("…")).toBe(true);
+  });
+
+  it("多模态首条用户消息(content 是 ContentPart[])跳过,summary 为 undefined 而非报错", () => {
+    const s = createSessionStore(base);
+    s.saveState({ ...stateInput("/w"), messages: [{ role: "user", content: [{ type: "text", text: "图片消息" }] }] });
+    const meta = loadMeta(base, s.id)!;
+    expect(meta.summary).toBeUndefined();
+  });
+
+  it("loadMeta 回退路径(老会话无 meta.json,从 state.json 补算)也派生 summary", () => {
+    const s = createSessionStore(base);
+    s.saveState(stateInput("/w"));
+    unlinkSync(path.join(base, s.id, "meta.json")); // 模拟老会话缺 meta.json
+    const meta = loadMeta(base, s.id)!;
+    expect(meta.summary).toBe("hi");
   });
 });
