@@ -1,6 +1,9 @@
 import React from "react";
 import { describe, it, expect, beforeEach } from "vitest";
 import { render } from "ink-testing-library";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { App } from "./App.js";
 import type { AppDeps } from "./types.js";
 import type { ContentPart } from "../../client/types.js";
@@ -1043,5 +1046,47 @@ describe("App", () => {
     stdin.write("\r"); // 提交
     await delay();
     expect(submitted).toEqual([pasted.replace(/\r/g, "\n")]); // 完整 7 行都送进了上下文,换行归一成 \n
+  });
+
+  it("提交内容是绝对路径(以 / 开头但不是命令)→ 当普通文本发送,不会被误判成斜杠命令报'未知命令'", async () => {
+    // 真实场景:把图片文件拖进终端窗口,很多终端会把它转成插入这个文件的绝对路径这种纯文本粘贴。
+    // 这里模拟"路径对应的文件其实不存在/不是图片"这种兜底分支(paste 阶段的图片探测会读文件失败,
+    // 退回当文本插入),验证的是"提交阶段"的斜杠命令判断不会把这种路径误当命令。
+    let submitted: string | ContentPart[] | undefined;
+    let ranCommand = "";
+    const { stdin } = render(
+      <App {...makeDeps({
+        submit: async (t, { events }) => { submitted = t; events.assistantDone({ role: "assistant", content: "ok" }); },
+        runCommand: (line) => { ranCommand = line; return { handled: true, output: "未知命令" }; },
+      })} />,
+    );
+    const fakePath = "/Users/x/Desktop/IMG_3178.jpeg"; // 这台测试机上不存在,paste 阶段图片探测会失败退回文本
+    stdin.write(`\x1b[200~${fakePath}\x1b[201~`);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    expect(ranCommand).toBe(""); // 没有走命令分发
+    expect(submitted).toBe(fakePath); // 原样当文本发给了模型
+  });
+
+  it("粘贴/拖入一个真实存在的图片文件路径 → 自动识别成图片附件,不是纯文本路径字符串", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "dao-app-test-"));
+    const imgPath = path.join(dir, "shot.png");
+    writeFileSync(imgPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])); // PNG magic bytes
+    let submitted: string | ContentPart[] | undefined;
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (t, { events }) => { submitted = t; events.assistantDone({ role: "assistant", content: "ok" }); },
+        getStatus: () => ({ model: "kimi-k2.6", mode: "normal", promptTokens: 12, completionTokens: 3, cacheHitRatio: 0.5, yolo: false, branch: "main", contextPct: 0.3 }), // 支持图片输入的模型
+      })} />,
+    );
+    stdin.write(`\x1b[200~${imgPath}\x1b[201~`);
+    await delay(80); // 图片探测是异步的(读文件),多等一下
+    expect(lastFrame()!).toContain("[图片#1]"); // 输入框里是图片占位符,不是原始路径字符串
+    stdin.write("\r");
+    await delay();
+    expect(Array.isArray(submitted)).toBe(true);
+    const parts = submitted as ContentPart[];
+    expect(parts.some((p) => p.type === "image_url" && p.image_url.url.startsWith("data:image/png;base64,"))).toBe(true);
   });
 });

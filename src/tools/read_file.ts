@@ -2,18 +2,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { defineTool } from "./types.js";
-import { classifyPath, isImagePath } from "./paths.js";
+import { classifyPath, isImagePath, detectImageFormat } from "./paths.js";
 import { msg } from "./lang.js";
 import { supportsVision } from "../config/profiles.js";
-
-// 按 magic bytes 探测图片真实格式(不信任扩展名)。
-function detectImageFormat(buf: Buffer): string | null {
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
-  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
-  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "image/gif";
-  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return "image/webp";
-  return null;
-}
 
 export const readFileTool = defineTool({
   name: "Read",

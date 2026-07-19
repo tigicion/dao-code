@@ -16,7 +16,7 @@ import type { Provider } from "../../config/profiles.js";
 import type { ContentPart } from "../../client/types.js";
 import { supportsVision, VISION_MODELS } from "../../config/profiles.js";
 import { getImageFromClipboard } from "../imagePaste.js";
-import { classifyPath, isImagePath } from "../../tools/paths.js";
+import { classifyPath, isImagePath, detectImageFormat } from "../../tools/paths.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 // 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
@@ -409,7 +409,12 @@ export function App(deps: AppDeps) {
     history.current.push(text);
     histIdx.current = -1;
     // 命令路径只用文本;图片内容不走命令(不可能用图片 /clear)。
-    if (typeof full === "string" && text.startsWith("/")) {
+    // 只有"/"后紧跟不含空格/斜杠的一个词(到空白或结尾为止)才算像命令——单纯 text.startsWith("/")
+    // 会把粘贴/拖进来的绝对路径(如 /Users/xxx/Desktop/a.jpeg,同样以 "/" 开头)也当命令处理,
+    // 送进 dispatchCommand 找不到匹配,报一句不知所云的"未知命令:/Users/..."。路径这类不像命令的
+    // 内容直接落到下面当普通文本发送,让模型看到原文自己判断,而不是被命令分发拦在半路报错。
+    const looksLikeSlashCommand = /^\/[^\s/]+(\s|$)/.test(text);
+    if (typeof full === "string" && looksLikeSlashCommand) {
       const name = text.slice(1).split(/\s+/)[0];
       if (name === "theme") {
         const next = bg === "dark" ? "light" : "dark";
@@ -974,6 +979,33 @@ export function App(deps: AppDeps) {
         pasteRef.current.set(ph, [imgPart]);
         setField((f) => ({ text: f.text.slice(0, f.cursor) + ph + f.text.slice(f.cursor), cursor: f.cursor + ph.length }));
       });
+      return;
+    }
+    // 把图片文件拖进终端窗口(或某些粘贴方式):终端常把这类拖拽/粘贴转成"插入这个文件的绝对
+    // 路径"这种纯文本 paste 事件,不走上面那条 macOS 剪贴板图片的空粘贴分支。整段路径原样当文本
+    // 内联的话,一来没意义(模型看到的只是一串路径字符串,不是图片内容),二来这段路径以 "/" 开头,
+    // 回车提交时会被 onSubmit 的斜杠命令判断误当成命令、报"未知命令"。这里识别"单行、去掉终端可能
+    // 加的包裹引号后是一个绝对路径、扩展名像图片"的粘贴内容,当作图片处理(读文件→按 magic bytes
+    // 确认真的是图片→转 base64 存进占位符,和剪贴板图片走同一套占位符机制);确认不是真图片或读取
+    // 失败时,退回当作普通文本粘贴,不丢用户粘的内容。
+    const trimmedForPath = text.trim().replace(/^['"]|['"]$/g, "");
+    if (!trimmedForPath.includes("\n") && path.isAbsolute(trimmedForPath) && isImagePath(trimmedForPath)) {
+      const pastedText = text;
+      void (async () => {
+        try {
+          const buf = await fs.readFile(trimmedForPath);
+          const mediaType = buf.length <= 5 * 1024 * 1024 ? detectImageFormat(buf) : null;
+          if (mediaType) {
+            const id = ++pasteSeqRef.current;
+            const ph = `[图片#${id}]`;
+            const imgPart: ContentPart = { type: "image_url", image_url: { url: `data:${mediaType};base64,${buf.toString("base64")}` } };
+            pasteRef.current.set(ph, [imgPart]);
+            setField((f) => ({ text: f.text.slice(0, f.cursor) + ph + f.text.slice(f.cursor), cursor: f.cursor + ph.length }));
+            return;
+          }
+        } catch { /* 读不了 -> 退回当文本插入 */ }
+        setField((f) => ({ text: f.text.slice(0, f.cursor) + pastedText + f.text.slice(f.cursor), cursor: f.cursor + pastedText.length }));
+      })();
       return;
     }
     // 规范化换行:\r\n(Windows)和裸 \r(部分终端/来源的粘贴内容用它当行分隔,不是 \r\n)统一转 \n——

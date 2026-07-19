@@ -59,3 +59,13 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 export function isImagePath(p: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(p).toLowerCase());
 }
+
+// 按 magic bytes 探测图片真实格式(不信任扩展名)。read_file 工具和 TUI 的拖拽/粘贴图片路径
+// 检测共用这一份,不重复实现。
+export function detectImageFormat(buf: Buffer): string | null {
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "image/gif";
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return "image/webp";
+  return null;
+}
