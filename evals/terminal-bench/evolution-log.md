@@ -3827,4 +3827,27 @@ TDD：`loop.test.ts`新增两条用例（onEmptyTruncation重试确认effort降�
 
 **真实复测**：提交`fix-effortlow-regexchess`(`terminal-bench/regex-chess`，
 `--ak provider=volcengine`，huoshan账号，`--agent-timeout-multiplier 4`)，与
-`evolve-round-5f91c45`批次剩余任务并行跑（互不干扰，不同job目录）。结果待补。
+`evolve-round-5f91c45`批次剩余任务并行跑（互不干扰，不同job目录）。
+
+**结果：候选(b)也没有起作用，reward=0，且有直接证据证明根因不是"改动没生效"，而是
+volcengine ARK 网关(deepseek-v4-pro)可能根本不理会`reasoning_effort`这个参数**
+(`regex-chess__wEqpsZA`)。`dao_stdout.txt`证实重试机制正确触发了(第1165行注入收敛
+提示，第2191行"连续两次空响应，结束本轮"，与候选(a)单测那次的失败签名完全一致)。
+**关键证据**——`cache.jsonl`里 turn 2 的两次调用（第一次默认档、重试那次
+`reasoning_effort:"low"`）`completion`字段**完全相同，都是`16001`**（精确等于
+`max_tokens`上限16000+1），说明两次调用都是被`max_tokens`硬截断的，`"low"`没有让
+输出长度产生任何可观测差异——如果`reasoning_effort`真的被遵守，"low"档理应让模型
+明显更早收敛、completion远小于max_tokens上限，而不是同样精确撞满上限。
+
+**同批次追加证据**：`make-mips-interpreter__6KEyoet`(用的是候选(a)binary`5f91c45`，
+早于候选(b)，仅验证(a))同样以`[连续两次空响应,结束本轮]`收尾(第7053行，前有两次
+"思考耗尽输出预算"，第4007/5906行)——**这不是regex-chess独有的问题，是"reasoning
+阶段自身不收敛导致空响应"这整类失败在候选(a)/(b)binary上都尚未真正解决**，两道题
+独立复现同一失败签名，样本量从1升到2。
+
+**决定"现在不追加候选(c)"的具体理由**：在盲目再试一个参数名之前，先用一次性脚本
+(`probe_reasoning_effort.mjs`，跑完即弃，不进代码库)直接裸调 ARK 端点、同一个诱导
+长推理的prompt分别用`max`/`low`两档对比`completion_tokens`，先确认这个provider/
+model组合到底支不支持任何形式的推理预算控制——如果连这个最基础的问题都没搞清楚就
+继续猜测新的参数名/新的调用方式，大概率又是一次无效改动、白花真实API预算（这次
+复测约¥0.29，加上上面这次探测调用）。结果见下方独立小节。
