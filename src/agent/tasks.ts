@@ -20,7 +20,7 @@ export interface BgTask {
 export interface TaskManager {
   // 后台启动一个任务(run 收到 signal 与自身 id),立即返回 task id。
   launch(description: string, run: (signal: AbortSignal, id: string) => Promise<string>): string;
-  // 接管一个已在运行的 promise(前台超时自动转后台用):完成/失败时入队通知。不可取消。
+  // 接管一个已在运行的 promise,交给 TaskManager 追踪:完成/失败时入队通知。不可取消。
   adopt(description: string, promise: Promise<string>): string;
   // 手动建一个任务(不背靠任何 promise/进程)——纯状态追踪,配合 update() 手动推进。
   create(description: string): string;
@@ -47,13 +47,14 @@ export interface TaskManager {
   cancel(id: string): boolean;
   cancelAll(): void;
   onChange(cb: () => void): void; // 任务状态变化(启动/完成/失败/取消)时回调,驱动 UI 刷新与通知处理
-  // 新增:前台 agent 注册(可被 auto-background 或手动转后台)。taskId 恒等于 agentId(与
-  // registerAsyncAgent 用同一套 id 空间)——此前这里另起一个 task-N 计数器,和子代理自己的
-  // agentId 是两套不相干的 id,导致 TaskSend/cancel 用 task-N 发消息,而子代理的 drainPending
-  // 却用 agentId 去读,两边永远对不上号,消息发了等于没发。
+  // 前台 agent 注册。taskId 恒等于 agentId(与 registerAsyncAgent 用同一套 id 空间)——此前这里
+  // 另起一个 task-N 计数器,和子代理自己的 agentId 是两套不相干的 id,导致 TaskSend/cancel 用
+  // task-N 发消息,而子代理的 drainPending 却用 agentId 去读,两边永远对不上号,消息发了等于没发。
   // 内部自建 abortController 并随结果返回(与 registerAsyncAgent 同一套写法)——调用方不用自己
   // new 一个再传进来,这样 cancel()/TaskStop 才能真正中止这个还在跑的子代理,而不是只翻状态位。
-  registerAgentForeground(opts: { agentId: string; description: string; autoBackgroundMs?: number }): { taskId: string; abortController: AbortController; backgroundSignal: Promise<void>; cancelAutoBackground: () => void };
+  // 前台就是前台:同步等到它跑完,不会被任何计时器悄悄转后台——需要后台就在派发时显式声明
+  // (Agent 工具的 background 参数),真要中途打断一个跑太久的前台调用,用户自己 ESC。
+  registerAgentForeground(opts: { agentId: string; description: string }): { taskId: string; abortController: AbortController };
   // 新增:后台 agent 注册(独立 AbortController)
   registerAsyncAgent(opts: { agentId: string; description: string }): { agentId: string; abortController: AbortController };
   // 新增:更新任务摘要
@@ -245,12 +246,8 @@ export function createTaskManager(): TaskManager {
       const ac = new AbortController();
       tasks.set(id, { id, description: opts.description, status: "running", startedAt: Date.now() });
       controllers.set(id, ac);
-      let bgResolve: () => void;
-      const backgroundSignal = new Promise<void>((res) => { bgResolve = res; });
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      if (opts.autoBackgroundMs) timer = setTimeout(() => bgResolve(), opts.autoBackgroundMs);
       notify();
-      return { taskId: id, abortController: ac, backgroundSignal, cancelAutoBackground: () => { if (timer) clearTimeout(timer); } };
+      return { taskId: id, abortController: ac };
     },
     registerAsyncAgent(opts) {
       const id = opts.agentId;

@@ -34,7 +34,8 @@ const AGENT_TOOL_PROMPT_ZH =
   "把独立子任务派发给子代理:它用同样的工具自主跑完、只返回最终结果(你看不到中间过程)。" +
   "任务描述要自包含--子代理没有当前对话上下文。传 task 派单个;传 tasks 数组并行派发并汇总。" +
   "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行。子代理内不能再派子代理(不支持嵌套)。" +
-  "单个前台子代理跑超过 60 秒自动转后台。并行最多 10 个同时跑、其余排队。\n" +
+  "前台/后台按依赖关系判断,不是按耗时:下一步依赖这个结果就前台等(前台会老实等到跑完,不会因为" +
+  "耗时长被自动转后台);跟下一步没有依赖才用 background:true。并行最多 10 个同时跑、其余排队。\n" +
   "四个可选调用方式互斥:isolate(git worktree 隔离改文件)、fork(继承完整上下文+复用前缀缓存,近乎免费)、" +
   "model(临时换模型省钱,但会让前缀缓存失效)、mode=plan(只读规划)。fork 与 model/mode 天生冲突。" +
   "agent_type 指定子代理类型(见系统 prompt 的'可用子代理类型');省略则用通用子代理。\n" +
@@ -57,7 +58,9 @@ const AGENT_TOOL_PROMPT_EN =
   "Dispatches an independent subtask to a subagent: it runs autonomously with the same tools and returns only the final result (you don't see intermediate steps). " +
   "Task description must be self-contained - the subagent has no current conversation context. Pass task for a single dispatch; pass tasks array for parallel dispatch with aggregated results. " +
   "Parallel tasks MUST be mutually independent; tasks modifying the same files must not be parallelized. No nesting (a subagent cannot dispatch its own subagent). " +
-  "A foreground subagent auto-promotes to background after 60s. At most 10 parallel, the rest queue.\n" +
+  "Foreground vs background is a dependency call, not a duration call: run foreground when your next step " +
+  "depends on the result (it waits until actually done, never silently auto-converted to background); use " +
+  "background:true only when the result has no bearing on your next step. At most 10 parallel, the rest queue.\n" +
   "Four optional modes are mutually exclusive: isolate (git worktree isolation), fork (inherits full context + reuses prefix cache, nearly free), " +
   "model (temporarily switch models - invalidates prefix cache), mode=plan (read-only planning). fork conflicts with model/mode. " +
   "agent_type selects a subagent type (see 'Available Subagent Types' in system prompt); omit for generic subagent.\n" +
@@ -85,7 +88,11 @@ export const agentTool = defineTool({
     "传 task 派单个;传 tasks 数组则并行派发多个并汇总(适合可并行的独立调查/分析)。" +
     "并行任务务必彼此独立、互不依赖;需要同时改文件的任务不要并行,以免互相冲突。" +
     "子代理内不能再派子代理(不支持嵌套)。" +
-    "单个前台子代理跑超过默认 60 秒会自动转后台(不阻塞你,完成后通知)。" +
+    "前台/后台按依赖关系判断,不是按耗时:接下来要做什么依赖这个子代理的结果(先查清楚现状/定位问题," +
+    "再决定怎么改这类调查→动手的链式任务)就前台等,反正也没法跳过这一步先做别的;结果跟接下来的动作" +
+    "没有依赖关系(独立的长时间构建/评测,或你想边跑边继续做别的事/跟用户聊别的)才用 background:true。" +
+    "前台调用会老实等到跑完,不会因为耗时长就被偷偷转后台——如果一个前台调用明显不该等这么久,自己判断" +
+    "要不要拆成 background 重新派发,而不是指望系统帮你打断。" +
     "并行任务默认最多 10 个同时跑,其余排队,不代表真的全部同时执行。\n" +
     "四个可选调用方式互斥、别混用:isolate(独立 git worktree 里改文件,并行改文件不冲突,改动留在分支供你事后 review/merge)、" +
     "fork(继承你当前完整上下文+复用前缀缓存,近乎免费,适合带全量背景做分支尝试)、model(临时换模型,通常为了省钱跑廉价任务," +
@@ -103,7 +110,13 @@ export const agentTool = defineTool({
     "Pass task for a single dispatch; pass tasks array for parallel dispatch with aggregated results (ideal for parallel independent investigation/analysis). " +
     "Parallel tasks MUST be mutually independent with no dependencies; tasks that modify the same files must not be parallelized to avoid conflicts. " +
     "A subagent cannot dispatch its own subagent (no nesting). " +
-    "A single foreground subagent running past a default 60s threshold auto-promotes to background (doesn't block you; notified on completion). " +
+    "Foreground vs background is a dependency call, not a duration call: run foreground (the default) when your next " +
+    "step depends on this subagent's result — look-something-up-then-act chains where there's nothing useful to do " +
+    "until you have the answer anyway. Pass background:true only when the result has no bearing on what you do next " +
+    "(an independent long-running build/eval, or you genuinely want to keep working on something else / talking to the " +
+    "user while it runs). A foreground call waits until it's actually done, no matter how long — it will not be " +
+    "silently converted to background just because it's taking a while; if a foreground call is clearly running too " +
+    "long, that's your call to make (re-dispatch it as background), not something the system does for you. " +
     "Parallel tasks run at most 10 concurrently by default — the rest queue, so not all tasks truly run simultaneously.\n" +
     "Four optional dispatch modes are mutually exclusive, don't mix them: isolate (edits happen in an isolated git worktree, safe to parallelize file changes, " +
     "changes are left on a branch for you to review/merge afterward), fork (inherits your full current context + reuses the prefix cache, nearly free — good for a " +
@@ -129,7 +142,7 @@ export const agentTool = defineTool({
     background: z
       .boolean()
       .optional()
-      .describe("后台运行:立即返回任务 id 不阻塞,完成后结果会自动通知你。适合耗时长、你可同时做别的事的任务。"),
+      .describe("后台运行:立即返回任务 id 不阻塞,完成后结果会自动通知你。按依赖关系判断,不是按耗时:结果跟你接下来的动作没有依赖(独立的长任务,或你想边跑边做别的事)才用;接下来要做什么依赖这个结果就别传,老实前台等——前台不会因为耗时长被自动转后台。"),
     agent_type: z
       .string()
       .optional()
@@ -251,16 +264,16 @@ export const agentTool = defineTool({
         return `已后台启动子代理${type ? `(类型 ${type})` : ""}(${bg.agentId});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
       }
 
-      // ---- 同步路径,可中途转后台(isolate 保持恒同步跑完,不参与自动转后台)----
+      // ---- 同步路径:前台就是前台,同步等到跑完,不会被任何计时器悄悄转后台 ----
+      // (isolate 走下面的兜底路径,同样恒同步跑完——两条路径现在语义一致,isolate 只是多一层 worktree 隔离)。
+      // 需要不阻塞就在派发时显式传 background:true;真要中途打断一个跑太久的前台调用,用户自己 ESC。
       if (!isolate && ctx.taskManager && taskManagerAdapter) {
-        const ms = Number(process.env.DAO_AUTO_BACKGROUND_MS) || 60000;
         // abortController 由 registerAgentForeground 建好返回(而非 runAgent 内部私建)——这样它才能
-        // 同时注册进 taskManager,让 cancel()/TaskStop 对这个还在跑的子代理真正生效(不止翻状态位)。
-        const fg = ctx.taskManager.registerAgentForeground({ agentId, description: t.slice(0, 50), autoBackgroundMs: ms });
+        // 同时注册进 taskManager,让 cancel()/TaskSend/TaskStop 对这个还在跑的子代理真正生效(不止翻状态位)。
+        const fg = ctx.taskManager.registerAgentForeground({ agentId, description: t.slice(0, 50) });
         const { abortController } = fg;
-        // 父信号链自己管(不让 runAgent 内部兜底链):这里是唯一知道"转后台"这个时机的地方——
-        // 转后台后要显式解绑,否则父 ESC 会连带杀掉一个刚被送去后台、本该独立于父生命周期的任务;
-        // 正常跑完也要解绑,否则监听器永远挂在父的 signal 上(父 signal 贯穿整个会话、被反复复用)。
+        // 父信号链自己管(不让 runAgent 内部兜底链):父 ESC 时要能中止这个还在跑的前台子代理;
+        // 正常/异常收尾都要显式解绑,否则监听器永远挂在父的 signal 上(父 signal 贯穿整个会话、被反复复用)。
         let detachParentAbort: (() => void) | undefined;
         if (ctx.signal) {
           if (ctx.signal.aborted) abortController.abort();
@@ -271,57 +284,14 @@ export const agentTool = defineTool({
             detachParentAbort = () => parentSignal.removeEventListener("abort", onParentAbort);
           }
         }
-        // 前台转后台时需要把缓存安全参数透传给 runAsyncAgentLifecycle 的 makeStream;
-        // runAgent 在阶段 4(sub 创建后)触发 onCacheSafeParams,此时前台已在跑、可能随时转后台。
-        let cacheSafeParams: { systemPrompt: string; forkContextMessages: ChatMessage[] } | undefined;
-        const iterator = runAgent({
-          agentDef, promptMessages, forkContextMessages, useExactTools: fork,
-          isAsync: false, override: { agentId, abortController }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
-          onCacheSafeParams: (p) => { cacheSafeParams = p; },
-          messageParent: (m) => { ctx.taskManager!.emitFromTask(fg.taskId, m); },
-        })[Symbol.asyncIterator]();
 
         const messages: ChatMessage[] = [];
         try {
-          while (true) {
-            const raced = await Promise.race([
-              iterator.next().then((r) => ({ kind: "msg" as const, r })),
-              fg.backgroundSignal.then(() => ({ kind: "bg" as const })),
-            ]);
-            if (raced.kind === "bg") {
-              // 转后台:先解绑父信号链——这个任务往后独立于父的生命周期,父 ESC/本轮结束不该再牵连它。
-              detachParentAbort?.();
-              // 前台->后台无缝切换:复用同一个 iterator 继续消费,不重跑(不像 CC 那样销毁重启一个
-              // isAsync:true 的新 runAgent)——之所以敢这么做,是因为 agentId/taskId 已统一成同一个 id、
-              // abortController 也是 registerAgentForeground 建好注册进 taskManager 的真实 controller,
-              // TaskSend/cancel 从子代理一开始就能生效,不需要靠"转成 isAsync"才激活,复用 iterator 不会丢这两个能力。
-              // onCacheSafeParams 透传:若前台阶段已触发过(正常情况),用已有的 cacheSafeParams
-              // 启动摘要器;若尚未触发(runAgent 还没到阶段 4),makeStream 的 onCacheSafeParams 回调
-              // 由 runAsyncAgentLifecycle 调用 makeStream 时传入--但 iterator 已在跑,不会再触发。
-              // 因此这里直接用 cacheSafeParams(若已有)启动摘要,makeStream 回调做兜底。
-              void runAsyncAgentLifecycle({
-                taskId: fg.taskId,
-                agentId,
-                agentType: agentDef.agentType,
-                isBuiltInAgent,
-                prompt: t,
-                model: resolvedModelForDisplay,
-                makeStream: (onCacheSafeParams) => {
-                  // 前台已触发过 -> 用已有的;否则用 makeStream 传入的(虽然 iterator 不会再调)
-                  const params = cacheSafeParams;
-                  if (params) onCacheSafeParams(params);
-                  return { [Symbol.asyncIterator]: () => iterator } as AsyncGenerator<ChatMessage, void>;
-                },
-                taskManager: taskManagerAdapter,
-                classifyFn: ctx.handoffClassifyFn,
-                permissionMode: ctx.permissionMode,
-              });
-              return `子代理运行超过 ${Math.round(ms / 1000)}s,已自动转入后台(${fg.taskId});完成后会通知你。你可以先继续别的或结束本轮。`;
-            }
-            if (raced.r.done) break;
-            messages.push(raced.r.value);
-          }
-          fg.cancelAutoBackground();
+          for await (const m of runAgent({
+            agentDef, promptMessages, forkContextMessages, useExactTools: fork,
+            isAsync: false, override: { agentId, abortController }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
+            messageParent: (m) => { ctx.taskManager!.emitFromTask(fg.taskId, m); },
+          })) messages.push(m);
           detachParentAbort?.(); // 正常跑完:摘掉父信号监听器,不留在父 signal 上等永远不会来的 abort
           ctx.taskManager.settle(fg.taskId); // running -> completed,别让 cancelAll()/TaskStop 把跑完的任务当成还在跑
           const result = finalizeAgentTool(messages, agentId, {

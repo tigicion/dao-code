@@ -191,49 +191,28 @@ describe("agent tool", () => {
     expect(out).toContain("background");
   });
 
-  it("单前台子代理超时 → 自动转后台", async () => {
-    const prev = process.env.DAO_AUTO_BACKGROUND_MS;
-    process.env.DAO_AUTO_BACKGROUND_MS = "10";
-    const { fn } = neverEndingRunAgent();
-    const taskManager = createTaskManager();
-    const ctx = mkCtx({ runAgent: fn, taskManager });
-    const out = await agentTool.handler({ task: "慢任务" } as any, ctx);
-    process.env.DAO_AUTO_BACKGROUND_MS = prev;
-    expect(out).toContain("自动转入后台");
-  });
-
-  it("前台转后台路径传了 onCacheSafeParams(此前没传,摘要器不会启动)", async () => {
-    const prev = process.env.DAO_AUTO_BACKGROUND_MS;
-    process.env.DAO_AUTO_BACKGROUND_MS = "10";
-    let onCacheSafeParamsReceived = false;
+  it("父 abort → 直接中止还在跑的前台子代理(没有自动转后台这条路,ESC 立刻生效,不用等超时)", async () => {
+    const calls: any[] = [];
     const fn = (params: any): AsyncGenerator<ChatMessage, void> => {
+      calls.push(params);
       async function* gen(): AsyncGenerator<ChatMessage, void> {
-        params.onCacheSafeParams?.({ systemPrompt: "SYS", forkContextMessages: [] });
-        onCacheSafeParamsReceived = true;
-        await new Promise(() => {});
+        const signal: AbortSignal = params.override.abortController.signal;
+        await new Promise<void>((_resolve, reject) => {
+          if (signal.aborted) { reject(new Error("aborted")); return; }
+          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
       }
       return gen();
     };
     const taskManager = createTaskManager();
-    const ctx = mkCtx({ runAgent: fn, taskManager });
-    await agentTool.handler({ task: "慢任务" } as any, ctx);
-    process.env.DAO_AUTO_BACKGROUND_MS = prev;
-    expect(onCacheSafeParamsReceived).toBe(true);
-  });
-
-  it("转后台后解绑父信号:父之后再 abort 不会连带杀掉已转后台的子代理(否则 ESC 会杀死刚背景化的任务)", async () => {
-    const prev = process.env.DAO_AUTO_BACKGROUND_MS;
-    process.env.DAO_AUTO_BACKGROUND_MS = "10";
-    const { fn, calls } = neverEndingRunAgent();
-    const taskManager = createTaskManager();
     const parentAbort = new AbortController();
     const ctx = mkCtx({ runAgent: fn, taskManager, signal: parentAbort.signal });
-    const out = await agentTool.handler({ task: "慢任务" } as any, ctx);
-    process.env.DAO_AUTO_BACKGROUND_MS = prev;
-    expect(out).toContain("自动转入后台");
-    const { abortController } = calls[0]!.override;
+    const p = agentTool.handler({ task: "慢任务" } as any, ctx);
+    await Promise.resolve(); // 让 handler 跑到 registerAgentForeground + 挂上父信号监听器再 abort
     parentAbort.abort();
-    expect(abortController.signal.aborted).toBe(false); // 已在转后台时解绑,父 abort 不再连带
+    const { abortController } = calls[0]!.override;
+    expect(abortController.signal.aborted).toBe(true); // 没有"转后台"这条岔路,父 abort 直接传导下去
+    await expect(p).rejects.toThrow("aborted");
   });
 
   it("前台任务正常跑完 → taskManager 里状态结算为 completed(不留 running,不被 cancelAll/TaskStop 误伤)", async () => {
