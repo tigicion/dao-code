@@ -64,8 +64,18 @@
   reasoning 阶段本身要展开多长**。已按纪律当场决策落地候选(b)(`e152a75`):
   `requestAssistant`新增单次调用级`effortOverride`,只在`onEmptyTruncation`触发的
   这次重试生效,传`"low"`物理压低思考预算,普通空响应重试不受影响。TDD 两条新用例
-  (压低生效/普通空响应不压低)。二进制已按`e152a75`重编,独立复测批次
-  `fix-effortlow-regexchess`已提交,结果待补。
+  (压低生效/普通空响应不压低)。二进制已按`e152a75`重编。**(b)独立复测同样
+  reward=0**——`cache.jsonl`显示默认档/"low"档两次调用completion完全相同(都精确
+  16001),但一次性探测脚本证实`reasoning_effort`本身不是无效参数(正常场景下"low"
+  确实让completion从16001降到8660),真正根因是这次重试撞见的反模式循环强度压过了
+  这个软性预算提示。已落地候选(c)(`330f166`):在(b)基础上叠加硬`max_tokens:6000`
+  上限(唯一被三次真实观测证实精确遵守的参数)。**(c)复测(`fix-hardcap-batch`)结果:
+  regex-chess/make-mips-interpreter两题仍均reward=0,但机制精确按预期工作**——两题
+  重试completion都精确停在6001(之前16001),会话成本分别降55%+22%,如实证明"失败
+  更快更省"达成,但**没有让任一题转PASS**。(a)(b)(c)三个候选合计验证:这类"单次
+  completion内部reasoning自身不收敛"的失败,文字提示/软预算/硬预算全部不足以让模型
+  在这一次重试转向产出可用输出,不是参数没吃到位,是模型行为本身顽固。**这条子线索
+  到此为止**,不再猜第四个参数;(c)作为省成本的改动继续保留,两题状态转"待观察"。
 
 ---
 
@@ -3884,4 +3894,24 @@ effort=low: finish_reason=stop  completion_tokens=8660  reasoning_content_len=11
 
 **真实复测**：提交`fix-hardcap-batch`(`terminal-bench/regex-chess` +
 `terminal-bench/make-mips-interpreter`，`--ak provider=volcengine`，huoshan账号，
-`--agent-timeout-multiplier 4`，`-n 2`)。结果待补。
+`--agent-timeout-multiplier 4`，`-n 2`)。
+
+**结果：两题均 reward=0，但机制层面的预测被精确验证**。`cache.jsonl`证实：
+- `regex-chess__AQjgKyH`：turn 2 重试 completion 精确等于`6001`(=max_tokens 6000+1，
+  之前是16001)——硬上限确实生效了。会话成本从候选(a)那次的¥0.326降到¥0.253。
+- `make-mips-interpreter__oFDQuGW`：turn 10 重试 completion 同样精确`6001`(之前
+  16001)。会话成本从候选(a)那次的¥1.57降到¥0.691，降幅超过55%。
+
+两题都仍以`[连续两次空响应,结束本轮]`收尾——**说明这一次重试撞见的反模式循环强度
+连6000 tokens都能吃满，候选(c)没能让模型在更小的预算内转向产出content/tool_calls**。
+候选(c)达成了如实预告的效果（失败得更快更省），**没有达成让这两题转 PASS 的效果**，
+如实记录，不因为"机制生效了"就模糊掉"任务还是没过"这个事实。
+
+**这条子线索到此为止的判断**：(a)/(b)/(c)三个候选合计验证了"reasoning阶段自身在
+单次completion内部不收敛"这类失败——文字提示(a)、软性预算提示(b)、硬预算上限(c)——
+全部不足以让模型在这一次重试里转向产出可用输出。这不再是"改动没生效"的问题（三次
+改动都被真实数据证实机制层面精确按预期工作），而是这类失败对应的模型行为本身极其
+顽固，已经排除了"参数没吃到位"这个假设。继续在这个具体重试点上猜第四个参数,没有
+新的具体线索支撑,不做。(c)本身仍然值得保留——省下来的失败成本是真实、确定的收益，
+即便这次没能把 reward 从 0 变成 1。`regex-chess`/`make-mips-interpreter`这两题的
+"未通过"状态维持不变，转回"待观察"而非"待修复"。
