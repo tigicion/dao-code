@@ -1629,9 +1629,13 @@ async function main() {
               mcp.reconnect(rest[1]).then(() => {}).catch(() => {});
               return { handled: true, output: `正在重连 MCP server「${rest[1]}」…(完成后会通知)` };
             }
-            // /mcp toggle <name> [on|off]
+            // /mcp toggle <name> [on|off]:不带 on/off 时真正"翻转"当前状态(查当前是否禁用取反),
+            // 不再固定解读成"开启"——之前 rest[2] !== "off" 导致不带参数调用永远等于开启,对一个
+            // 已经启用的 server 完全没法用这条命令关掉它,和"toggle"这个名字的直觉相悖。
             if (sub === "toggle" && rest[1]) {
-              const on = rest[2] !== "off";
+              const explicit = rest[2] === "on" ? true : rest[2] === "off" ? false : undefined;
+              const currentlyDisabled = mcp.getServerStatus().find((s) => s.name === rest[1])?.disabled ?? false;
+              const on = explicit ?? currentlyDisabled;
               mcp.toggle(rest[1], on).then(() => {}).catch(() => {});
               return { handled: true, output: `正在${on ? "启用" : "禁用"} MCP server「${rest[1]}」…` };
             }
