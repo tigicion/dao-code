@@ -38,6 +38,19 @@ describe("initConditionalPool", () => {
     expect(unconditional.map((s) => s.name)).toEqual(["a"]);
     expect(pendingConditionalCount()).toBe(0);
   });
+
+  it("启动预扫描命中的 skill(paths 已被调用方清空)只出现一次,不用调用方再手动 push 一次", () => {
+    // 复刻 index.ts 的实际用法:启动预扫描匹配到的 skill,调用方会传一份 paths:undefined 的克隆
+    // 进来(模拟"已经预激活,不该再进待激活池")。之前 index.ts 在这之后还有一个额外的 for 循环
+    // 把原始(paths 未清空)的那份也 push 了一次,导致同一个 skill 出现两次——这里验证只调用
+    // initConditionalPool 一次、不做那个额外 push,该 skill 也已经完整地出现在返回值里。
+    const preMatched = mkSkill("b", ["*.ts"]); // 假设启动预扫描已经匹配到它
+    const skillsForPool = [mkSkill("a"), { ...preMatched, paths: undefined }];
+    const skills = initConditionalPool(skillsForPool);
+    expect(skills.filter((s) => s.name === "b")).toHaveLength(1);
+    expect(skills.map((s) => s.name)).toEqual(["a", "b"]);
+    expect(pendingConditionalCount()).toBe(0); // 没有真正带 paths 的 skill 进池
+  });
 });
 
 describe("activateConditionalSkillsForPaths", () => {
@@ -138,5 +151,17 @@ describe("discoverSkillDirsForPath", () => {
     const filePath = path.join(tmpDir, "sub", "deep", "file.ts");
     const found = await discoverSkillDirsForPath(filePath, tmpDir);
     expect(found).toEqual([]);
+  });
+
+  it("目录当时不存在,之后建了 -> 后续调用能发现(不永久负缓存)", async () => {
+    const subDir = path.join(tmpDir, "sub");
+    const filePath = path.join(subDir, "file.ts");
+    await fs.mkdir(subDir, { recursive: true });
+    const first = await discoverSkillDirsForPath(filePath, tmpDir);
+    expect(first).toEqual([]); // 这时 .dao/skills 还没建
+    const skillDir = path.join(subDir, ".dao", "skills");
+    await fs.mkdir(skillDir, { recursive: true }); // 用户/工具中途建了 skill 目录
+    const second = await discoverSkillDirsForPath(filePath, tmpDir);
+    expect(second).toEqual([skillDir]); // 应该能发现,不是被第一次的"不存在"结果永久卡住
   });
 });

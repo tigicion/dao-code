@@ -722,18 +722,16 @@ async function main() {
       if (condMatched.size === condSkills.length) break;
     }
   }
-  // 预匹配的标记为已激活(不进待激活池),其余的进待激活池等待运行时匹配
-  // initConditionalPool 把带 paths(且未预激活)的存入池,返回不含 paths 的 + 预激活的
-  // 预激活的需要在传入前移除 paths 标记(否则会被进池),用 _preActivated 区分
+  // 预匹配的标记为已激活(不进待激活池),其余的进待激活池等待运行时匹配。
+  // 预激活的 skill 在传入 initConditionalPool 前先移除 paths 标记——没有 paths 的会被
+  // initConditionalPool 判定为"无条件"并直接收进返回的 skills 列表里,不用再手动 push 一次
+  // (之前这里还有一个额外的 for 循环把预激活的原始副本又 push 了一次,导致同一个 skill 在
+  // 固定前缀的目录表里出现两条完全相同的记录,浪费 token 也容易让模型误以为有两个同名 skill)。
   const preActivated = new Set(condMatched);
   const skillsForPool = visible.map((s) =>
     s.paths?.length && preActivated.has(s.name) ? { ...s, paths: undefined } : s,
   );
   const skills = initConditionalPool(skillsForPool);
-  // 预激活的也加入 skills 列表(它们在固定前缀里)
-  for (const s of visible) {
-    if (s.paths?.length && preActivated.has(s.name)) skills.push(s);
-  }
   // 使用频率加权(常用且最近用过的技能在发现/列表里靠前)。启动加载一次,记录时增量更新+落盘。
   let usageMap = await loadUsage(os.homedir());
   const skillsHeader = lang === "en"
@@ -954,7 +952,9 @@ async function main() {
       const newDirs = await discoverSkillDirsForPath(filePath, workspaceRoot);
       if (newDirs.length > 0) {
         const known = new Set(skills.map((s) => s.name.toLowerCase()));
-        const fresh = await loadSkillsFromDirs(newDirs, known);
+        // 漏掉用户显式禁用的 skill 会导致文件操作把它重新激活进本次会话——ctx.loadInstalledSkills
+        // (skill_install 装完后那条路径)一直有这道过滤,这里是另一条独立的动态加载路径,之前没加。
+        const fresh = (await loadSkillsFromDirs(newDirs, known)).filter((s) => !disabledSet.has(s.name));
         if (fresh.length > 0) {
           skills.push(...fresh);
           const lines = skillCatalogLines(fresh);

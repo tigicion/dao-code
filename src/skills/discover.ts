@@ -27,14 +27,17 @@ export async function discoverSkillDirsForPath(
     const skillDir = path.join(currentDir, ".dao", "skills");
 
     if (!checkedDirs.has(skillDir)) {
-      checkedDirs.add(skillDir);
       try {
         await fs.stat(skillDir);
-        // 目录存在 -> 检查是否被 gitignore(简单检查:路径含 node_modules 则跳过)
+        // 目录存在 -> 只缓存"存在"这个结果(skill 目录建了之后一般不会消失,值得长期跳过);
+        // 检查是否被 gitignore(简单检查:路径含 node_modules 则跳过)
+        checkedDirs.add(skillDir);
         if (currentDir.includes("node_modules")) continue;
         newDirs.push(skillDir);
       } catch {
-        // 目录不存在 -> 已记录,继续
+        // 目录不存在 -> 不缓存这个负结果。会话中途用户/工具可能才刚建好这个目录
+        // (比如手动放了个 skill 进去,还没走 skill_install),缓存负结果会导致这次
+        // 之后再也不会重新 stat,新建的目录永远发现不了。stat 一次很便宜,值得每次都试。
       }
     }
 
