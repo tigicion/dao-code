@@ -129,20 +129,28 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试请求物理调低 reasoning_effort(候选(b):文字提示管不住 reasoning 阶段本身)", async () => {
-    // 根因(2026-07-19 regex-chess 真实复测坐实):候选(a)——收敛提示改成结构性约束
-    // ("第一步必须是工具调用")——单独复测仍然复现:提示确实注入了(dao_stdout.txt 命中
-    // 一次),但重试请求同样把预算耗在 reasoning 阶段的心算推导上,再次空响应,"连续两次
-    // 空响应"直接终止。原因是提示词只能约束模型"回复内容"这一层,管不住 reasoning 本身
-    // 会展开多长——需要物理压低这一次重试的 reasoning_effort,不给它把预算再耗在同一条
-    // 推导链上的空间。
+  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试请求同时调低 reasoning_effort 和 max_tokens(候选(b)+(c))", async () => {
+    // 根因链条(2026-07-19 regex-chess 真实复测坐实,逐层递进):
+    // 候选(a)——收敛提示改成结构性约束("第一步必须是工具调用")——单独复测仍然复现:
+    // 提示确实注入了,但重试请求同样把预算耗在 reasoning 阶段的心算推导上,再次空响应。
+    // 候选(b)——单独调低 reasoning_effort 到"low"——复测(regex-chess__wEqpsZA)同样
+    // reward=0:cache.jsonl 显示两次调用(默认档/"low"档)completion 字段完全相同,都
+    // 精确撞满 max_tokens 上限(16001)。但一次性探测脚本(裸调 ARK,同一 prompt 对比
+    // max/low)证实"low"在正常场景下确实会让模型更早收敛(completion 从16001→8660,
+    // finish_reason 从 length→stop)——说明 reasoning_effort 不是无效参数,只是遇到
+    // 已经陷入具体反复重算循环的强反模式时会被压过去,是"目标预算"而非硬上限。
+    // 真正被三次真实观测证实"永远精确遵守"的只有 max_tokens 本身——因此候选(c):
+    // 在调低 effort 的同时,额外给这一次重试一个远小于会话默认(16000)的硬 max_tokens
+    // (6000),即便模型仍想继续同一条推导链,也会被更早、更便宜地截断。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
     const effortSeen: unknown[] = [];
+    const maxTokensSeen: unknown[] = [];
     const streamChatMock = ((opts: StreamChatOptions) => {
       call++;
       effortSeen.push((opts.extra as { reasoning_effort?: unknown } | undefined)?.reasoning_effort);
+      maxTokensSeen.push(opts.maxTokens);
       if (call === 1) {
         opts.onEmptyTruncation?.();
         return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
@@ -163,6 +171,8 @@ describe("runTurn", () => {
     expect(call).toBe(2);
     expect(effortSeen[0]).toBe("max"); // 首次请求:默认档位,不受影响
     expect(effortSeen[1]).toBe("low"); // onEmptyTruncation 触发后的重试:物理压低
+    expect(maxTokensSeen[0]).toBeUndefined(); // 首次请求:不设覆盖,走会话默认上限
+    expect(maxTokensSeen[1]).toBe(6000); // 重试:额外加一道硬上限,不靠 effort 单独把关
   });
 
   it("普通空响应(非 onEmptyTruncation)→ 重试不压低 reasoning_effort,只有思考耗尽预算这一支才压", async () => {

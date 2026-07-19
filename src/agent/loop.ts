@@ -157,7 +157,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
   // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
   const reasoningEffort = deps.reasoningEffort ?? process.env.DAO_REASONING_EFFORT ?? "max";
-  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number, effortOverride?: string): Promise<AssistantMessage> => {
+  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number, effortOverride?: string, maxTokensOverride?: number): Promise<AssistantMessage> => {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
     let usedFallback = false;
     let hardRetries = 0; // 主模型+回退模型都遇到同类网络/超时错误后,退避重试整轮的次数上限
@@ -188,9 +188,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           messages: sent,
           ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
           // agent 类客户端默认最高思考强度;DAO_REASONING_EFFORT 可覆盖。思考模式下 temperature/top_p 无效。
-          // effortOverride:单次调用级别的临时覆盖(目前只用于 onEmptyTruncation 重试,见下方),
-          // 不影响 reasoningEffort 本身——那是整个会话固定的档位,这里只压这一次请求。
+          // effortOverride/maxTokensOverride:单次调用级别的临时覆盖(目前只用于 onEmptyTruncation
+          // 重试,见下方),不影响 reasoningEffort/会话默认 maxTokens——那些是整个会话固定的档位,
+          // 这里只压这一次请求。
           extra: { reasoning_effort: effortOverride ?? reasoningEffort },
+          ...(maxTokensOverride ? { maxTokens: maxTokensOverride } : {}),
           onUsage: (u) => {
             session.addUsage(u, model); // B-2 按模型记账
             deps.auditSink?.record({
@@ -416,9 +418,16 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       // reasoning 耗尽预算这一支,文字提示管不住模型在 reasoning 阶段重新完整推导一遍
       // (317b130+上面这条结构性提示词复测仍然复现:提示确实注入了,但模型的 reasoning
       // 本身不受"回复内容"层面的指令约束,重试请求同样把预算耗在心算上,再次空响应)。
-      // 物理压低这一次重试的思考强度,不给它把预算再耗在同一条推导链上的空间——
-      // 只压这一次请求,不改变会话其余部分的 reasoningEffort。
-      assistant = await requestAssistant(tools, t, wasEmptyTruncation ? "low" : undefined);
+      // 单独调低 reasoning_effort 到"low"复测(regex-chess__wEqpsZA)也不够:探测脚本
+      // 证实"low"在正常场景下确实会让模型更早收敛(completion从16001降到8660),但对
+      // 已经陷入具体反复重算循环的这一次重试,completion两次都精确撞满同一个 max_tokens
+      // 上限——说明 reasoning_effort 只是"目标预算"的软提示,遇到强反模式会被压过去,
+      // 而 max_tokens 才是 API 唯一保真遵守的硬上限(三次真实观测:都精确停在这个值)。
+      // 因此在调低 effort 的同时,额外给这一次重试一个远小于会话默认(16000)的硬
+      // max_tokens——即便模型仍想继续同一条推导链,也会被更早、更便宜地截断,不再
+      // 白白烧掉整个预算;正常场景下(如探测脚本的对照组)"low"本就会自然收敛在这个
+      // 范围内,不会提前误伤真正需要空间收尾的回复。
+      assistant = await requestAssistant(tools, t, wasEmptyTruncation ? "low" : undefined, wasEmptyTruncation ? 6000 : undefined);
       toolCalls = assistant.tool_calls ?? [];
       hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
       if (toolCalls.length === 0 && !hasContent) {
