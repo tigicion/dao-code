@@ -26,4 +26,9 @@ export interface ApprovalGate {
   decide(toolName: string, argsJson: string, tool: Tool): GateDecision;
   decideAsync(toolName: string, argsJson: string, tool: Tool): Promise<GateDecision>;
   requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>>;
+  // 可选:上一次 requestBatch 里,某个请求 id 最终是被谁批准/拒绝的(分类器自动放行,还是真的弹窗
+  // 问了人)。只有真正接了 auto 模式分类器的实现(PermissionGate)需要提供;测试用的假 gate
+  // 不实现也没关系(调用方对缺失时应默认按"human"处理,不能默认成"classifier"——宁可高估
+  // 打扰次数,不能低估)。只覆盖 requestBatch 分支,规则(decide)直接判的不经过这里。
+  lastApprovalSource?(id: string): "classifier" | "human" | undefined;
 }

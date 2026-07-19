@@ -97,6 +97,33 @@ describe("executeToolCalls (approval-aware)", () => {
     expect(calls).toHaveLength(0); // deny 不进入审批询问
   });
 
+  it("perm-trace 里 ask-approved 的 source 跟着 gate.lastApprovalSource 走(分类器/人工分开记)", async () => {
+    const recorded: { tool: string; decision: string; source: string }[] = [];
+    const auditCtx = { ...ctx, permAudit: { decided: (tool: string, _cap: string, decision: string, source: string) => { recorded.push({ tool, decision, source }); } } };
+    const gate: ApprovalGate = {
+      decide: (_n, _a, tool: Tool) => (tool.approval === "auto" ? "allow" : "ask"),
+      decideAsync: async (_n, _a, tool: Tool) => (tool.approval === "auto" ? "allow" : "ask"),
+      requestBatch: async (requests) => new Map(requests.map((r) => [r.id, true])),
+      lastApprovalSource: (id) => (id === "byClassifier" ? "classifier" : "human"),
+    };
+    await executeToolCalls(
+      [call("byClassifier", "Write"), call("byHuman", "Write")],
+      reg(),
+      auditCtx,
+      gate,
+    );
+    expect(recorded).toContainEqual({ tool: "Write", decision: "ask-approved", source: "classifier" });
+    expect(recorded).toContainEqual({ tool: "Write", decision: "ask-approved", source: "human" });
+  });
+
+  it("gate 没实现 lastApprovalSource(如旧假 gate)时,默认按 human 记,不能默认成 classifier", async () => {
+    const recorded: { decision: string; source: string }[] = [];
+    const auditCtx = { ...ctx, permAudit: { decided: (_t: string, _c: string, decision: string, source: string) => { recorded.push({ decision, source }); } } };
+    const { gate } = gateWith(true); // gateWith 造的假 gate 没实现 lastApprovalSource
+    await executeToolCalls([call("a", "Write")], reg(), auditCtx, gate);
+    expect(recorded).toEqual([{ decision: "ask-approved", source: "human" }]);
+  });
+
   it("按 capability 并发:read(安全)并行,write(屏障)串行", async () => {
     const timedReg = (capability: "read" | "write") => {
       let active = 0, maxActive = 0;

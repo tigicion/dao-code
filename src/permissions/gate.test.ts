@@ -183,3 +183,48 @@ describe("PermissionGate.requestBatch", () => {
     expect((await gate.requestBatch(reqs)).get("x")).toBe(false);
   });
 });
+
+describe("PermissionGate.lastApprovalSource", () => {
+  // 复盘 20260719-194639-mal7 时发现 perm-trace 把"分类器自动放行"和"真人点了允许"记成
+  // 同一个 "ask",没法回答"到底打扰了几次人"。这里验证补上的归因是否准确。
+  it("分类器放行的记 classifier,转人工的记 human,互不干扰", async () => {
+    const { gate } = makeGate({
+      mode: "auto",
+      classify: async (_t, a) => /ls/.test(a), // 只放行含 ls 的
+      decisions: { needsHuman: "once" },
+    });
+    await gate.requestBatch([
+      { id: "byClassifier", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' },
+      { id: "needsHuman", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -f a"}' },
+    ]);
+    expect(gate.lastApprovalSource("byClassifier")).toBe("classifier");
+    expect(gate.lastApprovalSource("needsHuman")).toBe("human");
+  });
+
+  it("敏感请求跳过分类器直接转人工 → 记 human", async () => {
+    const { gate } = makeGate({
+      mode: "auto",
+      classify: async () => true,
+      decisions: { s: "once" },
+    });
+    await gate.requestBatch([
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
+    ]);
+    expect(gate.lastApprovalSource("s")).toBe("human");
+  });
+
+  it("default 模式(没有分类器介入)→ 全部记 human", async () => {
+    const { gate } = makeGate({ mode: "default", decisions: { x: "once" } });
+    await gate.requestBatch([{ id: "x", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run build"}' }]);
+    expect(gate.lastApprovalSource("x")).toBe("human");
+  });
+
+  it("只反映最近一批,换一批就清空旧的归因", async () => {
+    const { gate } = makeGate({ mode: "auto", classify: async () => true, decisions: {} });
+    await gate.requestBatch([{ id: "a", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(gate.lastApprovalSource("a")).toBe("classifier");
+    await gate.requestBatch([{ id: "b", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(gate.lastApprovalSource("a")).toBeUndefined(); // 上一批的痕迹被清掉
+    expect(gate.lastApprovalSource("b")).toBe("classifier");
+  });
+});

@@ -158,9 +158,13 @@ export async function executeToolCalls(
   for (const r of gatedRequests) {
     const tc = toolCalls.find((t) => t.id === r.id)!;
     const capA = registry.get(tc.function.name)?.capability ?? "unknown";
-    if (approvals.get(tc.id)) { toRun.add(tc.id); ctx.permAudit?.decided(tc.function.name, capA, "ask-approved", "ask"); }
-    // 走到这里的拒绝都是人工审批里用户选了"否"(auto 模式不再自动拒绝,拿不准的会转人工)。
-    else { results.set(tc.id, rejectMsg(tc, "用户拒绝执行该工具。")); ctx.permAudit?.decided(tc.function.name, capA, "ask-denied", "ask"); }
+    // 区分这次是分类器自动放行的还是真弹窗问了人——gate 没实现该方法(如测试假 gate)时默认按
+    // "human"记,宁可高估打扰次数也不能把真人审批悄悄记成分类器。
+    const source = gate.lastApprovalSource?.(tc.id) ?? "human";
+    if (approvals.get(tc.id)) { toRun.add(tc.id); ctx.permAudit?.decided(tc.function.name, capA, "ask-approved", source); }
+    // 走到这里的拒绝都是人工审批里用户选了"否"(auto 模式不再自动拒绝,拿不准的会转人工;
+    // 分类器本身从不产出"拒绝",denied 恒为 human)。
+    else { results.set(tc.id, rejectMsg(tc, "用户拒绝执行该工具。")); ctx.permAudit?.decided(tc.function.name, capA, "ask-denied", "human"); }
   }
 
   // S3.3 审计:记录写/执行/网络类工具的最终裁决(放行/拒绝)到 .dao/audit.log。

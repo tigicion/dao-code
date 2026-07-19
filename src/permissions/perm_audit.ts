@@ -4,10 +4,14 @@ import { auditEnabled } from "../session/audit_switch.js";
 
 // 权限审计:每次工具裁决记 工具/能力/模式/裁决/来源。落盘 <sessionDir>/perm-trace.jsonl。
 // 受总开关 DAO_AUDIT(默认开)/DAO_PERM_AUDIT 控制。
-// decision:规则直接 allow/deny;走审批后人工准/驳为 ask-approved/ask-denied。
-// source:rule=规则直接定;ask=进了审批流(分类器/人工更细归因待 gate 改造)。
+// decision:规则直接 allow/deny;走审批流程后准/驳为 ask-approved/ask-denied。
+// source:rule=规则(engine.decide)直接定,不会问任何人;classifier=auto 模式的 LLM 分类器自动放行,
+// 没有真人看到过这次请求;human=真的弹了审批 UI、由人点的决定。
+// (这三者以前 classifier/human 合并记成同一个 "ask",没法回答"到底有没有打扰到人"——
+// 复盘 session 20260719-194639-mal7 时发现没法区分 69 次 ask-approved 里哪些是分类器自动过的、
+// 哪些是真人点的,倒逼把这个粒度补上。)
 export type PermDecision = "allow" | "deny" | "ask-approved" | "ask-denied";
-export type PermSource = "rule" | "ask";
+export type PermSource = "rule" | "classifier" | "human";
 export type PermTraceEvent = { kind: "decided"; ts: number; tool: string; cap: string; mode: string; decision: PermDecision; source: PermSource };
 
 export interface PermAuditSink {

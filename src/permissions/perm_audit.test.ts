@@ -13,8 +13,8 @@ describe("perm_audit sink", () => {
     let mode = "default";
     const s = createPermAuditSink(dir, () => mode, {} as NodeJS.ProcessEnv);
     mode = "auto"; // sink 创建后改 mode
-    s.decided("Write", "write", "ask-approved", "ask");
-    expect(read(dir)[0]).toMatchObject({ tool: "Write", cap: "write", mode: "auto", decision: "ask-approved", source: "ask" });
+    s.decided("Write", "write", "ask-approved", "human");
+    expect(read(dir)[0]).toMatchObject({ tool: "Write", cap: "write", mode: "auto", decision: "ask-approved", source: "human" });
   });
 
   it("DAO_PERM_AUDIT=0 → no-op", () => {
@@ -26,8 +26,8 @@ describe("perm_audit sink", () => {
 
   it("summarize 询问率,询问率高在前", () => {
     const ev: PermTraceEvent[] = [
-      { kind: "decided", ts: 0, tool: "Write", cap: "write", mode: "default", decision: "ask-approved", source: "ask" },
-      { kind: "decided", ts: 0, tool: "Write", cap: "write", mode: "default", decision: "ask-denied", source: "ask" },
+      { kind: "decided", ts: 0, tool: "Write", cap: "write", mode: "default", decision: "ask-approved", source: "classifier" },
+      { kind: "decided", ts: 0, tool: "Write", cap: "write", mode: "default", decision: "ask-denied", source: "human" },
       { kind: "decided", ts: 0, tool: "Read", cap: "read", mode: "default", decision: "allow", source: "rule" },
     ];
     const stats = summarizePermTrace(ev);

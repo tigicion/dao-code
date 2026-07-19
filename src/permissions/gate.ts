@@ -16,6 +16,15 @@ export class PermissionGate implements ApprovalGate {
     private classify?: (toolName: string, argsJson: string) => Promise<boolean>, // auto 模式:AI 代替人工裁决
   ) {}
 
+  // 上一次 requestBatch 里,每个请求 id 最终是被分类器自动放行的,还是真弹窗问了人——
+  // 供 execute.ts 写 perm-trace 时区分 source,而不是像以前一样两者混记成同一个 "ask"
+  // (复盘 20260719-194639-mal7 时发现这个粒度缺失,没法回答"到底打扰了几次人")。
+  // 每次 requestBatch 开头清空,只反映最近一批,避免长会话里无限增长。
+  private lastSources = new Map<string, "classifier" | "human">();
+  lastApprovalSource(id: string): "classifier" | "human" | undefined {
+    return this.lastSources.get(id);
+  }
+
   /**
    * 创建一个用指定 mode 覆盖的子 gate(供子代理用)。
    * 规则/prompt/remember/classify 全部复用父级;只有裁决用的 mode 不同。
@@ -68,6 +77,7 @@ export class PermissionGate implements ApprovalGate {
   }
 
   async requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>> {
+    this.lastSources = new Map(); // 只反映这一批,不跨批累积
     const out = new Map<string, boolean>();
     // auto 模式:AI 分类器只负责【把确信安全的自动放行】;其余(判定需谨慎 / 评估失败 / 敏感目标)
     // 一律【转人工审批】,而不是直接拒绝——auto = "安全的自动过,拿不准的问你",绝不替你拒。
@@ -80,7 +90,7 @@ export class PermissionGate implements ApprovalGate {
         let allow = false;
         try { allow = await this.classify(r.toolName, r.argsJson ?? ""); }
         catch { allow = false; } // 分类器评估失败 → 不自动放行,转人工(不是拒绝)
-        if (allow) out.set(r.id, true);
+        if (allow) { out.set(r.id, true); this.lastSources.set(r.id, "classifier"); }
         else needHuman.push(r);
       }
       if (needHuman.length === 0) return out;
@@ -97,6 +107,7 @@ export class PermissionGate implements ApprovalGate {
           if (d === "always") await this.onRemember(rule);
         }
       }
+      this.lastSources.set(r.id, "human");
       out.set(r.id, d !== "deny");
     }
     return out;
