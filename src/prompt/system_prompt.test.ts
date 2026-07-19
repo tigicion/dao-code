@@ -5,11 +5,11 @@ describe("buildSystemPrompt (zh)", () => {
   const prompt = buildSystemPrompt({
     modelId: "deepseek-v4-pro",
     toolSummaries: "- Read:读文件\n- Write:写文件",
-    projectInstructions: "(无)",
+    projectInstructions: "### DAO.md @ .\n这是项目指令内容",
   });
 
-  it("substitutes the model id", () => {
-    expect(prompt).toContain("deepseek-v4-pro");
+  it("contains the identity line", () => {
+    expect(prompt).toContain("交互式智能助手");
   });
 
   it("injects the tool summaries", () => {
@@ -17,17 +17,6 @@ describe("buildSystemPrompt (zh)", () => {
     expect(prompt).toContain("- Write:写文件");
   });
 
-  it("describes the two modes", () => {
-    expect(prompt).toContain("plan");
-    expect(prompt).toMatch(/只读|提方案/);
-  });
-
-  it("含模型/上下文选型政策", () => {
-    expect(prompt).toMatch(/deepseek-v4-flash/);
-    expect(prompt).toMatch(/pro/);
-    expect(prompt).toMatch(/技能.*不得|不得据此|技能能改的是/);
-    expect(prompt).toMatch(/模型.*上下文|上下文.*模型/);
-  });
 
   it("reflectMemoryEnabled/reflectChallengerEnabled 默认都关闭 → 整段审视/反思提醒都不出现", () => {
     expect(prompt).not.toContain("[审视者]");
@@ -71,6 +60,16 @@ describe("buildSystemPrompt (zh)", () => {
     expect(p).toContain("[纠偏者]");
   });
 
+  it("项目指令注入到独立段落", () => {
+    expect(prompt).toContain("# 项目指令");
+    expect(prompt).toContain("这是项目指令内容");
+  });
+
+  it("权威层级第4条不含括号引用", () => {
+    expect(prompt).not.toContain("见下方");
+    expect(prompt).not.toContain("{project_instruction_files}");
+  });
+
   it("leaves no unfilled placeholders", () => {
     expect(prompt).not.toMatch(/\{[a-z_]+\}/);
   });
@@ -109,6 +108,20 @@ describe("buildSystemPrompt (zh)", () => {
     const p = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b" });
     expect(p).not.toContain("{env_snapshot}");
   });
+
+  it("interactive 省略/true → 不出现无人值守的会话特定指引", () => {
+    const p1 = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b" });
+    const p2 = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b", interactive: true });
+    expect(p1).not.toContain("AskUserQuestion 不会有人来回答");
+    expect(p2).not.toContain("AskUserQuestion 不会有人来回答");
+  });
+
+  it("interactive: false → 注入会话特定指引,告知 AskUserQuestion 没人回答、按合理默认推进", () => {
+    const p = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b", interactive: false });
+    expect(p).toContain("会话特定指引");
+    expect(p).toContain("AskUserQuestion 不会有人来回答");
+    expect(p).toContain("合理默认");
+  });
 });
 
 describe("buildSystemPrompt (en)", () => {
@@ -118,8 +131,8 @@ describe("buildSystemPrompt (en)", () => {
     lang: "en",
   });
 
-  it("substitutes the model id", () => {
-    expect(prompt).toContain("deepseek-v4-pro");
+  it("contains the identity line", () => {
+    expect(prompt).toContain("interactive intelligent assistant");
   });
 
   it("injects the tool summaries", () => {
@@ -131,19 +144,11 @@ describe("buildSystemPrompt (en)", () => {
     expect(prompt).toContain("# Who You Are");
     expect(prompt).toContain("# Authority Hierarchy");
     expect(prompt).toContain("# Honesty");
+    expect(prompt).toContain("# Project Instructions");
     expect(prompt).toContain("# Tools");
     expect(prompt).toContain("# Memory");
   });
 
-  it("describes the two modes", () => {
-    expect(prompt).toContain("plan");
-    expect(prompt).toMatch(/read.only|propose plans/);
-  });
-
-  it("references flash model policy", () => {
-    expect(prompt).toMatch(/deepseek-v4-flash/);
-    expect(prompt).toMatch(/pro/);
-  });
 
   it("两个开关默认都关闭 → 整段 advisory/reflection reminders 都不出现", () => {
     expect(prompt).not.toContain("[审视者]");
@@ -173,6 +178,11 @@ describe("buildSystemPrompt (en)", () => {
     expect(p).toContain("[审视者]");
     expect(p).toContain("[纠偏者]");
     expect(p).not.toContain("[反思]");
+  });
+
+  it("authority hierarchy item 4 has no parenthetical reference", () => {
+    expect(prompt).not.toContain("see {project_instruction_files}");
+    expect(prompt).not.toContain("{project_instruction_files}");
   });
 
   it("leaves no unfilled placeholders", () => {
@@ -206,6 +216,20 @@ describe("buildSystemPrompt (en)", () => {
     const p = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b" });
     expect(p).toContain("# 你是谁");
     expect(p).not.toContain("# Who You Are");
+  });
+
+  it("interactive: false → injects session-specific guidance about AskUserQuestion having no one to answer", () => {
+    const p = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b", lang: "en", interactive: false });
+    expect(p).toContain("Session-Specific Guidance");
+    expect(p).toContain("AskUserQuestion has no one to answer it");
+    expect(p).toContain("reasonable default");
+  });
+
+  it("interactive 省略/true → no unattended-session guidance", () => {
+    const p1 = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b", lang: "en" });
+    const p2 = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b", lang: "en", interactive: true });
+    expect(p1).not.toContain("AskUserQuestion has no one to answer it");
+    expect(p2).not.toContain("AskUserQuestion has no one to answer it");
   });
 });
 

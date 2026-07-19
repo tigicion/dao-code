@@ -736,6 +736,9 @@ async function main() {
         skillsHeader + skillCatalogLines(skills)
       : "";
 
+  // 真正的交互式会话:有 TTY 且不是一次性 --goal 调用——决定 ctx.askChoice 是否注入(下方)、
+  // 也决定系统提示词要不要加"会话特定指引"(AskUserQuestion 在 headless 下没人回答)。
+  const interactiveSession = process.stdin.isTTY === true && !argvPrompt;
   const envSnapshot = formatEnvSnapshot(await envSnapshotPromise, lang === "en");
   const systemPrompt =
     buildSystemPrompt({
@@ -749,6 +752,7 @@ async function main() {
       lang,
       reflectMemoryEnabled: reflectMemoryFlag,
       reflectChallengerEnabled: reflectChallengerFlag,
+      interactive: interactiveSession,
     }) + agentTypesSection + skillsSection;
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
@@ -862,14 +866,13 @@ async function main() {
   // default/acceptEdits 由 getMode 读 loadedPerms.defaultMode 处理,无需在此设置。
   if (loadedPerms.defaultMode === "plan") session.mode = "plan";
   else if (loadedPerms.defaultMode === "bypassPermissions") yolo = true;
-  // 真正的交互式会话:有 TTY 且不是一次性 --goal 调用——跟 740 行 makeApprovalPrompt 用同一个
-  // 判据。之前 askChoice 无条件构造,headless/一次性调用(harbor/terminal-bench 这类没有真实
-  // stdin 可交互的场景)里也会拿到这个函数,退回走 ask() 读 stdin——但那里的 stdin 不是真终端,
-  // 读到的是空/EOF,不匹配任何选项前缀,会被 loop.ts 里"过载/超时/网络异常"的恢复逻辑误判成
-  // "用户选择了中止本轮",直接抛错终止整个 episode,把 loop.ts 自己那套"非交互场景保留原有
-  // 自动恢复"的设计完全绕过了。真实撞见:terminal-bench path-tracing-reverse 复测,一次
-  // 120s 空闲超时被这样直接判成中止,而不是走后面的限流重试/模型回退/退避重试。
-  const interactiveSession = process.stdin.isTTY === true && !argvPrompt;
+  // interactiveSession 已在系统提示词组装时算过(上方)。之前 askChoice 无条件构造,
+  // headless/一次性调用(harbor/terminal-bench 这类没有真实 stdin 可交互的场景)里也会拿到
+  // 这个函数,退回走 ask() 读 stdin——但那里的 stdin 不是真终端,读到的是空/EOF,不匹配任何
+  // 选项前缀,会被 loop.ts 里"过载/超时/网络异常"的恢复逻辑误判成"用户选择了中止本轮",
+  // 直接抛错终止整个 episode,把 loop.ts 自己那套"非交互场景保留原有自动恢复"的设计完全
+  // 绕过了。真实撞见:terminal-bench path-tracing-reverse 复测,一次 120s 空闲超时被这样
+  // 直接判成中止,而不是走后面的限流重试/模型回退/退避重试。
   const ctx: ToolContext = {
     workspaceRoot,
     readFiles: new Set<string>(),
