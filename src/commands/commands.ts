@@ -11,11 +11,18 @@ export interface CommandResult {
   clearTranscript?: boolean; // /rewind /resume:已改写 session.messages,App 应清空可视 transcript
 }
 
+/** 命令名只允许 [a-zA-Z0-9:_-]；含 / . 等字符的（如文件路径）不是命令。参考 CC looksLikeCommand。 */
+function looksLikeCommand(name: string): boolean {
+  return /^[a-zA-Z0-9:_-]+$/.test(name);
+}
+
 export function dispatchCommand(input: string, session: Session, provider: Provider = "deepseek"): CommandResult {
   const trimmed = input.trim();
   if (!trimmed.startsWith("/")) return { handled: false };
   const parts = trimmed.slice(1).split(/\s+/);
   const cmd = parts[0] ?? "";
+  // 防御：命令名含 / . 等非法字符（如 /Users/xxx/a.png）-> 不是命令，当普通文本。
+  if (!looksLikeCommand(cmd)) return { handled: false };
   const arg = parts.slice(1).join(" ");
 
   switch (cmd) {

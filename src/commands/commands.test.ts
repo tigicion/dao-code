@@ -148,4 +148,20 @@ describe("dispatchCommand", () => {
     expect(r.handled).toBe(true);
     expect(r.output).toContain("未知命令");
   });
+
+  it("绝对路径（含 /）不当命令处理", () => {
+    expect(dispatchCommand("/Users/x/Desktop/a.png", sess()).handled).toBe(false);
+    expect(dispatchCommand("/usr/bin/node", sess()).handled).toBe(false);
+    expect(dispatchCommand("/var/log/syslog", sess()).handled).toBe(false);
+  });
+
+  it("含 . 的路径不当命令处理", () => {
+    expect(dispatchCommand("/Desktop/a.jpeg", sess()).handled).toBe(false);
+  });
+
+  it("合法命令名（含冒号/下划线/连字符）仍正常分发", () => {
+    // 冒号、下划线、连字符是合法命令名字符
+    const r = dispatchCommand("/wat", sess());
+    expect(r.handled).toBe(true);
+  });
 });

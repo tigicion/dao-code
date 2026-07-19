@@ -1596,7 +1596,9 @@ async function main() {
           persist(); // 回合末存档(崩溃可恢复)
         },
         runCommand: (line) => {
-          const name = line.trim().slice(1).split(/\s+/)[0];
+          const name = line.trim().slice(1).split(/\s+/)[0] ?? "";
+          // 防御：命令名含 / . 等非法字符（如 /Users/xxx/a.png）-> 不是命令，当普通文本。
+          if (!/^[a-zA-Z0-9:_-]+$/.test(name)) return { handled: false };
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
@@ -1637,9 +1639,77 @@ async function main() {
           }
           if (name === "context") {
             const used = contextTokens();
-            const sys = estimateTokens(session.messages.slice(0, 1));
             const pct = Math.round((used / CONTEXT_WINDOW) * 100);
-            return { handled: true, output: `上下文:~${used.toLocaleString()} / ${CONTEXT_WINDOW.toLocaleString()} tok(${pct}%)\n  系统+技能 ~${sys.toLocaleString()} · 对话 ~${(used - sys).toLocaleString()}\n  ${pct >= 85 ? "接近上限,下回合将自动压缩(也可 /compact)" : "余量充足"}` };
+            const sys = estimateTokens(session.messages.slice(0, 1));
+            // 工具定义 token：用 apiTools（已生成的 JSON schema 描述）粗估
+            const toolTok = apiTools.reduce((s, t) => s + Math.ceil((JSON.stringify(t).length) / 3), 0);
+            // 技能 frontmatter token（on 的技能描述常驻上下文）
+            const onBundled = BUNDLED_SKILLS.filter((b) => b.core && !disabledSet.has(b.name) && !diskNames.has(b.name));
+            const onDisk = diskSkills.filter((s) => !disabledSet.has(s.name));
+            const skillTok = [...onBundled, ...onDisk].reduce((s, sk) => s + skillTokens(sk), 0);
+            // 消息历史细分
+            const histMsgs = session.messages.slice(1);
+            let assistantTok = 0, userTok = 0, toolCallTok = 0, toolResultTok = 0;
+            for (const m of histMsgs) {
+              if (m.role === "assistant") {
+                if (typeof m.content === "string") assistantTok += Math.ceil(m.content.length / 3);
+                if (m.tool_calls) for (const tc of m.tool_calls) toolCallTok += Math.ceil((tc.function.name.length + tc.function.arguments.length) / 3);
+              } else if (m.role === "user") {
+                if (typeof m.content === "string") userTok += Math.ceil(m.content.length / 3);
+                else if (Array.isArray(m.content)) for (const p of m.content) { if (p.type === "text") userTok += Math.ceil(p.text.length / 3); else userTok += 100; }
+              } else if (m.role === "tool") {
+                const c = m.content as string | unknown[];
+                const len = typeof c === "string" ? c.length : JSON.stringify(c).length;
+                toolResultTok += Math.ceil(len / 3);
+              }
+            }
+            const histTok = assistantTok + userTok + toolCallTok + toolResultTok;
+            // MCP 工具
+            const mcpToolCount = registry.countMcpTools();
+            const mcpActiveCount = mcp.connectedCount;
+            // 自动压缩缓冲区
+            const bufferTok = Math.round(CONTEXT_WINDOW * 0.15);
+            const freeTok = Math.max(0, CONTEXT_WINDOW - used);
+            // API 实际用量（本会话累计）
+            const u = session.usage;
+            const cacheRatio = u.promptTokens > 0 ? ((u.cacheHitTokens / u.promptTokens) * 100).toFixed(1) : "—";
+            // 优化建议
+            const suggestions: string[] = [];
+            if (toolTok > used * 0.15) suggestions.push(`工具定义占 ${Math.round(toolTok / used * 100)}%（/mcp off 关不用的 server 减少工具数）`);
+            if (toolResultTok > histTok * 0.5) suggestions.push(`工具结果占对话 ${Math.round(toolResultTok / Math.max(1, histTok) * 100)}%（/compact 压缩历史）`);
+            if (skillTok > 5000) suggestions.push(`技能描述占 ~${skillTok.toLocaleString()} tok（/skills off <名> 关不需要的）`);
+            if (pct >= 85) suggestions.push("接近上限，下回合将自动压缩（也可 /compact 主动压缩）");
+            if (suggestions.length === 0) suggestions.push("余量充足，无需操作");
+
+            const fmt = (n: number) => n.toLocaleString();
+            const bar = (ratio: number) => {
+              const w = 20;
+              const filled = Math.round(ratio * w);
+              return "█".repeat(filled) + "░".repeat(w - filled);
+            };
+            const lines = [
+              `上下文用量  ${bar(used / CONTEXT_WINDOW)}  ${fmt(used)} / ${fmt(CONTEXT_WINDOW)} tok (${pct}%)`,
+              `模型: ${session.model}`,
+              "",
+              "┌─ 分类明细 ──────────────────────────────┐",
+              `  系统提示      ${fmt(sys).padStart(8)} tok  ${(sys / CONTEXT_WINDOW * 100).toFixed(1)}%`,
+              `  工具定义      ${fmt(toolTok).padStart(8)} tok  ${(toolTok / CONTEXT_WINDOW * 100).toFixed(1)}%`,
+              mcpToolCount > 0 ? `  MCP 工具      ${mcpToolCount} 个（${mcpActiveCount} server 连接中）` : null,
+              `  技能描述      ${fmt(skillTok).padStart(8)} tok  ${onBundled.length + onDisk.length} 个启用`,
+              `  对话历史      ${fmt(histTok).padStart(8)} tok`,
+              `    ├ assistant ${fmt(assistantTok).padStart(8)} tok`,
+              `    ├ user      ${fmt(userTok).padStart(8)} tok`,
+              `    ├ tool_call ${fmt(toolCallTok).padStart(8)} tok`,
+              `    └ tool_result ${fmt(toolResultTok).padStart(6)} tok`,
+              `  压缩缓冲区    ${fmt(bufferTok).padStart(8)} tok  (15% 预留)`,
+              `  剩余空间      ${fmt(freeTok).padStart(8)} tok`,
+              "└──────────────────────────────────────────┘",
+              "",
+              `API 累计:输入 ${fmt(u.promptTokens)} · 输出 ${fmt(u.completionTokens)} · 缓存命中 ${cacheRatio}%`,
+              "",
+              ...suggestions.map((s) => `  • ${s}`),
+            ].filter((l) => l !== null);
+            return { handled: true, output: lines.join("\n") };
           }
           if (name === "tasks") {
             const r = taskManager.running();
