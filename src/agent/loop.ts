@@ -403,7 +403,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         session.messages.push({
           role: "system",
           content: "[提示] 上一轮的思考过程用尽了输出预算,还没有给出最终回答或工具调用就被截断。" +
-            "这一轮请更快收敛:如果方向已经想清楚,直接给出结论、代码或调用工具,不要重新从头展开完整推导。",
+            "这一轮的回复第一步必须是一次工具调用,不允许先输出任何推导性自由文本——" +
+            "如果是在反复心算/手工推导同一类计算(坐标偏移、字节位置、进制换算等)," +
+            "直接调用 exec_shell 或 write_file 写一个一次性脚本把它跑出来,不要在文字里重新推一遍。",
         });
       } else {
         events.notice("\n[模型返回空响应,重试一次…]\n");
