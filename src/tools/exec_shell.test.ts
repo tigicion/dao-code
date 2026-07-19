@@ -133,6 +133,51 @@ describe("Bash tool", () => {
     expect(out).toContain("[exit 0]");
   });
 
+  it("python3 -c 命令里引用了一个存在且不大的文件 → 第一次就拦下,命令不执行", async () => {
+    const fakeBin = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+    const dataFile = path.join(fakeBin, "small.jsonl");
+    writeFileSync(dataFile, '{"a":1}\n{"a":2}\n');
+    const out = await execShellTool.handler(
+      { command: `python3 -c "import json; open('${dataFile}')"` },
+      ctx,
+    );
+    expect(out).toContain("不用写 python 脚本");
+    expect(out).toContain("small.jsonl");
+    expect(out).not.toContain("[exit");
+  });
+
+  it("python3 -c 命令没引用任何看得出来的小文件路径 → 不拦,正常走原有 streak 逻辑", async () => {
+    await execShellTool.handler({ command: "echo reset-streak" }, ctx);
+    const out = await execShellTool.handler({ command: 'python3 -c "print(sum(range(10)))"' }, ctx);
+    expect(out).not.toContain("不用写 python 脚本");
+  });
+
+  it("连续 3 次 python3 -c 内联脚本触发一次提醒,之后同一 streak 内不重复念叨", async () => {
+    // 不关心 python3 是否真的装在测试机上——命令是否匹配"python3 -c"这个反模式跟它
+    // 实际能不能跑成功无关,断言只看提醒文案有没有按第 3 次触发、第 4 次不重复。
+    await execShellTool.handler({ command: "echo reset-streak" }, ctx); // 确保从 0 开始数
+    const out1 = await execShellTool.handler({ command: 'python3 -c "print(1)"' }, ctx);
+    expect(out1).not.toContain("[提示]");
+    const out2 = await execShellTool.handler({ command: 'python3 -c "print(2)"' }, ctx);
+    expect(out2).not.toContain("[提示]");
+    const out3 = await execShellTool.handler({ command: 'python3 -c "print(3)"' }, ctx);
+    expect(out3).toContain("[提示]");
+    expect(out3).toContain("Grep");
+    const out4 = await execShellTool.handler({ command: 'python3 -c "print(4)"' }, ctx);
+    expect(out4).not.toContain("[提示]");
+  });
+
+  it("换成非 python 命令后计数清零,下次连续 3 次 python -c 才重新触发提醒", async () => {
+    await execShellTool.handler({ command: "echo reset-streak" }, ctx); // 清掉上一条用例遗留的 streak/nudged 状态
+    await execShellTool.handler({ command: 'python -c "print(1)"' }, ctx);
+    await execShellTool.handler({ command: 'python -c "print(2)"' }, ctx);
+    const primed = await execShellTool.handler({ command: 'python -c "print(3)"' }, ctx);
+    expect(primed).toContain("[提示]");
+    await execShellTool.handler({ command: "echo reset-streak" }, ctx);
+    const out = await execShellTool.handler({ command: 'python -c "print(1)"' }, ctx);
+    expect(out).not.toContain("[提示]");
+  });
+
   it("declares exec capability and required approval", () => {
     expect(execShellTool.capability).toBe("exec");
     expect(execShellTool.approval).toBe("required");

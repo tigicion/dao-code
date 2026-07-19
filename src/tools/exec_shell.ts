@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { defineTool } from "./types.js";
 import { processManager } from "./process_manager.js";
@@ -20,6 +22,37 @@ const OUT_CAP = 10 * 1024 * 1024; // 内存中累积输出上限,超出截断(�
 // 包管理器命令的粗粒度识别:命令名前后是空白/分隔符/行首,不匹配文件名里带这几个词的情况
 // (跟 permissions/bash_safety.ts 里 cmdRe() 的边界判断同一个思路,避免 \b 的同形字/文件名假阳性)。
 const PKG_MGR_TIMEOUT_RE = /(?:^|[\s;&|])(apt-get|apt|dpkg|aptitude)(?=\s|$|;|&|\|)/;
+// python3 -c/python -c 内联脚本识别:一次性文本/日志分析动不动就现写 python 脚本,是观测到的
+// 真实反模式(session 20260719-194639-mal7 里翻 evolution-log.md 找从未通过的题目,连续 20 次
+// Bash 拼 grep/sed;分析自己的 session 日志又连续 10 次 python3 -c——而且事后核对,那 10 次里
+// 涉及的文件全部 <20KB,一次 Read 就能读完,没有一次真的需要脚本)。两层拦截:
+// 1) 命令里能提取出一个"存在且不大"的文件路径 → 直接第一次就拦,不等它攒够次数;
+// 2) 提取不到路径(纯计算、走 stdin 等)时退回"连续出现"计数,≥3 次才提醒一次,避免
+//    偶尔一次正当的 JSON/结构化解析(Grep 做不到)也被念叨。
+const PYTHON_INLINE_RE = /(?:^|[\s;&|])python3?\s+-c\b/;
+// 粗略识别命令里提到的、看起来像数据/文本文件的路径(带引号或裸词,以常见文本类扩展名结尾)。
+const FILE_PATH_RE = /(['"]?)([.\w/][\w./-]*\.(?:jsonl?|md|txt|log|csv|ya?ml|toml|ini|tsv))\1/g;
+// 门槛跟 Read 工具自己的默认单次读取上限(2000 行)对齐:没必要为了精确算行数先整份读进内存,
+// 常见文本行密度下 200KB 大致对应几千行量级,用字节数打个粗略折算够用了。
+const SMALL_FILE_BYTES = 200 * 1024;
+
+function findSmallReferencedFile(command: string, cwd: string): { rel: string; bytes: number } | null {
+  const re = new RegExp(FILE_PATH_RE.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(command))) {
+    const rel = m[2]!;
+    const abs = path.isAbsolute(rel) ? rel : path.join(cwd, rel);
+    try {
+      const st = statSync(abs);
+      if (st.isFile() && st.size <= SMALL_FILE_BYTES) return { rel, bytes: st.size };
+    } catch { /* 路径解析失败或文件不存在,不是本次拦截的目标,试下一个候选 */ }
+  }
+  return null;
+}
+
+// 进程内存活的连续计数(第 2 层兜底用),不跟着 ctx 走(ctx 每次调用都是新对象,存不住跨调用状态)。
+let pythonInlineStreak = 0;
+let pythonInlineNudged = false;
 
 function runForeground(
   command: string,
@@ -109,7 +142,9 @@ export const execShellTool = defineTool({
     "输出在内存里最多攒 10MB,超了会截断并提示改用更精确的命令或重定向到文件后再查——命令本身别指望它能把一个几十MB" +
     "的输出原样倒给你。\n" +
     "查文件内容用 Grep、查文件名/路径用 Glob、读文件用 Read——不要用本工具拼 grep/rg/find/cat/head/tail," +
-    "专用工具有护栏(大小限制、二进制探测)且不占审批。\n" +
+    "专用工具有护栏(大小限制、二进制探测)且不占审批。同理,简单文本/日志搜索也别现写 python3 -c 内联脚本模拟" +
+    "grep——Grep 工具一次就到位;真需要 JSON/结构化解析等 Grep 做不到的逻辑,优先 Write 成 .py 文件执行,而不是" +
+    "在 -c 里反复试错。\n" +
     "高风险命令(rm -rf /、curl|sh 直接执行远程脚本、提权、写裸盘设备等)即便审批规则整体放宽了,也会被强制要求" +
     "确认一次,绕不过去;命令里混了同形字符/零宽字符伪装成正常样子也会被拦下强制确认。\n" +
     "在还没搞清楚一份数据/文件的状态就去探查它时要留神:某些'看起来是只读查询'的命令其实有副作用" +
@@ -129,7 +164,9 @@ export const execShellTool = defineTool({
     "child processes spawned by the command are terminated too. Output is capped at 10MB in memory; past that it's truncated with a hint to use a more precise " +
     "command or redirect to a file and inspect that instead — don't expect a raw multi-MB output to come back intact.\n" +
     "Use Grep for content search, Glob for filename/path search, Read for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated " +
-    "tools have guardrails (size limits, binary detection) and skip approval.\n" +
+    "tools have guardrails (size limits, binary detection) and skip approval. Likewise, don't write inline python3 -c scripts to reimplement grep for " +
+    "simple text/log search — the Grep tool gets there in one shot. For logic Grep genuinely can't do (JSON/structured parsing), prefer Write-ing a .py " +
+    "file and running it, rather than trial-and-error inside -c.\n" +
     "High-risk commands (rm -rf /, piping curl straight into a shell, privilege escalation, writing raw disk devices, etc.) force a confirmation even if approval rules " +
     "are otherwise relaxed — there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.\n" +
     "Be careful when probing a file/dataset whose state you don't fully understand yet: some commands that look read-only actually have side effects " +
@@ -162,19 +199,47 @@ export const execShellTool = defineTool({
     // 反 sleep 轮询:纯 sleep 命令(如 "sleep 15")几乎只用于等待后台子代理完成,
     // 这是明确的反模式--后台任务完成时结果会自动回灌,不需要 sleep 轮询。
     // 拦截并给出正确指导,而不是让模型白白烧 15-30 秒。
-    if (/^\s*sleep\s+\d+(\.\d+)?\s*$/.test(args.command)) {
-      return "不要用 sleep 等待后台子代理完成。后台任务的结果会自动通知你--结束本轮或去做别的事,结果到了会自动回灌。\n" +
-        "如果你确实需要等待(如等端口可用),用 Bash 的 background 参数起后台命令配合 BashOutput 轮询输出,而不是阻塞式 sleep。";
+    // 匹配纯 sleep、以及"sleep N && 后续命令"(复合命令以 sleep 打头,本质是等定时)。
+    const SLEEP_PREFIX_RE = /^\s*sleep\s+(\d+(?:\.\d+)?)\s*(?:&&|;|\||$)/;
+    const sleepMatch = SLEEP_PREFIX_RE.exec(args.command);
+    if (sleepMatch) {
+      const seconds = parseFloat(sleepMatch[1]!);
+      if (seconds >= 5) {
+        return `不要用 sleep 等待后台任务完成。后台任务的结果会自动通知你——结束本轮或去做别的事,结果到了会自动回灌。\n` +
+          `如果你确实需要等待(如等端口可用、等容器启动),用 Bash 的 background 参数起后台命令配合 BashOutput 轮询输出,而不是阻塞式 sleep。\n` +
+          `你刚才的命令等了 ${seconds} 秒——这段时间整个 dao 会话被完全阻塞,无法响应用户输入。`;
+      }
     }
     if (args.background) {
       const id = processManager.start(args.command, (ctx.cwd ?? ctx.workspaceRoot));
       return `已在后台启动(id=${id})。用 BashOutput 读取输出,KillShell 结束。`;
     }
+    const isPythonInline = PYTHON_INLINE_RE.test(args.command);
+    if (isPythonInline) {
+      // 第 1 层:命令里能认出一个"存在且不大"的文件 → 不等攒够次数,第一次就拦下来不执行,
+      // 直接告诉它 Read/Grep 一次到位——这才是"根本上第一次就引导对",而不是纵容它先错3次。
+      const small = findSmallReferencedFile(args.command, ctx.cwd ?? ctx.workspaceRoot);
+      if (small) {
+        return `不用写 python 脚本——${small.rel} 只有 ${(small.bytes / 1024).toFixed(1)}KB,一次 Read 就能读完,` +
+          `或用 Grep 定位关键字,都比现写 -c 脚本更快。命令未执行;如果这份数据确实需要脚本才能处理` +
+          `(比如要跨多个文件聚合、算法本身复杂),说明理由后可以重新发起。`;
+      }
+      pythonInlineStreak += 1;
+    } else { pythonInlineStreak = 0; pythonInlineNudged = false; }
     const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 120000, ctx.signal, args.dangerouslyDisableSandbox);
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
     parts.push(r.aborted ? `[已中断]` : r.timedOut ? `[超时,已终止]` : `[exit ${r.code}]`);
+    if (isPythonInline && pythonInlineStreak >= 3 && !pythonInlineNudged) {
+      pythonInlineNudged = true;
+      parts.push(
+        `[提示] 连续 ${pythonInlineStreak} 次用 python3 -c 内联脚本做一次性分析——简单文本/日志搜索优先用 Grep` +
+        `(支持 context/glob/type,一次到位、不占审批);要通读一份文件再决策,用 Read 一口气读完,别反复换关键词试探;` +
+        `确实需要的复杂解析/多步逻辑,Write 成一个 .py 文件再跑,比每次现写现丢更容易复用调试;范围广、要点分散的调查` +
+        `可以考虑派 explore 子代理去做。`,
+      );
+    }
     // 包管理器命令(apt-get/apt/dpkg)被超时打断,可能把 dpkg 事务留在半途(interrupted 态)——
     // 不自动恢复的话,这个损坏会悄悄传染到本次会话之后所有包管理操作,甚至连累到别处
     // (真实撞见:merge-diff-arc-agi-task 任务,算法本身完全正确,纯因为早先一次 apt-get
