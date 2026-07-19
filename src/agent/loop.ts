@@ -157,7 +157,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
   // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
   const reasoningEffort = deps.reasoningEffort ?? process.env.DAO_REASONING_EFFORT ?? "max";
-  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number): Promise<AssistantMessage> => {
+  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number, effortOverride?: string): Promise<AssistantMessage> => {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
     let usedFallback = false;
     let hardRetries = 0; // 主模型+回退模型都遇到同类网络/超时错误后,退避重试整轮的次数上限
@@ -188,7 +188,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           messages: sent,
           ...(tools.length > 0 ? { tools, parallelToolCalls: true } : {}),
           // agent 类客户端默认最高思考强度;DAO_REASONING_EFFORT 可覆盖。思考模式下 temperature/top_p 无效。
-          extra: { reasoning_effort: reasoningEffort },
+          // effortOverride:单次调用级别的临时覆盖(目前只用于 onEmptyTruncation 重试,见下方),
+          // 不影响 reasoningEffort 本身——那是整个会话固定的档位,这里只压这一次请求。
+          extra: { reasoning_effort: effortOverride ?? reasoningEffort },
           onUsage: (u) => {
             session.addUsage(u, model); // B-2 按模型记账
             deps.auditSink?.record({
@@ -411,7 +413,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         events.notice("\n[模型返回空响应,重试一次…]\n");
       }
       emptyTruncation = false;
-      assistant = await requestAssistant(tools, t);
+      // reasoning 耗尽预算这一支,文字提示管不住模型在 reasoning 阶段重新完整推导一遍
+      // (317b130+上面这条结构性提示词复测仍然复现:提示确实注入了,但模型的 reasoning
+      // 本身不受"回复内容"层面的指令约束,重试请求同样把预算耗在心算上,再次空响应)。
+      // 物理压低这一次重试的思考强度,不给它把预算再耗在同一条推导链上的空间——
+      // 只压这一次请求,不改变会话其余部分的 reasoningEffort。
+      assistant = await requestAssistant(tools, t, wasEmptyTruncation ? "low" : undefined);
       toolCalls = assistant.tool_calls ?? [];
       hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
       if (toolCalls.length === 0 && !hasContent) {

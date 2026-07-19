@@ -129,6 +129,71 @@ describe("runTurn", () => {
     ]);
   });
 
+  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试请求物理调低 reasoning_effort(候选(b):文字提示管不住 reasoning 阶段本身)", async () => {
+    // 根因(2026-07-19 regex-chess 真实复测坐实):候选(a)——收敛提示改成结构性约束
+    // ("第一步必须是工具调用")——单独复测仍然复现:提示确实注入了(dao_stdout.txt 命中
+    // 一次),但重试请求同样把预算耗在 reasoning 阶段的心算推导上,再次空响应,"连续两次
+    // 空响应"直接终止。原因是提示词只能约束模型"回复内容"这一层,管不住 reasoning 本身
+    // 会展开多长——需要物理压低这一次重试的 reasoning_effort,不给它把预算再耗在同一条
+    // 推导链上的空间。
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const effortSeen: unknown[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      effortSeen.push((opts.extra as { reasoning_effort?: unknown } | undefined)?.reasoning_effort);
+      if (call === 1) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        yield { kind: "content", text: "收敛后的结论" };
+        return { role: "assistant", content: "收敛后的结论" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(call).toBe(2);
+    expect(effortSeen[0]).toBe("max"); // 首次请求:默认档位,不受影响
+    expect(effortSeen[1]).toBe("low"); // onEmptyTruncation 触发后的重试:物理压低
+  });
+
+  it("普通空响应(非 onEmptyTruncation)→ 重试不压低 reasoning_effort,只有思考耗尽预算这一支才压", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const effortSeen: unknown[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      effortSeen.push((opts.extra as { reasoning_effort?: unknown } | undefined)?.reasoning_effort);
+      if (call === 1) {
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" }; // 空响应,但不是 onEmptyTruncation
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        yield { kind: "content", text: "补上的回答" };
+        return { role: "assistant", content: "补上的回答" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(call).toBe(2);
+    expect(effortSeen[0]).toBe("max");
+    expect(effortSeen[1]).toBe("max"); // 普通空响应重试:不是 reasoning 耗尽预算,不压低
+  });
+
   it("tool_call 参数是半截/非法 JSON(如单次输出被截断)→ 落库版本清洗成合法 JSON,不污染历史", async () => {
     // 根因(真实撞见:20260717-143212-b8wt,glm-5.2 经火山方舟):模型单次 Write 写超大
     // 文件,JSON 参数生成到一半被截断,dispatch 本地解析失败(报"invalid JSON arguments"),
