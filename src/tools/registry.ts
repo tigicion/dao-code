@@ -58,8 +58,19 @@ export class ToolRegistry implements ToolDispatcher {
   // 延迟加载工具(shouldDefer=true)初始只发 name+简短描述;被 ToolSearch 激活后发完整 schema。
   private activatedDeferred = new Set<string>();
 
+  // MCP 工具注册时自动激活的数量上限:前 N 个 MCP 工具在【注册那一刻】直接进 activatedMcp
+  // (模型立即可见,省一次 ToolSearch 往返);超过后新工具默认隐藏,需要 ToolSearch 激活。
+  // 这是一次性判断,不会因为后面又连了更多 MCP 工具就把已经激活的前 N 个撤销——旧版按
+  // "当前 MCP 工具总数 <= 阈值"每轮重新判定是否内联,工具数一旦跨过阈值,已经内联、模型正在用的
+  // 工具会在下一轮集体从工具列表里消失。改成按注册顺序一次性判定后,只影响新连接的工具,不会
+  // 让已经可见的工具中途蒸发。
+  private static readonly MCP_AUTO_ACTIVATE_LIMIT = 5;
+
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
+    if (tool.name.startsWith("mcp__") && this.activatedMcp.size < ToolRegistry.MCP_AUTO_ACTIVATE_LIMIT) {
+      this.activatedMcp.add(tool.name);
+    }
   }
 
   get(name: string): Tool | undefined {

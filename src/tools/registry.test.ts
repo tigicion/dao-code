@@ -133,6 +133,11 @@ describe("ToolRegistry.subsetExcluding", () => {
 const mkMcp = (name: string, description: string) =>
   defineTool({ name, description, capability: "network", approval: "suggest", schema: z.object({}), handler: async () => "" });
 
+// 填满前 5 个自动激活名额的 filler 工具(名字不含任何后面测试会搜的关键词,避免误命中)。
+const fillAutoActivateQuota = (r: ToolRegistry) => {
+  for (let i = 0; i < 5; i++) r.register(mkMcp(`mcp__filler${i}__noop`, "占位"));
+};
+
 describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => {
   it("非 mcp__ 前缀的工具永远可见", () => {
     const r = new ToolRegistry();
@@ -140,8 +145,15 @@ describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => 
     expect(r.isMcpVisible("Read")).toBe(true);
   });
 
-  it("mcp__ 工具默认不可见,搜到并激活后可见", () => {
+  it("前 5 个注册的 mcp__ 工具自动可见,不用搜索激活", () => {
     const r = new ToolRegistry();
+    r.register(mkMcp("mcp__github__create_issue", "在 GitHub 建一个 issue"));
+    expect(r.isMcpVisible("mcp__github__create_issue")).toBe(true);
+  });
+
+  it("超出自动激活名额的 mcp__ 工具默认不可见,搜到并激活后可见", () => {
+    const r = new ToolRegistry();
+    fillAutoActivateQuota(r); // 占满前 5 个名额
     r.register(mkMcp("mcp__github__create_issue", "在 GitHub 建一个 issue"));
     expect(r.isMcpVisible("mcp__github__create_issue")).toBe(false);
     const out = r.searchAndActivateMcp("issue");
@@ -152,6 +164,7 @@ describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => 
 
   it("按描述关键词也能命中(不止工具名)", () => {
     const r = new ToolRegistry();
+    fillAutoActivateQuota(r);
     r.register(mkMcp("mcp__github__foo", "在 GitHub 建一个 issue"));
     const out = r.searchAndActivateMcp("GitHub");
     expect(out).toContain("mcp__github__foo");
@@ -159,12 +172,14 @@ describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => 
 
   it("不分大小写", () => {
     const r = new ToolRegistry();
+    fillAutoActivateQuota(r);
     r.register(mkMcp("mcp__github__create_issue", "desc"));
     expect(r.searchAndActivateMcp("ISSUE")).toContain("mcp__github__create_issue");
   });
 
   it("查无命中 → 提示,不激活任何东西", () => {
     const r = new ToolRegistry();
+    fillAutoActivateQuota(r);
     r.register(mkMcp("mcp__github__foo", "desc"));
     const out = r.searchAndActivateMcp("不存在的关键词xyz");
     expect(out).toContain("没有 MCP 工具匹配");
@@ -194,11 +209,14 @@ describe("ToolRegistry.unregisterByPrefix", () => {
 
   it("同时清除 activatedMcp 中对应条目", () => {
     const r = new ToolRegistry();
+    fillAutoActivateQuota(r); // 占满前 5 个自动激活名额,让接下来的注册需要显式激活(不被自动激活混淆)
     r.register(mkMcp("mcp__github__create_issue", "desc"));
     r.searchAndActivateMcp("issue");
     expect(r.isMcpVisible("mcp__github__create_issue")).toBe(true);
     r.unregisterByPrefix("mcp__github__");
-    // 重新注册后应该回到默认不可见(activatedMcp 被清了)
+    // 5 个 filler 仍然占着全部自动激活名额,重新注册这一个工具时没有空位可捡——
+    // 验证的是 activatedMcp 里那条记录被真正清掉了(不是巧合下仍然可见),
+    // 不是"注册就一定自动可见"(那要看当时还有没有空位)。
     r.register(mkMcp("mcp__github__create_issue", "desc"));
     expect(r.isMcpVisible("mcp__github__create_issue")).toBe(false);
   });
