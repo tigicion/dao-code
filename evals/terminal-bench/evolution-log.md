@@ -3851,3 +3851,37 @@ volcengine ARK 网关(deepseek-v4-pro)可能根本不理会`reasoning_effort`这
 model组合到底支不支持任何形式的推理预算控制——如果连这个最基础的问题都没搞清楚就
 继续猜测新的参数名/新的调用方式，大概率又是一次无效改动、白花真实API预算（这次
 复测约¥0.29，加上上面这次探测调用）。结果见下方独立小节。
+
+## EVOLVE：探测脚本结果 + 候选(c)——onEmptyTruncation重试叠加硬 max_tokens 上限
+
+**探测脚本结果**（`scratchpad/probe_reasoning_effort.mjs`，裸调 ARK 端点，同一诱导
+长推理 prompt，非流式拿完整 usage）：
+
+```
+effort=max: finish_reason=length completion_tokens=16001 reasoning_content_len=22190 content_len=1792
+effort=low: finish_reason=stop  completion_tokens=8660  reasoning_content_len=11910 content_len=1248
+```
+
+**结论**：`reasoning_effort` 不是无效参数——正常场景下"low"确实让 completion 减半、
+自然收敛（`finish_reason=stop`而非`length`）。候选(b)在 regex-chess 真实复测里失效，
+不是参数不生效，是**那次重试时模型已经陷入具体的反复重算循环，这类强反模式的"惯性"
+压过了 reasoning_effort 这个软性"目标预算"提示**——真正被三次独立真实观测（候选(a)
+复测/候选(b)复测/这次探测脚本的 max 档对照组）证实"精确遵守"的只有 `max_tokens`
+本身，是唯一保真的硬上限。
+
+**候选(c)**：`requestAssistant`新增`maxTokensOverride`参数，只在`onEmptyTruncation`
+重试时叠加生效——`effortOverride:"low"` + `maxTokens:6000`（远小于会话默认16000）
+同时生效，不互斥：effort 继续给收敛倾向性提示，max_tokens 兜底一道物理硬墙。
+**预期效果如实说明**：不保证一定能救回 regex-chess/make-mips-interpreter 这类强
+反模式（6000 tokens 对已经滑向失控的推导链仍可能不够），但能确保"救不回"时失败得
+更快更省——此前每次这类失败精确烧满16000 output token（约¥0.1-0.15/次），现在
+上限降到6000，同样失败场景成本降低超过60%。**是否真能提高成功率，留给下方复测数据
+说话，不预先夸大。**
+
+**commit**：`330f166`。TDD：`loop.test.ts`更新为同时断言`effortSeen`/`maxTokensSeen`
+（首次请求两者都不覆盖、重试两者都覆盖到"low"/6000）。全量`npx vitest run`全部通过，
+`npm run typecheck`通过。二进制已按此commit重新编译。
+
+**真实复测**：提交`fix-hardcap-batch`(`terminal-bench/regex-chess` +
+`terminal-bench/make-mips-interpreter`，`--ak provider=volcengine`，huoshan账号，
+`--agent-timeout-multiplier 4`，`-n 2`)。结果待补。
