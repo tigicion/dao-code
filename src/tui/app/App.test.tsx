@@ -527,6 +527,32 @@ describe("App", () => {
     expect(f).toContain("bye");
   });
 
+  it("Bash [exit 0] 是噪音,不展示;非零 exit 有信息量,照常展示", async () => {
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async (_t, { events }) => {
+          events.toolResult(
+            { id: "c1", type: "function" as const, function: { name: "Bash", arguments: JSON.stringify({ command: "echo hi" }) } },
+            { role: "tool", tool_call_id: "c1", content: "hi\n[exit 0]" },
+          );
+          events.toolResult(
+            { id: "c2", type: "function" as const, function: { name: "Bash", arguments: JSON.stringify({ command: "false" }) } },
+            { role: "tool", tool_call_id: "c2", content: "[exit 1]" },
+          );
+          events.assistantDone({ role: "assistant", content: "ok" });
+        },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    const f = lastFrame()!;
+    expect(f).toContain("hi");
+    expect(f).not.toContain("[exit 0]");
+    expect(f).toContain("[exit 1]");
+  });
+
   it("TodoWrite 渲染成复选框清单", async () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({

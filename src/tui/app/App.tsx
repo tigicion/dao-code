@@ -116,6 +116,15 @@ function activityLabel(name: string, argsJson: string): string {
 }
 
 // 结果只留一行小结(内容做轻;详细结果由模型的后续思考/动作体现)。报错显示首行。
+// Bash 结果末尾恒定拼一行 [exit N](exec_shell.ts)。0 = 成功,没有信息量(没报错就是隐含成功了),
+// 纯噪音;非零 exit(或 [已中断]/[超时,已终止])才有诊断价值,原样保留。只影响【展示】,
+// 不动 events.toolResult 收到的原始 content——model 看到的 context 完整不受影响。
+function stripExitZeroLine(content: string): string {
+  const lines = content.split("\n");
+  if (lines.at(-1)?.trim() === "[exit 0]") return lines.slice(0, -1).join("\n");
+  return content;
+}
+
 function resultDetail(name: string, ok: boolean, content: string): string {
   const lines = content.split("\n");
   if (!ok) return lines[0]!.slice(0, 120); // 报错首行
@@ -355,11 +364,12 @@ export function App(deps: AppDeps) {
         }
         if (!pushed) {
           // 始终存全量 output/rawArgs(供 ctrl+o 展开);echo 标记默认是否显示输出(Bash/grep 等显,Read 只显计数)。
-          const output = contentStr.trim() ? contentStr.split("\n") : undefined;
+          const displayStr = name === "Bash" ? stripExitZeroLine(contentStr) : contentStr;
+          const output = displayStr.trim() ? displayStr.split("\n") : undefined;
           pushItem({
             id: nextId(), kind: "tool",
             label: activityLabel(name, call.function.arguments),
-            detail: resultDetail(name, ok, contentStr), ok, output,
+            detail: resultDetail(name, ok, displayStr), ok, output,
             echo: ECHO_OUTPUT.has(name),
             rawArgs: call.function.arguments,
           });
