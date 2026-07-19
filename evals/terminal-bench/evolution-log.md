@@ -3915,3 +3915,31 @@ effort=low: finish_reason=stop  completion_tokens=8660  reasoning_content_len=11
 新的具体线索支撑,不做。(c)本身仍然值得保留——省下来的失败成本是真实、确定的收益，
 即便这次没能把 reward 从 0 变成 1。`regex-chess`/`make-mips-interpreter`这两题的
 "未通过"状态维持不变，转回"待观察"而非"待修复"。
+
+## `evolve-round-5f91c45`批次收尾:largest-eigenval真实数据 + path-tracing-reverse外部中止作废
+
+批次母进程后来被外部终止(harbor job 收到 SIGTERM,母进程状态"killed")，两题最后状态：
+
+- **`largest-eigenval__tLEkYo4`**：**真实数据，不受影响**——`exception.txt`是干净的
+  `AgentTimeoutError`(900s预算×4倍超时=3600s，自然超时，不是外部杀进程签名)，早于
+  母进程被终止前就已经自己跑满超时结束。`diagnose_failure.py`体检：52次工具调用，
+  跨度387%(用满4倍超时上限)，无ask-denied，`dao_stdout.txt`收尾在真实的特征值计算
+  代码(逆迭代法求特征向量、归一化)——**确认真实难度**(任务本身超出4倍预算仍未收敛)，
+  不是框架bug，不追加改动。
+- **`path-tracing-reverse__B84MdGN`**：**数据作废**——`exception.txt`命中`_handle_
+  sigterm`→`KeyboardInterrupt`签名(母进程被外部终止时它还在预算内运行，43分钟/7200s
+  预算才35%)，不是自然超时也不是代码问题。已重新提交干净复测`rerun-pathtracing-clean`
+  (`terminal-bench/path-tracing-reverse`，huoshan/volcengine，`--agent-timeout-
+  multiplier 4`，`-n 1`)，用于确认`9b2d2b1`(askChoice误判修复)的最终 reward。结果待补。
+
+## 本轮EVOLVE周期收尾清单(硬性门槛自查)
+
+| commit | 内容 | 复测状态 |
+|---|---|---|
+| `5f91c45` | regex-chess候选(a):收敛提示改结构性约束 | 已复测,不足以解决,但已被(c)的成本数据间接验证机制生效 |
+| `e152a75` | regex-chess候选(b):重试调低reasoning_effort | 已复测,机制上不足(强反模式压过软预算提示),已用探测脚本排除"参数无效"这个误判 |
+| `330f166` | regex-chess候选(c):重试叠加硬max_tokens上限 | 已复测,机制精确生效(成本降55%/22%),未能翻转reward,已如实记录并结案 |
+| 文档commit(`2b2d90d`/`f780fc6`/`984b3c4`/`7db1edb`) | evolution-log.md同步 | 不涉及代码,无需复测 |
+
+本轮所有代码改动均已用真实复测验证(不是单测通过就当数,详见上表)。largest-eigenval
+确认真实难度、path-tracing-reverse等干净复测出结果后，这批5题的DEBUG阶段即可收尾。
