@@ -966,11 +966,15 @@ export function App(deps: AppDeps) {
       });
       return;
     }
+    // 规范化换行:\r\n(Windows)和裸 \r(部分终端/来源的粘贴内容用它当行分隔,不是 \r\n)统一转 \n——
+    // 不转裸 \r 的话 split("\n") 永远只有 1 段,行数永远识别成 1;而且裸 \r 在终端里不换行只把光标
+    // 拉回行首,渲染出来会变成后面的行盖掉前面的行,看着像"内容不全"。在这里(粘贴入口)转好,
+    // 后面无论是直接内联、折叠成占位符,还是存进 pasteRef 供提交展开,用的都是干净的 \n。
+    text = text.replace(/\r\n?/g, "\n");
     // 大段粘贴(>280 字符或 >6 行)折叠成占位符,全文存 pasteRef,提交时展开;小段照常内联。
     let ins = text;
-    // 规范化换行:\r\n → \n,去末尾换行(避免多算一行);空串算 0 行。
-    const normalized = text.replace(/\r\n/g, "\n").replace(/\n+$/, "");
-    const lineCount = normalized ? normalized.split("\n").length : 0;
+    const withoutTrailingNl = text.replace(/\n+$/, ""); // 去末尾换行(避免多算一行);空串算 0 行。
+    const lineCount = withoutTrailingNl ? withoutTrailingNl.split("\n").length : 0;
     if (text.length > 280 || lineCount > 6) {
       const id = ++pasteSeqRef.current;
       ins = t("ui.paste.placeholder", id, lineCount);

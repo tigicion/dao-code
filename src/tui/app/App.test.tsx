@@ -1002,4 +1002,20 @@ describe("App", () => {
     expect(f).toContain("Auto-accept edits");
     expect(f).not.toContain("权限模式");
   });
+
+  it("粘贴内容用裸 \\r 换行(部分终端的粘贴行为)→ 行数识别正确、归一化成 \\n 后完整送进上下文", async () => {
+    // bracketed paste 时部分终端把行内的换行送成裸 \r(不是 \r\n),之前只处理 \r\n → \n,
+    // 裸 \r 完全没识别,导致 split("\n") 永远只有 1 段——用户感知就是"粘贴总是识别成一行"。
+    const submitted: (string | ContentPart[])[] = [];
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({ submit: async (t) => { submitted.push(t); } })} />,
+    );
+    const pasted = "line1\rline2\rline3\rline4\rline5\rline6\rline7"; // 7 行,裸 \r 分隔,超过 6 行折叠阈值
+    stdin.write(`\x1b[200~${pasted}\x1b[201~`); // 真实 bracketed paste 转义序列,不走 useInput
+    await delay();
+    expect(lastFrame()!).toContain("[粘贴#1 +7行]"); // 行数识别对了,不是 1
+    stdin.write("\r"); // 提交
+    await delay();
+    expect(submitted).toEqual([pasted.replace(/\r/g, "\n")]); // 完整 7 行都送进了上下文,换行归一成 \n
+  });
 });
