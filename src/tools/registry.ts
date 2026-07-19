@@ -110,6 +110,34 @@ export class ToolRegistry implements ToolDispatcher {
     }).join("\n\n") + `\n\n(以上 ${hits.length} 个工具已激活,从下一次工具调用起可直接调用它们。)`;
   }
 
+  // 按前缀批量移除工具(MCP server toggle off/reconnect 时用):移除所有以 prefix 开头的工具,
+  // 并清除 activatedMcp 中对应条目。返回被移除的工具名列表。
+  unregisterByPrefix(prefix: string): string[] {
+    const removed: string[] = [];
+    for (const name of [...this.tools.keys()]) {
+      if (name.startsWith(prefix)) {
+        this.tools.delete(name);
+        this.activatedMcp.delete(name);
+        removed.push(name);
+      }
+    }
+    return removed;
+  }
+
+  // 统计当前注册的 MCP 工具数(mcp__ 前缀)。
+  countMcpTools(): number {
+    let n = 0;
+    for (const name of this.tools.keys()) if (name.startsWith("mcp__")) n++;
+    return n;
+  }
+
+  // 统计以指定前缀开头的工具数(按 server 统计用)。
+  countByPrefix(prefix: string): number {
+    let n = 0;
+    for (const name of this.tools.keys()) if (name.startsWith(prefix)) n++;
+    return n;
+  }
+
   // 按工具名白名单建子集(自定义 agent 类型的 tools 限制用);保持插入顺序。
   subset(names: Set<string>): ToolRegistry {
     const r = new ToolRegistry();
@@ -172,7 +200,23 @@ export class ToolRegistry implements ToolDispatcher {
       throw new Error(`invalid JSON arguments for ${name}`);
     }
 
-    const args = tool.schema.parse(json); // 非法参数抛 ZodError
+    let args: unknown;
+    try {
+      args = tool.schema.parse(json); // 非法参数抛 ZodError
+    } catch (e) {
+      // 延迟加载工具未激活时,toApiTools 发给模型的是空占位 schema(properties:{})——模型没意识到
+      // 要先 ToolSearch 就直接按这个空 schema 调用(通常传 {}),真实 schema 一校验缺参数就报错。
+      // 原始 ZodError.message 是一段 JSON 数组,模型读不出"该去 ToolSearch"这个动作,会反复重试
+      // 同一个必然还是失败的调用(真实撞见:TaskGet/TaskOutput 被这样连续问了好几次)。
+      if (tool.shouldDefer && !this.activatedDeferred.has(name)) {
+        throw new Error(
+          `${name} 是延迟加载工具,还没激活——你刚才看到的参数列表是占位的空 schema,不是真实参数。` +
+          `先用 ToolSearch 搜「${name}」拿到完整参数说明,再按真实参数重新调用,不要凭空猜参数名。\n` +
+          `原始校验错误:${(e as Error).message}`,
+        );
+      }
+      throw e;
+    }
     return tool.handler(args, ctx);
   }
 }

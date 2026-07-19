@@ -177,6 +177,57 @@ describe("ToolRegistry MCP 可见性(isMcpVisible/searchAndActivateMcp)", () => 
   });
 });
 
+describe("ToolRegistry.unregisterByPrefix", () => {
+  it("按前缀批量移除工具,返回被移除的名字列表", () => {
+    const r = new ToolRegistry();
+    r.register(mk("Read"));
+    r.register(mkMcp("mcp__github__create_issue", "desc"));
+    r.register(mkMcp("mcp__github__list_repos", "desc"));
+    r.register(mkMcp("mcp__sentry__get_error", "desc"));
+    const removed = r.unregisterByPrefix("mcp__github__");
+    expect(removed).toEqual(["mcp__github__create_issue", "mcp__github__list_repos"]);
+    expect(r.get("mcp__github__create_issue")).toBeUndefined();
+    expect(r.get("mcp__github__list_repos")).toBeUndefined();
+    expect(r.get("mcp__sentry__get_error")).toBeDefined();
+    expect(r.get("Read")).toBeDefined();
+  });
+
+  it("同时清除 activatedMcp 中对应条目", () => {
+    const r = new ToolRegistry();
+    r.register(mkMcp("mcp__github__create_issue", "desc"));
+    r.searchAndActivateMcp("issue");
+    expect(r.isMcpVisible("mcp__github__create_issue")).toBe(true);
+    r.unregisterByPrefix("mcp__github__");
+    // 重新注册后应该回到默认不可见(activatedMcp 被清了)
+    r.register(mkMcp("mcp__github__create_issue", "desc"));
+    expect(r.isMcpVisible("mcp__github__create_issue")).toBe(false);
+  });
+
+  it("不匹配任何工具时返回空数组", () => {
+    const r = new ToolRegistry();
+    r.register(mk("Read"));
+    expect(r.unregisterByPrefix("mcp__nonexistent__")).toEqual([]);
+    expect(r.get("Read")).toBeDefined();
+  });
+});
+
+describe("ToolRegistry.countMcpTools", () => {
+  it("统计 mcp__ 前缀的工具数", () => {
+    const r = new ToolRegistry();
+    r.register(mk("Read"));
+    r.register(mk("Write"));
+    r.register(mkMcp("mcp__a__t1", "d"));
+    r.register(mkMcp("mcp__b__t2", "d"));
+    r.register(mkMcp("mcp__b__t3", "d"));
+    expect(r.countMcpTools()).toBe(3);
+  });
+
+  it("无 MCP 工具时返回 0", () => {
+    const r = new ToolRegistry();
+    r.register(mk("Read"));
+    expect(r.countMcpTools()).toBe(0);
+  });
+});
 
 const mkDeferred = (name: string, description: string) =>
   defineTool({ name, description, capability: "read", approval: "auto", shouldDefer: true, schema: z.object({ x: z.string() }), handler: async () => "" });
@@ -233,5 +284,28 @@ describe("ToolRegistry 延迟加载(shouldDefer)", () => {
   it("空查询 -> 提示", () => {
     const r = new ToolRegistry();
     expect(r.searchAndActivateDeferred("")).toContain("请提供搜索关键词");
+  });
+
+  it("未激活就直接调用、按空 schema 传参导致校验失败 -> 明确提示先 ToolSearch,不是甩一段原始 ZodError", async () => {
+    // 模型看到的是 toApiTools 吐出的空 parameters(properties:{}),没意识到要先 ToolSearch 就直接
+    // 调用,大概率按这个空 schema 传 {}——真实 schema 一校验(缺 x)就报错。原始 ZodError 是一段
+    // JSON,模型读不出"我该去 ToolSearch"这个动作,会反复重试同样的错(真实撞见:CronCreate/TaskGet
+    // 这类工具被这样连续问了好几次)。
+    const r = new ToolRegistry();
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
+    await expect(r.dispatch("CronCreate", "{}", { workspaceRoot: "/tmp" })).rejects.toThrow(/ToolSearch/);
+  });
+
+  it("已激活后再传空参数 -> 走正常的 ZodError,不再套这层延迟加载提示(已经激活,不该误导)", async () => {
+    const r = new ToolRegistry();
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
+    r.searchAndActivateDeferred("cron");
+    await expect(r.dispatch("CronCreate", "{}", { workspaceRoot: "/tmp" })).rejects.toThrow();
+    try {
+      await r.dispatch("CronCreate", "{}", { workspaceRoot: "/tmp" });
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect((e as Error).message).not.toContain("ToolSearch");
+    }
   });
 });
