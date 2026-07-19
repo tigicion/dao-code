@@ -4,9 +4,14 @@ import { execFile } from "node:child_process";
 // DAO_NO_NOTIFY=1 关闭。
 
 // TERM_PROGRAM → 常见终端应用的 macOS bundle id,给 terminal-notifier 的 -activate 用,让点击通知
-// 精确聚焦回你实际在用的那个终端——修复纯 osascript display notification 点击行为不稳定的问题
-// (它没有真实 bundle 身份,macOS 有时把它附着到 Finder,有时干脆点了没反应)。识别不出就不建议用
-// terminal-notifier 的 -activate(没有目标可聚焦,退回 osascript 一样能弹通知)。
+// 精确聚焦回你实际在用的那个终端。
+// 这只对 terminal-notifier 有效——它是个有自己 bundle 身份的编译工具,-activate 是它原生实现的能力。
+// 裸 osascript 的 display notification 做不到同样效果:查过 Apple 官方 Mac Automation Scripting Guide,
+// 通知的归属只跟"实际执行这段 AppleScript 的进程"有关(命令行调用时是 osascript,系统挂到脚本编辑器
+// 名下),跟脚本里写不写 tell application id 无关——曾经想用 `tell application id X to display
+// notification` 让通知"看起来"归属到目标终端,实测/查文档证实这个包装完全不生效,点击仍会打开脚本编辑器,
+// 已经撤回。terminal-notifier 没装时没有真正能绕开这个限制的办法,老实退回裸 osascript,只保证能弹出
+// 通知,不保证点击行为;想要点击聚焦终端,需要 `brew install terminal-notifier`。
 const TERM_BUNDLE_IDS: Record<string, string> = {
   Apple_Terminal: "com.apple.Terminal",
   "iTerm.app": "com.googlecode.iterm2",
@@ -34,7 +39,7 @@ export function notify(
       const bundleId = TERM_BUNDLE_IDS[env.TERM_PROGRAM ?? ""];
       if (bundleId) {
         // 没装 terminal-notifier(Homebrew 包,不是系统自带)→ exec 报错走 catch 回调,退回 osascript,
-        // 仍能弹通知,只是点击不保证聚焦到终端。
+        // 仍能弹通知,只是点击不保证聚焦到终端(见上方注释——裸 osascript 做不到,不是没写对)。
         exec("terminal-notifier", ["-title", title, "-message", message, "-activate", bundleId], (err) => {
           if (err) osascriptNotify();
         });

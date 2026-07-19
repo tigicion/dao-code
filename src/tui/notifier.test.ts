@@ -29,7 +29,12 @@ describe("notify", () => {
     expect(calls[0]!.args).toEqual(["-title", "t", "-message", "m", "-activate", "com.apple.Terminal"]);
   });
 
-  it("darwin + terminal-notifier 未安装(exec 报错)→ 退回 osascript,仍能弹通知", () => {
+  it("darwin + terminal-notifier 未安装(exec 报错)→ 退回裸 osascript,仍能弹通知", () => {
+    // 曾经想给这条退回路径加 `tell application id X to display notification`,指望让通知
+    // "看起来"归属到目标终端、点击时聚焦过去——查过 Apple 官方 Mac Automation Scripting Guide
+    // 证实这个包装不生效:通知的归属只跟"实际执行这段 AppleScript 的进程"有关(这里始终是
+    // osascript),跟 tell 的目标完全无关,包一层没有任何效果,已经撤回。这条路径就是老实弹个
+    // 通知,不承诺点击行为。
     const { exec, calls } = fakeExec((call, cb) => {
       if (call.cmd === "terminal-notifier") cb(new Error("ENOENT"));
       else cb(null);
@@ -38,6 +43,7 @@ describe("notify", () => {
     expect(calls.map((c) => c.cmd)).toEqual(["terminal-notifier", "osascript"]);
     expect(calls[1]!.args[0]).toBe("-e");
     expect(calls[1]!.args[1]).toContain("display notification");
+    expect(calls[1]!.args[1]).not.toContain("tell application");
   });
 
   it("darwin + 未知/缺失 TERM_PROGRAM → 直接走 osascript,不尝试 terminal-notifier", () => {
