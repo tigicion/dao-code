@@ -549,7 +549,12 @@ async function main() {
   });
   await mcp.init();
   // MCP server 变化(toggle/reconnect/list_changed)时注入尾部 system 消息告知模型--不碰固定前缀。
-  mcp.onServerChange = (notice) => session.messages.push({ role: "system", content: notice });
+  // 只入队,不直接改 session.messages——onServerChange 可能在任意时刻异步触发(比如模型刚发出
+  // 一个 tool_use、还没等到 tool_result 的窗口期),直接 push 会把这对还没闭合的消息拆开,
+  // 下一次请求被 API 判成 400。改成和 pendingReflectAdvisories/steeringQueue 一样的队列,
+  // 由 runTurn 在工具轮边界(loop.ts 的 drainMcpNotices)统一消费,保证时机安全。
+  const mcpChangeQueue: string[] = [];
+  mcp.onServerChange = (notice) => mcpChangeQueue.push(notice);
   // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 ToolSearch 去找它们。
   if (mcp.connectedCount > 0 || registry.countMcpTools() > 0) registry.register(toolSearchTool);
 
@@ -1263,6 +1268,7 @@ async function main() {
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
       drainNotifications: () => taskManager.drainNotifications(), // 后台子代理完成结果:回合边界回灌(一次性/--goal 与交互同等,修复 headless 丢失)
+      drainMcpNotices: () => mcpChangeQueue.splice(0), // MCP server 状态变化:回合边界回灌,不插进 tool_use/result 中间
       onCheckpoint,
     }));
     // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
@@ -1540,6 +1546,7 @@ async function main() {
             progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
+            drainMcpNotices: () => mcpChangeQueue.splice(0), // MCP server 状态变化:回合边界回灌,不插进 tool_use/result 中间
             drainPending: () => steeringQueue.splice(0), // 运行中排队的补充输入:下一个工具轮边界注入,不等整个大回合跑完
             listOtherAccounts: () => listAccounts().filter((a) => !a.active).map((a) => ({ name: a.name })), // 限流菜单用
             switchAccountAndWait,

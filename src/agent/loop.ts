@@ -80,6 +80,12 @@ export interface TurnDeps {
   // 回合边界注入的后台子代理完成结果(user 角色):自主长任务(单个大 runTurn)中也能及时拿到,
   // 不必等整轮跑完才回灌——修复 headless/--goal 下后台结果丢失。省略=不处理(行为同旧版)。
   drainNotifications?: () => string[];
+  // 回合边界注入的 MCP server 状态变化通知(system 角色):server 连接/断开/工具列表变化这类
+  // 异步事件可能在任意时刻发生,不能直接 push 进 session.messages——如果正好落在模型刚发出
+  // 一个 tool_use、还没等到对应 tool_result 的窗口期,历史里就会出现"assistant(tool_calls) 后面
+  // 不是紧跟着 tool 消息"这种结构,下一次请求会被 API 判成 400。和 drainNotifications 一样,
+  // 只在工具轮边界(这里)统一消费,保证不会插进一对未闭合的 tool_use/tool_result 中间。
+  drainMcpNotices?: () => string[];
   // L2.2 反应式压缩:streamChat 报"上下文超限"时调用它压缩后重试本轮(估算阈值之外的安全网)。
   compact?: () => Promise<void>;
   // §4 轮内主动压缩:每个工具轮前若返回 true 则先 compact()——防长回合中途撞上限(粒度到工具轮)。
@@ -354,6 +360,14 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       if (notes.length) {
         events.notice(`\n[↩ 收到 ${notes.length} 个后台任务结果]\n`);
         for (const n of notes) session.messages.push({ role: "user", content: `[后台任务结果]\n${n}` });
+      }
+    }
+    // MCP server 状态变化通知:同样放工具轮边界统一消费,不在事件发生的任意时刻直接改
+    // session.messages——避免插进一对还没闭合的 assistant(tool_calls)/tool 消息中间。
+    if (deps.drainMcpNotices) {
+      for (const n of deps.drainMcpNotices()) {
+        events.notice(`\n[MCP] ${n}\n`);
+        session.messages.push({ role: "system", content: n });
       }
     }
     const tools = apiToolsForMode(deps.registry, session.mode, getLang());

@@ -96,7 +96,10 @@ async function loadDisabledSet(file: string): Promise<Set<string>> {
   } catch { return new Set(); }
 }
 async function saveDisabledSet(file: string, set: Set<string>): Promise<void> {
-  try { await fs.writeFile(file, JSON.stringify({ disabled: [...set] }, null, 2)); } catch { /* 写不了就算了 */ }
+  try {
+    await fs.mkdir(path.dirname(file), { recursive: true }); // 全新环境 ~/.dao 可能还不存在,不建目录会静默写入失败
+    await fs.writeFile(file, JSON.stringify({ disabled: [...set] }, null, 2));
+  } catch { /* 写不了就算了 */ }
 }
 
 // 单个 server 的连接状态。
@@ -174,13 +177,26 @@ export class McpManager {
         if (!isConnError(e)) throw e;
         try { await holder.client.close(); } catch { /* 已死 */ }
         holder.client = await makeClient();
+        // 换了新 client,通知监听器要在新 client 上重新绑定——setupNotifications 之前只在
+        // 首次 connectServer 时调用过一次,绑的是旧 client;不重新绑的话,这次自愈之后
+        // server 端任何 list_changed 通知都不会再同步到 ToolRegistry,且没有任何报错提示。
+        this.setupNotifications(name, holder);
         return await fn(holder.client);
       }
     }};
-    this.holders.set(name, holder);
 
-    // 注册工具
-    const tools = await this.buildToolsForServer(name, holder);
+    // 先枚举工具再登记进 holders——枚举失败(握手成功但 listTools 抛错/返回异常格式)不留下
+    // 半初始化的 holder。之前是握手一成功就 set 进 holders,枚举失败会被 init() 的 catch 吞掉,
+    // 但 holder 已经在 map 里了,getServerStatus 会把它报成 ok:true/0 工具这种看似健康、实际
+    // 已经坏掉的状态,而不是旧版 connectMcpServers 那种明确的 ok:false + 错误信息。
+    let tools: Tool[];
+    try {
+      tools = await this.buildToolsForServer(name, holder);
+    } catch (e) {
+      try { await client.close(); } catch { /* 已死 */ }
+      throw e;
+    }
+    this.holders.set(name, holder);
     for (const t of tools) this.registry.register(t);
 
     // 注册 list_changed 通知处理器
@@ -314,6 +330,13 @@ export class McpManager {
 
   // 重连:断开旧连接 -> 重新连接 -> 注册新工具。
   async reconnect(name: string): Promise<void> {
+    if (this.disabledSet.has(name)) {
+      // 不检查的话,重连一个刚被 /mcp toggle 关掉的 server 会让它的工具重新注册进本次会话,
+      // 但持久化的禁用状态没变——getServerStatus 还是报它禁用,下次启动又会被跳过连接,
+      // 状态和实际行为对不上。
+      this.onServerChange?.(`MCP server「${name}」当前是禁用状态,重连前请先用 /mcp toggle ${name} on 启用。`);
+      return;
+    }
     const holder = this.holders.get(name);
     const config = holder?.config ?? this.config.mcpServers?.[name];
     if (!config) throw new Error(`MCP server ${name} not found`);
