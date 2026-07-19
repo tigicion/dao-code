@@ -205,6 +205,10 @@ export function evaluate(rules: RuleSets, id: CallIdentity): Decision | null {
     if (parts.some(p => bashRulesMatch(rules.deny, p, { stripAllEnv: true, checkCompound: false }))) {
       return "deny"
     }
+    // 整条命令精确匹配(rememberRule 对复合命令存的是整条原文,逐子命令查会因拆分而永远 miss):
+    // checkCompound 默认 true -> 复合命令只允许精确匹配(不匹配前缀/glob),非复合命令走 matchBash(同子命令逻辑)。
+    // 注意优先级:deny > ask > allow,整条 ask 必须在整条 allow 之前检查。
+    if (bashRulesMatch(rules.ask, id.value, { stripAllEnv: true })) return "ask"
     let sawAsk = false
     let sawUnmatched = false
     for (const p of parts) {
@@ -215,6 +219,8 @@ export function evaluate(rules: RuleSets, id: CallIdentity): Decision | null {
       }
     }
     if (sawAsk) return "ask"
+    // 整条精确 allow 在逐子命令 ask 之后(子命令级 ask 优先于整条 allow)。
+    if (bashRulesMatch(rules.allow, id.value, { stripAllEnv: false })) return "allow"
     if (sawUnmatched) return null
     return "allow"
   }
@@ -262,6 +268,9 @@ export async function evaluateWithAst(
   if (parts.some(p => bashRulesMatch(rules.deny, p, { stripAllEnv: true, checkCompound: false }))) {
     return "deny"
   }
+  // 整条命令精确匹配(同 evaluate:rememberRule 对复合命令存整条原文,逐子命令查会 miss)。
+  // 注意优先级:deny > ask > allow,整条 ask 必须在整条 allow 之前检查。
+  if (bashRulesMatch(rules.ask, id.value, { stripAllEnv: true })) return "ask"
   let sawAsk = false
   let sawUnmatched = false
   for (const p of parts) {
@@ -272,6 +281,8 @@ export async function evaluateWithAst(
     }
   }
   if (sawAsk) return "ask"
+  // 整条精确 allow 在逐子命令 ask 之后(子命令级 ask 优先于整条 allow)。
+  if (bashRulesMatch(rules.allow, id.value, { stripAllEnv: false })) return "allow"
   if (sawUnmatched) return null
   return "allow"
 }

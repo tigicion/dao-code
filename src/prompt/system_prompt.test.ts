@@ -122,6 +122,15 @@ describe("buildSystemPrompt (zh)", () => {
     expect(p).toContain("AskUserQuestion 不会有人来回答");
     expect(p).toContain("合理默认");
   });
+
+  it("行动纪律区分'设计决定'与'行为预测':说'让我测试一下'却用文字模拟结果算破戒", () => {
+    expect(prompt).toContain("描述一次运行不等于真的运行过");
+    expect(prompt).toContain("让我测试/验证/检查一下");
+  });
+
+  it("行动纪律的'重复2-3次'算术/位置推导规则,zh 模板与 en 模板保持同步(此前 317b130 只改了 en)", () => {
+    expect(prompt).toContain("已经重做了2-3次");
+  });
 });
 
 describe("buildSystemPrompt (en)", () => {
@@ -230,6 +239,11 @@ describe("buildSystemPrompt (en)", () => {
     const p2 = buildSystemPrompt({ modelId: "m", toolSummaries: "- a:b", lang: "en", interactive: true });
     expect(p1).not.toContain("AskUserQuestion has no one to answer it");
     expect(p2).not.toContain("AskUserQuestion has no one to answer it");
+  });
+
+  it("Action Discipline distinguishes design decisions from behavior predictions: saying 'let me test' then narrating the result instead of calling a tool still breaks the rule", () => {
+    expect(prompt).toContain("a described run is not a run");
+    expect(prompt).toContain("let me test/verify/check this");
   });
 });
 

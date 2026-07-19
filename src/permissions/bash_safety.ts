@@ -80,6 +80,7 @@ const SAFE_READONLY_CMDS = new Set([
   "date", "whoami", "hostname", "uname", "id", "env", "printenv", "uptime", "locale",
   "grep", "egrep", "fgrep", "rg", "ag", "sort", "uniq", "cut", "nl", "column", "comm", "tr", "tac", "rev", "fold", "expand",
   "cksum", "sha1sum", "sha256sum", "md5", "md5sum", "diff", "cmp", "jq", "yq", "xxd", "od", "strings",
+  "cd", // 只改 shell 进程内部工作目录,无文件系统副作用
 ]);
 // git 只读子命令(push/reset/clean/stash 等改动类不在内)。
 const SAFE_GIT_SUB = new Set([

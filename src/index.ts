@@ -851,7 +851,13 @@ async function main() {
     let out = "";
     let r = await gen.next();
     while (!r.done) { if (r.value.kind === "content") out += r.value.text; r = await gen.next(); }
-    return /\ballow\b/i.test(out) && !/\bdeny\b/i.test(out);
+    // 解析:英文 allow/deny 或中文 允许/拒绝。先转小写再去匹配,避免大小写差异。
+    const low = out.trim().toLowerCase();
+    // 中文"允许"优先于"拒绝"判断(模型可能回"不允许"这类,deny 优先匹配更安全)
+    if (low === "deny" || low.includes("拒绝") || low.includes("不允") || low.startsWith("no")) return false;
+    if (low === "allow" || low.includes("允许") || low.startsWith("yes")) return true;
+    // 无法识别 -> fail-closed(deny)
+    return false;
   };
 
   const gate: ApprovalGate = new PermissionGate(

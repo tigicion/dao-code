@@ -216,3 +216,32 @@ describe("evaluate — 输出重定向剥离(参考)", () => {
     expect(evaluate({ allow: ["Bash(npm:*)"], ask: [], deny: [] }, id)).toBe("allow");
   });
 });
+
+describe("evaluate - 复合命令整条精确 allow 匹配(rememberRule 生成的规则)", () => {
+  // rememberRule 对复合命令(含 &&)提炼不出前缀,退化成整条命令原文的精确匹配。
+  // 如果 evaluate 只逐子命令查 allow,整条规则永远 miss -> "始终允许"失效、重复问。
+  // 修复:在逐子命令检查之前,先对整条命令做一次精确匹配。
+  it("复合命令的整条精确 allow 规则能命中(用户选了'始终允许'后不再重复问)", () => {
+    const cmd = "cd /Users/huaruoxu/DaoProject/fishing && git status";
+    const id = { ccTool: "Bash", value: cmd };
+    // rememberRule 生成的规则形式:Bash(cd /Users/.../fishing && git status)
+    const rule = `Bash(${cmd})`;
+    expect(evaluate({ allow: [rule], ask: [], deny: [] }, id)).toBe("allow");
+  });
+  it("复合命令整条 allow 命中时,子命令级别的 ask 规则仍优先生效", () => {
+    const cmd = "cd /tmp && deploy prod";
+    const id = { ccTool: "Bash", value: cmd };
+    const allowRule = `Bash(${cmd})`;
+    expect(evaluate({ allow: [allowRule], ask: ["Bash(deploy:*)"], deny: [] }, id)).toBe("ask");
+  });
+  it("复合命令整条 allow 命中时,子命令级别的 deny 规则仍优先", () => {
+    const cmd = "cd /tmp && rm -rf x";
+    const id = { ccTool: "Bash", value: cmd };
+    const allowRule = `Bash(${cmd})`;
+    expect(evaluate({ allow: [allowRule], ask: [], deny: ["Bash(rm:*)"] }, id)).toBe("deny");
+  });
+  it("非复合命令:整条精确 allow 仍然正常工作(不因新增逻辑而回归)", () => {
+    const id = { ccTool: "Bash", value: "git status" };
+    expect(evaluate({ allow: ["Bash(git status)"], ask: [], deny: [] }, id)).toBe("allow");
+  });
+});

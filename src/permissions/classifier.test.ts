@@ -29,8 +29,14 @@ describe("buildClassifierMessages", () => {
   it("系统指令 + 含近期对话与待判调用的 user 消息", () => {
     const out = buildClassifierMessages("Bash", '{"command":"rm -rf /"}', msgs);
     expect(out[0]!.role).toBe("system");
-    expect(out[1]!.content).toContain("近期对话");
     expect(out[1]!.content).toContain("rm -rf");
-    expect(out[1]!.content).toContain("allow 还是 deny");
+    expect(out[1]!.content).toContain("allow or deny");
+  });
+  it("系统指令用英文(确保 flash 模型回英文 allow/deny 而非中文)", () => {
+    const out = buildClassifierMessages("Bash", '{"command":"ls"}', []);
+    expect(out[0]!.content).toContain("allow");
+    expect(out[0]!.content).toContain("deny");
+    expect(out[0]!.content).toContain("ALLOW");
+    expect(out[0]!.content).toContain("DENY");
   });
 });

@@ -19,11 +19,11 @@ export function buildClassifierTranscript(messages: ChatMessage[], maxEntries = 
 }
 
 const SYS =
-  "你是 auto 模式的安全分类器:替代用户判断 agent 这次工具调用是否【安全、可自动批准】。" +
-  "结合下面的近期对话(只含用户消息与历史工具调用)判断意图与风险。" +
-  "应放行:与用户当前意图一致、可逆、不接触凭据/密钥、不删毁数据、不向外部泄露、不在工作区外乱动的操作。" +
-  "应拒绝:不可逆破坏(rm -rf、drop table、强制推送覆盖)、安装/网络下载执行、读写凭据(.ssh/.aws/.env/credentials)、" +
-  "与用户意图无关或越权的操作。拿不准就拒绝(fail-closed)。只回一个词:allow 或 deny。";
+  "You are the auto-mode safety classifier for an AI coding agent. Judge whether the agent's tool call is safe to auto-approve." +
+  " Context: recent conversation (user messages + tool calls only) is provided." +
+  " ALLOW: operations consistent with user intent, reversible, no credentials/secrets, no data destruction, no external exfiltration, stays in workspace." +
+  " DENY: irreversible destruction (rm -rf, drop table, force push), install/network download+execute, reading/writing credentials (.ssh/.aws/.env), " +
+  "unrelated or out-of-scope operations. When unsure, DENY (fail-closed). Reply with exactly one word: allow or deny.";
 
 // 组装分类器的 messages:系统指令 + (近期 transcript + 本次待判调用)作为 user。
 export function buildClassifierMessages(
@@ -35,6 +35,6 @@ export function buildClassifierMessages(
   const ctx = transcript ? `近期对话:\n${transcript}\n\n` : "";
   return [
     { role: "system", content: SYS },
-    { role: "user", content: `${ctx}待判定的工具调用:\n${JSON.stringify({ [toolName]: trunc(argsJson) })}\n\n这次调用 allow 还是 deny?` },
+    { role: "user", content: `${ctx}Tool call to judge:\n${JSON.stringify({ [toolName]: trunc(argsJson) })}\n\nallow or deny?` },
   ];
 }

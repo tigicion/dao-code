@@ -172,4 +172,13 @@ describe("isReadOnlyShellCommand", () => {
     expect(isReadOnlyShellCommand("git status")).toBe(true);
     expect(isReadOnlyShellCommand("find . -name '*.ts'")).toBe(true);
   });
+  it("cd 是无副作用命令(只改 shell 内部工作目录),cd && git status 等复合命令放行", () => {
+    expect(isReadOnlyShellCommand("cd /tmp && git status")).toBe(true);
+    expect(isReadOnlyShellCommand("cd /Users/huaruoxu/DaoProject/fishing && git status")).toBe(true);
+    expect(isReadOnlyShellCommand("cd /tmp && ls -la")).toBe(true);
+    expect(isReadOnlyShellCommand("cd /tmp && cat a.txt | grep foo")).toBe(true);
+    // cd 混着非只读命令时仍然拒绝
+    expect(isReadOnlyShellCommand("cd /tmp && rm -rf x")).toBe(false);
+    expect(isReadOnlyShellCommand("cd /tmp && npm install")).toBe(false);
+  });
 });
