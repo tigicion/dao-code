@@ -2020,6 +2020,8 @@ async function main() {
           longTask,
           branch: gitBranch,
           contextPct: (contextTokens() / CONTEXT_WINDOW) * 100,
+          version: VERSION,
+          sessionId: store.id,
         }),
         cycleMode: () => {
           // yolo(bypassPermissions)不在 Shift+Tab 循环里——只能 `dao --yolo` 启动时开启。

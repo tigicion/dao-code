@@ -45,6 +45,23 @@ describe("App", () => {
     expect(f).toContain("缓存命中 50%");
   });
 
+  it("状态栏显示版本号和会话 id", () => {
+    setLang("zh");
+    const { lastFrame } = render(
+      <App
+        {...makeDeps({
+          getStatus: () => ({
+            model: "deepseek-v4-pro", mode: "normal", promptTokens: 12, completionTokens: 3,
+            cacheHitRatio: 0.5, yolo: false, contextPct: 0.3, version: "0.4.10", sessionId: "20260719-200800-h2w9",
+          }),
+        })}
+      />,
+    );
+    const f = lastFrame()!;
+    expect(f).toContain("v0.4.10");
+    expect(f).toContain("20260719-200800-h2w9");
+  });
+
   it("skips the welcome banner when skipBanner is set", () => {
     const { lastFrame } = render(<App {...makeDeps({ skipBanner: true })} />);
     expect(lastFrame()).not.toContain("DAO CODE");
