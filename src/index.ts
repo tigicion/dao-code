@@ -56,7 +56,7 @@ import { maybeCleanup } from "./agent/cleanup.js";
 import { maybeCheckUpdate } from "./config/update_check.js";
 import { notify } from "./tui/notifier.js";
 import { acquireWakeLock } from "./tui/wakelock.js";
-import { loadCustomCommands, expandCommand } from "./commands/custom.js";
+import { loadCustomCommands, expandCommand, type CustomCommand } from "./commands/custom.js";
 import { loadSkills, findUserInvocableSkill, skillCatalogLines } from "./skills/skills.js";
 import { BUNDLED_SKILLS, toggleBundled } from "./skills/bundled.js";
 import { loadUsage, saveUsage, recordUsage } from "./skills/usage.js";
@@ -263,6 +263,18 @@ async function main() {
   // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)默认关闭,--progress-advice 才开。
   // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
   const progressAdviceFlag = rawArgs.includes("--progress-advice");
+  // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-hooks --no-project-instructions。
+  // 每个子开关也可单独使用。--no-skills 的隔离范围覆盖整个"磁盘/插件自定义"通道:
+  // 技能本体 + 自定义子代理定义(.dao/agents)+ 自定义 slash 命令(.dao/commands)——三者都是同一类
+  // 用户/项目/插件自带的、会改变模型行为的注入源,不隔离会让评测结果混入本机个性化配置的影响。
+  const evalFlag = rawArgs.includes("--eval");
+  const noMemory = evalFlag || rawArgs.includes("--no-memory");
+  const noSkills = evalFlag || rawArgs.includes("--no-skills");
+  const noMcp = evalFlag || rawArgs.includes("--no-mcp");
+  const noHooks = evalFlag || rawArgs.includes("--no-hooks");
+  // 项目/用户级自定义指令(DAO.md,CLAUDE.md 的 DAO 对应物)。之前一直无条件加载并注入系统提示词,
+  // --eval 完全没覆盖到——同样是"用户自定义、会改变模型行为"的影响源,单独给一个子开关。
+  const noProjectInstructions = evalFlag || rawArgs.includes("--no-project-instructions");
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
@@ -270,7 +282,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -536,11 +548,12 @@ async function main() {
   }
 
   // MCP:连配置的 server,把其工具/资源/提示注册进来(名字 mcp__server__*)。失败的 server 不影响其余/启动。
-  const mcpConfigFiles = [
+  // --no-mcp / --eval 跳过(评测场景不需要外部工具源,保持纯净)。
+  const mcpConfigFiles = noMcp ? [] : [
     path.join(os.homedir(), ".dao", "mcp.json"),
     path.join(workspaceRoot, ".dao", "mcp.json"),
   ];
-  const mcpConfig = await loadMcpConfig(mcpConfigFiles);
+  const mcpConfig = noMcp ? { mcpServers: {} } : await loadMcpConfig(mcpConfigFiles);
   // elicitation 处理器:连接发生在 UI 就绪前,故经可变引用延迟绑定(下方 inkAsk 声明后赋值)。未绑定则婉拒。
   let mcpElicit: ElicitHandler | null = null;
   const mcp = new McpManager(registry, mcpConfig, {
@@ -592,7 +605,7 @@ async function main() {
   // 合并结果下个会话生效——只影响真正触发合并的那次(每 3 天/作用域一次,shouldConsolidate 节流),可接受。
   // 审计:onAudit 直接写 memoryAudit;后台合并在 sink 建好(下方创建)之后才完成,触发时 sink 已就绪。
   // 并发:maybeConsolidate 内部自载记忆快照;与反思器每回合写入极少撞同一文件,撞了 last-write-wins、下轮自愈。
-  if (process.env.DAO_NO_MEMORY !== "1" && !argvPrompt) {
+  if (!noMemory && !argvPrompt) {
     const consolModel = process.env.DAO_CONSOLIDATE_MODEL || cfg.model;
     const consolNow = Date.now();
     const consolCommon = {
@@ -628,7 +641,7 @@ async function main() {
   const SMALL_N = 50;
   const liveCount = validated.filter((v) => v.verdict !== "stale").length;
   let injectedMems: typeof validated; let indexNames: string[];
-  if (process.env.DAO_NO_MEMORY === "1") {
+  if (noMemory) {
     injectedMems = []; indexNames = [];
   } else if (liveCount < SMALL_N) {
     injectedMems = selectFullText(validated, today, SMALL_N); indexNames = [];
@@ -646,7 +659,9 @@ async function main() {
   const installedPlugins = await loadPlugins();
   const pluginComp = pluginComponentDirs(installedPlugins);
   // 自定义子代理类型(.dao/agents/*.md + 插件 agents/):专属 prompt/工具白名单/模型。
-  const diskAgentDefs = await loadAgentDefs(
+  // --no-skills / --eval 跳过(和技能同属"磁盘/插件自定义"通道,评测场景不加载,保持纯净;
+  // 内置子代理 BUNDLED_AGENTS 不受影响,那是 DAO 自带的核心能力,不是用户自定义)。
+  const diskAgentDefs = noSkills ? [] : await loadAgentDefs(
     path.join(workspaceRoot, ".dao", "agents"),
     path.join(os.homedir(), ".dao", "agents"),
     pluginComp.agentDirs,
@@ -655,7 +670,8 @@ async function main() {
   const diskAgentNames = new Set(diskAgentDefs.map((d) => d.agentType));
   const agentDefs: AgentDef[] = [...diskAgentDefs, ...BUNDLED_AGENTS.filter((a) => !diskAgentNames.has(a.agentType))];
   // 自定义 slash 命令(.dao/commands/*.md + 插件 commands/):/name 展开成 prompt。
-  const customCommands = await loadCustomCommands(
+  // --no-skills / --eval 跳过(同上,磁盘/插件自定义通道统一隔离)。
+  const customCommands = noSkills ? new Map<string, CustomCommand>() : await loadCustomCommands(
     path.join(workspaceRoot, ".dao", "commands"),
     path.join(os.homedir(), ".dao", "commands"),
     pluginComp.commandDirs,
@@ -669,9 +685,10 @@ async function main() {
         agentDefs.map((d) => formatAgentLine(d)).join("\n")
       : "";
   // 开箱即用 skill(.dao/skills/ + 已装插件的 skills/):启动只列 name+description,模型用 skill 工具按需取正文。
+  // --no-skills / --eval 跳过(评测场景不加载用户/插件技能,保持纯净)。
   // 插件技能打【命名空间】(=插件名):用于 plugin:slug 调用与防撞;本地/项目/内置不加前缀。
-  const pluginSkills = (await Promise.all(installedPlugins.map(async (p) => (await loadSkills(p.skillsDir)).map((s) => ({ ...s, namespace: p.name }))))).flat();
-  const diskSkills = [
+  const pluginSkills = noSkills ? [] : (await Promise.all(installedPlugins.map(async (p) => (await loadSkills(p.skillsDir)).map((s) => ({ ...s, namespace: p.name }))))).flat();
+  const diskSkills = noSkills ? [] : [
     ...(await loadSkills(path.join(os.homedir(), ".dao", "skills"), path.join(workspaceRoot, ".dao", "skills"))),
     ...pluginSkills,
   ];
@@ -683,7 +700,8 @@ async function main() {
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
   // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关(对标 CC disableBundledSkills)。
-  const coreBundled = BUNDLED_SKILLS
+  // --no-skills / --eval 时也清空(不注入内置技能描述)。
+  const coreBundled = noSkills ? [] : BUNDLED_SKILLS
     .filter((b) => b.core && !diskNames.has(b.name) && !disabledSet.has(b.name))
     .map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name, ...(b.modelInvokable === false ? { modelInvokable: false } : {}), ...(b.userInvocable === false ? { userInvocable: false } : {}) } as import("./skills/skills.js").Skill));
   const pluginsDir = pluginsRoot();
@@ -768,7 +786,8 @@ async function main() {
       cwd: workspaceRoot,
       platform: process.platform,
       envSnapshot,
-      projectInstructions: loadProjectInstructions(workspaceRoot), // DAO.md/AGENTS.md/CLAUDE.md + 用户级
+      // --no-project-instructions / --eval 跳过(评测场景不注入用户/项目自定义指令,保持纯净)。
+      projectInstructions: noProjectInstructions ? "" : loadProjectInstructions(workspaceRoot), // DAO.md/AGENTS.md/CLAUDE.md + 用户级
       lang,
       reflectMemoryEnabled: reflectMemoryFlag,
       reflectChallengerEnabled: reflectChallengerFlag,
@@ -1001,8 +1020,8 @@ async function main() {
   ctx.adaptSkill = makeSkillAdapter({ daoTools, catalog: toolCatalog, callFlash, homeDir: os.homedir() });
 
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
-  // loadHooks 现为同步,收 HookFileRef[];插件 hook 文件在 <插件目录>/hooks.json,其 pluginRoot=该目录(CLAUDE_PLUGIN_ROOT)。
-  const hooks = loadHooks([
+  // --no-hooks / --eval 跳过(评测场景不需要用户自定义的自动执行面)。
+  const hooks = noHooks ? [] : loadHooks([
     { path: path.join(os.homedir(), ".dao", "hooks.json") },
     ...pluginComp.hookFiles.map((h) => ({ path: h.file, pluginRoot: h.root })), // B-5 插件 hooks(pluginRoot=插件根,兼容 CC 的 hooks/ 子目录布局)
     // 未信任目录:不加载项目 hooks(hooks 会在事件时执行命令,是最危险的自动执行面)。
@@ -1308,7 +1327,7 @@ async function main() {
   // 的引用被清空(splice(0)),已经被 drainPending 取走的部分自然不受影响(取走时已经不在数组里了)。
   const steeringQueue: string[] = [];
   const REFLECT_MAX_INTERVAL = process.env.DAO_REFLECT_EVERY === "1" ? 1 : (Number(process.env.DAO_REFLECT_MAX_INTERVAL) || 3);
-  const NO_MEMORY = process.env.DAO_NO_MEMORY === "1"; // demo 对照:禁反思器记忆(注入侧另行禁)
+  const NO_MEMORY = noMemory;
   const REFLECT_SYNC = process.env.DAO_REFLECT_SYNC === "1"; // 测试/demo:反思同步完成再继续(否则后台 void)
 
   const runReflector = async (): Promise<{ onTrack: boolean; mem: number }> => {
@@ -2032,6 +2051,7 @@ async function main() {
         drainNotifications: () => taskManager.drainNotifications(),
         subscribeTasks: (cb) => taskManager.onChange(cb),
         runningTasks: () => taskManager.running().length,
+        runningShells: () => processManager.runningCount(),
         queueSteering: (text) => steeringQueue.push(text),
         drainSteering: () => steeringQueue.splice(0),
         listAccounts,

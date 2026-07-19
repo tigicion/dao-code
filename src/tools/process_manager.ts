@@ -120,6 +120,12 @@ class ProcessManager {
     killTree(p.child, "SIGTERM");
   }
 
+  runningCount(): number {
+    let n = 0;
+    for (const p of this.procs.values()) if (p.status === "running") n++;
+    return n;
+  }
+
   reset(): void {
     for (const p of this.procs.values()) killTree(p.child, "SIGKILL");
     this.procs.clear();

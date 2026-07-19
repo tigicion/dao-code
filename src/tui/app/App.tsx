@@ -273,6 +273,7 @@ export function App(deps: AppDeps) {
   useEffect(() => { busyRef.current = busy; }, [busy]);
   const [taskTick, setTaskTick] = useState(0); // 后台任务状态变化计数(驱动通知处理/计数刷新)
   const [bgRunning, setBgRunning] = useState(0);
+  const [bgShells, setBgShells] = useState(0);
   const [queued, setQueued] = useState<string[]>([]); // 运行中排队的用户输入(steering)
   const [expanded, setExpanded] = useState(!!deps.verbose); // ctrl+o 展开全量(--verbose 启动时默认开)
   const history = useRef<string[]>([]);
@@ -577,9 +578,18 @@ export function App(deps: AppDeps) {
   // 任务变化或回合结束时:刷新运行计数;空闲则处理待注入的通知(自动续跑)。
   useEffect(() => {
     setBgRunning(deps.runningTasks?.() ?? 0);
+    setBgShells(deps.runningShells?.() ?? 0);
     if (!busy) void processNotifications();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, taskTick, queued]);
+
+  // 后台 shell 存在时定期轮询(进程退出不触发 taskTick,需主动刷新计数)。
+  useEffect(() => {
+    if (bgShells === 0) return;
+    const t = setInterval(() => setBgShells(deps.runningShells?.() ?? 0), 2000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgShells]);
 
   // 选中会话 → 委派 /resume <id>(载入逻辑在 index),并应用其结果(重置 transcript + 提示)。
   const loadResume = (id: string) => {
@@ -1312,7 +1322,7 @@ export function App(deps: AppDeps) {
         <Text color={c("jade")}>{"  "}{t("ui.modeHint")} {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>{t("ui.bgRunning", bgRunning)}</Text> : null}
-      <StatusBar status={status} c={c} />
+      <StatusBar status={status} c={c} bgShells={bgShells} />
     </Box>
   );
 }
@@ -1460,9 +1470,11 @@ function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<ty
 function StatusBar({
   status,
   c,
+  bgShells,
 }: {
   status: StatusInfo;
   c: (s: Parameters<typeof semHex>[0]) => string;
+  bgShells?: number;
 }) {
   const pct = (status.cacheHitRatio * 100).toFixed(0);
   const fmt = (n: number) => (n < 1000 ? String(n) : (n / 1000).toFixed(n < 10000 ? 1 : 0) + "k");
@@ -1476,6 +1488,7 @@ function StatusBar({
         {status.mode === "plan" ? <Text color={c("gold")}>{t("ui.status.planMode")}</Text> : ""}
         {status.permMode === "acceptEdits" ? <Text color={c("jade")}>{t("ui.status.acceptEdits")}</Text> : ""}
         {status.permMode === "auto" ? <Text color={c("jade")}>{t("ui.status.auto")}</Text> : ""}
+        {bgShells && bgShells > 0 ? <Text color={c("gold")}>⎈ {bgShells} shell{bgShells > 1 ? "s" : ""} · </Text> : ""}
         {status.accountName ? <Text color={c("jade")}>{status.accountName}/</Text> : null}
         {status.model} · {t("ui.status.input")} {fmt(status.promptTokens)} · {t("ui.status.output")} {fmt(status.completionTokens)} · {t("ui.status.cacheHit")} {pct}%{status.costCNY ? ` · ￥${status.costCNY.toFixed(status.costCNY < 1 ? 3 : 2)}` : ""} · {t("ui.status.context")} {status.contextPct < 1 ? "<1" : Math.round(status.contextPct)}%
         {status.branch ? ` · ⎇ ${status.branch}` : ""}
