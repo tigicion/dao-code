@@ -260,14 +260,14 @@ async function main() {
   // 这是另一套独立机制(不依赖 --reflect-memory),之前一直无条件跑(仅一次性 headless 因
   // argvPrompt 而被跳过),交互态/非 TTY 多轮管道下每轮都在算 + 命中阈值就 fork 一次 LLM 调用。
   const reflectChallengerFlag = rawArgs.includes("--reflect-challenger");
-  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)默认关闭,--progress-advice 才开。
-  // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
-  const progressAdviceFlag = rawArgs.includes("--progress-advice");
   // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-hooks --no-project-instructions。
   // 每个子开关也可单独使用。--no-skills 的隔离范围覆盖整个"磁盘/插件自定义"通道:
   // 技能本体 + 自定义子代理定义(.dao/agents)+ 自定义 slash 命令(.dao/commands)——三者都是同一类
   // 用户/项目/插件自带的、会改变模型行为的注入源,不隔离会让评测结果混入本机个性化配置的影响。
   const evalFlag = rawArgs.includes("--eval");
+  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)默认关闭,--progress-advice 才开。
+  // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
+  const progressAdviceFlag = rawArgs.includes("--progress-advice");
   const noMemory = evalFlag || rawArgs.includes("--no-memory");
   const noSkills = evalFlag || rawArgs.includes("--no-skills");
   const noMcp = evalFlag || rawArgs.includes("--no-mcp");

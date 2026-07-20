@@ -245,6 +245,13 @@ describe("buildSystemPrompt (en)", () => {
     expect(prompt).toContain("a described run is not a run");
     expect(prompt).toContain("let me test/verify/check this");
   });
+
+  it("Write-first rule: code in reasoning must be written to disk via Write tool before fixing bugs", () => {
+    expect(prompt).toContain("Write-first for new files");
+    expect(prompt).toContain("infinitely more valuable than a perfect design");
+    expect(prompt).toContain("Never delete and rewrite from scratch");
+    expect(prompt).toContain('"Write it down" means calling the Write tool');
+  });
 });
 
 describe("LONG_TASK_DIRECTIVE", () => {
