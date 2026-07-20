@@ -88,7 +88,7 @@ import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
 import { loadAllMemories, upsertMemory, migrateLegacy, routeScope, projectIdOf, keepKnowledgeForProject } from "./memory/store.js";
 import { gatherAudit, formatAudit } from "./memory/audit.js";
-import { buildClassifierMessages } from "./permissions/classifier.js";
+import { buildClassifierMessages, parseXmlBlock, parseXmlReason, STAGE1_SUFFIX, STAGE2_SUFFIX, type AutoModeRules } from "./permissions/classifier.js";
 import { validateMemory, type Verdict } from "./memory/validate.js";
 import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
 import { reflect as unifiedReflect } from "./agent/unified_reflect.js";
@@ -102,7 +102,7 @@ import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { PermissionGate } from "./permissions/gate.js";
-import { loadPermissions, mergePermissions, appendRule, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
+import { loadPermissions, mergePermissions, appendRule, appendRuleSync, removeRule, removeRuleSync, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, LONG_TASK_DIRECTIVE_EN } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
@@ -832,11 +832,14 @@ async function main() {
   const localSettingsFile = path.join(workspaceRoot, ".dao", "settings.local.json");
   // 优先级(低→高):user < project < local < CLI < enterprise(企业托管策略不可被下层覆盖)。
   // 仅在信任时加载 project/local;否则只用用户级,杜绝未信任目录的规则/默认模式生效。
-  const lowerPerms = await loadPermissions([
+  const lowerLoaded = await loadPermissions([
     path.join(os.homedir(), ".dao", "settings.json"),
     ...(trustProject ? [path.join(workspaceRoot, ".dao", "settings.json"), localSettingsFile] : []),
   ]);
-  const enterprisePerms = await loadPermissions([enterpriseSettingsPath()]);
+  const enterpriseLoaded = await loadPermissions([enterpriseSettingsPath()]);
+  const lowerPerms = lowerLoaded.config;
+  const enterprisePerms = enterpriseLoaded.config;
+  const ruleSources = new Map<string, string>([...lowerLoaded.sources, ...enterpriseLoaded.sources]);
   const loadedPerms = mergePermissions([lowerPerms, cliPerms, enterprisePerms]);
   // 本会话临时追加的 allow 规则("session"/"always" 决定产生);always 另持久化到 local。
   const sessionAllow: string[] = [];
@@ -854,29 +857,50 @@ async function main() {
 
   // auto 模式分类器:结合近期对话(用户意图 + 历史工具调用)judge 本次调用是否安全可自动批准。
   // 只回 allow/deny;出错→拒绝(fail-closed)。快速路径(白名单/工作区内编辑)已在 engine.decide 里短路,不到这里。
+  // Stage 1(fast):max_tokens=64 + stop=["</block>"],快路径判断。allow -> 直接放行。
+  // Stage 2(thinking):max_tokens=4096,完整推理。<block>no</block> -> 放行;其余 -> 转人工。
+  // 出错/不可解析 -> fail-closed(转人工,不是拒绝)。快速路径(白名单/工作区内编辑)已在 engine.decide 短路。
   const classifyPermission = async (toolName: string, argsJson: string): Promise<boolean> => {
-    const gen = streamChat({
+    const classifierModel = process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash";
+    const rules: AutoModeRules | undefined = loadedPerms.autoMode;
+    const onUsage = (u: any) => {
+      session.addUsage(u, classifierModel);
+      cacheSink.record({ agent: "classifier", depth: 0, turn: 0, model: classifierModel, usage: u, sys: "", tools: "", tail: "" });
+    };
+
+    // Stage 1(fast):共享 system prompt + transcript,加 STAGE1_SUFFIX。
+    const gen1 = streamChat({
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
-      // S3.2:权限分类是 allow/deny 二分类,flash 足够且更快更省(DAO_CLASSIFIER_MODEL 可覆盖)。
-      model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash",
-      messages: buildClassifierMessages(toolName, argsJson, session.messages),
-      extra: { thinking: { type: "disabled" }, temperature: 0 },
-      onUsage: (u) => {
-        session.addUsage(u, process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash"); // B-2 记 flash 用量
-        cacheSink.record({ agent: "classifier", depth: 0, turn: 0, model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash", usage: u, sys: "", tools: "", tail: "" });
-      },
+      model: classifierModel,
+      messages: buildClassifierMessages(toolName, argsJson, session.messages, rules, "zh", STAGE1_SUFFIX),
+      maxTokens: 64,
+      extra: { thinking: { type: "disabled" }, temperature: 0, stop: ["</block>"] },
+      onUsage,
     });
-    let out = "";
-    let r = await gen.next();
-    while (!r.done) { if (r.value.kind === "content") out += r.value.text; r = await gen.next(); }
-    // 解析:英文 allow/deny 或中文 允许/拒绝。先转小写再去匹配,避免大小写差异。
-    const low = out.trim().toLowerCase();
-    // 中文"允许"优先于"拒绝"判断(模型可能回"不允许"这类,deny 优先匹配更安全)
-    if (low === "deny" || low.includes("拒绝") || low.includes("不允") || low.startsWith("no")) return false;
-    if (low === "allow" || low.includes("允许") || low.startsWith("yes")) return true;
-    // 无法识别 -> fail-closed(deny)
-    return false;
+    let out1 = "";
+    let r1 = await gen1.next();
+    while (!r1.done) { if (r1.value.kind === "content") out1 += r1.value.text; r1 = await gen1.next(); }
+    const block1 = parseXmlBlock(out1);
+    if (block1 === false) return true;  // <block>no</block> -> 允许(快路径)
+    // block1 === true(应阻止)或 null(不可解析)-> 升级 Stage 2 做完整推理,减少 false positive。
+
+    // Stage 2(thinking):共享 system prompt + transcript,加 STAGE2_SUFFIX。
+    const gen2 = streamChat({
+      baseUrl: cfg.baseUrl,
+      apiKey: cfg.apiKey,
+      model: classifierModel,
+      messages: buildClassifierMessages(toolName, argsJson, session.messages, rules, "zh", STAGE2_SUFFIX),
+      maxTokens: 4096,
+      extra: { temperature: 0 },
+      onUsage,
+    });
+    let out2 = "";
+    let r2 = await gen2.next();
+    while (!r2.done) { if (r2.value.kind === "content") out2 += r2.value.text; r2 = await gen2.next(); }
+    const block2 = parseXmlBlock(out2);
+    if (block2 === false) return true;  // <block>no</block> -> 允许(复核通过)
+    return false;  // <block>yes</block> 或不可解析 -> 转人工
   };
 
   const gate: ApprovalGate = new PermissionGate(
@@ -2037,6 +2061,44 @@ async function main() {
               session.messages.push({ role: "system", content: lang === "en" ? LONG_TASK_DIRECTIVE_EN : LONG_TASK_DIRECTIVE });
             }
             return { handled: true, output: "❖ Coordinator 已并入长任务自主模式:已开启(auto 自动批准 + 自主推进 + 任务大时自动按研究→综合→实现→验证分阶段)。直接说出要做的较大任务即可。" };
+          }
+          // /permissions add/remove/list:运行时增删权限规则(直接操作 settings 文件)。
+          if (name === "permissions") {
+            const parts = line.trim().slice(1).split(/\s+/);
+            const sub = parts[1] ?? "list";
+            const rules = getRules();
+            if (sub === "list") {
+              const fmt = (k: "allow" | "ask" | "deny") => rules[k].length
+                ? rules[k].map(r => `  ${r}  ${ruleSources.get(`${k}:${r}`) ? `(${ruleSources.get(`${k}:${r}`)})` : "(session/cli)"}`).join("\n")
+                : "  (无)";
+              return { handled: true, output: `权限规则:\n[deny]\n${fmt("deny")}\n[ask]\n${fmt("ask")}\n[allow]\n${fmt("allow")}` };
+            }
+            if (sub === "add" || sub === "remove") {
+              const kind = (parts[2] ?? "") as "allow" | "ask" | "deny";
+              if (!["allow", "ask", "deny"].includes(kind)) return { handled: true, output: "用法:/permissions add <allow|ask|deny> <规则>  或  /permissions remove <allow|ask|deny> <规则>" };
+              const rule = parts.slice(3).join(" ");
+              if (!rule) return { handled: true, output: "缺少规则。用法:/permissions add deny Bash(rm:*)" };
+              if (sub === "add") {
+                appendRuleSync(localSettingsFile, rule, kind);
+                // 更新内存
+                (loadedPerms[kind] as string[]).push(rule);
+                ruleSources.set(`${kind}:${rule}`, localSettingsFile);
+                return { handled: true, output: `✓ 已添加 ${kind} 规则:${rule}(写入 ${localSettingsFile})` };
+              } else {
+                // remove:先查 source 映射找到规则在哪个文件,再删
+                const src = ruleSources.get(`${kind}:${rule}`);
+                if (!src) return { handled: true, output: `✗ 规则不在任何已加载的 settings 文件中(可能是 session/CLI 规则,无法通过此命令删除):${rule}` };
+                const ok = removeRuleSync(src, rule, kind);
+                if (ok) {
+                  const idx = loadedPerms[kind].indexOf(rule);
+                  if (idx >= 0) loadedPerms[kind].splice(idx, 1);
+                  ruleSources.delete(`${kind}:${rule}`);
+                  return { handled: true, output: `✓ 已移除 ${kind} 规则:${rule}(从 ${src})` };
+                }
+                return { handled: true, output: `✗ 未在 ${src} 中找到规则:${rule}` };
+              }
+            }
+            return { handled: true, output: "用法:\n  /permissions list\n  /permissions add <allow|ask|deny> <规则>\n  /permissions remove <allow|ask|deny> <规则>" };
           }
           // 内置 prompt 命令(simplify/remember/debug/skillify):展开成 prompt 跑一回合。
           if (name) {

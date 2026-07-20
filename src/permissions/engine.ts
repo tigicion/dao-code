@@ -76,6 +76,9 @@ const AUTO_ALLOWLIST = new Set([
   "Read", "Grep", "Glob", "ListDir",
   "TodoWrite", "AskUserQuestion", "MemoryRead", "Skill", "echo",
   "WebSearch", "WebFetch",
+  "LSP",
+  "TaskCreate", "TaskList", "TaskGet", "TaskUpdate", "TaskOutput", "TaskStop",
+  "CronList",
 ]);
 
 // 单次工具调用的权限裁决,1:1 复刻 CC 优先级:

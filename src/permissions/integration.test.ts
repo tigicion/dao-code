@@ -33,7 +33,7 @@ async function gateFor(promptAllows: boolean) {
   await fs.writeFile(file, JSON.stringify({
     permissions: { allow: ["Bash(npm run build)"], deny: ["Bash(rm -rf:*)"] },
   }));
-  const perms = await loadPermissions([file]);
+  const perms = (await loadPermissions([file])).config;
   let prompted = 0;
   const gate = new PermissionGate(
     () => "default",

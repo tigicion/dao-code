@@ -6,7 +6,7 @@ import { atomicWrite } from "./fs_atomic.js";
 import { withFileLock } from "./file_lock.js";
 import { buildEditHunk } from "./diff_hunk.js";
 import { msg } from "./lang.js";
-import { diagnoseMismatch } from "./edit_mismatch.js";
+import { diagnoseMismatch, findActualString } from "./edit_mismatch.js";
 
 // 对一个文件按顺序应用多处精确替换,原子(全部成功才写盘,任一处失败则整体不动)。参考 的 MultiEdit。
 export const multiEditTool = defineTool({
@@ -55,7 +55,16 @@ export const multiEditTool = defineTool({
       // 先全部校验+施加到内存,全部通过才落盘(原子)。
       for (let i = 0; i < args.edits.length; i++) {
         const e = args.edits[i]!;
-        const count = text.split(e.old_string).length - 1;
+        // 精确匹配优先;失败后尝试归一化匹配(对标 CC findActualString)。
+        let oldString = e.old_string;
+        let count = text.split(oldString).length - 1;
+        if (count === 0) {
+          const actual = findActualString(text, e.old_string);
+          if (actual && actual !== e.old_string) {
+            oldString = actual;
+            count = text.split(oldString).length - 1;
+          }
+        }
         if (count === 0) {
           const hint = diagnoseMismatch(text, e.old_string);
           throw new Error(
@@ -66,9 +75,9 @@ export const multiEditTool = defineTool({
           throw new Error(`第 ${i + 1} 处 old_string 出现 ${count} 次、不唯一;用 replace_all 或扩大上下文(整体未改)`);
         }
         // 每处编辑生成 diff hunk(基于当前文本,施加前)
-        const hunk = buildEditHunk(text, e.old_string, e.new_string);
+        const hunk = buildEditHunk(text, oldString, e.new_string);
         if (hunk.length) hunks.push(["```diff", ...hunk, "```"].join("\n"));
-        text = text.split(e.old_string).join(e.new_string);
+        text = text.split(oldString).join(e.new_string);
         total += e.replace_all ? count : 1;
       }
       await atomicWrite(abs, text);

@@ -6,7 +6,7 @@ import { atomicWrite } from "./fs_atomic.js";
 import { buildEditHunk } from "./diff_hunk.js";
 import { withFileLock } from "./file_lock.js";
 import { msg } from "./lang.js";
-import { diagnoseMismatch } from "./edit_mismatch.js";
+import { diagnoseMismatch, findActualString } from "./edit_mismatch.js";
 
 export const editFileTool = defineTool({
   name: "Edit",
@@ -48,7 +48,16 @@ export const editFileTool = defineTool({
         throw new Error(`编辑前请先用 Read 读过它:${args.path}`);
       }
       const raw = await fs.readFile(abs, "utf8");
-      const count = raw.split(args.old_string).length - 1;
+      // 精确匹配优先;失败后尝试归一化匹配(对标 CC findActualString)。
+      let oldString = args.old_string;
+      let count = raw.split(oldString).length - 1;
+      if (count === 0) {
+        const actual = findActualString(raw, args.old_string);
+        if (actual && actual !== args.old_string) {
+          oldString = actual;
+          count = raw.split(oldString).length - 1;
+        }
+      }
       if (count === 0) {
         const hint = diagnoseMismatch(raw, args.old_string);
         throw new Error(`未找到 old_string:${args.path}${hint ? `。${hint}` : ""}`);
@@ -57,12 +66,12 @@ export const editFileTool = defineTool({
         throw new Error(`old_string 在 ${args.path} 出现 ${count} 次,不唯一;用 replace_all 或扩大上下文`);
       }
       // split/join 对单处(count===1)与全部替换都正确,且不会把 new_string 里的 $ 当成替换模式。
-      const next = raw.split(args.old_string).join(args.new_string);
+      const next = raw.split(oldString).join(args.new_string);
       await atomicWrite(abs, next);
       // 首处匹配所在行号(1-based),供 TUI 给 diff 标行号(参考)。
-      const startLine = raw.slice(0, raw.indexOf(args.old_string)).split("\n").length;
+      const startLine = raw.slice(0, raw.indexOf(oldString)).split("\n").length;
       // 带行号+上下文的 diff hunk(```diff 块):模型可读、TUI 据此渲染(复刻 CC)。
-      const hunk = buildEditHunk(raw, args.old_string, args.new_string);
+      const hunk = buildEditHunk(raw, oldString, args.new_string);
       const diffBlock = hunk.length ? `\n\`\`\`diff\n${hunk.join("\n")}\n\`\`\`` : "";
       ctx.onFileAccessed?.(abs).catch(() => {});
       return msg(`已编辑 ${args.path}(替换 ${args.replace_all ? count : 1} 处,行 ${startLine})${diffBlock}`, `Edited ${args.path} (${args.replace_all ? count : 1} replacement(s), line ${startLine})${diffBlock}`);

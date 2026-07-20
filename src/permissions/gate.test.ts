@@ -228,3 +228,47 @@ describe("PermissionGate.lastApprovalSource", () => {
     expect(gate.lastApprovalSource("b")).toBe("classifier");
   });
 });
+
+describe("PermissionGate 熔断(denial tracking)", () => {
+  it("连续 3 次 deny 后熔断,后续请求跳过分类器直接转人工", async () => {
+    let classifyCalls = 0;
+    const { gate } = makeGate({
+      mode: "auto",
+      classify: async () => { classifyCalls++; return false; }, // 总是 deny
+      decisions: { a: "once", b: "once", c: "once", d: "once", e: "once" },
+    });
+    // 前 3 次:分类器被调用,deny -> 转人工
+    for (const id of ["a", "b", "c"]) {
+      await gate.requestBatch([{ id, toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    }
+    expect(classifyCalls).toBe(3);
+    // 第 4 次:熔断,分类器不再被调用,直接转人工
+    await gate.requestBatch([{ id: "d", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(classifyCalls).toBe(3); // 没有增加
+    expect(gate.lastApprovalSource("d")).toBe("human");
+  });
+
+  it("分类器 allow 重置连续 deny 计数(不熔断)", async () => {
+    let classifyCalls = 0;
+    const results = [false, false, true, false, false, false];
+    const { gate } = makeGate({
+      mode: "auto",
+      classify: async () => { const r = results[classifyCalls] ?? false; classifyCalls++; return r; },
+      decisions: { a: "once", b: "once", c: "once", d2: "once", e2: "once", f2: "once", g2: "once" },
+    });
+    // a,b: deny (连续=2), c: allow (连续重置为0), d2,e2,f2: deny (连续=3, 熔断)
+    await gate.requestBatch([{ id: "a", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    await gate.requestBatch([{ id: "b", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    await gate.requestBatch([{ id: "c", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(gate.lastApprovalSource("c")).toBe("classifier"); // allow
+    await gate.requestBatch([{ id: "d2", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    await gate.requestBatch([{ id: "e2", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    await gate.requestBatch([{ id: "f2", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    // f2 是第 3 次连续 deny -> 熔断
+    expect(classifyCalls).toBe(6);
+    // g2: 熔断,不调分类器
+    await gate.requestBatch([{ id: "g2", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(classifyCalls).toBe(6); // 没增加
+    expect(gate.lastApprovalSource("g2")).toBe("human");
+  });
+});

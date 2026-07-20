@@ -40,6 +40,16 @@ function buildLookalikePattern(oldString: string): RegExp | null {
 }
 
 // 返回 null = 没找到"形近但不完全相同"的诊断线索(调用方按普通"未找到"处理)。
+export function findActualString(fileContent: string, searchString: string): string | null {
+  if (!searchString) return null;
+  if (fileContent.includes(searchString)) return searchString;
+  const re = buildLookalikePattern(searchString);
+  if (!re) return null;
+  const m = re.exec(fileContent);
+  if (!m) return null;
+  return m[0]!;
+}
+
 export function diagnoseMismatch(raw: string, oldString: string): string | null {
   const re = buildLookalikePattern(oldString);
   if (!re) return null;

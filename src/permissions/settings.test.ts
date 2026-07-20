@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { parseSettings, mergePermissions, loadPermissions, emptyPermissions, enterpriseSettingsPath, extractCliPermissions } from "./settings.js";
+import { parseSettings, mergePermissions, loadPermissions, emptyPermissions, enterpriseSettingsPath, extractCliPermissions, removeRule } from "./settings.js";
 
 describe("parseSettings", () => {
   it("提取 permissions 块的各字段", () => {
@@ -26,6 +26,52 @@ describe("parseSettings", () => {
   it("缺 permissions / 损坏 JSON → 空配置", () => {
     expect(parseSettings("{}")).toEqual(emptyPermissions());
     expect(parseSettings("{bad")).toEqual(emptyPermissions());
+  });
+  it("解析 autoMode 规则(allow/deny/environment)", () => {
+    const raw = JSON.stringify({
+      permissions: {
+        autoMode: {
+          allow: ["运行测试和构建命令"],
+          deny: ["禁止外泄数据到外部端点"],
+          environment: ["项目使用 pnpm"],
+        },
+      },
+    });
+    const cfg = parseSettings(raw);
+    expect(cfg.autoMode?.allow).toEqual(["运行测试和构建命令"]);
+    expect(cfg.autoMode?.deny).toEqual(["禁止外泄数据到外部端点"]);
+    expect(cfg.autoMode?.environment).toEqual(["项目使用 pnpm"]);
+  });
+  it("bashClassifier 向后兼容:映射到 autoMode.deny", () => {
+    const raw = JSON.stringify({
+      permissions: {
+        bashClassifier: ["禁止 rm -rf"],
+      },
+    });
+    const cfg = parseSettings(raw);
+    expect(cfg.bashClassifier).toEqual(["禁止 rm -rf"]);
+    expect(cfg.autoMode?.deny).toEqual(["禁止 rm -rf"]);
+  });
+  it("bashClassifier 与 autoMode.deny 合并", () => {
+    const raw = JSON.stringify({
+      permissions: {
+        bashClassifier: ["旧规则"],
+        autoMode: { deny: ["新规则"] },
+      },
+    });
+    const cfg = parseSettings(raw);
+    expect(cfg.autoMode?.deny).toEqual(["新规则", "旧规则"]);
+  });
+  it("autoMode 部分字段缺失时只解析存在的", () => {
+    const raw = JSON.stringify({
+      permissions: {
+        autoMode: { allow: ["只配了 allow"] },
+      },
+    });
+    const cfg = parseSettings(raw);
+    expect(cfg.autoMode?.allow).toEqual(["只配了 allow"]);
+    expect(cfg.autoMode?.deny).toBeUndefined();
+    expect(cfg.autoMode?.environment).toBeUndefined();
   });
 });
 
@@ -91,8 +137,43 @@ describe("loadPermissions — 文件分层(缺文件跳过)", () => {
     await fs.writeFile(user, JSON.stringify({ permissions: { deny: ["Bash(rm:*)"], defaultMode: "default" } }));
     await fs.writeFile(local, JSON.stringify({ permissions: { allow: ["Bash(npm:*)"], defaultMode: "acceptEdits" } }));
     const merged = await loadPermissions([user, path.join(dir, "missing.json"), local]);
-    expect(merged.deny).toEqual(["Bash(rm:*)"]);
-    expect(merged.allow).toEqual(["Bash(npm:*)"]);
-    expect(merged.defaultMode).toBe("acceptEdits"); // local 最高层
+    expect(merged.config.deny).toEqual(["Bash(rm:*)"]);
+    expect(merged.config.allow).toEqual(["Bash(npm:*)"]);
+    expect(merged.config.defaultMode).toBe("acceptEdits"); // local 最高层
+    // per-source 追踪:每条规则知道来自哪个文件
+    expect(merged.sources.get("deny:Bash(rm:*)")).toBe(user);
+    expect(merged.sources.get("allow:Bash(npm:*)")).toBe(local);
+  });
+});
+
+describe("removeRule - 按文件删除规则", () => {
+  let dir: string;
+  beforeEach(async () => { dir = await fs.mkdtemp(path.join(os.tmpdir(), "dao-perm-")); });
+  afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }); });
+
+  it("从指定文件删除规则,保留其它规则和字段", async () => {
+    const file = path.join(dir, "settings.json");
+    await fs.writeFile(file, JSON.stringify({
+      permissions: { allow: ["Bash(npm:*)", "Read"], deny: ["Read(.env)"] },
+      other: "keep",
+    }));
+    const removed = await removeRule(file, "Bash(npm:*)", "allow");
+    expect(removed).toBe(true);
+    const raw = JSON.parse(await fs.readFile(file, "utf8"));
+    expect(raw.permissions.allow).toEqual(["Read"]);
+    expect(raw.permissions.deny).toEqual(["Read(.env)"]);
+    expect(raw.other).toBe("keep");
+  });
+
+  it("规则不存在 -> 返回 false,文件不变", async () => {
+    const file = path.join(dir, "settings.json");
+    await fs.writeFile(file, JSON.stringify({ permissions: { allow: ["Bash(npm:*)"] } }));
+    const removed = await removeRule(file, "Bash(nonexistent:*)", "allow");
+    expect(removed).toBe(false);
+  });
+
+  it("文件不存在 -> 返回 false", async () => {
+    const removed = await removeRule(path.join(dir, "missing.json"), "Bash(npm:*)", "allow");
+    expect(removed).toBe(false);
   });
 });
