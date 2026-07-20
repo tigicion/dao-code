@@ -35,4 +35,13 @@ describe("MultiEdit", () => {
       .rejects.toThrow(/不唯一/);
     expect(await fs.readFile(abs, "utf8")).toBe("x x");
   });
+
+  it("old_string 因全角/半角标点写岔而找不到时,报错附带具体字符diff", async () => {
+    await fs.writeFile(abs, "A 免一次审批——下一步", "utf8");
+    await expect(multiEditTool.handler({ path: "f.txt", edits: [
+      { old_string: "A", new_string: "X" },
+      { old_string: "免一次审批--下一步", new_string: "y" },
+    ] }, ctx())).rejects.toThrow(/U\+002D.*U\+2014/s);
+    expect(await fs.readFile(abs, "utf8")).toBe("A 免一次审批——下一步"); // 原子:未改
+  });
 });

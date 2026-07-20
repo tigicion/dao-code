@@ -15,7 +15,10 @@
       "Read(**/*.pem)",
       "Read(//etc/**)",
       "Read(~/.ssh/**)",
-      "Bash(rm -rf:*)"
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf /*:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf ~/*:*)"
     ],
     "additionalDirectories": [],
     "defaultMode": "default"

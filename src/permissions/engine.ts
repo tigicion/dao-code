@@ -2,6 +2,7 @@ import type { Capability } from "../tools/types.js";
 import { evaluate, type Decision, parseRule, ruleMatches } from "./rules.js";
 import { toCcIdentity } from "./identity.js";
 import { isDangerousCommand, isReadOnlyShellCommand } from "./bash_safety.js";
+import { isDangerousBashPermission } from "./dangerous_patterns.js";
 import type { PermissionsConfig, PermissionMode } from "./settings.js";
 
 export interface DecideParams {
@@ -88,7 +89,7 @@ export function decide(p: DecideParams): Decision {
     if (AUTO_ALLOWLIST.has(p.toolName)) return "allow"; // ③ 安全白名单(只读类工具)
     // ③' 只读 shell 命令的快速放行已经并进 decideBase 本身(不分模式),这里到达时 d 已经不可能
     // 是因为"只读"而 ask——若走到这,要么是显式 ask 规则命中,要么是非只读命令,都不该在这再放行。
-    if (decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow"; // ② acceptEdits 会放行(工作区内编辑)
+    if (!isDangerousAutoAllow(p) && decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow"; // ② acceptEdits 会放行(工作区内编辑)
     return "ask"; // ④ 交分类器
   }
   return d;
@@ -139,6 +140,18 @@ export function matchesIfClause(ifPattern: string, toolName: string, argsJson: s
   return ruleMatches(parseRule(ifPattern), id);
 }
 
+// 判断 auto 模式下的 Bash 调用是否被 dangerousPatterns 降级(危险 allow 规则命中)。
+// 用于阻止 decide 的 acceptEdits 重判路径绕过降级。
+function isDangerousAutoAllow(p: DecideParams): boolean {
+  if (p.toolName !== "Bash") return false;
+  const id = toCcIdentity(p.toolName, p.argsJson);
+  if (!id || id.ccTool !== "Bash") return false;
+  return p.rules.allow.some((r) => {
+    const parsed = parseRule(r);
+    return parsed.tool === "Bash" && ruleMatches(parsed, id) && isDangerousBashPermission(parsed.specifier);
+  });
+}
+
 function decideBase(p: DecideParams): Decision {
   const id = toCcIdentity(p.toolName, p.argsJson);
   const ruleDec = id ? evaluate(p.rules, id) : null;
@@ -150,7 +163,21 @@ function decideBase(p: DecideParams): Decision {
   // bypassPermissions(yolo):deny + must-confirm 之外一律放行(用户已 --yolo 启动,自担其余风险)。
   if (p.mode === "bypassPermissions") return "allow";
   if (ruleDec === "ask") return "ask";
-  if (ruleDec === "allow") return "allow";
+  if (ruleDec === "allow") {
+    // auto 模式:危险的 Bash allow 规则(如 Bash(python:*))降级为 ask,交分类器判断。
+    // 参考 CC stripDangerousPermissionsForAutoMode + isDangerousBashPermission。
+    if (p.mode === "auto" && id?.ccTool === "Bash") {
+      const hitRule = p.rules.allow.find((r) => {
+        const parsed = parseRule(r);
+        return parsed.tool === "Bash" && ruleMatches(parsed, id);
+      });
+      if (hitRule) {
+        const spec = parseRule(hitRule).specifier;
+        if (isDangerousBashPermission(spec)) return "ask";
+      }
+    }
+    return "allow";
+  }
 
   // 只读 shell 命令(ls/cat/git status/find 不带 -delete…):不分模式一律快速放行,免一次审批——
   // Bash 的 capability 标了 "exec" 不代表这次调用真有副作用,没道理因为工具本身的分类就问。

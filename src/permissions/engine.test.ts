@@ -188,3 +188,30 @@ describe("isSensitiveCall", () => {
     expect(isSensitiveCall("Write", '{"path":"/Users/x/.dao/skills/foo/SKILL.md"}')).toBe(false);
   });
 });
+
+describe("decide - auto 模式 dangerousPatterns 降级", () => {
+  it("auto 模式:Bash(python:*) allow 规则降级为 ask(交分类器)", () => {
+    const rules = { ...emptyPermissions(), allow: ["Bash(python:*)"] };
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"python script.py"}', capability: "exec", mode: "auto", rules })).toBe("ask");
+  });
+  it("auto 模式:Bash(sudo:*) allow 规则降级为 ask", () => {
+    const rules = { ...emptyPermissions(), allow: ["Bash(sudo:*)"] };
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"sudo apt update"}', capability: "exec", mode: "auto", rules })).toBe("ask");
+  });
+  it("auto 模式:Bash(node:*) allow 规则降级为 ask", () => {
+    const rules = { ...emptyPermissions(), allow: ["Bash(node:*)"] };
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"node -e console.log(1)"}', capability: "exec", mode: "auto", rules })).toBe("ask");
+  });
+  it("default 模式:同样的 Bash(python:*) allow 规则不降级(直接放行)", () => {
+    const rules = { ...emptyPermissions(), allow: ["Bash(python:*)"] };
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"python script.py"}', capability: "exec", mode: "default", rules })).toBe("allow");
+  });
+  it("auto 模式:安全 allow 规则(ls:*)不降级", () => {
+    const rules = { ...emptyPermissions(), allow: ["Bash(ls:*)"] };
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"ls -la"}', capability: "exec", mode: "auto", rules })).toBe("allow");
+  });
+  it("auto 模式:裸 Bash allow 规则(无 specifier)降级为 ask", () => {
+    const rules = { ...emptyPermissions(), allow: ["Bash"] };
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"echo hi"}', capability: "exec", mode: "auto", rules })).toBe("ask");
+  });
+});

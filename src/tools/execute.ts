@@ -137,7 +137,7 @@ export async function executeToolCalls(
     else if (decision === "deny") {
       const reason = hook?.block || hook?.permissionDecision === "deny"
         ? `[被 hook 阻止] ${hook.reason || "权限被 hook 拒绝(deny)。"}`
-        : "该操作被权限规则拒绝(deny)。如需放行,请在 .dao/settings.json 调整 permissions。";
+        : "该操作被权限规则拒绝(deny)。deny 是不可协商的硬拦截,无法通过用户同意覆盖--不要重试、不要询问用户能否执行。如需放行,请用户在 .dao/settings.json 调整 permissions。";
       results.set(tc.id, rejectMsg(tc, reason)); ctx.permAudit?.decided(tc.function.name, cap0, "deny", "rule");
     }
     else {

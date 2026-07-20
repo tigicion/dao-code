@@ -53,6 +53,13 @@ describe("Edit tool", () => {
     ).rejects.toThrow(/未找到/);
   });
 
+  it("old_string 因全角/半角标点写岔而找不到时,报错附带具体字符diff", async () => {
+    await fs.writeFile(abs, "免一次审批——下一步", "utf8");
+    await expect(
+      editFileTool.handler({ path: "f.txt", old_string: "免一次审批--下一步", new_string: "x" }, ctx()),
+    ).rejects.toThrow(/U\+002D.*U\+2014/s);
+  });
+
   it("throws when old_string is not unique and replace_all is off", async () => {
     await fs.writeFile(abs, "x x", "utf8");
     await expect(

@@ -6,6 +6,7 @@ import { atomicWrite } from "./fs_atomic.js";
 import { buildEditHunk } from "./diff_hunk.js";
 import { withFileLock } from "./file_lock.js";
 import { msg } from "./lang.js";
+import { diagnoseMismatch } from "./edit_mismatch.js";
 
 export const editFileTool = defineTool({
   name: "Edit",
@@ -14,7 +15,9 @@ export const editFileTool = defineTool({
     "报错信息会告诉你出现了几次,此时要么扩大 old_string 的上下文让它变唯一,要么设 replace_all 全部替换,别瞎猜换个词试。" +
     "old_string/new_string 按字面文本替换(不是正则,new_string 里的 $、反斜杠等都当普通字符,不用转义)。" +
     "编辑前需先用 Read 读过它(没读过会直接报错拒绝);复制 old_string 时用 Read 输出里行号后面的原文," +
-    "保留其真实缩进——DAO 已有的既定风格优先于你自己的排版偏好,别顺手改格式。\n" +
+    "保留其真实缩进——DAO 已有的既定风格优先于你自己的排版偏好,别顺手改格式。" +
+    "尤其注意标点:全角/半角、直引号/弯引号、连字符和 em dash(- vs — vs –)这些肉眼近似但字节不同," +
+    "凭记忆复述容易写岔;找不到时若是这类差异,报错会指出具体是第几个字符、两边分别是什么,照着改就行,不用瞎猜。\n" +
     "同一文件的并行 Edit 调用会自动排队,不会互相覆盖或撞坏;但同一文件要做多处改动时优先用 MultiEdit" +
     "(一次性提交、原子——要么全成要么全不改),别连发多个 Edit,那样中途某一处失败会留下改了一半的文件。\n" +
     "成功后返回一个 ```diff 代码块和改动首行行号,可以直接读出来确认改对了地方。",
@@ -23,7 +26,9 @@ export const editFileTool = defineTool({
     "(the error tells you how many times it occurred; broaden old_string's context to make it unique, or set replace_all, rather than guessing a different substring). " +
     "old_string/new_string are literal text (not regex) — $, backslashes etc. in new_string are treated as plain characters, no escaping needed. " +
     "Must Read first (errors otherwise); when copying old_string, use the actual content after the line-number prefix in Read's output and preserve its real " +
-    "indentation — match the codebase's existing style rather than your own formatting preference.\n" +
+    "indentation — match the codebase's existing style rather than your own formatting preference. " +
+    "Watch punctuation especially: full-width vs half-width, straight vs curly quotes, hyphen vs en/em dash (- vs – vs —) look alike but differ byte-for-byte " +
+    "and are easy to get wrong from memory; if a not-found error is due to one of these, it'll point out which character and what's on each side — fix that instead of guessing.\n" +
     "Concurrent Edit calls on the same file are automatically queued, not racing or corrupting each other; but for multiple changes to one file, prefer MultiEdit " +
     "(single atomic commit — all-or-nothing) over several Edit calls, since a mid-sequence failure there would leave the file half-edited.\n" +
     "On success returns a ```diff block and the first changed line number, so you can verify the edit landed in the right place.",
@@ -44,7 +49,10 @@ export const editFileTool = defineTool({
       }
       const raw = await fs.readFile(abs, "utf8");
       const count = raw.split(args.old_string).length - 1;
-      if (count === 0) throw new Error(`未找到 old_string:${args.path}`);
+      if (count === 0) {
+        const hint = diagnoseMismatch(raw, args.old_string);
+        throw new Error(`未找到 old_string:${args.path}${hint ? `。${hint}` : ""}`);
+      }
       if (count > 1 && !args.replace_all) {
         throw new Error(`old_string 在 ${args.path} 出现 ${count} 次,不唯一;用 replace_all 或扩大上下文`);
       }
