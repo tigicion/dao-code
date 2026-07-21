@@ -37,7 +37,7 @@
   ```
   后续任务(Task 3 的 index.ts 装配、Task 4 的 exec_shell.ts、Task 5 的 agent.ts)都 import 这两个符号。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // src/tui/foreground_registry.test.ts
@@ -90,12 +90,12 @@ describe("ForegroundRegistry", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试,确认失败**
+- [x] **Step 2: 运行测试,确认失败**
 
 Run: `npx vitest run src/tui/foreground_registry.test.ts`
 Expected: FAIL,报错找不到模块 `./foreground_registry.js`(文件还不存在)
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 ```ts
 // src/tui/foreground_registry.ts
@@ -128,12 +128,12 @@ export function createForegroundRegistry(): ForegroundRegistry {
 }
 ```
 
-- [ ] **Step 4: 运行测试,确认通过**
+- [x] **Step 4: 运行测试,确认通过**
 
 Run: `npx vitest run src/tui/foreground_registry.test.ts`
 Expected: 5 个测试全部 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/tui/foreground_registry.ts src/tui/foreground_registry.test.ts
@@ -158,7 +158,7 @@ git commit -m "feat(tui): 新增前台调用注册表(Ctrl+B 转后台的公共�
 
 **背景(为什么不能直接把 child 塞进 `procs` map 了事)**:`start()` 的子进程 spawn 时 `stdio` 直接落文件(`stdoutPath`/`stderrPath`),`poll()` 靠 `readNewBytes` 读文件增量。但前台路径(`exec_shell.ts` 的 `runForeground`)spawn 时用的是默认 pipe(`child.stdout?.on("data", ...)` 累积到内存字符串),不是文件。`adopt()` 要把"已经用 pipe 在跑的 child"接管成"文件支撑的 BgProc",这样 `poll()`/`kill()`/退出通知这些既有逻辑完全不用改,只需要在 `adopt()` 内部做一次"引导写入 + 后续增量追加到同一批文件"。
 
-- [ ] **Step 1: 写失败测试(用真实 spawn 的子进程,不 mock child_process——要验证真实效果)**
+- [x] **Step 1: 写失败测试(用真实 spawn 的子进程,不 mock child_process——要验证真实效果)**
 
 ```ts
 // src/tools/process_manager.test.ts
@@ -212,12 +212,12 @@ describe("processManager.adopt", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试,确认失败**
+- [x] **Step 2: 运行测试,确认失败**
 
 Run: `npx vitest run src/tools/process_manager.test.ts`
 Expected: FAIL,`processManager.adopt is not a function`
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 在 `src/tools/process_manager.ts` 里,`import` 段加 `appendFileSync, writeFileSync`:
 
@@ -269,17 +269,17 @@ import { openSync, closeSync, readSync, statSync, mkdirSync, writeFileSync, appe
   }
 ```
 
-- [ ] **Step 4: 运行测试,确认通过**
+- [x] **Step 4: 运行测试,确认通过**
 
 Run: `npx vitest run src/tools/process_manager.test.ts`
 Expected: 2 个测试全部 PASS
 
-- [ ] **Step 5: 运行 typecheck**
+- [x] **Step 5: 运行 typecheck**
 
 Run: `npm run typecheck`
 Expected: 无错误
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/tools/process_manager.ts src/tools/process_manager.test.ts
@@ -305,7 +305,7 @@ git commit -m "feat(tools): processManager 支持接管已在跑的前台子进�
 
 这一步先只打通"按键 → 触发注册表 → UI 提示"这条链路,用手工构造的假回调验证;Bash/Agent 真正往注册表里注册东西是 Task 4/5 的事。
 
-- [ ] **Step 1: `ToolContext` 加字段**
+- [x] **Step 1: `ToolContext` 加字段**
 
 在 `src/tools/types.ts` 里 `taskManager?: TaskManager;` 那一行(第 79 行)之后加:
 
@@ -315,7 +315,7 @@ git commit -m "feat(tools): processManager 支持接管已在跑的前台子进�
   foregroundRegistry?: import("../tui/foreground_registry.js").ForegroundRegistry;
 ```
 
-- [ ] **Step 2: index.ts 装配**
+- [x] **Step 2: index.ts 装配**
 
 在 `src/index.ts` 里找到长寿 `ctx` 对象的装配处(`taskManager` 字段所在的那次对象字面量,搜索 `taskManager:` 定位),加一行:
 
@@ -337,7 +337,7 @@ import { createForegroundRegistry } from "./tui/foreground_registry.js";
 
 (用你在 index.ts 里已经引用长寿 `ctx` 的那个变量名替换上面的 `ctx`——找 `taskManager:` 出现的那次对象字面量所在作用域,变量名以实际代码为准。)
 
-- [ ] **Step 3: `AppDeps` 类型加字段**
+- [x] **Step 3: `AppDeps` 类型加字段**
 
 在 `src/tui/app/types.ts` 的 `runningShells?: () => number;` 那一行(第 77 行)之后加:
 
@@ -347,7 +347,7 @@ import { createForegroundRegistry } from "./tui/foreground_registry.js";
   convertForegroundToBackground?: () => number;
 ```
 
-- [ ] **Step 4: i18n key**
+- [x] **Step 4: i18n key**
 
 在 `src/i18n/messages/zh.ts` 里 `"ui.notice.steeringCancelled":` 那一行之后加:
 
@@ -361,7 +361,7 @@ import { createForegroundRegistry } from "./tui/foreground_registry.js";
   "ui.notice.convertedToBackground": "Converted {0} foreground call(s) to background; you'll be notified when they finish.",
 ```
 
-- [ ] **Step 5: 写失败测试(App.tsx Ctrl+B 行为)**
+- [x] **Step 5: 写失败测试(App.tsx Ctrl+B 行为)**
 
 ```ts
 // 追加到 src/tui/app/App.test.tsx(找一个已有 describe("App", ...) 块内合适位置插入)
@@ -413,12 +413,12 @@ import { createForegroundRegistry } from "./tui/foreground_registry.js";
   });
 ```
 
-- [ ] **Step 6: 运行测试,确认失败**
+- [x] **Step 6: 运行测试,确认失败**
 
 Run: `npx vitest run src/tui/app/App.test.tsx -t "Ctrl\+B"`
 Expected: 前两个测试 FAIL(提示文本没出现/`convertCalls` 仍为 0,因为 App.tsx 还没有 Ctrl+B 处理逻辑);第三个测试本来就该 PASS(可以先确认它意外通过,属于正常现象,不代表实现完成)。
 
-- [ ] **Step 7: App.tsx 实现**
+- [x] **Step 7: App.tsx 实现**
 
 在 `src/tui/app/App.tsx` 里,找到 Ctrl+O 处理块结尾(`if (key.ctrl && ch === "o") { ... return; }`,大致在第 876-884 行),紧接着、在 `if (busy) {` 那个大分支(第 886 行)**之前**插入:
 
@@ -433,17 +433,17 @@ Expected: 前两个测试 FAIL(提示文本没出现/`convertCalls` 仍为 0,因
     }
 ```
 
-- [ ] **Step 8: 运行测试,确认通过**
+- [x] **Step 8: 运行测试,确认通过**
 
 Run: `npx vitest run src/tui/app/App.test.tsx -t "Ctrl\+B"`
 Expected: 3 个测试全部 PASS
 
-- [ ] **Step 9: 运行 typecheck + 全量 App 测试**
+- [x] **Step 9: 运行 typecheck + 全量 App 测试**
 
 Run: `npm run typecheck && npx vitest run src/tui/app/App.test.tsx`
 Expected: 无错误,全部 PASS(确认没有破坏其它按键测试)
 
-- [ ] **Step 10: 提交**
+- [x] **Step 10: 提交**
 
 ```bash
 git add src/tools/types.ts src/index.ts src/tui/app/types.ts src/tui/app/App.tsx src/i18n/messages/zh.ts src/i18n/messages/en.ts src/tui/app/App.test.tsx
@@ -467,7 +467,7 @@ git commit -m "feat(tui): Ctrl+B 转后台快捷键接线(注册表→AppDeps→
 2. 前台调用开始时 `registry?.register(id, convert)`;`finish()` 里(无论正常结束/超时/中断)都要 `registry?.unregister(id)`。
 3. `convert` 回调要做:①解绑 `ctx.signal` 上原来的 `onAbort` 监听器(避免新旧两套终止路径打架,见设计文档副作用核查);②调 `processManager.adopt(child, command, cwd, { stdout, stderr })`;③清掉 `timer`(前台超时定时器);④提前 `resolve` 出"已转后台"的结果(复用 `finish`/`resolve` 那个 Promise,但走一条不同的分支,不是走 `finish(code)` 那条——因为进程还没退出,没有 `code`)。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
 // 追加到 src/tools/exec_shell.test.ts
@@ -507,12 +507,12 @@ describe("Bash 前台命令 Ctrl+B 转后台", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试,确认失败**
+- [x] **Step 2: 运行测试,确认失败**
 
 Run: `npx vitest run src/tools/exec_shell.test.ts -t "Ctrl\+B"`
 Expected: FAIL——第一个测试里 `result` 不含"已转后台"(现在 handler 根本不认识 `ctx.foregroundRegistry`,会傻等 5 秒真正跑完);超时或断言不符都算预期的失败。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `src/tools/exec_shell.ts` 顶部 import 区加:
 
@@ -616,17 +616,17 @@ function runForeground(
 
 `ForegroundResult` 走到后面拼返回文案那段逻辑(原 `parts.push(...)`)对"已转后台"这种 `code===0` 且没有真正超时/中断标记的结果要能直接把 `stdout` 原样透出——检查一下现有拼接逻辑,如果它还会额外拼接 `[exit 0,运行 Xs]` 之类的后缀,加一个特判:`r.stdout.startsWith("已转后台")` 时直接 `return r.stdout`,不走常规的 parts 拼接(这段视现有代码实际结构调整,原则是:转后台的返回文案要跟 `background:true` 那条(`exec_shell.ts:248` 附近)风格一致、干净利落,不要混进"运行了多久/退出码"这类不再适用的前台专属信息)。
 
-- [ ] **Step 4: 运行测试,确认通过**
+- [x] **Step 4: 运行测试,确认通过**
 
 Run: `npx vitest run src/tools/exec_shell.test.ts`
 Expected: 全部 PASS(含新增的 2 个 + 原有全部用例)
 
-- [ ] **Step 5: typecheck + lint**
+- [x] **Step 5: typecheck + lint**
 
 Run: `npm run typecheck && npm run lint`
 Expected: 无错误(lint 允许已有的预存 warning,不能新增)
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/tools/exec_shell.ts src/tools/exec_shell.test.ts
@@ -650,7 +650,7 @@ git commit -m "feat(tools): Bash 前台命令接入 Ctrl+B 转后台(过继给 p
 2. 注册表回调只做一件事:resolve 一个"转后台信号" Promise,让 race 的另一支赢过 `gen.next()`。
 3. race 判定"转后台"分支触发时,按顺序:①`abortController.abort()`(级联杀掉子代理当前卡着的嵌套前台调用);②`await` 带超时保护的 `gen.return(undefined)`(让 `finally` 里的 hooks/MCP 清理跑完);③`ctx.taskManager.settle(fg.taskId)`(前台生命周期结束);④用已产出的 `messages` 当 `forkContextMessages`(不能当 `promptMessages`,否则会在已有的 system 消息前面再叠一条新 system 消息——见下方"reseed 参数"），`promptMessages: []`，复用 `worktree?.root`/`reqModel`/`reqMode`/`fork` 这些原调用参数，仿照 agent.ts 现成的后台分支(252-275 行)调 `registerAsyncAgent` + `runAsyncAgentLifecycle`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 参考 `src/agent/runAgent.test.ts` 里 `baseParams`/stub `streamChat` 的写法(该文件已有对 `runAgent` 的直接单测,这里测的是 `agent.ts` 这一层,用一个可控的假 `ctx.runAgent` 更直接,不需要真的驱动 LLM 调用):
 
@@ -734,12 +734,12 @@ describe("Agent 前台调用 Ctrl+B 转后台", () => {
 >
 > 把这段替换掉骨架里 `void result;` 那一行往上的部分,组成完整测试。
 
-- [ ] **Step 2: 运行测试,确认失败**
+- [x] **Step 2: 运行测试,确认失败**
 
 Run: `npx vitest run src/tools/agent.test.ts`
 Expected: FAIL——`result` 不含"已转后台"(现在 `agentTool.handler` 根本不认识 `ctx.foregroundRegistry`,`for await` 会一直卡在 `neverResolves` 上,测试超时失败)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 在 `src/tools/agent.ts` 顶部 import 区加:
 
@@ -852,22 +852,22 @@ import type { ForegroundRegistry } from "../tui/foreground_registry.js";
       }
 ```
 
-- [ ] **Step 4: 运行测试,确认通过**
+- [x] **Step 4: 运行测试,确认通过**
 
 Run: `npx vitest run src/tools/agent.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 跑一遍 agent.ts 相关的既有测试,确认没有回归**
+- [x] **Step 5: 跑一遍 agent.ts 相关的既有测试,确认没有回归**
 
 Run: `npx vitest run src/tools/agent.test.ts src/agent/runAgent.test.ts src/agent/agent_lifecycle.test.ts`
 Expected: 全部 PASS(尤其确认原有"前台正常跑完"、"前台异常抛错"这两条路径的既有用例——如果这两个文件里已经覆盖了这些场景——仍然通过,证明这次改动没有破坏正常路径,只是新增了转后台分支)
 
-- [ ] **Step 6: typecheck + lint**
+- [x] **Step 6: typecheck + lint**
 
 Run: `npm run typecheck && npm run lint`
 Expected: 无错误
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/tools/agent.ts src/tools/agent.test.ts
@@ -882,29 +882,29 @@ git commit -m "feat(tools): Agent 前台调用接入 Ctrl+B 转后台(abort+清�
 
 **目标:** 按用户明确要求("一定要针对我们想要的效果做好测试验证"),在完成上面几个任务、各自单测都过了之后,做一次贯穿全链路的真实验证——不是重新跑一遍已经写过的单元测试,是从"用户按下 Ctrl+B"这个动作出发,确认真实效果符合预期。
 
-- [ ] **Step 1: 全量测试 + typecheck + lint**
+- [x] **Step 1: 全量测试 + typecheck + lint**
 
 Run: `npm run typecheck && npm run lint && npx vitest run`
 Expected: 全部 PASS,0 错误(允许已存在的、跟本次改动无关的 pre-existing warning,不能有新增失败)
 
-- [ ] **Step 2: 本地构建 + 安装**
+- [x] **Step 2: 本地构建 + 安装**
 
 Run: `npm run bundle:install`
 Expected: 编译成功,`~/.local/bin/dao` 更新
 
-- [ ] **Step 3: 真实验证 Bash 转后台**
+- [x] **Step 3: 真实验证 Bash 转后台**
 
 用 Ink 测试之外的路径再确认一次真实 spawn 链路(不是重复 Task 4 已有的单测,是用真实编译出的二进制走一遍):写一个一次性 vitest 集成测试(测完可以留着,归进 Task 4 的测试文件也可以,但至少要跑一次并观察真实输出),用真实 `spawn` 起一个跑 10 秒左右的命令(如 `for i in $(seq 1 10); do echo tick $i; sleep 1; done`),通过 `execShellTool.handler` 以真实 `foregroundRegistry` 实例发起前台调用,2 秒后调用 `registry.convertAll()`,断言:①返回文本包含"已转后台";②`processManager.poll(id)` 能读到已经产出的 tick 输出;③再等几秒后 `processManager.poll(id).status` 变成 `"exited"`,能读到全部 10 个 tick——证明"转后台之后命令并没有被打断,是真的在后台跑完的",这是这个功能最核心的价值点,必须亲眼断言到。
 
-- [ ] **Step 4: 真实验证 Agent 转后台**
+- [x] **Step 4: 真实验证 Agent 转后台**
 
 跑一次 `src/tools/agent.test.ts` 里 Task 5 写的测试,额外加一个断言:转后台之后,`taskManager.get(newAgentId)`(或对应的查询方式)能查到这个任务,状态是 `"running"`(证明确实注册进了 taskManager,后续能被 `TaskOutput`/`TaskStop` 管理,不是一个游离在外部没人管的调用)。
 
-- [ ] **Step 5: 记录验证结果**
+- [x] **Step 5: 记录验证结果**
 
 如果 Step 3/4 的断言全部通过,在本任务的 commit message 里写清楚验证到的具体现象(不是"测试通过"这种空话,是"Bash 命令转后台后继续产出了 N 条 tick 输出,最终 exitCode=0""Agent 转后台后 taskManager 里能查到新任务处于 running 状态"这种具体断言内容),供后续排查问题时对照。
 
-- [ ] **Step 6: 提交(如 Step 3/4 产生了新文件/新测试用例)**
+- [x] **Step 6: 提交(如 Step 3/4 产生了新文件/新测试用例)**
 
 ```bash
 git add -A
