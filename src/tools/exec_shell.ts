@@ -16,6 +16,7 @@ interface ForegroundResult {
   code: number;
   timedOut: boolean;
   aborted: boolean;
+  elapsedMs: number;
 }
 
 const OUT_CAP = 10 * 1024 * 1024; // 内存中累积输出上限,超出截断(防 OOM)
@@ -62,6 +63,7 @@ function runForeground(
   disableSandbox?: boolean,
 ): Promise<ForegroundResult> {
   return new Promise((resolve) => {
+    const startTime = Date.now();
     // 用 spawn + detached(进程组)+ 杀整组:exec/kill 只杀 shell,Linux 下子进程(如 sleep)会存活,
     // 导致 ESC/超时无法真正中断前台命令。杀进程组才能连同 shell 的所有孙进程一起结束。
     let aborted = false;
@@ -72,7 +74,7 @@ function runForeground(
     let capped = false;
     // S4 沙箱:启用则裹进 Seatbelt/bubblewrap(工作区可写、其余只读);未启用照常 shell 执行。
     const sb = sandboxSpawn(command, cwd, disableSandbox);
-    if (sb && "error" in sb) { resolve({ stdout: "", stderr: `沙箱不可用:${sb.error}`, code: 1, aborted: false, timedOut: false }); return; }
+    if (sb && "error" in sb) { resolve({ stdout: "", stderr: `沙箱不可用:${sb.error}`, code: 1, aborted: false, timedOut: false, elapsedMs: 0 }); return; }
     const child = sb
       ? spawn(sb.file, sb.args, { cwd, detached: true, env: scrubbedEnv() })
       : spawn(command, { cwd, shell: true, detached: true, env: scrubbedEnv() }); // S5.2 env 脱敏
@@ -92,7 +94,9 @@ function runForeground(
     };
     child.stdout?.on("data", (d: Buffer) => append(d, "o"));
     child.stderr?.on("data", (d: Buffer) => append(d, "e"));
-    const timer = setTimeout(() => { timedOut = true; killGroup("SIGTERM"); }, timeout);
+    // 超时:仅在用户显式指定 timeout 时生效;默认无超时,命令跑到自己退出为止。
+    // 之前默认 120s 超时会杀掉正在跑的长任务(如 john --wordlist),让 dao 误以为方案失败而换策略。
+    const timer = timeout > 0 ? setTimeout(() => { timedOut = true; killGroup("SIGTERM"); }, timeout) : undefined;
     function onAbort() { aborted = true; killGroup("SIGTERM"); }
     if (signal) {
       if (signal.aborted) onAbort();
@@ -102,11 +106,11 @@ function runForeground(
     const finish = (code: number) => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      clearTimeout(timer!);
       if (exitGraceTimer) clearTimeout(exitGraceTimer);
       if (signal) signal.removeEventListener("abort", onAbort);
       if (capped) stderr += "\n[输出超过 10MB 上限被截断,请用更精确的命令或重定向到文件后再 grep/Read]";
-      resolve({ stdout, stderr, code, timedOut, aborted });
+      resolve({ stdout, stderr, code, timedOut, aborted, elapsedMs: Date.now() - startTime });
     };
     // "close" 要等 stdio 流全部看到 EOF 才触发——如果命令拉起了一个没把 stdout/stderr 重定向
     // 走(继承了父进程管道)的后台服务(比如 init 脚本式的 `xxx start`),服务只要还活着就一直
@@ -138,16 +142,25 @@ export const execShellTool = defineTool({
     "是真正独立于 DAO 自身进程存活的后台进程,不会随这次调用结束而自动消失——只在确实需要它持续跑着(起服务、" +
     "长时间任务)时才用,命令本身很快就能跑完就别用后台;不再需要时记得 KillShell 收尾,除非任务本身就要求" +
     "这个服务保持运行(比如要求'启动并保持在后台运行'的服务类任务,这种就应该让它继续跑,不用主动杀)。" +
-    "前台默认超时 120 秒,可用 timeout(毫秒)调,上限 600000(10 分钟);" +
+    "前台无默认超时,命令跑到自己退出为止;可用 timeout(毫秒)设定上限,上限 600000(10 分钟)。" +
     "超时或中断都会杀掉整个进程组(不只是 shell 本身,命令里再拉起的子进程也一起终止)。" +
     "输出在内存里最多攒 10MB,超了会截断并提示改用更精确的命令或重定向到文件后再查——命令本身别指望它能把一个几十MB" +
     "的输出原样倒给你。\n" +
+    "长耗时命令策略:执行前自判命令是否可能耗时超过 180 秒(npm install、build、test suite、大数据处理等)。" +
+    "如果是,优先 background 执行--不只是\"起后台\",而是:做完别的事后用 BashOutput 做 checkpoint 式进度检查," +
+    "看输出趋势判断是否正常推进;发现异常(连续报错、长时间无输出、偏离预期)用 KillShell 终止,别等超时。" +
+    "无进度输出但可拆解的命令,拆成小步骤分步跑。都不行再前台跑,设合理 timeout。" +
+    "持续关注型场景(如等某条 ERROR 出现)可考虑 Monitor 工具,它主动推送输出;一般 checkpoint 式检查用 BashOutput 即可。\n" +
     "查文件内容用 Grep、查文件名/路径用 Glob、读文件用 Read——不要用本工具拼 grep/rg/find/cat/head/tail," +
     "专用工具有护栏(大小限制、二进制探测)且不占审批。同理,简单文本/日志搜索也别现写 python3 -c 内联脚本模拟" +
     "grep——Grep 工具一次就到位;真需要 JSON/结构化解析等 Grep 做不到的逻辑,优先 Write 成 .py 文件执行,而不是" +
     "在 -c 里反复试错。\n" +
     "高风险命令(rm -rf /、curl|sh 直接执行远程脚本、提权、写裸盘设备等)即便审批规则整体放宽了,也会被强制要求" +
     "确认一次,绕不过去;命令里混了同形字符/零宽字符伪装成正常样子也会被拦下强制确认。\n" +
+    "选择命令参数时,思考怎么调用更能解决问题,而不是凭感觉传参数。工具的默认行为(不带额外参数)往往是其设计者" +
+    "选择的最优策略;确认掌握了默认行为和参数含义后再决定是否加参数。\n" +
+    "例:john hash.txt 不带参数会依次尝试 single -> wordlist -> incremental(按概率从高到低)," +
+    "覆盖面最广;直接加 --wordlist=password.lst 反而跳过了 single 和 incremental,把搜索空间收窄到字典里的词。\n" +
     "在还没搞清楚一份数据/文件的状态就去探查它时要留神:某些'看起来是只读查询'的命令其实有副作用" +
     "(比如对 SQLite 数据库跑查询可能触发 WAL checkpoint、直接消耗掉本该保留的 WAL 文件;某些工具打开文件" +
     "时会自动修复/重写它)。任务是要恢复/修复某份可能损坏的原始数据时,先复制一份再动手探查,不要直接在" +
@@ -162,15 +175,26 @@ export const execShellTool = defineTool({
     "something actually needs to keep running (a service, a long task) — not for commands that will finish quickly anyway. Remember to KillShell it once it's " +
     "no longer needed, unless the task itself requires the service to keep running (e.g. a task asking you to 'start and keep it running in the background' — leave " +
     "that one up, don't kill it). " +
-    "Foreground defaults to a 120s timeout, adjustable via timeout (ms), max 600000 (10 min); both a timeout and an abort kill the entire process group, not just the shell - " +
+    "Foreground has no default timeout - the command runs until it exits; use timeout (ms) to set a limit, max 600000 (10 min). " +
     "child processes spawned by the command are terminated too. Output is capped at 10MB in memory; past that it's truncated with a hint to use a more precise " +
     "command or redirect to a file and inspect that instead — don't expect a raw multi-MB output to come back intact.\n" +
+    "Long-running command strategy: before executing, judge whether the command may take over 180 seconds (npm install, build, test suite, " +
+    "large data processing, etc.). If so, prefer background execution - not just \"start it in background\", but: after doing other work, " +
+    "use BashOutput for checkpoint-style progress checks, watching the output trend to judge whether it's advancing normally; if you spot " +
+    "anomalies (repeated errors, long silence, diverging from expectation) use KillShell to terminate - don't wait for timeout. For commands " +
+    "with no progress output but decomposable, break into smaller steps. If neither works, run foreground with a reasonable timeout. " +
+    "For continuous-attention scenarios (like waiting for an ERROR line to appear) consider the Monitor tool, which pushes output to you " +
+    "proactively; for general checkpoint-style checks, BashOutput suffices.\n" +
     "Use Grep for content search, Glob for filename/path search, Read for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated " +
     "tools have guardrails (size limits, binary detection) and skip approval. Likewise, don't write inline python3 -c scripts to reimplement grep for " +
     "simple text/log search — the Grep tool gets there in one shot. For logic Grep genuinely can't do (JSON/structured parsing), prefer Write-ing a .py " +
     "file and running it, rather than trial-and-error inside -c.\n" +
     "High-risk commands (rm -rf /, piping curl straight into a shell, privilege escalation, writing raw disk devices, etc.) force a confirmation even if approval rules " +
-    "are otherwise relaxed — there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.\n" +
+    "are otherwise relaxed - there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.\n" +
+    "When choosing command parameters, think about how to invoke the tool to best solve the problem, not just pass parameters by intuition. A tool's default behavior " +
+    "(without extra parameters) is often the optimal strategy chosen by its designers; confirm you understand the default behavior and parameter meanings before adding any.\n" +
+    "Example: john hash.txt with no parameters tries single -> wordlist -> incremental (in probability order from high to low), covering the widest space; " +
+    "adding --wordlist=password.lst skips single and incremental, narrowing the search to only dictionary words.\n" +
     "Be careful when probing a file/dataset whose state you don't fully understand yet: some commands that look read-only actually have side effects " +
     "(e.g. querying a SQLite database can trigger a WAL checkpoint that consumes the very WAL file you needed to preserve; some tools auto-repair/rewrite " +
     "a file just by opening it). When the task is to recover/repair a possibly-corrupted original file, copy it first before probing — irreversibly " +
@@ -208,16 +232,16 @@ export const execShellTool = defineTool({
     if (sleepMatch) {
       const seconds = parseFloat(sleepMatch[1]!);
       if (seconds >= 2) {
-        return `不要用 sleep 等待后台任务完成。后台 shell(background=true)和后台子代理完成时会自动通知你--` +
-          `结束本轮或去做别的事,结果到了自动回灌,不需要 sleep 等待。\n` +
+        return `不要用 sleep 阻塞等待。后台 shell(background=true)和后台子代理完成时会自动通知你--` +
+          `结束本轮或去做别的事,结果到了自动回灌。\n` +
           `如果你确实需要等待(如等端口可用、等容器启动),用 Bash 的 background 参数起后台命令,` +
-          `完成后自动通知;需要中间输出用 BashOutput 查看进度。\n` +
+          `做完别的事后用 BashOutput 检查进度。\n` +
           `你刚才的命令等了 ${seconds} 秒--这段时间整个 dao 会话被完全阻塞,无法响应用户输入。`;
       }
     }
     if (args.background) {
       const id = processManager.start(args.command, (ctx.cwd ?? ctx.workspaceRoot));
-      return `已在后台启动(id=${id})。进程完成后会自动通知你,不需要轮询--去继续别的事即可。需要查中间输出/进度用 BashOutput,不再需要时用 KillShell 结束。`;
+      return `已在后台启动(id=${id})。进程完成后会自动通知你--做完别的事后可以用 BashOutput 看一眼进度趋势,发现异常用 KillShell 终止。不是循环轮询,是 checkpoint 式检查。`;
     }
     const isPythonInline = PYTHON_INLINE_RE.test(args.command);
     if (isPythonInline) {
@@ -231,11 +255,11 @@ export const execShellTool = defineTool({
       }
       pythonInlineStreak += 1;
     } else { pythonInlineStreak = 0; pythonInlineNudged = false; }
-    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 120000, ctx.signal, args.dangerouslyDisableSandbox);
+    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 0, ctx.signal, args.dangerouslyDisableSandbox);
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
-    parts.push(r.aborted ? `[已中断]` : r.timedOut ? `[超时,已终止]` : `[exit ${r.code}]`);
+    parts.push(r.aborted ? `[已中断,运行 ${Math.round(r.elapsedMs / 1000)}s]` : r.timedOut ? `[超时,已终止,运行 ${Math.round(r.elapsedMs / 1000)}s]` : `[exit ${r.code},运行 ${Math.round(r.elapsedMs / 1000)}s]`);
     if (isPythonInline && pythonInlineStreak >= 3 && !pythonInlineNudged) {
       pythonInlineNudged = true;
       parts.push(
