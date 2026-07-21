@@ -327,3 +327,30 @@ describe("ToolRegistry 延迟加载(shouldDefer)", () => {
     }
   });
 });
+
+describe("ToolRegistry.toApiTools opts.hideUnactivatedDeferred", () => {
+  it("为 true 时,未激活的延迟工具整条不出现在数组里(不是占位空 schema)", () => {
+    const r = new ToolRegistry();
+    r.register(mk("Read"));
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
+    const api = r.toApiTools(undefined, undefined, { hideUnactivatedDeferred: true });
+    expect(api.map((t) => t.function.name)).toEqual(["Read"]);
+  });
+
+  it("激活后即使开启 hideUnactivatedDeferred,也照常发完整 schema", () => {
+    const r = new ToolRegistry();
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
+    r.searchAndActivateDeferred("cron");
+    const api = r.toApiTools(undefined, undefined, { hideUnactivatedDeferred: true });
+    expect(api.map((t) => t.function.name)).toEqual(["CronCreate"]);
+    expect((api[0]!.function.parameters as any).properties).toHaveProperty("x");
+  });
+
+  it("省略/false 时保留旧的占位 schema 行为(供系统提示摘要等纯文本场景使用)", () => {
+    const r = new ToolRegistry();
+    r.register(mkDeferred("CronCreate", "创建定时任务。"));
+    const api = r.toApiTools();
+    expect(api.map((t) => t.function.name)).toEqual(["CronCreate"]);
+    expect((api[0]!.function.parameters as any).properties).toEqual({});
+  });
+});

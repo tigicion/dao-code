@@ -14,9 +14,14 @@ export type Mode = "normal" | "plan";
 // 可见性由 registry 在【注册那一刻】一次性决定(见 registry.ts 的自动激活逻辑),这里只读取,
 // 不再按"当前 MCP 工具总数"每轮重新判定。
 export function apiToolsForMode(registry: ToolRegistry, mode: Mode, lang?: Lang): ApiTool[] {
-  if (mode === "normal") return registry.toApiTools((t) => registry.isMcpVisible(t.name), lang);
+  // hideUnactivatedDeferred:这里是真正发给模型用于函数调用的 tools 数组,未激活的延迟
+  // 工具整条不出现(不再是占位空 schema),避免模型对着占位 schema 猜参数硬调。
+  if (mode === "normal") {
+    return registry.toApiTools((t) => registry.isMcpVisible(t.name), lang, { hideUnactivatedDeferred: true });
+  }
   return registry.toApiTools(
     (t) => !t.name.startsWith("mcp__") && t.capability !== "write" && t.capability !== "exec",
     lang,
+    { hideUnactivatedDeferred: true },
   );
 }

@@ -163,13 +163,27 @@ export class ToolRegistry implements ToolDispatcher {
     return r;
   }
 
-  toApiTools(predicate?: (tool: Tool) => boolean, lang?: Lang): ApiTool[] {
+  // opts.hideUnactivatedDeferred:真正发给模型用于函数调用的 tools 数组要传 true——
+  // 未激活的延迟工具整条从数组里剔除(模型看不到、猜不到、调不了),从机制上杜绝
+  // "没读系统提示、直接对着占位空 schema 传 {} 硬调"这条路径,而不是只靠 dispatch() 里的
+  // 报错兜底。省略/false 时保留旧的占位 schema 行为——这条路径给 index.ts 里两处
+  // 纯文本用途用(系统提示 {tools} 摘要、外来 skill 工具名翻译目录):它们只读
+  // t.function.description 拼一行"name:描述",从不会真的按这份 parameters 发起调用,
+  // 所以延迟工具在那两处必须继续以占位形式出现,好让模型从系统提示文字里知道
+  // "有这个工具,但要先 ToolSearch"。
+  toApiTools(
+    predicate?: (tool: Tool) => boolean,
+    lang?: Lang,
+    opts?: { hideUnactivatedDeferred?: boolean },
+  ): ApiTool[] {
     return [...this.tools.values()]
       .filter((t) => (predicate ? predicate(t) : true))
+      .filter((t) => !(opts?.hideUnactivatedDeferred && t.shouldDefer && !this.activatedDeferred.has(t.name)))
       .map((t) => {
         const desc = t.prompt ? t.prompt({ lang: lang === "en" ? "en" : "zh" })
           : (lang === "en" && t.descriptionEn ? t.descriptionEn : t.description);
-        // 延迟加载且未激活:只发 name + 简短描述(第一句),不发 parameters
+        // 延迟加载且未激活:只发 name + 简短描述(第一句),不发 parameters。
+        // hideUnactivatedDeferred=true 时这类工具已经被上面的 filter 挡掉,走不到这里。
         const isDeferred = t.shouldDefer && !this.activatedDeferred.has(t.name);
         if (isDeferred) {
           const shortDesc = desc.split(/[。\n]/)[0]!.slice(0, 80);

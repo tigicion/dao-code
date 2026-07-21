@@ -66,4 +66,19 @@ describe("apiToolsForMode", () => {
     expect(apiToolsForMode(r, "normal").map((t) => t.function.name)).toContain("mcp__github__create_issue"); // normal 下可见
     expect(apiToolsForMode(r, "plan").map((t) => t.function.name)).not.toContain("mcp__github__create_issue"); // plan 下不可见
   });
+
+  it("未激活的延迟工具(shouldDefer)整条不出现,不是占位空 schema——避免模型对着空 schema 猜参数硬调", () => {
+    const r = reg();
+    r.register(defineTool({
+      name: "CronCreate", description: "创建定时任务。", capability: "read", approval: "auto",
+      shouldDefer: true, schema: z.object({ x: z.string() }), handler: async () => "",
+    }));
+    const names = apiToolsForMode(r, "normal").map((t) => t.function.name);
+    expect(names).not.toContain("CronCreate");
+    r.searchAndActivateDeferred("cron");
+    const after = apiToolsForMode(r, "normal");
+    expect(after.map((t) => t.function.name)).toContain("CronCreate");
+    const tool = after.find((t) => t.function.name === "CronCreate")!;
+    expect((tool.function.parameters as any).properties).toHaveProperty("x");
+  });
 });
