@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { agentTool, normalizeModel } from "./agent.js";
 import { createTaskManager } from "../agent/tasks.js";
+import { createForegroundRegistry } from "../tui/foreground_registry.js";
 import type { ChatMessage } from "../client/types.js";
 import type { AgentDef } from "../agent/agent_defs.js";
 
@@ -365,6 +366,76 @@ describe("agent tool", () => {
     // 只验证不报错(后台路径立即返回),classifyFn 会在子代理完成后才被调
     const out = await agentTool.handler({ task: "耗时", background: true } as any, ctx);
     expect(out).toContain("已后台启动");
+  });
+
+  // ---- Ctrl+B 转后台 ----
+
+  it("注册表触发转后台回调后:abort 先于 return 被调用、已产出消息复用为续接的 forkContextMessages、原任务结算 completed、新任务在 taskManager 里处于 running", async () => {
+    const producedMessages: ChatMessage[] = [{ role: "assistant", content: "在做第一步" }];
+    let abortedAt = -1;
+    let returnedAt = -1;
+    let seq = 0;
+    const foregroundCalls: any[] = [];
+    const restartCalls: any[] = [];
+    const fn = (params: any): AsyncGenerator<ChatMessage, void> => {
+      if (params.isAsync === false) {
+        foregroundCalls.push(params);
+        async function* gen(): AsyncGenerator<ChatMessage, void> {
+          try {
+            for (const m of producedMessages) yield m;
+            const signal: AbortSignal = params.override.abortController.signal;
+            await new Promise<void>((resolve) => {
+              if (signal.aborted) { abortedAt = seq++; resolve(); return; }
+              signal.addEventListener("abort", () => { abortedAt = seq++; resolve(); }, { once: true });
+            });
+          } finally {
+            returnedAt = seq++;
+          }
+        }
+        return gen();
+      }
+      restartCalls.push(params);
+      async function* gen(): AsyncGenerator<ChatMessage, void> {
+        yield { role: "assistant", content: "续接完成" };
+      }
+      return gen();
+    };
+
+    const registry = createForegroundRegistry();
+    const taskManager = createTaskManager();
+    const ctx = mkCtx({ runAgent: fn, taskManager, foregroundRegistry: registry });
+    const resultPromise = agentTool.handler({ task: "do it" } as any, ctx);
+    // 让 runOne 跑到把 producedMessages 都 yield 完、卡在等 abort 那一步,再模拟用户按 Ctrl+B。
+    await new Promise((r) => setTimeout(r, 20));
+    const n = registry.convertAll();
+    expect(n).toBe(1);
+    const result = await resultPromise;
+
+    expect(result).toContain("已转后台");
+    expect(abortedAt).toBe(0); // abort 先于 return 触发,顺序不能反(设计文档副作用核查)
+    expect(returnedAt).toBe(1); // 生成器的 finally 确实跑了,等价于 .return() 生效、清理完成
+    expect(restartCalls).toHaveLength(1);
+    expect(restartCalls[0].promptMessages).toEqual([]);
+    expect(restartCalls[0].forkContextMessages).toEqual(producedMessages); // 复用已产出消息续接
+    expect(restartCalls[0].isAsync).toBe(true);
+
+    const oldAgentId = foregroundCalls[0].override.agentId;
+    const newAgentId = restartCalls[0].override.agentId;
+    expect(newAgentId).not.toBe(oldAgentId); // 新起一个 id,不复用旧的(旧的已经 settle 结束)
+    expect(taskManager.get(oldAgentId)?.status).toBe("completed"); // 前台生命周期正常结算,不留 running
+    const running = taskManager.running();
+    expect(running).toHaveLength(1);
+    expect(running[0]!.id).toBe(newAgentId); // 新任务在 taskManager 里确实处于 running,可被 TaskOutput/TaskStop 管理
+  });
+
+  it("没有前台调用在跑时,registry.convertAll() 不影响正常路径", async () => {
+    const { fn } = fakeRunAgent("单任务结果");
+    const registry = createForegroundRegistry();
+    const taskManager = createTaskManager();
+    const ctx = mkCtx({ runAgent: fn, taskManager, foregroundRegistry: registry });
+    const out = await agentTool.handler({ task: "do x" } as any, ctx);
+    expect(out).toBe("单任务结果");
+    expect(registry.convertAll()).toBe(0); // 已经在正常收尾时反注册了
   });
 
 });

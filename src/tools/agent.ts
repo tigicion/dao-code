@@ -6,6 +6,7 @@ import { FORK_AGENT, buildForkContextMessages } from "../agent/fork_agent.js";
 import { finalizeAgentTool } from "../agent/agent_tools.js";
 import { runAsyncAgentLifecycle, type AsyncAgentTaskManager } from "../agent/agent_lifecycle.js";
 import { classifyHandoffIfNeeded } from "../agent/agent_handoff.js";
+import type { ForegroundRegistry } from "../tui/foreground_registry.js";
 
 // 子代理模型名归一化:模型常把 "deepseek-v4-pro" 写成 "deepseek-v4"/"pro"/"flash" -> raw 传 API 会失败。
 // 已知模型名(含 kimi-k2.6/glm-5.2 等多 provider)原样保留;deepseek 简称归一;无法识别 -> undefined(继承父模型)。
@@ -295,13 +296,72 @@ export const agentTool = defineTool({
           }
         }
 
+        // Ctrl+B 转后台:注册一个"转后台信号"——收到信号时不再消费生成器,转走处理。
+        // 跟父 abort(上面那条)是两回事:父 abort 是"整回合都不要了、直接中止抛错";
+        // 这里是"这一步不想再等了,但要让它在后台继续跑完,而不是白白作废"。
+        let requestConvert: (() => void) | undefined;
+        const convertSignal = new Promise<void>((resolve) => { requestConvert = resolve; });
+        const registry: ForegroundRegistry | undefined = ctx.foregroundRegistry;
+        registry?.register(agentId, () => requestConvert?.());
+
         const messages: ChatMessage[] = [];
+        const gen = runAgent({
+          agentDef, promptMessages, forkContextMessages, useExactTools: fork,
+          isAsync: false, override: { agentId, abortController }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
+          messageParent: (m) => { ctx.taskManager!.emitFromTask(fg.taskId, m); },
+        });
         try {
-          for await (const m of runAgent({
-            agentDef, promptMessages, forkContextMessages, useExactTools: fork,
-            isAsync: false, override: { agentId, abortController }, worktreePath: worktree?.root, model: reqModel, mode: reqMode,
-            messageParent: (m) => { ctx.taskManager!.emitFromTask(fg.taskId, m); },
-          })) messages.push(m);
+          let converted = false;
+          while (true) {
+            const outcome = await Promise.race([
+              gen.next().then((r) => ({ kind: "next" as const, r })),
+              convertSignal.then(() => ({ kind: "convert" as const })),
+            ]);
+            if (outcome.kind === "convert") { converted = true; break; }
+            if (outcome.r.done) break;
+            messages.push(outcome.r.value);
+          }
+          registry?.unregister(agentId);
+
+          if (converted) {
+            // 先 abort:子代理这一刻如果正卡在自己的某次嵌套前台调用(比如它自己在跑一个 Bash
+            // 命令),不 abort 的话那个嵌套调用会继续实际执行、继续计费,只是没人再读结果。
+            abortController.abort();
+            // 再 await(带超时保护)让生成器走完自己的 finally(注销 hooks、关 MCP 连接、摘监听器)。
+            await Promise.race([
+              gen.return(undefined),
+              new Promise((resolve) => setTimeout(resolve, 5000)),
+            ]);
+            detachParentAbort?.();
+            ctx.taskManager.settle(fg.taskId); // 前台生命周期结束,交棒给下面新起的异步任务
+
+            const newAgentId = randomAgentId();
+            const bg = ctx.taskManager.registerAsyncAgent({ agentId: newAgentId, description: t.slice(0, 50) });
+            void runAsyncAgentLifecycle({
+              taskId: bg.agentId,
+              agentId: newAgentId,
+              agentType: agentDef.agentType,
+              isBuiltInAgent,
+              prompt: t,
+              model: resolvedModelForDisplay,
+              // 复用已产出的 messages 当 forkContextMessages(不能当 promptMessages——那样会在
+              // messages 里已经含有的 system 消息前面再叠一条新的 system 消息)。promptMessages
+              // 传空数组;worktree/model/mode/fork 这些原调用参数原样复用,否则会跑错目录或让
+              // fork 的前缀缓存对不齐。
+              makeStream: (onCacheSafeParams) => runAgent({
+                agentDef, promptMessages: [], forkContextMessages: messages, useExactTools: fork,
+                isAsync: true, override: { abortController: bg.abortController, agentId: newAgentId },
+                worktreePath: worktree?.root, model: reqModel, mode: reqMode, onCacheSafeParams,
+                messageParent: (m) => { ctx.taskManager!.emitFromTask(bg.agentId, m); },
+              }),
+              taskManager: taskManagerAdapter,
+              classifyFn: ctx.handoffClassifyFn,
+              permissionMode: ctx.permissionMode,
+              abortSignal: bg.abortController.signal,
+            });
+            return `已转后台(${bg.agentId});完成后会自动通知你结果。你可以先继续别的事或结束本轮。`;
+          }
+
           detachParentAbort?.(); // 正常跑完:摘掉父信号监听器,不留在父 signal 上等永远不会来的 abort
           ctx.taskManager.settle(fg.taskId); // running -> completed,别让 cancelAll()/TaskStop 把跑完的任务当成还在跑
           const result = finalizeAgentTool(messages, agentId, {
@@ -321,6 +381,7 @@ export const agentTool = defineTool({
         } catch (e) {
           // 异常路径同样要收尾:不摘监听器会漏在父 signal 上;不 settle 的话这个任务会在
           // taskManager 里永远挂着 "running"(错误已经作为异常同步抛给父代理,不需要再入队通知)。
+          registry?.unregister(agentId);
           detachParentAbort?.();
           ctx.taskManager.settle(fg.taskId, "failed");
           throw e;
