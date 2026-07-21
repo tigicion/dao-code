@@ -948,6 +948,7 @@ async function main() {
   // 直接判成中止,而不是走后面的限流重试/模型回退/退避重试。
   const ctx: ToolContext = {
     workspaceRoot,
+    headless: !!argvPrompt,
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),

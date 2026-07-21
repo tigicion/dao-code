@@ -109,6 +109,8 @@ export interface ToolContext {
   homeDir?: string;
   // 中途取消信号(ESC/超时):工具据此提前终止(如 Bash 给子进程发 SIGTERM)。
   signal?: AbortSignal;
+  // headless/eval 模式:无终端交互,工具行为需适配(如 Bash 关闭 stdin 防交互式命令卡死)。
+  headless?: boolean;
   // 申请访问工作区外路径(读类工具用):返回是否获批。未注入(非交互)默认拒绝。
   // 一次授权后同会话/本仓库后续外部读不再追问(减少阻塞)。
   approveExternalRead?: (absPath: string) => Promise<boolean>;
