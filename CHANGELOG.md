@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.4.14] - 2026-07-21
+
 ### 新增
 - **百度千帆 Token Plan provider(`qianfan`)**:OpenAI 兼容直连 `https://qianfan.baidubce.com/v2/tokenplan/personal`,模型沿用 `deepseek-v4-pro`/`deepseek-v4-flash`(与官方一致),协议层零改动;校验探针复用火山同款最小 `chat/completions` 探针(该路径同样无 `/models`,已用真实 key 实测确认 404)。另支持该 Token Plan 的 `glm-5.2`(千帆专属,kimi-k2.6/ernie-5.1 仍不支持)。
 - **`/model` 按 provider 校验 + 循环**:新增 `MODELS_BY_PROVIDER` 注册表,`/model`(无参)在当前 provider 已知模型间循环(deepseek/火山两档 pro/flash;千帆多一档 glm-5.2),`/model <name>` 对不在该 provider 列表里的模型给出可选项提示,不再是无校验自由文本。
@@ -13,8 +15,10 @@
 - **`monitor` 工具**:起一个后台监控,把命令的 stdout 按行(200ms 内的多行合并)实时推送成通知,不用像 `exec_shell_poll` 那样反复主动轮询。
 - **`task_output` 工具**:增量读取一个后台子代理任务自上次查询以来新产生的中间消息,运行中就能看进度,不用等 `task_get` 给最终结果。
 - **运行中排队输入(steering)改为回合内直接注入**:敲回车排队的补充输入现在会在当前回合的下一个工具轮边界直接注入,不用等整个回合跑完才当新一轮处理;ESC 支持两段式——排队未消费时先只取消排队,再按一次才真正中断当前回合;中断回填输入框后按 ↓ 可一键清空,不用逐字删除。
+- **后台 shell 完成自动通知**:`process_manager` 新增通知队列 + `onChange` 回调,进程退出时自动把结果回灌给模型,不再需要模型手动轮询 `BashOutput`;`Bash` 工具描述同步说明超时上限(600000ms),`sleep` 拦截阈值从 ≥5s 降到 ≥2s(与 Claude Code 对齐)。
 
 ### 变更
+- **延迟加载工具改为完全隐藏,不再发占位空 schema**:此前未激活的延迟工具(`monitor`/`cron_*`/`task_*` 等)仍会以"占位空 parameters"的形式出现在发给模型的可调用工具列表里,模型容易没读系统提示就直接按空 schema 传 `{}` 硬调,触发 schema 校验失败后才被动引导去 `ToolSearch`(真实撞见过 `TaskGet`/`CronCreate` 被这样连续误调好几次)。现在改为未激活的延迟工具整条不出现在工具列表里,必须先 `ToolSearch` 激活才可见可调;原有的报错兜底文案保留作为第二道防线。
 - **账户切换/新增全字段同步**:`/account` 切换或新增账户后,除已有的 `baseUrl`/`apiKey` 外,`provider` 与实际发请求用的 `session.model` 现在也会同步更新(此前遗漏,靠"各 provider 模型串巧合相同"才未暴露);反思节奏判定改读实时 `provider`,不再用启动时的快照。
 - **`/logout` 文案修正**:准确描述"删除整个账户(provider/baseUrl/model/key 一起删)",不再暗示"只清了 key"。
 - **工具体系对齐 Claude Code**:`grep_files`/`todo_write`/`exec_shell`/`skill`/`ask_user` 参数补齐;低频工具(`notebook_edit`/`cron_*`/`task_*`/`lsp`/`config`/`plan_mode`/`enter_worktree`/`exit_worktree`/`monitor` 等)改为延迟加载,需 `tool_search` 激活后才发完整 schema;工具名统一改为 PascalCase 命名风格(如 `Grep`/`Glob`/`Bash`)。
