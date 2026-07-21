@@ -12,12 +12,12 @@ describe("Bash tool", () => {
   it("runs a foreground command and returns stdout + exit code", async () => {
     const out = await execShellTool.handler({ command: "echo fg-hello" }, ctx);
     expect(out).toContain("fg-hello");
-    expect(out).toContain("[exit 0]");
+    expect(out).toContain("[exit 0,");
   });
 
   it("reports a non-zero exit code without throwing", async () => {
     const out = await execShellTool.handler({ command: "sh -c 'exit 3'" }, ctx);
-    expect(out).toContain("[exit 3]");
+    expect(out).toContain("[exit 3,");
   });
 
   it("starts a background process and returns its id with auto-notify hint", async () => {
@@ -37,7 +37,7 @@ describe("Bash tool", () => {
     setTimeout(() => controller.abort(), 100);
     const out = await p;
     const elapsed = Date.now() - start;
-    expect(out).toContain("[已中断]");
+    expect(out).toContain("[已中断,");
     expect(elapsed).toBeLessThan(3000);
   });
 
@@ -57,7 +57,7 @@ describe("Bash tool", () => {
     );
     const elapsed = Date.now() - start;
     expect(out).toContain("shell-done");
-    expect(out).toContain("[exit 0]");
+    expect(out).toContain("[exit 0,");
     expect(elapsed).toBeLessThan(3000); // 远小于孙进程的 30s 存活时间,证明没有卡在等 close
   });
 
@@ -75,7 +75,7 @@ describe("Bash tool", () => {
       { command: `PATH="${fakeBin}:$PATH" apt-get install foo`, timeout: 100 },
       ctx,
     );
-    expect(out).toContain("[超时,已终止]");
+    expect(out).toContain("[超时,已终止,");
     expect(out).toMatch(/\[自动恢复(失败)?\]/);
     expect(out).toContain("dpkg --configure -a");
   });
@@ -117,7 +117,7 @@ describe("Bash tool", () => {
 
   it("非包管理器命令超时 → 不触发 dpkg 自动恢复", async () => {
     const out = await execShellTool.handler({ command: "sh -c 'sleep 5'", timeout: 100 }, ctx);
-    expect(out).toContain("[超时,已终止]");
+    expect(out).toContain("[超时,已终止,");
     expect(out).not.toContain("自动恢复");
     expect(out).not.toContain("dpkg");
   });
@@ -142,7 +142,7 @@ describe("Bash tool", () => {
   it("复合 sleep 命令不拦截(如 sleep && echo)", async () => {
     const out = await execShellTool.handler({ command: "sleep 0.1 && echo done" }, ctx);
     expect(out).toContain("done");
-    expect(out).toContain("[exit 0]");
+    expect(out).toContain("[exit 0,");
   });
 
   it("python3 -c 命令里引用了一个存在且不大的文件 → 第一次就拦下,命令不执行", async () => {

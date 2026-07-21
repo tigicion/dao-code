@@ -61,6 +61,7 @@ function runForeground(
   timeout: number,
   signal?: AbortSignal,
   disableSandbox?: boolean,
+  headless?: boolean,
 ): Promise<ForegroundResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -78,6 +79,9 @@ function runForeground(
     const child = sb
       ? spawn(sb.file, sb.args, { cwd, detached: true, env: scrubbedEnv() })
       : spawn(command, { cwd, shell: true, detached: true, env: scrubbedEnv() }); // S5.2 env 脱敏
+    // headless 模式:启动后立即关闭 stdin,防止交互式命令(如 7z 不带 -p)卡在等待输入。
+    // 不读 stdin 的命令不受影响;读 stdin 的命令收到 EOF 立即报错退出。
+    if (headless) child.stdin?.end();
     const killGroup = (sig: NodeJS.Signals) => {
       try {
         if (child.pid) process.kill(-child.pid, sig);
@@ -255,7 +259,7 @@ export const execShellTool = defineTool({
       }
       pythonInlineStreak += 1;
     } else { pythonInlineStreak = 0; pythonInlineNudged = false; }
-    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 0, ctx.signal, args.dangerouslyDisableSandbox);
+    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 0, ctx.signal, args.dangerouslyDisableSandbox, ctx.headless);
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
