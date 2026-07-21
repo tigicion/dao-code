@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import { isDangerousCommand } from "../permissions/bash_safety.js";
 import { hasSuspiciousUnicode } from "../permissions/sanitize.js";
 import { scrubbedEnv } from "./safe_env.js";
 import { sandboxSpawn } from "./sandbox.js";
+import type { ForegroundRegistry } from "../tui/foreground_registry.js";
 
 interface ForegroundResult {
   stdout: string;
@@ -17,6 +19,9 @@ interface ForegroundResult {
   timedOut: boolean;
   aborted: boolean;
   elapsedMs: number;
+  // true = 这不是命令真的跑完了,是用户按 Ctrl+B 转后台——handler 要用一条干净的"已转后台"
+  // 文案直接返回,不走 exit code/运行时长那套前台专属的拼接逻辑。
+  converted?: boolean;
 }
 
 const OUT_CAP = 10 * 1024 * 1024; // 内存中累积输出上限,超出截断(防 OOM)
@@ -62,6 +67,7 @@ function runForeground(
   signal?: AbortSignal,
   disableSandbox?: boolean,
   headless?: boolean,
+  registry?: ForegroundRegistry,
 ): Promise<ForegroundResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -96,8 +102,10 @@ function runForeground(
       if (which === "o") stdout += s; else stderr += s;
       if (stdout.length + stderr.length > OUT_CAP) { capped = true; killGroup("SIGTERM"); }
     };
-    child.stdout?.on("data", (d: Buffer) => append(d, "o"));
-    child.stderr?.on("data", (d: Buffer) => append(d, "e"));
+    const onStdout = (d: Buffer) => append(d, "o");
+    const onStderr = (d: Buffer) => append(d, "e");
+    child.stdout?.on("data", onStdout);
+    child.stderr?.on("data", onStderr);
     // 超时:仅在用户显式指定 timeout 时生效;默认无超时,命令跑到自己退出为止。
     // 之前默认 120s 超时会杀掉正在跑的长任务(如 john --wordlist),让 dao 误以为方案失败而换策略。
     const timer = timeout > 0 ? setTimeout(() => { timedOut = true; killGroup("SIGTERM"); }, timeout) : undefined;
@@ -107,9 +115,12 @@ function runForeground(
       else signal.addEventListener("abort", onAbort, { once: true });
     }
     let exitGraceTimer: ReturnType<typeof setTimeout> | undefined;
+    // Ctrl+B 转后台:注册一个 id + 回调,回合发起方(App.tsx)按键时触发。
+    const regId = randomUUID();
     const finish = (code: number) => {
       if (done) return;
       done = true;
+      registry?.unregister(regId);
       clearTimeout(timer!);
       if (exitGraceTimer) clearTimeout(exitGraceTimer);
       if (signal) signal.removeEventListener("abort", onAbort);
@@ -132,6 +143,22 @@ function runForeground(
     child.on("exit", (code) => {
       exitCode = typeof code === "number" ? code : 1;
       exitGraceTimer = setTimeout(() => finish(exitCode!), 300);
+    });
+
+    registry?.register(regId, () => {
+      if (done) return; // 命令恰好在这一瞬间自然结束了,done 标志位保证只 settle 一次
+      done = true;
+      clearTimeout(timer!);
+      // 解绑原来的 abort 监听器:过继之后,终止这个进程的唯一入口应该是 KillShell(processManager
+      // 生命周期管),不能让这条 ctx.signal 上的旧 onAbort 继续认领"我负责杀它"。
+      if (signal) signal.removeEventListener("abort", onAbort);
+      child.stdout?.off("data", onStdout);
+      child.stderr?.off("data", onStderr);
+      const id = processManager.adopt(child, command, cwd, { stdout, stderr });
+      resolve({
+        stdout: `已转后台(id=${id})。进程完成后会自动通知你——做完别的事后可以用 BashOutput 看一眼进度趋势,发现异常用 KillShell 终止。`,
+        stderr: "", code: 0, aborted: false, timedOut: false, elapsedMs: Date.now() - startTime, converted: true,
+      });
     });
   });
 }
@@ -259,7 +286,8 @@ export const execShellTool = defineTool({
       }
       pythonInlineStreak += 1;
     } else { pythonInlineStreak = 0; pythonInlineNudged = false; }
-    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 0, ctx.signal, args.dangerouslyDisableSandbox, ctx.headless);
+    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 0, ctx.signal, args.dangerouslyDisableSandbox, ctx.headless, ctx.foregroundRegistry);
+    if (r.converted) return r.stdout; // Ctrl+B 转后台:干净返回,不走下面 exit code/运行时长的拼接
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);

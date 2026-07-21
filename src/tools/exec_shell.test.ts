@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { execShellTool } from "./exec_shell.js";
 import { processManager } from "./process_manager.js";
+import { createForegroundRegistry } from "../tui/foreground_registry.js";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -194,5 +195,35 @@ describe("Bash tool", () => {
     expect(execShellTool.capability).toBe("exec");
     expect(execShellTool.approval).toBe("required");
     expect(execShellTool.name).toBe("Bash");
+  });
+
+  describe("Ctrl+B 转后台", () => {
+    it("注册表触发转后台回调后,工具调用立即返回已转后台文本,不等命令跑完", async () => {
+      const registry = createForegroundRegistry();
+      const start = Date.now();
+      const resultPromise = execShellTool.handler(
+        { command: "true && sleep 5 && echo done" }, // 前缀 "true &&" 避开反 sleep 轮询拦截(该拦截只匹配【以 sleep 开头】的命令)
+        { ...ctx, foregroundRegistry: registry },
+      );
+      // 等一小段时间确保命令已经真正 spawn 起来,再模拟用户按 Ctrl+B
+      await new Promise((r) => setTimeout(r, 100));
+      const n = registry.convertAll();
+      expect(n).toBe(1);
+      const result = await resultPromise;
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeLessThan(4000); // 没有傻等 5 秒
+      expect(result).toContain("已转后台");
+      expect(processManager.runningCount()).toBe(1); // 进程被 processManager 接管、还在跑
+    });
+
+    it("命令跑得很快、自己结束了之后,注册表里已经没有它了(convertAll 触发不到)", async () => {
+      const registry = createForegroundRegistry();
+      const result = await execShellTool.handler(
+        { command: "echo fast" },
+        { ...ctx, foregroundRegistry: registry },
+      );
+      expect(result).toContain("fast");
+      expect(registry.convertAll()).toBe(0); // 已经在 finish() 里反注册了
+    });
   });
 });
