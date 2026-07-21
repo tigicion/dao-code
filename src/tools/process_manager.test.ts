@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -166,5 +166,36 @@ describe("processManager", () => {
     expect(processManager.hasShellNotifications()).toBe(true);
     processManager.drainNotifications();
     expect(processManager.hasShellNotifications()).toBe(false);
+  });
+
+  // ── adopt():接管已在跑的前台子进程(Ctrl+B 转后台用) ──
+
+  describe("adopt", () => {
+    it("接管一个已经在跑、已经产出过部分输出的真实子进程,poll() 能读到引导内容 + 后续新增内容", async () => {
+      const child = spawn("sh", ["-c", "echo before-adopt; sleep 0.3; echo after-adopt; sleep 0.3; echo done"], { cwd: workDir });
+      let buffered = "";
+      child.stdout!.on("data", (d) => { buffered += d.toString(); });
+      await new Promise<void>((resolve) => {
+        const check = setInterval(() => { if (buffered.includes("before-adopt")) { clearInterval(check); resolve(); } }, 20);
+      });
+      child.stdout!.removeAllListeners("data"); // 模拟 exec_shell.ts 转交前先摘掉自己的监听器
+
+      const id = processManager.adopt(child, "echo ...", workDir, { stdout: buffered, stderr: "" });
+      expect(id).toMatch(/^proc-\d+$/);
+
+      const r = await waitExited(id);
+      expect(r.stdout).toContain("before-adopt"); // 引导内容(接管前已经产出的)
+      expect(r.stdout).toContain("after-adopt"); // 接管后新增的内容也要读得到
+      expect(r.stdout).toContain("done");
+      expect(r.exitCode).toBe(0);
+    });
+
+    it("接管后可以用 kill() 正常终止", async () => {
+      const child = spawn("sh", ["-c", "sleep 30"], { cwd: workDir, detached: true });
+      const id = processManager.adopt(child, "sleep 30", workDir, { stdout: "", stderr: "" });
+      processManager.kill(id);
+      const r = await waitExited(id);
+      expect(r.status).toBe("exited");
+    });
   });
 });

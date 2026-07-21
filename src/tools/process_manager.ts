@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { openSync, closeSync, readSync, statSync, mkdirSync } from "node:fs";
+import { openSync, closeSync, readSync, statSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { scrubbedEnv } from "./safe_env.js";
 import { sandboxSpawn } from "./sandbox.js";
@@ -119,6 +119,48 @@ class ProcessManager {
       proc.signal = signal;
       // 进程退出时自动入队通知 -- 模型在下一个回合边界收到,不需要手动轮询。
       // notified 标记防止 poll()/kill() 路径二次入队同一个退出事件。
+      if (!proc.notified) {
+        proc.notified = true;
+        this.notifications.push(shellNotificationXml(id, command, code, signal));
+        this.notify();
+      }
+    });
+    this.procs.set(id, proc);
+    return id;
+  }
+
+  // 接管一个【已经在跑】的前台子进程(不是自己 spawn 的)—— Ctrl+B 转后台用。
+  // 前台路径(exec_shell.ts runForeground)用 pipe 收集输出到内存字符串,跟 start() 的落文件方式不同;
+  // 这里做一次性引导写入(把接管前已经攒下的 buffered 内容写进文件)+ 后续增量追加到同一批文件,
+  // 这样接管完成后这个进程在 poll()/kill()/退出通知上跟 start() 建的进程完全同构,不用改那些逻辑。
+  adopt(child: ChildProcess, command: string, cwd: string, buffered: { stdout: string; stderr: string }): string {
+    const id = `proc-${++this.counter}`;
+    const logDir = path.join(cwd, ".dao", "bg", id);
+    mkdirSync(logDir, { recursive: true });
+    const stdoutPath = path.join(logDir, "stdout.log");
+    const stderrPath = path.join(logDir, "stderr.log");
+    // 引导写入:接管前已经产出、只存在于调用方内存里的那部分输出,先落盘,不然这部分内容永久丢失。
+    writeFileSync(stdoutPath, buffered.stdout);
+    writeFileSync(stderrPath, buffered.stderr);
+    const proc: BgProc = {
+      id, command, child, stdoutPath, stderrPath,
+      // offset 从 0 开始,不是引导内容的字节长度:接管前的输出只存在于调用方内存里,没人通过
+      // BashOutput 读过它——第一次 poll() 就该把引导内容 + 后续新增内容一起读到,不能让它凭空消失。
+      stdoutOffset: 0,
+      stderrOffset: 0,
+      status: "running",
+      exitCode: null,
+      signal: null,
+      notified: false,
+    };
+    // 接管后的新增输出:直接追加写文件(调用方在过继前应该已经摘掉自己的 "data" 监听器,
+    // 见 exec_shell.ts 的过继逻辑;这里只管接手之后的部分,不关心过继前谁在监听)。
+    child.stdout?.on("data", (d: Buffer) => appendFileSync(stdoutPath, d));
+    child.stderr?.on("data", (d: Buffer) => appendFileSync(stderrPath, d));
+    child.on("exit", (code, signal) => {
+      proc.status = "exited";
+      proc.exitCode = code;
+      proc.signal = signal;
       if (!proc.notified) {
         proc.notified = true;
         this.notifications.push(shellNotificationXml(id, command, code, signal));
