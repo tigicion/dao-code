@@ -252,6 +252,13 @@ describe("buildSystemPrompt (en)", () => {
     expect(prompt).toContain("Never delete and rewrite from scratch");
     expect(prompt).toContain('"Write it down" means calling the Write tool');
   });
+
+  it("Hit-a-wall rule: 2 consecutive failures force categorically different approach", () => {
+    expect(prompt).toContain("failed 2 consecutive times");
+    expect(prompt).toContain("categorically different approach");
+    expect(prompt).toContain("retrying a 3rd");
+    expect(prompt).toContain("Don't confuse \"viable\"");
+  });
 });
 
 describe("LONG_TASK_DIRECTIVE", () => {
