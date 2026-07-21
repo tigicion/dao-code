@@ -77,6 +77,9 @@ export interface ToolContext {
   // 完整任务管理器引用(TaskCreate/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create/registerAsyncAgent/
   // registerAgentForeground,不是并行的第二套系统——agent 工具的后台/前台切换也走它。
   taskManager?: TaskManager;
+  // 前台调用(Bash/Agent)注册表:Ctrl+B 转后台用。同一回合内的工具 handler 共享同一个实例
+  // (由 loop.ts 的 toolCtx 浅拷贝下发)。未注入 = 不支持转后台(如子代理自己的 ToolContext、测试环境)。
+  foregroundRegistry?: import("../tui/foreground_registry.js").ForegroundRegistry;
   // auto 模式下子代理结束后审查整段转录的分类器(参考 classifyHandoffIfNeeded)。
   // 传入紧凑 transcript(JSONL),返回 {shouldBlock, reason} 或 {unavailable}。非 auto 模式下不会被调用。
   handoffClassifyFn?: (transcript: string) => Promise<ClassifyResult>;

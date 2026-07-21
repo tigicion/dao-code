@@ -883,6 +883,14 @@ export function App(deps: AppDeps) {
       pushItem({ id: nextId(), kind: "notice", text: next ? t("ui.notice.expandAll") : t("ui.notice.collapseAll") });
       return;
     }
+    // Ctrl+B:把当前正在前台跑的调用(Bash/Agent)转成后台,主循环立刻恢复响应。
+    // 跟 ESC 一样只在有回合在跑(busy)时才有意义;没有前台调用时 convertForegroundToBackground
+    // 返回 0,静默不提示——不是"这个键没反应",是"确实没有能转的东西"。
+    if (key.ctrl && ch === "b" && busy && deps.convertForegroundToBackground) {
+      const n = deps.convertForegroundToBackground();
+      if (n > 0) pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.convertedToBackground", n) });
+      return;
+    }
     if (busy) {
       // 运行中:支持排队输入(steering)。回车排队,下一个工具轮边界(不用等整个回合跑完)就会被注入。
       if (key.return) {

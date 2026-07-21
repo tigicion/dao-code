@@ -189,6 +189,7 @@ export const zh: Record<string, string> = {
   "ui.notice.cancelled": "已取消。",
   "ui.notice.queued": "⏎ 已排队:{0}",
   "ui.notice.steeringCancelled": "已取消排队中的补充输入(当前回合继续跑,再按一次 ESC 才会中断它)。",
+  "ui.notice.convertedToBackground": "已将 {0} 个前台调用转为后台,完成后会自动通知你。",
   "ui.notice.expandAll": "▽ 已展开:后续输出显示全量(ctrl+o 收起)",
   "ui.notice.collapseAll": "△ 已折叠:后续输出截断",
   "ui.theme.light": "浅色",

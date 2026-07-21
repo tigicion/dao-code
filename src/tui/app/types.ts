@@ -75,6 +75,9 @@ export interface AppDeps {
   runningTasks?: () => number;
   // 当前运行中的后台 shell 数(状态栏展示)。
   runningShells?: () => number;
+  // Ctrl+B:把当前正在前台跑的调用(Bash/Agent)转成后台。返回本次触发转后台的数量
+  // (供 App 决定要不要提示;0 = 没有前台调用在跑,静默不提示)。省略则不绑定这个快捷键。
+  convertForegroundToBackground?: () => number;
   // 运行中排队的用户补充输入(steering):敲回车时调用,推进真正的队列(index 侧),
   // 下一个工具轮边界由 runTurn 的 drainPending 消费——不用等当前这一整个回合跑完。
   queueSteering?: (text: string) => void;

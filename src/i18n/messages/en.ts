@@ -189,6 +189,7 @@ export const en: Record<string, string> = {
   "ui.notice.cancelled": "Cancelled.",
   "ui.notice.queued": "⏎ Queued: {0}",
   "ui.notice.steeringCancelled": "Cancelled queued input (current turn keeps running; press ESC again to interrupt it).",
+  "ui.notice.convertedToBackground": "Converted {0} foreground call(s) to background; you'll be notified when they finish.",
   "ui.notice.expandAll": "▽ Expanded: showing full output below (ctrl+o to collapse)",
   "ui.notice.collapseAll": "△ Collapsed: later output truncated",
   "ui.theme.light": "light",

@@ -44,6 +44,7 @@ import { memoryReadTool } from "./tools/memory_read.js";
 import { runAgent } from "./agent/runAgent.js";
 import { resolveLang, setLang, getLang, t, readUserLang, writeUserLang } from "./i18n/i18n.js";
 import { createTaskManager } from "./agent/tasks.js";
+import { createForegroundRegistry } from "./tui/foreground_registry.js";
 import { loadAgentDefs, type AgentDef } from "./agent/agent_defs.js";
 import { BUNDLED_AGENTS } from "./agent/bundled_agents.js";
 import { formatAgentLine } from "./agent/agent_prompt.js";
@@ -949,6 +950,7 @@ async function main() {
   const ctx: ToolContext = {
     workspaceRoot,
     headless: !!argvPrompt,
+    foregroundRegistry: createForegroundRegistry(),
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
@@ -2194,6 +2196,7 @@ async function main() {
         subscribeTasks: (cb) => { taskManager.onChange(cb); processManager.onChange(cb); },
         runningTasks: () => taskManager.running().length,
         runningShells: () => processManager.runningCount(),
+        convertForegroundToBackground: () => ctx.foregroundRegistry!.convertAll(),
         queueSteering: (text) => steeringQueue.push(text),
         drainSteering: () => steeringQueue.splice(0),
         listAccounts,

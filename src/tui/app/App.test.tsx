@@ -897,6 +897,53 @@ describe("App", () => {
     expect(sawAbort).toBe(true);
   });
 
+  it("Ctrl+B:有前台调用时触发转后台并提示数量", async () => {
+    let convertCalls = 0;
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async () => new Promise(() => {}), // 模拟一直不 resolve 的进行中回合(busy=true)
+        convertForegroundToBackground: () => { convertCalls++; return 2; },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 提交,进入 busy
+    await delay();
+    stdin.write("\x02"); // Ctrl+B
+    await delay();
+    expect(convertCalls).toBe(1);
+    const f = lastFrame()!;
+    expect(f).toContain("已将 2 个前台调用转为后台");
+  });
+
+  it("Ctrl+B:没有前台调用在跑(convertForegroundToBackground 返回 0)时不提示、不报错", async () => {
+    let convertCalls = 0;
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        submit: async () => new Promise(() => {}),
+        convertForegroundToBackground: () => { convertCalls++; return 0; },
+      })} />,
+    );
+    for (const ch of "go") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    stdin.write("\x02");
+    await delay();
+    expect(convertCalls).toBe(1);
+    expect(lastFrame()!).not.toContain("转为后台");
+  });
+
+  it("Ctrl+B:不在 busy 状态时(没有回合在跑)不触发", async () => {
+    let convertCalls = 0;
+    const { stdin } = render(
+      <App {...makeDeps({ convertForegroundToBackground: () => { convertCalls++; return 1; } })} />,
+    );
+    stdin.write("\x02"); // 还没提交任何回合,busy=false
+    await delay();
+    expect(convertCalls).toBe(0);
+  });
+
   it("ESC 中断当前回合后回填输入框;紧接着按 ↓ 直接清空,不用逐字删除", async () => {
     let resolveGate!: () => void;
     const { lastFrame, stdin } = render(
