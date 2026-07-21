@@ -225,5 +225,39 @@ describe("Bash tool", () => {
       expect(result).toContain("fast");
       expect(registry.convertAll()).toBe(0); // 已经在 finish() 里反注册了
     });
+
+    // 端到端验证(计划 Task 6):转后台不是"打断"——命令在后台完整跑完,期间产出的全部输出都要能读到,
+    // 一个字节都不能因为转后台这个动作丢失。这是这个功能最核心的价值点,必须亲眼断言到,不能只信任
+    // 上面两条单测里"进程还在跑"这个中间状态。
+    it("真实验证:转后台之后命令在后台完整跑完,期间的全部输出都读得到,不是被打断", async () => {
+      const registry = createForegroundRegistry();
+      const resultPromise = execShellTool.handler(
+        { command: "true && (echo tick-1; sleep 0.3; echo tick-2; sleep 0.3; echo tick-3; sleep 0.3; echo ALL_DONE)" },
+        { ...ctx, foregroundRegistry: registry },
+      );
+      await new Promise((r) => setTimeout(r, 100)); // 等 tick-1 大概率已经产出,再按 Ctrl+B
+      registry.convertAll();
+      const result = await resultPromise;
+      const idMatch = /已转后台\(id=(proc-\d+)\)/.exec(result);
+      expect(idMatch).not.toBeNull();
+      const id = idMatch![1]!;
+
+      // 等它在后台真正跑完(不是又傻等,是轮询到 exited 为止,上限给够)
+      const start = Date.now();
+      let combined = "";
+      let status: "running" | "exited" = "running";
+      while (Date.now() - start < 3000) {
+        const r = processManager.poll(id);
+        combined += r.stdout;
+        status = r.status;
+        if (status === "exited") break;
+        await new Promise((res) => setTimeout(res, 50));
+      }
+      expect(status).toBe("exited");
+      expect(combined).toContain("tick-1");
+      expect(combined).toContain("tick-2");
+      expect(combined).toContain("tick-3");
+      expect(combined).toContain("ALL_DONE"); // 转后台之后产出的内容,证明命令没有被打断,是真的在后台跑完的
+    });
   });
 });
