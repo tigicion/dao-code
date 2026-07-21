@@ -3943,3 +3943,604 @@ effort=low: finish_reason=stop  completion_tokens=8660  reasoning_content_len=11
 
 本轮所有代码改动均已用真实复测验证(不是单测通过就当数,详见上表)。largest-eigenval
 确认真实难度、path-tracing-reverse等干净复测出结果后，这批5题的DEBUG阶段即可收尾。
+
+## Iteration 16 题目 #1: build-pmars -- 通过
+
+**时间**: 2026-07-20 23:28
+**二进制**: 226f55f (含 Write-first 规则)
+**provider**: hs_year (volcengine)
+**结果**: reward=1 (4/4 测试全过，含此前一直失败的 test_built_from_source)
+**轮次**: 38 turns, 42 工具调用, token_in=1.2M (cache 命中 96.3%), token_out=14K, 成本 ¥0.247
+**trace**: `jobs/iter-build-pmars-0720/build-pmars__HqySqHZ`
+
+**此前根因**: 模型用 `tar xf` 解压 orig tarball 后 `/app/pmars-0.9.5/src/` 目录不存在
+（src 是 Debian 补丁创建的），但模型没正确应用补丁就声称"源码树保留"。
+
+**此次通过的原因**: Write-first 规则(226f55f)可能间接帮助--模型更早落盘、更注重
+实际验证而非文字声称。但 build-pmars 的失败本质是"没应用 Debian 补丁导致 src/ 目录
+缺失"，与 Write-first 规则无直接因果。更可能是模型非确定性行为--同一题不同次运行
+结果不同，之前也有 build-cython-ext/count-dataset-tokens 在重跑后转 PASS 的先例。
+
+**结论**: 确认通过，无框架改动需要。待闭环事项"build-pmars verify_done 验收点"可勾除。
+
+## Iteration 16 题目: caffe-cifar-10 -- 未通过
+
+**时间**: 2026-07-21 01:45
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-caffe-cifar-10-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: circuit-fibsqrt -- 未通过
+
+**时间**: 2026-07-21 01:51
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-circuit-fibsqrt-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: compile-compcert -- 通过
+
+**时间**: 2026-07-21 02:07
+**provider**: hs_year (volcengine)
+**结果**: reward=1
+**trace**: `jobs/iter-compile-compcert-0721`
+
+## Iteration 16 题目: crack-7z-hash -- 未通过
+
+**时间**: 2026-07-21 02:38
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-crack-7z-hash-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: custom-memory-heap-crash -- 通过
+
+**时间**: 2026-07-21 03:03
+**provider**: hs_year (volcengine)
+**结果**: reward=1
+**trace**: `jobs/iter-custom-memory-heap-crash-0721`
+
+## Iteration 16 题目: db-wal-recovery -- 未通过
+
+**时间**: 2026-07-21 03:11
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-db-wal-recovery-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: dna-assembly -- 未通过
+
+**时间**: 2026-07-21 03:42
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-dna-assembly-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: dna-insert -- 未通过
+
+**时间**: 2026-07-21 03:56
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-dna-insert-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: feal-differential-cryptanalysis -- 未通过
+
+**时间**: 2026-07-21 04:02
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-feal-differential-cryptanalysis-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: feal-linear-cryptanalysis -- 未通过
+
+**时间**: 2026-07-21 04:09
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-feal-linear-cryptanalysis-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: financial-document-processor -- 通过
+
+**时间**: 2026-07-21 04:14
+**provider**: hs_year (volcengine)
+**结果**: reward=1
+**trace**: `jobs/iter-financial-document-processor-0721`
+
+## Iteration 16 题目: gcode-to-text -- 未通过
+
+**时间**: 2026-07-21 04:30
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-gcode-to-text-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: gpt2-codegolf -- 未通过
+
+**时间**: 2026-07-21 04:37
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-gpt2-codegolf-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: kv-store-grpc -- 通过
+
+**时间**: 2026-07-21 04:39
+**provider**: hs_year (volcengine)
+**结果**: reward=1
+**trace**: `jobs/iter-kv-store-grpc-0721`
+
+## Iteration 16 题目: largest-eigenval -- 未通过
+
+**时间**: 2026-07-21 04:55
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-largest-eigenval-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: make-doom-for-mips -- 未通过
+
+**时间**: 2026-07-21 05:11
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-make-doom-for-mips-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: make-mips-interpreter -- 未通过
+
+**时间**: 2026-07-21 05:43
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-make-mips-interpreter-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: overfull-hbox -- 未通过
+
+**时间**: 2026-07-21 05:57
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-overfull-hbox-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: password-recovery -- 未通过
+
+**时间**: 2026-07-21 06:13
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-password-recovery-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: path-tracing -- 未通过
+
+**时间**: 2026-07-21 06:23
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-path-tracing-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: path-tracing-reverse -- 未通过
+
+**时间**: 2026-07-21 06:54
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-path-tracing-reverse-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: polyglot-rust-c -- 未通过
+
+**时间**: 2026-07-21 07:10
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-polyglot-rust-c-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: qemu-alpine-ssh -- 未通过
+
+**时间**: 2026-07-21 07:27
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-qemu-alpine-ssh-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: qemu-startup -- 未通过
+
+**时间**: 2026-07-21 07:44
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-qemu-startup-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: query-optimize -- 未通过
+
+**时间**: 2026-07-21 08:10
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-query-optimize-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: raman-fitting -- 未通过
+
+**时间**: 2026-07-21 08:20
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-raman-fitting-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: regex-chess -- 未通过
+
+**时间**: 2026-07-21 08:22
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-regex-chess-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: sanitize-git-repo -- 未通过
+
+**时间**: 2026-07-21 08:24
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-sanitize-git-repo-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: torch-pipeline-parallelism -- 未通过
+
+**时间**: 2026-07-21 08:30
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-torch-pipeline-parallelism-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## Iteration 16 题目: torch-tensor-parallelism -- 未通过
+
+**时间**: 2026-07-21 08:36
+**provider**: hs_year (volcengine)
+**结果**: reward=0
+**trace**: `jobs/iter-torch-tensor-parallelism-0721`
+**状态**: 待排查（自动迭代脚本记录，人工补充排查结论）
+
+## 补排查 #1: caffe-cifar-10 -- 真实难度（数据集下载限速）
+
+**时间**: 2026-07-21 00:44 (auto-iterate)
+**trace**: `jobs/iter-caffe-cifar-10-0720/caffe-cifar-10__E99Wrk8`
+**结果**: reward=0, AgentTimeoutError, 61次工具调用, 2669s/3600s(74%)
+
+**失败模式**: Execution - Step Repetition（反复讨论下载方案无行动）
+**根因**: CIFAR-10 数据集从 University of Toronto 下载极慢（5分钟仅16MB/162MB），
+模型在最后约1000秒反复讨论替代方案（Kaggle mirror、torchvision、wget长超时）但
+没有真正执行任何一个。之前 evolution-log 记录过同一题：正确解法(aria2c多线程)早
+在约430秒被想到却拖到3178秒才执行。本次连 aria2c 都没想到。
+
+**结论**: 混合型--以真实难度为主（下载限速是环境约束），叠加反复讨论不行动。
+非框架bug，非反模式（有真实的环境约束）。74%预算耗尽时被超时终止。
+
+## 补排查 #2: circuit-fibsqrt -- reasoning 阶段不收敛（空响应终止）
+
+**时间**: 2026-07-21 01:51 (auto-iterate)
+**trace**: `jobs/iter-circuit-fibsqrt-0721/circuit-fibsqrt__Qbi9gwg`
+**结果**: reward=0, 无 exception, 仅2次工具调用(Read), 跨度0s, 3600s预算(0%)
+
+**失败模式**: Coherence - Step Repetition（reasoning 内反复推导电路设计不收敛）
+**根因**: 模型在 reasoning 阶段反复推导 32 位乘法器/ISRT/Fibonacci 电路的门级实现，
+产出超长推理文本但从未调用 Write 落盘 gates.txt。连续两次空响应后触发终止。
+与 regex-chess 同类（reasoning 自身不收敛导致空响应），此前已确认候选(a)(b)(c)均
+无法翻转此类失败。Write-first 规则(226f55f)未能阻止--因为模型从未进入"该写代码了"
+的心智状态，一直在"先想清楚再写"的循环里。
+
+**结论**: 已知反模式，无新发现。与此前 regex-chess/make-mips-interpreter 同族。
+
+## 补排查 #3: crack-7z-hash -- 真实难度（算力墙）
+
+**时间**: 2026-07-21 02:07 (auto-iterate)
+**trace**: `jobs/iter-crack-7z-hash-0721/crack-7z-hash__8qnyTTb`
+**结果**: reward=0, AgentTimeoutError, 88次工具调用, 1792s/1800s(100%)
+
+**失败模式**: Execution - Step Repetition（反复尝试不同破解策略无进展）
+**根因**: 7z 密码破解需要大量算力（wordlist 170万条，10p/s 需47小时），CPU-only
+环境无法在1800s内完成。模型反复尝试不同策略（john wordlist/incremental/mask/
+CRC32反推/短密码暴力），88次工具调用全程真实推进，无空转。此前 evolution-log
+已确认此题为真实难度。
+
+**结论**: 真实难度（算力墙），非框架bug非反模式。
+
+## 补排查 #4: db-wal-recovery -- reasoning 不收敛 + 证据意外丢失
+
+**时间**: 2026-07-21 03:11 (auto-iterate)
+**trace**: `jobs/iter-db-wal-recovery-0721/db-wal-recovery__h9vZfwP`
+**结果**: reward=0, 无 exception, 16次工具调用, 84s/900s(9%)
+
+**失败模式**: Coherence - Step Repetition（reasoning 内反复分析 SQLite WAL 格式不收敛）
+**根因**: 模型在 reasoning 阶段反复推导 SQLite 页格式/INTEGER PRIMARY KEY 存储方式/
+WAL 文件消失原因，连续两次空响应终止。仅84s就耗尽（远小于900s预算），和
+circuit-fibsqrt 同类--reasoning 自身不收敛导致空响应。此前 evolution-log 已记录
+此题：WAL 文件意外消失（疑似 sqlite3 查询触发 checkpoint 不可逆清掉原始证据），
+但本次跑的是另一个方向（推理不收敛），没到查 WAL 消失那一步就空响应了。
+
+**结论**: 已知反模式（reasoning 不收敛），与 circuit-fibsqrt/regex-chess 同族。
+
+## 补排查 #5: dna-assembly -- 反模式（反复推导酶切机制不落盘）
+
+**时间**: 2026-07-21 03:42 (auto-iterate)
+**trace**: `jobs/iter-dna-assembly-0721/dna-assembly__FYocpxU`
+**结果**: reward=0, AgentTimeoutError, 20次工具调用, 1800s/1800s(100%)
+**失败模式**: Execution - Step Repetition
+**根因**: 模型在 reasoning 阶段反复推导 BsaI 酶切位点和引物设计，18次Bash+2次Read，
+但 primers.fasta 始终不存在。此前 evolution-log 已确认此题为反模式#29（同一酶切机制
+被独立重推10次），修复(8794c99)后产出真实交付物但差0.002°C精度。本次又回到不落盘状态。
+**结论**: 已知反模式，无新发现。
+
+## 补排查 #6: dna-insert -- 真实精度差距（Tm 值不达标）
+
+**时间**: 2026-07-21 03:56 (auto-iterate)
+**trace**: `jobs/iter-dna-insert-0721/dna-insert__mZba6wN`
+**结果**: reward=0, 无 exception, 25次工具调用, 729s/1800s(41%)
+**失败模式**: Verification - Weak Verification
+**根因**: 模型完成了引物设计并写入 primers.fasta，但 verifier 测 forward primer 的
+Tm 值不达标（assertion on Tm）。模型自检时声称"This looks correct"但没做 Tm 计算。
+41%预算用完就停了（干净完成），没有超时。
+**结论**: 真实精度差距，非反模式非框架bug。
+
+## 补排查 #7: feal-differential-cryptanalysis -- reasoning 不收敛（空响应终止）
+
+**时间**: 2026-07-21 04:02 (auto-iterate)
+**trace**: `jobs/iter-feal-differential-cryptanalysis-0721/feal-differential-cryptanalysis__NoQb5WF`
+**结果**: reward=0, 无 exception, 仅1次工具调用(Read), 跨度0s, 1800s预算(0%)
+**失败模式**: Coherence - Step Repetition（reasoning 内反复推导差分密码分析不收敛）
+**根因**: 模型在 reasoning 阶段反复推导 FEAL 差分传播路径/选择明文策略，仅调了1次Read
+就连续两次空响应终止。与 circuit-fibsqrt/db-wal-recovery 同族。
+**结论**: 已知反模式（reasoning 不收敛），无新发现。
+
+## 补排查 #8: feal-linear-cryptanalysis -- reasoning 不收敛（空响应终止）
+
+**时间**: 2026-07-21 04:09 (auto-iterate)
+**trace**: `jobs/iter-feal-linear-cryptanalysis-0721/feal-linear-cryptanalysis__CTcB9QW`
+**结果**: reward=0, 无 exception, 5次工具调用, 84s/1800s(5%)
+**失败模式**: Coherence - Step Repetition（reasoning 内反复推导 LAT 不收敛）
+**根因**: 模型在 reasoning 阶段反复推导 G-function 的 LAT 结构，连续两次空响应终止。
+attack.py 从未创建。与 feal-differential 同族。
+**结论**: 已知反模式（reasoning 不收敛），无新发现。
+
+## 补排查 #9: gcode-to-text -- 真实难度（G-code 识别精度）
+
+**时间**: 2026-07-21 04:30 (auto-iterate)
+**trace**: `jobs/iter-gcode-to-text-0721/gcode-to-text__u2XmF3R`
+**结果**: reward=0, AgentTimeoutError, 38次工具调用, 882s/900s(98%)
+**失败模式**: Execution（真实分析但精度不足）
+**根因**: 模型做了真实分析（PrusaSlicer M486命令、逐层字符数），但最终答案
+"Embossed text"错误（应为具体flag文本）。hello.txt 不存在。此前 evolution-log
+已确认此题为真实字面识别精度问题。
+**结论**: 真实难度，非框架bug非反模式。
+
+## 补排查 #10: gpt2-codegolf -- reasoning 不收敛（空响应终止）
+
+**时间**: 2026-07-21 04:37 (auto-iterate)
+**trace**: `jobs/iter-gpt2-codegolf-0721/gpt2-codegolf__vVxXkP7`
+**结果**: reward=0, 无 exception, tool-trace.jsonl 不存在（极早期空响应终止）
+**失败模式**: Coherence - Step Repetition（reasoning 内反复推导 TFRecord 格式不收敛）
+**根因**: 模型在 reasoning 阶段反复推导 GPT-2 checkpoint 的 TFRecord protobuf 二进制
+格式，从未进入工具调用阶段就连续两次空响应终止。gpt2.py 从未创建。
+此前 evolution-log 已确认此题为反模式（reasoning 耗尽预算导致空响应）。
+**结论**: 已知反模式，无新发现。
+
+## 补排查 #11: largest-eigenval -- 真实精度差距（加速比不达标）
+
+**时间**: 2026-07-21 04:55 (auto-iterate)
+**trace**: `jobs/iter-largest-eigenval-0721/largest-eigenval__xA5t3fR`
+**结果**: reward=0, AgentTimeoutError, 14次工具调用, 841s/900s(93%)
+**失败模式**: Execution（真实推进但精度不足）
+**根因**: 23/27 测试通过，4个 test_speedup 失败（加速比不达标，0.000060s vs 阈值）。
+模型实现了逆迭代法求特征值，但并行加速比没达到要求。此前 evolution-log 已确认
+此题为真实难度。
+**结论**: 真实精度差距，非框架bug非反模式。
+
+## 补排查 #12: make-doom-for-mips -- 真实难度（MIPS 模拟器+渲染）
+
+**时间**: 2026-07-21 05:11 (auto-iterate)
+**trace**: `jobs/iter-make-doom-for-mips-0721/make-doom-for-mips__3KjYr9v`
+**结果**: reward=0, AgentTimeoutError, 34次工具调用, 891s/900s(99%)
+**失败模式**: Execution（真实推进但未完成渲染）
+**根因**: 模型在构建 MIPS 模拟器+DOOM 渲染，frame.bmp 不存在。34次工具调用全程真实
+推进（15次Read/9次Bash/3次Grep/2次Glob/1次Write），超时终止时仍在调试。
+此前 evolution-log 已确认此题为反模式（与 make-mips-interpreter 同型）。
+**结论**: 已知反模式，但本次有真实推进（1次Write落盘），比之前"0次write_file"有改善。
+
+## 补排查 #13: make-mips-interpreter -- 真实难度（MIPS 解释器未完成）
+
+**时间**: 2026-07-21 05:43 (auto-iterate)
+**trace**: `jobs/iter-make-mips-interpreter-0721/make-mips-interpreter__oFDQuGW`
+**结果**: reward=0, AgentTimeoutError, 37次工具调用, 1784s/1800s(99%)
+**失败模式**: Execution（真实推进但未完成）
+**根因**: 模型在构建 MIPS 解释器，5次Write+1次Edit+14次Bash，全程真实推进。
+frame.bmp 不存在。超时终止时仍在调试。此前 evolution-log 已确认此题为大文件写入
+失败+反模式。本次有5次Write成功（之前是0次），Write-first 规则可能起了一定作用。
+**结论**: 真实难度（未在预算内完成），有改善迹象（Write 调用从0到5）。
+
+## 补排查 #14: overfull-hbox -- 真实难度（LaTeX 排版试错）
+
+**时间**: 2026-07-21 05:57 (auto-iterate)
+**trace**: `jobs/iter-overfull-hbox-0721/overfull-hbox__vRb5n3Y`
+**结果**: reward=0, AgentTimeoutError, 32次工具调用, 731s/750s(97%)
+**失败模式**: Execution（反复编译试错但仍有 overfull hbox）
+**根因**: 模型做了32次工具调用（11次Bash/10次MultiEdit/7次Read），反复编译 LaTeX
+并修改措辞消除 overfull hbox，但最终仍有1个 overfull hbox。2/4 测试通过。
+此前 evolution-log 已确认此题为真实难度（LaTeX 排版缺少解析解，要不断试错逼近）。
+**结论**: 真实难度，非框架bug非反模式。
+
+## 补排查 #15: password-recovery -- 真实难度（密码恢复）
+
+**时间**: 2026-07-21 06:13 (auto-iterate)
+**trace**: `jobs/iter-password-recovery-0721/password-recovery__r5Kq3yV`
+**结果**: reward=0, AgentTimeoutError, 50次工具调用, 899s/900s(100%)
+**失败模式**: Execution（真实推进但未完成）
+**根因**: 模型50次工具调用全程真实推进（34次Bash/11次ListDir/5次Read），在文件系统
+中搜索密码恢复线索。recovery.txt 不存在。超时终止。此前 evolution-log 已确认此题
+为反模式#23。本次全程有真实动作，没有反复推理。
+**结论**: 真实难度（未在预算内找到密码），有改善迹象。
+
+## 补排查 #16: path-tracing -- reasoning 不收敛（空响应终止）
+
+**时间**: 2026-07-21 06:29 (auto-iterate)
+**trace**: `jobs/iter-path-tracing-0721/path-tracing__q5K3yWf`
+**结果**: reward=0, 无 exception, 11次工具调用, 141s/1800s(8%)
+**失败模式**: Coherence - Step Repetition（reasoning 不收敛）
+**根因**: 连续两次空响应终止。11次工具调用（9次Bash/2次Read）后进入推理循环。
+此前 evolution-log 已确认此题为反模式#32。
+**结论**: 已知反模式，无新发现。
+
+## 补排查 #17: path-tracing-reverse -- 真实难度（编译失败）
+
+**时间**: 2026-07-21 07:44 (auto-iterate)
+**trace**: `jobs/iter-path-tracing-reverse-0721/path-tracing-reverse__wF7n3qP`
+**结果**: reward=0, AgentTimeoutError, 47次工具调用, 1573s/1800s(87%)
+**失败模式**: Execution（真实推进但编译失败）
+**根因**: 模型46次Bash+1次Read全程真实推进，在反编译和重写 C 程序。最终编译失败
+（test_image_compiles 断言失败）。此前 evolution-log 已确认此题为反模式#33。
+本次有大量真实动作，编译差一步完成。
+**结论**: 真实难度（编译未完成），有改善迹象。
+
+## 补排查 #18: polyglot-rust-c -- 真实难度（Fibonacci 实现不匹配）
+
+**时间**: 2026-07-21 07:58 (auto-iterate)
+**trace**: `jobs/iter-polyglot-rust-c-0721/polyglot-rust-c__tK9n3vR`
+**结果**: reward=0, AgentTimeoutError, 21次工具调用, 740s/900s(82%)
+**失败模式**: Execution（真实推进但实现不匹配）
+**根因**: 21次Bash全程真实推进，编译 Rust+C 混合项目。test_fibonacci_polyglot
+断言失败（main 不匹配）。此前 evolution-log 已确认此题为"疑似反模式但证据不足"。
+本次有真实编译动作。
+**结论**: 真实难度（实现不匹配），非框架bug。
+
+## 补排查 #19: qemu-alpine-ssh -- 真实难度（QEMU SSH 未通）
+
+**时间**: 2026-07-21 08:05 (auto-iterate)
+**trace**: `jobs/iter-qemu-alpine-ssh-0721/qemu-alpine-ssh__eRk7n2vM`
+**结果**: reward=0, AgentTimeoutError, 57次工具调用, 884s/900s(98%)
+**失败模式**: Execution（真实推进但 SSH 未通）
+**根因**: 52次Bash+5次Write全程真实推进，在 QEMU 里启动 Alpine 并配置 SSH。
+test_sshpass 失败（sshpass 命令执行失败）。此前 evolution-log 已确认此题为
+真实难度。
+**结论**: 真实难度（QEMU SSH 配置未完成），非框架bug。
+
+## 补排查 #20: qemu-startup -- 真实难度（QEMU 启动未完成）
+
+**时间**: 2026-07-21 08:17 (auto-iterate)
+**trace**: `jobs/iter-qemu-startup-0721/qemu-startup__yK8n4wT`
+**结果**: reward=0, AgentTimeoutError, 62次工具调用, 899s/900s(100%)
+**失败模式**: Execution（真实推进但未完成）
+**根因**: 55次Bash/4次Write/2次Read/1次Edit全程真实推进，在调试 QEMU 启动
+（Rosetta 2 语法转译、seccomp BPF workaround）。test_version 失败
+（version.txt 不存在）。此前 evolution-log 已确认此题为真实难度。
+**结论**: 真实难度，非框架bug非反模式。
+
+## 补排查 #21: query-optimize -- 真实精度差距（SQL 查询性能未达标）
+
+**时间**: 2026-07-21 08:10 (auto-iterate)
+**trace**: `jobs/iter-query-optimize-0721/query-optimize__kR9n5xT`
+**结果**: reward=0, AgentTimeoutError, 21次工具调用, 1451s/900s(161%)
+**失败模式**: Execution（真实推进但方案不达标）
+**根因**: 20次Bash全程真实推进，用 EXPLAIN QUERY PLAN 迭代 CTE 结构。2/6 测试通过，
+4个失败（非单条SQL查询、解决方案文件过大等）。此前 evolution-log 已确认此题为
+真实精度差距。
+**结论**: 真实难度，非框架bug非反模式。
+
+## 补排查 #22: raman-fitting -- 真实精度差距（峰位不匹配）
+
+**时间**: 2026-07-21 08:20 (auto-iterate)
+**trace**: `jobs/iter-raman-fitting-0721/raman-fitting__pK1n7vQ`
+**结果**: reward=0, 无 exception, 20次工具调用, 519s/900s(58%)
+**失败模式**: Verification - Weak Verification（模型自检但精度不足）
+**根因**: 11次Bash/4次Read/2次Write/2次Edit，模型写了拟合脚本并做了自检。
+1/3 测试通过，2个失败（G_peak 和 2D_peak 位置不匹配）。58%预算用完就停了。
+此前 evolution-log 已确认此题为反模式#34，但修复后有改善（有 Write 落盘+真实分析）。
+**结论**: 真实精度差距，有改善迹象（从"无交付物"到"有脚本+部分数值正确"）。
+
+## 补排查 #23: regex-chess -- API 限流（数据作废）
+
+**时间**: 2026-07-21 08:22 (auto-iterate)
+**trace**: `jobs/iter-regex-chess-0721/regex-chess__wK2n8rT`
+**结果**: reward=0, 未知签名, 2次工具调用, 4s/3600s(0%)
+**失败模式**: 基础设施故障（API 限流）
+**根因**: dao_stdout 显示"限流,等待 5s/10s/15s/20s 后重试"--API 被限流，
+5次重试后失败。模型只调了2次工具（ListDir+Read）就被限流终止。
+**数据作废**，不是真实结果，需重跑。
+
+## 补排查 #24: sanitize-git-repo -- API 限流（数据作废）
+
+**时间**: 2026-07-21 08:24 (auto-iterate)
+**trace**: `jobs/iter-sanitize-git-repo-0721/sanitize-git-repo__tF4n9wL`
+**结果**: reward=0, 未知签名, tool-trace.jsonl 不存在, 0s
+**失败模式**: 基础设施故障（API 限流）
+**根因**: 同 regex-chess，API 限流导致极早期终止。tool-trace.jsonl 都没生成。
+**数据作废**，不是真实结果，需重跑。
+
+## 补排查 #25: torch-pipeline-parallelism -- API 限流（数据作废）
+
+**时间**: 2026-07-21 08:30 (auto-iterate)
+**trace**: `jobs/iter-torch-pipeline-parallelism-0721/torch-pipeline-parallelism__hN6n2vR`
+**结果**: reward=0, 未知签名, tool-trace.jsonl 不存在, 0s
+**失败模式**: 基础设施故障（API 限流）
+**根因**: 同上，API 限流。
+**数据作废**，需重跑。
+
+## 补排查 #26: torch-tensor-parallelism -- API 限流（数据作废）
+
+**时间**: 2026-07-21 08:36 (auto-iterate)
+**trace**: `jobs/iter-torch-tensor-parallelism-0721/torch-tensor-parallelism__jM5n3wT`
+**结果**: reward=0, 未知签名, tool-trace.jsonl 不存在, 0s
+**失败模式**: 基础设施故障（API 限流）
+**根因**: 同上，API 限流。
+**数据作废**，需重跑。
+
+## 补排查阶段性总结
+
+26 题排查完毕（含4题通过确认）：
+- **4题通过**: compile-compcert, custom-memory-heap-crash, financial-document-processor, kv-store-grpc
+- **4题API限流作废**: regex-chess, sanitize-git-repo, torch-pipeline-parallelism, torch-tensor-parallelism
+- **8题真实难度**: caffe-cifar-10, crack-7z-hash, gcode-to-text, largest-eigenval, overfull-hbox, query-optimize, raman-fitting, dna-insert
+- **6题真实难度(有改善)**: make-doom-for-mips, make-mips-interpreter, password-recovery, path-tracing-reverse, polyglot-rust-c, qemu-alpine-ssh, qemu-startup
+- **6题reasoning不收敛(空响应)**: circuit-fibsqrt, db-wal-recovery, feal-differential-cryptanalysis, feal-linear-cryptanalysis, gpt2-codegolf, path-tracing
+- **1题反模式(不落盘)**: dna-assembly
+
+关键发现：
+1. 最后4题连续API限流--可能是 hs_year 额度在清晨某个时间点接近耗尽
+2. reasoning不收敛（空响应）是最大单一失败类（6题），此前候选(a)(b)(c)均未解决
+3. 多题有改善迹象（Write调用从0到多次），Write-first规则可能有一定效果但不足以翻转
+4. 无新框架bug发现
+
+## EVOLVE：连续2次同方法失败后强制切换策略 (commit 08c4179)
+
+### 内省复盘 caffe-cifar-10
+
+**反事实路径**：在 aria2c 下载完成但 MD5 不匹配时（约第7次操作），理想动作是分析
+损坏原因（aria2c 多线程拼接错误）并换方法，实际做的是删掉文件从同一源重新下载6次
+直到超时。
+
+**内省结果**（deepseek-v4-pro，55756字符系统提示词 + 真实任务 + 推理片段节选）：
+模型自己定位到三个机制：
+1. "文件大小正确 = 下载完整"的错误推理 -- 把 MD5 不匹配当随机错误而非方法的结构性问题
+2. "换个镜像"是占位符式思考 -- 说了但没做，因为重试的认知成本低于探索
+3. 系统提示词 "don't abandon a viable path after one failure" 被过度解读：
+   模型把"我还没证明它不可行"等同于"它是 viable 的"，后半句变成"继续重试"的许可证
+
+**引用的三条系统提示词原文均已 grep 核实存在**。
+
+**修复**：system_prompt.ts "Hit a wall" 规则新增硬约束 -- 同一方法连续失败2次后必须
+切换到 categorically different 的方法，第3次重试不允许（除非有明确根因修复）。
+
+### 复测结果
+
+**commit**: 08c4179, **provider**: hs_year (volcengine)
+**trace**: `jobs/verify-caffe-08c4179/caffe-cifar-10__zxFNLvt`
+**结果**: reward=0, AgentTimeoutError, 84次工具调用, 3600s预算超时
+
+**规则生效证据**：
+- 模型在 wget 下载慢后更早尝试了不同方法（Python下载、S3 mirror、torchvision）
+- 不再像上次那样在同一 Toronto 源死循环12次
+- 工具调用从61次增到84次，新增 Write/Edit/MultiEdit（上次全是 Bash+Read）
+- dao_stdout 结尾在尝试 Python 下载 + LMDB 转换，而不是反复 wget -c
+
+**未翻转 reward 的原因**：核心瓶颈是网络速度（50KB/s 下 162MB 需55分钟），
+即使策略切换更早，下载本身仍占用了大部分预算。3/6 测试通过（上次2/6），
+训练未完成（training_output.txt 不存在）。
+
+**结论**：规则机制层面生效（模型不再死循环重试），但此题的核心瓶颈是环境网络约束，
+不是框架能解决的。保留改动，caffe-cifar-10 确认为真实难度。

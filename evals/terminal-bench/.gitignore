@@ -6,3 +6,4 @@ venv/
 .env
 .env-*
 dataset-2-1/
+results.json

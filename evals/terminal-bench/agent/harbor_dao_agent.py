@@ -57,10 +57,11 @@ class DaoAgent(BaseInstalledAgent):
     def name() -> str:
         return "dao-code"
 
-    def __init__(self, *args, bin_dir: str = _DEFAULT_BIN_DIR, provider: str = "deepseek", **kwargs):
+    def __init__(self, *args, bin_dir: str = _DEFAULT_BIN_DIR, provider: str = "deepseek", model: str = "", **kwargs):
         super().__init__(*args, **kwargs)
         self._bin_dir = bin_dir
         self._provider = provider
+        self._model = model
         self._api_key_env = _API_KEY_ENV.get(provider, f"{provider.upper()}_API_KEY")
 
     def get_version_command(self) -> str | None:
@@ -108,8 +109,9 @@ class DaoAgent(BaseInstalledAgent):
             command=(
                 f"{DAO_BINARY_REMOTE_PATH} --yolo --eval "
                 f'--api-key "${self._api_key_env}" --provider {shlex.quote(self._provider)} '
-                f"{escaped_instruction} "
-                f"> {shlex.quote(_STDOUT_FILE)} 2>&1"
+                + (f'--model {shlex.quote(self._model)} ' if self._model else '')
+                + f"{escaped_instruction} "
+                + f"> {shlex.quote(_STDOUT_FILE)} 2>&1"
             ),
             env=env,
         )
