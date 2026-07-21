@@ -44,6 +44,11 @@ const AGENT_TOOL_PROMPT_ZH =
   "别重复子代理正在做的工作:如果你把一项调查派给了子代理,就不要自己也去跑同样的搜索。\n" +
   "何时不该用:要读某个具体文件路径,直接 Read;要搜某个类/函数定义,直接 Grep/Glob;" +
   "只需在 2-3 个文件里搜代码,直接 Read。这些简单搜索不值得派子代理。\n" +
+  "长耗时子任务策略:派发前自判子任务是否可能耗时超过 180 秒。如果是,优先 background:true 后台派--" +
+  "不只是\"起后台等通知\",而是:做完别的事后用 TaskOutput 做 checkpoint 式进度检查," +
+  "看子代理的中间消息/思考判断是否在正常推进;发现趋势偏离预期用 TaskStop 终止," +
+  "分析已产生的中间结果,调整策略再重新派发。前台子代理耗时过长时同理--" +
+  "可以先用 TaskOutput 看中间进度,趋势不对就 TaskStop。\n" +
   "写 prompt 的指引:像给刚进门的聪明同事 brief--子代理没看过当前对话,不知道你试过什么、为什么这个任务重要。" +
   "说清目标与背景、已排除的方向、需要判断而非窄指令的上下文。需要短回复就说『200 字以内回报』。" +
   "查/定位:给确切命令;调查:给问题而非规定步骤。别写『基于你的发现修复 bug』--那是把综合判断推给子代理;" +
@@ -69,6 +74,11 @@ const AGENT_TOOL_PROMPT_EN =
   "Don't duplicate work that subagents are already doing - if you delegate research to a subagent, do not also perform the same searches yourself.\n" +
   "When NOT to use: to read a specific file path, use Read directly; to search for a class/function definition, use Grep/Glob directly; " +
   "to search within 2-3 specific files, use Read directly. These simple searches don't warrant a subagent.\n" +
+  "Long-running subtask strategy: before dispatching, judge whether the subtask may take over 180 seconds. If so, prefer background:true - " +
+  "not just \"start it in background and wait for notification\", but: after doing other work, use TaskOutput for checkpoint-style progress " +
+  "checks, looking at the subagent's intermediate messages/reasoning to judge whether it's advancing normally; if the trend diverges from " +
+  "expectation, use TaskStop to terminate, analyze the intermediate results produced, adjust strategy and re-dispatch. The same applies " +
+  "to foreground subagents taking too long - use TaskOutput to check intermediate progress first, and TaskStop if the trend looks wrong.\n" +
   "Writing the prompt: brief the agent like a smart colleague who just walked into the room - it hasn't seen this conversation. " +
   "Explain what you're trying to accomplish and why. Describe what you've already learned or ruled out. " +
   "Give enough context for judgment calls. If you need a short response, say so. Lookups: hand over the exact command. " +
