@@ -29,16 +29,18 @@ dao 交互模式下,`Bash`(前台执行)和 `Agent`(前台调用,未传 `backgro
 - Ctrl+B 触发时,若当前有前台 Bash 调用正处在这条路径里:调用 `processManager.adopt(...)` 接管 child,把原来那个前台 Promise 提前 resolve 成"已转后台(id=xxx)"文本(格式对齐现有 `background:true` 的返回文案,`exec_shell.ts:248` 附近)。
 - Race 处理:child 可能恰好在同一时刻自然 `close`——用一个"已敲定"标志位保证只 resolve 一次,不会去 adopt 一个已经退出的进程。
 - 若前台调用带了显式 `timeout` 参数,过继后要清掉对应的定时器,避免过继完还被原超时机制杀掉。
+- **过继时必须解绑原来 `ctx.signal` 上挂的 abort 监听器**(`exec_shell.ts:105-108` 的 `signal.addEventListener("abort", onAbort, { once: true })`)。不解绑的话,谁负责"杀掉这个进程"就有两套机制同时认领:旧的 `onAbort` 闭包(挂在已经不属于这次工具调用的 signal 上)和 processManager 新的生命周期。过继之后,终止这个进程的唯一入口应该是 `KillShell`,不再是原来那个 `ctx.signal`。
 
 ### 组件 2:Agent 前台调用 → 清理重启(对标 Claude Code)
 
 现状(`src/tools/agent.ts` + `src/agent/runAgent.ts`):前台路径是内联 `for await (const m of runAgent(...))`,被父级 `runAgent` 主循环同步 await,没有中途摘出的信号。
 
 改动方案(对标 CC `AgentTool.tsx:897-1052` 的真实实现,不做"热摘出同一个生成器"这种无先例的复杂机制):
-- Ctrl+B 触发时,对正在前台跑的这个 `runAgent()` async iterator 调 `.return(undefined)` 优雅结束消费(不真正中止底层请求,只是父级不再等它继续 yield)。
-- 取已经产出的 `sub.messages` 作为进度存档,用这份消息重新发起一个 `isAsync:true` 的 `runAgent()` 调用,挂到已有的异步子代理生命周期(`taskManager.registerAsyncAgent` + `runAsyncAgentLifecycle`)上继续跑。
+- Ctrl+B 触发时,**先 `agentAbortController.abort()`**——这一步不能省:子代理这一刻如果正卡在自己的某次嵌套前台调用里(比如它自己在跑一个 Bash 命令),不 abort 的话那个嵌套调用会继续实际执行、继续计费,只是没人再读它的结果,白白浪费成本还可能留下一个没人管的子进程。abort 会通过现有的 signal 链正确级联杀掉嵌套调用(`exec_shell.ts` 的 `onAbort` 已经在监听同一条信号链)。
+- 再 **`await`(带超时保护)`.return(undefined)`**,让这个 async generator 走完自己的 `finally` 块(`runAgent.ts:493-503`:注销 hooks 并执行 `executeSubagentStopHooks`、关闭 `agentMcpConnections`、摘掉父 abort 监听器)。必须 `await` 完这一步再继续,不能 fire-and-forget——不然新起的那个 runAgent() 调用可能跟还没清理完的旧连接/hook 状态产生竞争。超时保护参考 CC:清理本身卡住时不能让 Ctrl+B 按了没反应。
+- 取已经产出的 `sub.messages` 作为进度存档,**复用原调用的完整参数**(`worktreePath`/`isolate`/`fork`/`model`/`agent_type` 等,不能只传 messages)重新发起一个 `isAsync:true` 的 `runAgent()` 调用,挂到已有的异步子代理生命周期(`taskManager.registerAsyncAgent` + `runAsyncAgentLifecycle`)上继续跑。漏传 `worktreePath` 会导致改动跑到错误的目录;漏传 `fork` 的 `override.systemPrompt` 字节会让前缀缓存对不齐,重启后这个子代理的缓存命中率骤降。
 - 原前台调用处立即返回合成的"已转后台,完成后通知你"文本。
-- 代价(与 CC 一致、接受):触发那一刻如果子代理正卡在一次 `streamChat` 请求或一次工具调用的中途,这部分会被放弃,下一轮从上一条完整消息重新开始。
+- 代价(与 CC 一致、接受):触发那一刻如果子代理正卡在一次 `streamChat` 请求或一次工具调用的中途,这部分会被放弃(前一条已经讲清楚是真正 abort 掉,不是仅仅不读了),下一轮从上一条完整消息重新开始。
 - 并行 `tasks` 数组场景:一次 Ctrl+B 对当前批次里所有仍在前台跑着的都做同样处理。
 
 ### 组件 3:公共基础设施——"当前前台调用"注册表
@@ -53,6 +55,15 @@ dao 交互模式下,`Bash`(前台执行)和 `Agent`(前台调用,未传 `backgro
 
 按下 Ctrl+B 那一刻,UI 给一条即时确认(如状态栏一行"已转后台"),不是熔断跳闸那种警告式 `events.notice`——这是用户自己发起的操作,是确认,不是系统单方面的意外通知。
 
+## 副作用核查
+
+写完组件 2 的初版后,对照 `runAgent.ts` 实际代码核查了几个容易漏的点:
+
+- **async generator 的 `.return()` 会不会跳过清理?**——不会。`runAgent.ts:493` 的 `finally` 块包住了 hooks 注销/MCP 关闭/父 abort 监听器摘除,JS async generator 语义保证 `.return()` 会正常触发挂起点所在的 `finally`,等价于 `for await` 里提前 `break`。但这个 `finally` 内部有 `await`(`executeSubagentStopHooks`/`agentMcpConnections.close()`),调用方必须 `await` `.return()` 本身才能等到这些清理真正跑完,这一点已经写进组件 2。
+- **不 abort 直接 `.return()` 会不会导致嵌套调用继续跑着计费?**——会,如果只调 `.return()` 不先 `abort()`,子代理当前卡着的嵌套前台调用(它自己的 Bash/子子代理)不会被打断,会正常跑到底,只是没人再消费结果。已改为先 `abort()` 再 `.return()`。
+- **重启会不会漏配置导致跑错目录/缓存报废?**——会,如果重启时只带 `sub.messages` 不带原调用的 `worktreePath`/`fork`/`model` 等参数。已在组件 2 里明确要求复用完整参数。
+- **Bash 过继会不会跟旧的 abort 监听器打架?**——会,如果过继时不解绑 `ctx.signal` 上原来的 `onAbort`。已在组件 1 里加了这一条。
+
 ## 边界情况
 
 - 没有前台调用在跑时按 Ctrl+B:无操作,不报错(参考 ESC 在无活跃回合时的行为)。
@@ -62,5 +73,5 @@ dao 交互模式下,`Bash`(前台执行)和 `Agent`(前台调用,未传 `backgro
 ## 测试策略
 
 - **Bash 侧**:单元测试 mock 一个不会自然结束的 child 进程,触发转后台回调,断言 `processManager` 收到了这个 child(能通过 `BashOutput` 查询到)、原 Promise resolve 成预期的"已转后台"文本、不会因为 child 后续正常退出而重复 resolve。
-- **Agent 侧**:单元测试 mock 一个不会结束的 async generator,触发转后台回调,断言 `.return()` 被调用、`taskManager.registerAsyncAgent` 被调用且带上了已产出的消息、前台调用处返回合成的"已转后台"结果。
+- **Agent 侧**:单元测试 mock 一个不会结束的 async generator,触发转后台回调,断言:`abort()` 先于 `.return()` 被调用(顺序不能反)、`.return()` 被 `await` 完(finally 里的清理跑完之后才继续)、`taskManager.registerAsyncAgent` 被调用且带上了已产出的消息与原调用的完整参数(worktreePath/fork/model 等)、前台调用处返回合成的"已转后台"结果。
 - **UI 侧**:Ink 测试用 `stdin.write` 模拟 Ctrl+B 按键,断言:(a) 有前台调用时正确触发转后台并显示确认;(b) 无前台调用时无操作;(c) 多个并行前台调用时全部一起转。
