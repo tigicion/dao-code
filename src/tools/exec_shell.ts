@@ -132,13 +132,14 @@ export const execShellTool = defineTool({
   name: "Bash",
   description:
     "在工作区目录执行 shell 命令(git、跑测试、npm/pip 等构建工具都走它)。前台执行等到命令结束,返回 stdout/stderr" +
-    "和退出码/超时/中断状态;background=true 立即返回进程 id 不阻塞(适合起个服务、跑个长任务),用 BashOutput" +
-    "读它自上次轮询以来的新输出、KillShell 结束它——别对同一命令又前台等又后台起。background=true 启动的" +
+    "和退出码/超时/中断状态;background=true 立即返回进程 id 不阻塞(适合起个服务、跑个长任务)," +
+    "进程完成后会自动通知你--不需要轮询,可以去做别的事,结果到了下一个回合自动回灌。" +
+    "用 BashOutput 读取中间输出(看进度/查报错),KillShell 结束它--别对同一命令又前台等又后台起。background=true 启动的" +
     "是真正独立于 DAO 自身进程存活的后台进程,不会随这次调用结束而自动消失——只在确实需要它持续跑着(起服务、" +
     "长时间任务)时才用,命令本身很快就能跑完就别用后台;不再需要时记得 KillShell 收尾,除非任务本身就要求" +
     "这个服务保持运行(比如要求'启动并保持在后台运行'的服务类任务,这种就应该让它继续跑,不用主动杀)。" +
-    "前台默认超时 120 秒,可用" +
-    "timeout(毫秒)调;超时或中断都会杀掉整个进程组(不只是 shell 本身,命令里再拉起的子进程也一起终止)。" +
+    "前台默认超时 120 秒,可用 timeout(毫秒)调,上限 600000(10 分钟);" +
+    "超时或中断都会杀掉整个进程组(不只是 shell 本身,命令里再拉起的子进程也一起终止)。" +
     "输出在内存里最多攒 10MB,超了会截断并提示改用更精确的命令或重定向到文件后再查——命令本身别指望它能把一个几十MB" +
     "的输出原样倒给你。\n" +
     "查文件内容用 Grep、查文件名/路径用 Glob、读文件用 Read——不要用本工具拼 grep/rg/find/cat/head/tail," +
@@ -154,13 +155,14 @@ export const execShellTool = defineTool({
     "可选参数:description(命令语义描述,用于审计日志);dangerouslyDisableSandbox(设为 true 绕过 DAO_SANDBOX 沙箱,仅在确认沙箱导致命令失败时使用,会强制审批)。",
   descriptionEn:
     "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution waits for completion and returns stdout/stderr " +
-    "plus exit code / timeout / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) — use " +
-    "BashOutput to read its new output since the last poll, KillShell to stop it. Don't both wait in foreground and also start the same command in background. " +
+    "plus exit code / timeout / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) - " +
+    "you'll be automatically notified when it finishes, so don't poll; go do something else and the result arrives at the next turn boundary. " +
+    "Use BashOutput to check intermediate output (progress/errors), KillShell to stop it. Don't both wait in foreground and also start the same command in background. " +
     "A background=true process is genuinely independent of DAO's own process lifetime — it does NOT vanish just because this call returns. Only reach for it when " +
     "something actually needs to keep running (a service, a long task) — not for commands that will finish quickly anyway. Remember to KillShell it once it's " +
     "no longer needed, unless the task itself requires the service to keep running (e.g. a task asking you to 'start and keep it running in the background' — leave " +
     "that one up, don't kill it). " +
-    "Foreground defaults to a 120s timeout, adjustable via timeout (ms); both a timeout and an abort kill the entire process group, not just the shell — " +
+    "Foreground defaults to a 120s timeout, adjustable via timeout (ms), max 600000 (10 min); both a timeout and an abort kill the entire process group, not just the shell - " +
     "child processes spawned by the command are terminated too. Output is capped at 10MB in memory; past that it's truncated with a hint to use a more precise " +
     "command or redirect to a file and inspect that instead — don't expect a raw multi-MB output to come back intact.\n" +
     "Use Grep for content search, Glob for filename/path search, Read for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated " +
@@ -196,23 +198,26 @@ export const execShellTool = defineTool({
     return null;
   },
   handler: async (args, ctx) => {
-    // 反 sleep 轮询:纯 sleep 命令(如 "sleep 15")几乎只用于等待后台子代理完成,
-    // 这是明确的反模式--后台任务完成时结果会自动回灌,不需要 sleep 轮询。
-    // 拦截并给出正确指导,而不是让模型白白烧 15-30 秒。
+    // 反 sleep 探测:纯 sleep 命令(如 "sleep 15")几乎只用于等待后台任务/进程完成,
+    // 这是明确的反模式--后台任务和后台 shell 完成时结果会自动通知,不需要 sleep 等待。
+    // 拦截并给出正确指导,而不是让模型白白烧时间。
     // 匹配纯 sleep、以及"sleep N && 后续命令"(复合命令以 sleep 打头,本质是等定时)。
+    // 阈值 ≥2 秒(与 CC 对齐):≥2 秒的纯 sleep 几乎没有正当用途,真正需要等就用 background。
     const SLEEP_PREFIX_RE = /^\s*sleep\s+(\d+(?:\.\d+)?)\s*(?:&&|;|\||$)/;
     const sleepMatch = SLEEP_PREFIX_RE.exec(args.command);
     if (sleepMatch) {
       const seconds = parseFloat(sleepMatch[1]!);
-      if (seconds >= 5) {
-        return `不要用 sleep 等待后台任务完成。后台任务的结果会自动通知你——结束本轮或去做别的事,结果到了会自动回灌。\n` +
-          `如果你确实需要等待(如等端口可用、等容器启动),用 Bash 的 background 参数起后台命令配合 BashOutput 轮询输出,而不是阻塞式 sleep。\n` +
-          `你刚才的命令等了 ${seconds} 秒——这段时间整个 dao 会话被完全阻塞,无法响应用户输入。`;
+      if (seconds >= 2) {
+        return `不要用 sleep 等待后台任务完成。后台 shell(background=true)和后台子代理完成时会自动通知你--` +
+          `结束本轮或去做别的事,结果到了自动回灌,不需要 sleep 等待。\n` +
+          `如果你确实需要等待(如等端口可用、等容器启动),用 Bash 的 background 参数起后台命令,` +
+          `完成后自动通知;需要中间输出用 BashOutput 查看进度。\n` +
+          `你刚才的命令等了 ${seconds} 秒--这段时间整个 dao 会话被完全阻塞,无法响应用户输入。`;
       }
     }
     if (args.background) {
       const id = processManager.start(args.command, (ctx.cwd ?? ctx.workspaceRoot));
-      return `已在后台启动(id=${id})。用 BashOutput 读取输出,KillShell 结束。`;
+      return `已在后台启动(id=${id})。进程完成后会自动通知你,不需要轮询--去继续别的事即可。需要查中间输出/进度用 BashOutput,不再需要时用 KillShell 结束。`;
     }
     const isPythonInline = PYTHON_INLINE_RE.test(args.command);
     if (isPythonInline) {

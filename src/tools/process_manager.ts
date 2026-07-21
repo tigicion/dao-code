@@ -25,6 +25,7 @@ interface BgProc {
   status: "running" | "exited";
   exitCode: number | null;
   signal: string | null;
+  notified: boolean; // 进程退出时已入队通知(防 poll/KillShell 重复入队)
 }
 
 export interface PollResult {
@@ -33,6 +34,21 @@ export interface PollResult {
   stderr: string;
   exitCode: number | null;
   signal: string | null;
+}
+
+// 后台 shell 完成通知(与子代理的 <task-notification> 同构,复用主循环的 drainNotifications 通路)。
+function shellNotificationXml(id: string, command: string, exitCode: number | null, signal: string | null): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const status = exitCode === 0 ? "completed" : "failed";
+  const detail = exitCode !== null ? `exit code ${exitCode}` : `signal ${signal ?? "unknown"}`;
+  return [
+    `<task-notification>`,
+    `<task-id>${id}</task-id>`,
+    `<description>${esc(command)}</description>`,
+    `<status>${status}</status>`,
+    `<result>后台命令 "${esc(command)}" 已结束(${detail})。用 BashOutput 查看完整输出。</result>`,
+    `</task-notification>`,
+  ].join("\n");
 }
 
 // 读文件里 [offset, EOF) 这一段新增内容;文件还不存在(比如 child 还没来得及第一次写)当空串处理。
@@ -57,6 +73,13 @@ function readNewBytes(filePath: string, offset: number): { text: string; newOffs
 class ProcessManager {
   private procs = new Map<string, BgProc>();
   private counter = 0;
+  private notifications: string[] = [];
+  private onChangeCb: (() => void) | undefined;
+  private notify = () => this.onChangeCb?.();
+
+  onChange(cb: () => void): void { this.onChangeCb = cb; }
+  drainNotifications(): string[] { return this.notifications.splice(0); }
+  hasShellNotifications(): boolean { return this.notifications.length > 0; }
 
   start(command: string, cwd: string): string {
     const id = `proc-${++this.counter}`;
@@ -88,11 +111,19 @@ class ProcessManager {
       status: "running",
       exitCode: null,
       signal: null,
+      notified: false,
     };
     child.on("exit", (code, signal) => {
       proc.status = "exited";
       proc.exitCode = code;
       proc.signal = signal;
+      // 进程退出时自动入队通知 -- 模型在下一个回合边界收到,不需要手动轮询。
+      // notified 标记防止 poll()/kill() 路径二次入队同一个退出事件。
+      if (!proc.notified) {
+        proc.notified = true;
+        this.notifications.push(shellNotificationXml(id, command, code, signal));
+        this.notify();
+      }
     });
     this.procs.set(id, proc);
     return id;
@@ -130,6 +161,7 @@ class ProcessManager {
     for (const p of this.procs.values()) killTree(p.child, "SIGKILL");
     this.procs.clear();
     this.counter = 0;
+    this.notifications = [];
   }
 }
 

@@ -108,4 +108,63 @@ describe("processManager", () => {
     // 收尾,别留下真跑着的进程。
     try { process.kill(-pid, "SIGKILL"); } catch { try { process.kill(pid, "SIGKILL"); } catch {} }
   });
+
+  // ── 后台 shell 完成通知 ──
+
+  it("进程退出时自动入队完成通知", async () => {
+    const id = processManager.start("echo done", workDir);
+    await waitExited(id);
+    const notes = processManager.drainNotifications();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("<task-notification>");
+    expect(notes[0]).toContain(`<task-id>${id}</task-id>`);
+    expect(notes[0]).toContain("completed");
+    expect(notes[0]).toContain("exit code 0");
+  });
+
+  it("非零退出码标记为 failed", async () => {
+    const id = processManager.start("exit 3", workDir);
+    await waitExited(id);
+    const notes = processManager.drainNotifications();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("failed");
+    expect(notes[0]).toContain("exit code 3");
+  });
+
+  it("drainNotifications 后清空(不重复投递)", async () => {
+    const id = processManager.start("echo once", workDir);
+    await waitExited(id);
+    expect(processManager.drainNotifications()).toHaveLength(1);
+    expect(processManager.drainNotifications()).toHaveLength(0);
+    expect(processManager.hasShellNotifications()).toBe(false);
+  });
+
+  it("进程退出时触发 onChange 回调", async () => {
+    let calls = 0;
+    processManager.onChange(() => { calls++; });
+    const id = processManager.start("echo trigger", workDir);
+    await waitExited(id);
+    // start 不触发 onChange(只有退出时触发),至少 1 次(exit 事件)
+    expect(calls).toBeGreaterThanOrEqual(1);
+    processManager.onChange(() => {}); // 清除回调
+  });
+
+  it("kill 导致的退出也入队通知", async () => {
+    const id = processManager.start("sleep 30", workDir);
+    processManager.kill(id);
+    await waitExited(id);
+    const notes = processManager.drainNotifications();
+    expect(notes).toHaveLength(1);
+    // kill 发 SIGTERM,退出码非 0 -> failed
+    expect(notes[0]).toContain("failed");
+  });
+
+  it("hasShellNotifications 在有通知时返回 true", async () => {
+    expect(processManager.hasShellNotifications()).toBe(false);
+    const id = processManager.start("echo check", workDir);
+    await waitExited(id);
+    expect(processManager.hasShellNotifications()).toBe(true);
+    processManager.drainNotifications();
+    expect(processManager.hasShellNotifications()).toBe(false);
+  });
 });

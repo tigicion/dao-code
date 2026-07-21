@@ -1316,7 +1316,7 @@ async function main() {
       progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
-      drainNotifications: () => taskManager.drainNotifications(), // 后台子代理完成结果:回合边界回灌(一次性/--goal 与交互同等,修复 headless 丢失)
+      drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], // 后台子代理 + 后台 shell 完成结果:回合边界回灌
       drainMcpNotices: () => mcpChangeQueue.splice(0), // MCP server 状态变化:回合边界回灌,不插进 tool_use/result 中间
       onCheckpoint,
     }));
@@ -2182,8 +2182,8 @@ async function main() {
             label: `${m.id}${m.title ?? m.summary ? ` — ${m.title ?? m.summary}` : ""}${m.done ? "" : " ·未完成"}`,
           })),
         initialItems,
-        drainNotifications: () => taskManager.drainNotifications(),
-        subscribeTasks: (cb) => taskManager.onChange(cb),
+        drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()],
+        subscribeTasks: (cb) => { taskManager.onChange(cb); processManager.onChange(cb); },
         runningTasks: () => taskManager.running().length,
         runningShells: () => processManager.runningCount(),
         queueSteering: (text) => steeringQueue.push(text),
@@ -2248,7 +2248,7 @@ async function main() {
       const persistRepl = () =>
         store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } });
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => taskManager.drainNotifications(), getProvider: () => cfg.provider });
+      await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], getProvider: () => cfg.provider });
       persistRepl(); // 干净退出前再存一次(覆盖最后一轮是"纯文本收尾早退"、没触发过 onCheckpoint 的情形)
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await mcp.close();

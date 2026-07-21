@@ -20,9 +20,10 @@ describe("Bash tool", () => {
     expect(out).toContain("[exit 3]");
   });
 
-  it("starts a background process and returns its id", async () => {
+  it("starts a background process and returns its id with auto-notify hint", async () => {
     const out = await execShellTool.handler({ command: "echo bg", background: true }, ctx);
     expect(out).toMatch(/id=proc-\d+/);
+    expect(out).toContain("自动通知");
   });
 
   it("kills the foreground child on abort and returns promptly with [已中断]", async () => {
@@ -121,10 +122,21 @@ describe("Bash tool", () => {
     expect(out).not.toContain("dpkg");
   });
 
-  it("纯 sleep 命令被拦截(反 sleep 轮询后台任务)", async () => {
+  it("纯 sleep 命令被拦截(反 sleep 探测,阈值 ≥2 秒)", async () => {
     const out = await execShellTool.handler({ command: "sleep 15" }, ctx);
     expect(out).toContain("不要用 sleep");
+    expect(out).toContain("自动通知");
     expect(out).not.toContain("[exit");
+  });
+
+  it("sleep 2 秒也被拦截(阈值 ≥2,与 CC 对齐)", async () => {
+    const out = await execShellTool.handler({ command: "sleep 2" }, ctx);
+    expect(out).toContain("不要用 sleep");
+  });
+
+  it("sleep 1 秒不拦截(低于阈值,正常执行)", async () => {
+    const out = await execShellTool.handler({ command: "sleep 1" }, ctx);
+    expect(out).not.toContain("不要用 sleep");
   });
 
   it("复合 sleep 命令不拦截(如 sleep && echo)", async () => {
