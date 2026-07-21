@@ -218,6 +218,11 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
   // 参考 runAgent 的 agentGetAppState():把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
   // 此前 dao 子代理和父级共用同一个 gate 对象,gate.getMode() 返回父级 session 的 mode,
   // 导致子代理的 permissionMode 设了也没用--explore(plan 模式)在父级 default 模式下仍按 default 裁决。
+  // subRef:sub(子代理自己的 Session)要到阶段 4 才创建,但 gate 在这里(阶段 1)就要接线——
+  // 用一个可延迟填充的引用盒子,而不是把 sub 提前声明成 undefined 类型(会让后面几十处
+  // sub.xxx 访问都要加 !/?.,noise 太大)。withModeOverride 的 getMessages 只在真正调用
+  // classify() 时才执行,那时 sub 早已赋值完毕。
+  const subRef: { current?: Session } = {};
   const parentGate = gate as unknown as PermissionGate | undefined;
   let agentGate = gate;
   if (parentGate instanceof PermissionGate) {
@@ -230,7 +235,10 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
       rawPermMode === "plan" ? "plan"
       : rawPermMode === "normal" || rawPermMode === undefined ? parentMode
       : rawPermMode;
-    agentGate = parentGate.withModeOverride(agentPermMode);
+    // getMessages 传子代理自己的转录(sub.messages),不是父级的--否则子代理跑 auto 模式时,
+    // 分类器判定用的还是父级(甚至更上层)的对话,看不到子代理自己在做什么,"相关性"判断必然
+    // 失真、大概率误判 BLOCK,转人工频率异常升高(复盘 session 20260721-215548-uq75)。
+    agentGate = parentGate.withModeOverride(agentPermMode, () => subRef.current?.messages ?? []);
   }
 
   // abort 控制器:不论同步/异步都真实创建——TaskStop/cancel 要能对任何子代理生效,
@@ -376,6 +384,7 @@ ${skill.body}` });
   // ---- 阶段 4:会话创建 ----
 
   const sub = new Session(agentSystemPrompt, resolvedModel);
+  subRef.current = sub; // 接上阶段 1 里 agentGate 分类器要用的转录来源
   sub.mode = agentMode;
   // 替换默认 system message 为组装好的消息序列(已在上面保证包含 system 消息)。
   // 包一层 push 通知:runTurn 往 sub.messages push 新消息时同步唤醒下面的查询循环——

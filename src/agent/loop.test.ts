@@ -620,6 +620,63 @@ describe("runTurn", () => {
     expect(s.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "assistant"]);
   });
 
+  it("gate 熔断跳闸(consumeTripNotice)时同步 events.notice,不能静默降级(复盘 20260721-215548-uq75)", async () => {
+    // 根因:PermissionGate 熔断后 auto 模式静默退回全人工审批,30 分钟后又静默恢复——用户
+    // 完全不知道 auto 已经名存实亡,只能靠"怎么老在问我"自己反推。gate 侧已经暴露了
+    // consumeTripNotice() 一次性通知,这里验证 runTurn 真的在工具执行后消费并渲染给用户看。
+    const s = new Session("SYS", "deepseek-v4-flash");
+    s.addUser("go");
+    const assistantWithTool: AssistantMessage = {
+      role: "assistant", content: null,
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }],
+    };
+    const toolMsgs: ToolMessage[] = [{ role: "tool", tool_call_id: "c0", content: "R" }];
+    let tripCalls = 0;
+    const trippedGate: ApprovalGate = {
+      decide: () => "allow",
+      decideAsync: async () => "allow",
+      requestBatch: async () => new Map(),
+      consumeTripNotice: () => { tripCalls++; return { consecutiveDenials: 3, totalDenials: 3 }; },
+    };
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx,
+      gate: trippedGate,
+      streamChat: (() => turn([], assistantWithTool)()) as any,
+      executeToolCalls: async () => toolMsgs,
+      write: (t) => written.push(t),
+      maxTurns: 1,
+    });
+    expect(tripCalls).toBeGreaterThan(0);
+    expect(written.join("")).toContain("熔断");
+  });
+
+  it("gate 没有跳闸(consumeTripNotice 返回 null)时不产生任何熔断提示", async () => {
+    const s = new Session("SYS", "deepseek-v4-flash");
+    s.addUser("go");
+    const assistantWithTool: AssistantMessage = {
+      role: "assistant", content: null,
+      tool_calls: [{ id: "c0", type: "function", function: { name: "Read", arguments: "{}" } }],
+    };
+    const toolMsgs: ToolMessage[] = [{ role: "tool", tool_call_id: "c0", content: "R" }];
+    const calmGate: ApprovalGate = {
+      decide: () => "allow",
+      decideAsync: async () => "allow",
+      requestBatch: async () => new Map(),
+      consumeTripNotice: () => null,
+    };
+    const written: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx,
+      gate: calmGate,
+      streamChat: (() => turn([], assistantWithTool)()) as any,
+      executeToolCalls: async () => toolMsgs,
+      write: (t) => written.push(t),
+      maxTurns: 1,
+    });
+    expect(written.join("")).not.toContain("熔断");
+  });
+
   it("onCheckpoint:每个工具轮结束都调用一次(不等整个回合跑完才存档)", async () => {
     const s = new Session("SYS", "deepseek-v4-flash");
     s.addUser("go");

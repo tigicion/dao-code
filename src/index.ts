@@ -860,7 +860,10 @@ async function main() {
   // Stage 1(fast):max_tokens=64 + stop=["</block>"],快路径判断。allow -> 直接放行。
   // Stage 2(thinking):max_tokens=4096,完整推理。<block>no</block> -> 放行;其余 -> 转人工。
   // 出错/不可解析 -> fail-closed(转人工,不是拒绝)。快速路径(白名单/工作区内编辑)已在 engine.decide 短路。
-  const classifyPermission = async (toolName: string, argsJson: string): Promise<boolean> => {
+  // recentMessages 由调用方(PermissionGate.getMessages())传入,不能自己去读 session.messages——
+  // 子代理走 withModeOverride 时会传自己的 sub.messages,这里必须原样透传,否则子代理的调用
+  // 又会被根会话的转录判定,分类器看不到子代理自己在做什么(复盘 session 20260721-215548-uq75)。
+  const classifyPermission = async (toolName: string, argsJson: string, recentMessages: ChatMessage[]): Promise<boolean> => {
     const classifierModel = process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash";
     const rules: AutoModeRules | undefined = loadedPerms.autoMode;
     const onUsage = (u: any) => {
@@ -873,7 +876,7 @@ async function main() {
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
       model: classifierModel,
-      messages: buildClassifierMessages(toolName, argsJson, session.messages, rules, "zh", STAGE1_SUFFIX),
+      messages: buildClassifierMessages(toolName, argsJson, recentMessages, rules, "zh", STAGE1_SUFFIX),
       maxTokens: 64,
       extra: { thinking: { type: "disabled" }, temperature: 0, stop: ["</block>"] },
       onUsage,
@@ -890,7 +893,7 @@ async function main() {
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
       model: classifierModel,
-      messages: buildClassifierMessages(toolName, argsJson, session.messages, rules, "zh", STAGE2_SUFFIX),
+      messages: buildClassifierMessages(toolName, argsJson, recentMessages, rules, "zh", STAGE2_SUFFIX),
       maxTokens: 4096,
       extra: { temperature: 0 },
       onUsage,
@@ -910,6 +913,7 @@ async function main() {
     (rule) => appendRule(localSettingsFile, rule, "allow"), // "always" 持久化
     (rule) => { sessionAllow.push(rule); }, // "session"/"always" 本会话生效
     classifyPermission, // auto 模式
+    () => session.messages, // 分类器的 transcript 来源:根会话自己的消息(子代理会在 runAgent 里 withModeOverride 换成自己的)
   );
 
   const session = new Session(systemPrompt, cfg.model);
@@ -1475,6 +1479,9 @@ async function main() {
       const up = await gateUserPrompt(argvPrompt);
       if (up.blocked) { write(`[提交被 hook 阻止] ${up.reason || ""}\n`); return; }
       session.addUser(argvPrompt);
+      // headless 模式强提醒:不会有用户在终端交互,所有命令必须是非交互式的。
+      // 交互式命令(如 7z 不带 -p、mysql 不带密码、ssh 需要密码)会卡住等待输入,永远不会返回。
+      session.messages.push({ role: "system", content: "[headless 提醒] 当前为无人值守模式,不会有用户在终端输入。所有命令必须是非交互式的——用参数或管道传入所需输入(如 7z -p<密码>、echo <密码> | 7z x),不要让命令等待 stdin。交互式命令会永久卡住。" });
       if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
       await runOneTurn(() =>
         store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } }),

@@ -11,6 +11,8 @@ import type { ApprovalGate } from "../approval/types.js";
 import type { TurnDeps } from "./loop.js";
 import type { ChatMessage, AssistantMessage, ToolMessage } from "../client/types.js";
 import type { BuiltInAgentDef } from "./agent_defs.js";
+import { PermissionGate } from "../permissions/gate.js";
+import { emptyPermissions } from "../permissions/settings.js";
 
 describe("getAgentModel", () => {
   it("agent 定义无 model -> inherit(返回父模型)", () => {
@@ -426,5 +428,40 @@ describe("runAgent 阶段接线", () => {
     // 独立 abort(模拟 taskManager.cancel())依然生效,不需要父也一起死
     ownController.abort();
     expect(capturedSignal!.aborted).toBe(true);
+  });
+});
+
+describe("runAgent 子代理权限门(auto 模式分类器上下文)", () => {
+  // 复盘 session 20260721-215548-uq75:auto 模式主 agent 派子代理,子代理跑 npm run typecheck
+  // 这类完全无害、跟自己任务高度相关的命令,却被反复转人工确认。根因是子代理的 gate 虽然靠
+  // withModeOverride 换了 mode,但分类器绑死的还是根 session 的转录——子代理自己在做什么,
+  // 分类器完全看不见,"相关性"判断必然失真。这里验证 runAgent 把子代理自己的 sub.messages
+  // 接给了子代理 gate 的分类器,而不是父级传进来的那份。
+  it("子代理是真实 PermissionGate 时,分类器收到的是子代理自己的 messages,不是父级传入的", async () => {
+    const received: ChatMessage[][] = [];
+    const parentMessages: ChatMessage[] = [{ role: "user", content: "根会话消息,不该被子代理分类器看到" }];
+    const parentGate = new PermissionGate(
+      () => "default", // 父级 mode 无所谓,agentDef.permissionMode="auto" 会覆盖
+      () => emptyPermissions(),
+      async (reqs) => new Map(reqs.map((r) => [r.id, "deny" as const])),
+      async () => {},
+      () => {},
+      async (_t, _a, messages) => { received.push(messages); return true; },
+      () => parentMessages,
+    );
+    const params = baseParams({
+      gate: parentGate,
+      agentDef: { agentType: "t", whenToUse: "", source: "built-in", permissionMode: "auto", getSystemPrompt: () => "子代理系统提示" } as BuiltInAgentDef,
+      runTurn: async (deps) => {
+        await deps.gate.requestBatch([
+          { id: "1", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run typecheck"}' },
+        ]);
+        deps.session.messages.push({ role: "assistant", content: "done" });
+      },
+    });
+    await drain(runAgent(params));
+    expect(received).toHaveLength(1);
+    expect(received[0]).not.toBe(parentMessages);
+    expect(received[0]!.some((m) => m.role === "system" && String(m.content).includes("子代理系统提示"))).toBe(true);
   });
 });

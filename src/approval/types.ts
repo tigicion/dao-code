@@ -31,4 +31,8 @@ export interface ApprovalGate {
   // 不实现也没关系(调用方对缺失时应默认按"human"处理,不能默认成"classifier"——宁可高估
   // 打扰次数,不能低估)。只覆盖 requestBatch 分支,规则(decide)直接判的不经过这里。
   lastApprovalSource?(id: string): "classifier" | "human" | undefined;
+  // 可选:auto 模式分类器熔断跳闸时的一次性通知(跳闸瞬间产出,取走即清空)。
+  // 只有真正接了熔断计数的实现(PermissionGate)提供;调用方(loop.ts)负责渲染给用户看,
+  // 缺失时静默跳过——不能让"没实现这个方法"变成运行时错误。
+  consumeTripNotice?(): { consecutiveDenials: number; totalDenials: number } | null;
 }

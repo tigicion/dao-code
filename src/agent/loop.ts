@@ -486,6 +486,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       session.messages.push(...toolMessages);
     }
 
+    // auto 模式分类器熔断跳闸:此前是静默降级到全人工审批、30 分钟后静默恢复,用户完全
+    // 不知道 auto 已经名存实亡(复盘 session 20260721-215548-uq75:主 agent 在 auto 模式下,
+    // 子代理各种命令反复被转人工确认,用户以为是权限机制坏了,实际是熔断后悄悄退回手动)。
+    // consumeTripNotice() 只在跳闸的那一刻返回一次,取走即清空——不会每轮重复刷屏。
+    const tripNotice = deps.gate.consumeTripNotice?.();
+    if (tripNotice) {
+      events.notice(`\n[auto 模式熔断] 分类器连续 ${tripNotice.consecutiveDenials} 次判定拒绝(累计 ${tripNotice.totalDenials} 次),已临时退回人工确认;30 分钟无新拒绝后自动恢复。\n`);
+    }
+
     // 工具返回了图片 → 在 tool messages 后注入一条 user message 携带 image_url。
     // 千帆等 OpenAI 兼容 API 的 tool role 不接受 content 数组,故图片走 user message(对标 Kimi 文档的多模态格式)。
     const imageParts = turnToolMessages

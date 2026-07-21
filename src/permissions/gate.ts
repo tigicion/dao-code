@@ -3,6 +3,7 @@ import type { ApprovalGate, ApprovalPrompt, ApprovalRequest, GateDecision } from
 import { decide, decideAsync } from "./engine.js";
 import { rememberRule } from "./identity.js";
 import type { PermissionsConfig, PermissionMode } from "./settings.js";
+import type { ChatMessage } from "../client/types.js";
 
 // 熔断阈值(对标 CC denialTracking.ts):连续 deny 达上限或总 deny 达上限时,
 // auto 模式回退人工审批,不再调分类器(省 API 调用 + 避免卡死)。
@@ -20,7 +21,11 @@ export class PermissionGate implements ApprovalGate {
     private prompt: ApprovalPrompt,
     private onRemember: (rule: string) => Promise<void>, // 持久化到 settings.local.json
     private addSessionAllow: (rule: string) => void, // 加入本会话 allow(不落盘)
-    private classify?: (toolName: string, argsJson: string) => Promise<boolean>, // auto 模式:AI 代替人工裁决
+    private classify?: (toolName: string, argsJson: string, recentMessages: ChatMessage[]) => Promise<boolean>, // auto 模式:AI 代替人工裁决
+    // 分类器上下文来源:必须是【当前裁决对象自己】的转录,不能写死。子代理走 withModeOverride
+    // 时会传入 sub.messages——之前这里没有这个参数,子代理的调用永远用根 session.messages
+    // 判定,分类器看不到子代理自己在做什么(复盘 session 20260721-215548-uq75)。
+    private getMessages: () => ChatMessage[] = () => [],
   ) {}
 
   // 上一次 requestBatch 里,每个请求 id 最终是被分类器自动放行的,还是真弹窗问了人--
@@ -42,10 +47,27 @@ export class PermissionGate implements ApprovalGate {
     this.consecutiveDenials = 0;
   }
 
-  /** 分类器拒绝时调用:递增计数。 */
+  // 熔断触发通知(一次性):跳闸的瞬间才写入,consumeTripNotice() 取走后清空——不重复打扰。
+  // 复盘 session 20260721-215548-uq75:熔断后 DAO 静默降级到全人工、30 分钟后静默恢复,
+  // 用户完全没有"auto 已失效"的提示,只能靠"怎么老在问我"自己反推。
+  private pendingTripNotice: { consecutiveDenials: number; totalDenials: number } | null = null;
+  private notifiedThisTrip = false;
+
+  /** 分类器拒绝时调用:递增计数;首次达到熔断阈值时记一次待发通知。 */
   recordClassifierDenial(): void {
     this.consecutiveDenials++;
     this.totalDenials++;
+    if (!this.notifiedThisTrip && (this.consecutiveDenials >= MAX_CONSECUTIVE_DENIALS || this.totalDenials >= MAX_TOTAL_DENIALS)) {
+      this.notifiedThisTrip = true;
+      this.pendingTripNotice = { consecutiveDenials: this.consecutiveDenials, totalDenials: this.totalDenials };
+    }
+  }
+
+  /** 取走并清空待发的熔断通知;没有则返回 null。调用方(loop.ts)负责渲染给用户看。 */
+  consumeTripNotice(): { consecutiveDenials: number; totalDenials: number } | null {
+    const n = this.pendingTripNotice;
+    this.pendingTripNotice = null;
+    return n;
   }
 
   /** 是否已熔断(应回退人工,不再调分类器)。 */
@@ -54,17 +76,20 @@ export class PermissionGate implements ApprovalGate {
       this.consecutiveDenials = 0;
       this.totalDenials = 0;
       this.lastResetTime = Date.now();
+      this.notifiedThisTrip = false; // 计数清零后,下次再跳闸要能重新通知
     }
     return this.consecutiveDenials >= MAX_CONSECUTIVE_DENIALS
         || this.totalDenials >= MAX_TOTAL_DENIALS;
   }
 
   /**
-   * 创建一个用指定 mode 覆盖的子 gate(供子代理用)。
-   * 规则/prompt/remember/classify 全部复用父级;只有裁决用的 mode 不同。
+   * 创建一个用指定 mode(及可选 transcript 来源)覆盖的子 gate(供子代理用)。
+   * 规则/prompt/remember/classify 全部复用父级;裁决用的 mode、分类器看到的转录可以不同。
    * 参考 runAgent 中 agentGetAppState() 把 toolPermissionContext.mode 替换为 agentDef.permissionMode。
+   * getMessages 不传时沿用父级的(向后兼容非子代理调用方)——子代理应始终传自己的 sub.messages,
+   * 否则分类器还是看着父级(或更上层)的转录判子代理的调用,判断必然失真。
    */
-  withModeOverride(mode: PermissionMode): PermissionGate {
+  withModeOverride(mode: PermissionMode, getMessages?: () => ChatMessage[]): PermissionGate {
     return new PermissionGate(
       () => mode,
       this.getRules,
@@ -72,6 +97,7 @@ export class PermissionGate implements ApprovalGate {
       this.onRemember,
       this.addSessionAllow,
       this.classify,
+      getMessages ?? this.getMessages,
     );
   }
 
@@ -124,7 +150,7 @@ export class PermissionGate implements ApprovalGate {
       for (const r of requests) {
         if (r.sensitive || tripped) { needHuman.push(r); continue; } // 敏感/危险 或已熔断:绝不交分类器
         let allow = false;
-        try { allow = await this.classify(r.toolName, r.argsJson ?? ""); }
+        try { allow = await this.classify(r.toolName, r.argsJson ?? "", this.getMessages()); }
         catch { allow = false; } // 分类器评估失败 -> 不自动放行,转人工(不是拒绝)
         if (allow) {
           out.set(r.id, true);

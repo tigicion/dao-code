@@ -4,6 +4,7 @@ import { PermissionGate } from "./gate.js";
 import { emptyPermissions, type PermissionsConfig, type PermissionMode } from "./settings.js";
 import { defineTool } from "../tools/types.js";
 import type { ApprovalDecision, ApprovalRequest } from "../approval/types.js";
+import type { ChatMessage } from "../client/types.js";
 
 const execTool = defineTool({
   name: "Bash", description: "", capability: "exec", approval: "required",
@@ -18,7 +19,8 @@ function makeGate(opts: {
   mode?: PermissionMode;
   rules?: PermissionsConfig;
   decisions?: Record<string, ApprovalDecision>;
-  classify?: (toolName: string, argsJson: string) => Promise<boolean>;
+  classify?: (toolName: string, argsJson: string, recentMessages: ChatMessage[]) => Promise<boolean>;
+  getMessages?: () => ChatMessage[];
 }) {
   const remembered: string[] = [];
   const sessionAllow: string[] = [];
@@ -31,6 +33,7 @@ function makeGate(opts: {
     async (rule) => { remembered.push(rule); },
     (rule) => { sessionAllow.push(rule); },
     opts.classify,
+    opts.getMessages,
   );
   return { gate, remembered, sessionAllow };
 }
@@ -133,6 +136,55 @@ describe("PermissionGate.withModeOverride", () => {
     const { gate } = makeGate({ mode: "acceptEdits" });
     const subGate = gate.withModeOverride("plan");
     expect(subGate.decide("Read", '{"path":"a.ts"}', readTool)).toBe("allow");
+  });
+
+  it("classify 收到的是当前 gate 绑定的 getMessages(),而不是固定写死的空数组", async () => {
+    // 根因(session 20260721-215548-uq75):此前 classify 闭包永久绑定根 session.messages,
+    // withModeOverride 只换 mode 不换 transcript 来源,子代理的调用被父级(甚至无关的)对话历史
+    // 判定——分类器看不到子代理自己在做什么,"相关性"判断必然失真。
+    const received: ChatMessage[][] = [];
+    const rootMessages: ChatMessage[] = [{ role: "user", content: "根会话消息" }];
+    const { gate } = makeGate({
+      mode: "auto",
+      classify: async (_t, _a, messages) => { received.push(messages); return true; },
+      getMessages: () => rootMessages,
+    });
+    await gate.requestBatch([
+      { id: "x", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run typecheck"}' },
+    ]);
+    expect(received[0]).toBe(rootMessages);
+  });
+
+  it("withModeOverride 传入新的 getMessages 后,子 gate 的 classify 用子级 transcript,不再是父级的", async () => {
+    const received: ChatMessage[][] = [];
+    const rootMessages: ChatMessage[] = [{ role: "user", content: "父级消息" }];
+    const subMessages: ChatMessage[] = [{ role: "system", content: "子代理系统提示" }, { role: "user", content: "子代理任务" }];
+    const { gate } = makeGate({
+      mode: "default", // 父级 mode 不影响,withModeOverride 会换成 auto
+      classify: async (_t, _a, messages) => { received.push(messages); return true; },
+      getMessages: () => rootMessages,
+    });
+    const subGate = gate.withModeOverride("auto", () => subMessages);
+    await subGate.requestBatch([
+      { id: "x", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run typecheck"}' },
+    ]);
+    expect(received[0]).toBe(subMessages);
+    expect(received[0]).not.toBe(rootMessages);
+  });
+
+  it("withModeOverride 不传 getMessages 时,子 gate 沿用父级的(向后兼容)", async () => {
+    const received: ChatMessage[][] = [];
+    const rootMessages: ChatMessage[] = [{ role: "user", content: "父级消息" }];
+    const { gate } = makeGate({
+      mode: "default",
+      classify: async (_t, _a, messages) => { received.push(messages); return true; },
+      getMessages: () => rootMessages,
+    });
+    const subGate = gate.withModeOverride("auto");
+    await subGate.requestBatch([
+      { id: "x", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"npm run typecheck"}' },
+    ]);
+    expect(received[0]).toBe(rootMessages);
   });
 
   it("子 gate 的 requestBatch 复用父级的 prompt/remember", async () => {
@@ -270,5 +322,26 @@ describe("PermissionGate 熔断(denial tracking)", () => {
     await gate.requestBatch([{ id: "g2", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
     expect(classifyCalls).toBe(6); // 没增加
     expect(gate.lastApprovalSource("g2")).toBe("human");
+  });
+
+  it("熔断触发时 consumeTripNotice() 一次性返回通知,消费后清空", async () => {
+    // 根因(session 20260721-215548-uq75):熔断后 DAO 静默降级到全人工,30 分钟后静默恢复,
+    // 用户完全不知道 auto 模式已经名存实亡——只能靠"怎么老问我"的困惑反推,而不是被明确告知。
+    const { gate } = makeGate({
+      mode: "auto",
+      classify: async () => false, // 总是 deny
+      decisions: { a: "once", b: "once", c: "once", d: "once" },
+    });
+    expect(gate.consumeTripNotice()).toBeNull(); // 还没触发
+    await gate.requestBatch([{ id: "a", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(gate.consumeTripNotice()).toBeNull(); // 连续 1 次,还没到阈值
+    await gate.requestBatch([{ id: "b", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(gate.consumeTripNotice()).toBeNull(); // 连续 2 次,还没到阈值
+    await gate.requestBatch([{ id: "c", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(gate.consumeTripNotice()).toEqual({ consecutiveDenials: 3, totalDenials: 3 }); // 第 3 次:刚好触发
+    expect(gate.consumeTripNotice()).toBeNull(); // 消费后清空,不重复通知同一次熔断
+    // 第 4 次请求仍处于熔断状态(已在上一条用例验证 classifyCalls 不再增加),但不应产生新的通知
+    await gate.requestBatch([{ id: "d", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"ls"}' }]);
+    expect(gate.consumeTripNotice()).toBeNull();
   });
 });

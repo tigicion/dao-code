@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.4.16] - 2026-07-21
+
+### 修复
+- **auto 模式分类器不再误判子代理的调用**:此前 auto 模式安全分类器的 transcript 来源固定绑死根会话 `session.messages`,子代理走 `withModeOverride` 只换了裁决 mode,没换分类器看到的转录——子代理跑 `npm run typecheck`/`npx vitest run` 这类完全无害、与自身任务高度相关的命令时,分类器却拿根会话(甚至无关)的对话历史去判"相关性",大概率误判 BLOCK、转人工确认,导致 auto 模式下子代理频繁打断用户。现在 `PermissionGate` 支持按 gate 实例注入独立的 `getMessages`,`runAgent.ts` 把子代理自己的 `sub.messages` 接给子代理的 gate。
+- **熔断跳闸不再静默降级**:分类器连续/累计拒绝达阈值触发熔断后,此前是悄悄退回全人工审批、30 分钟后又悄悄恢复,用户完全看不到任何提示,只能靠"怎么老在问我"自己反推。现在 `PermissionGate.consumeTripNotice()` 在跳闸瞬间产出一次性通知,`runTurn` 消费后通过 `events.notice` 明确告知用户。
+
 ## [0.4.14] - 2026-07-21
 
 ### 新增
