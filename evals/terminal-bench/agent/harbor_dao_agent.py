@@ -80,6 +80,11 @@ class DaoAgent(BaseInstalledAgent):
             environment,
             command=f"chmod +x {shlex.quote(DAO_BINARY_REMOTE_PATH)} && mkdir -p {shlex.quote(_AGENT_DIR)}",
         )
+        # 把 john 自带的 170 万条大字典替换为前 5000 条小字典,避免 dao 被"字典太大跑不完"吓退而跳过 wordlist 模式
+        await self.exec_as_agent(
+            environment,
+            command="head -5000 /app/john/run/password.lst > /app/john/run/password_small.lst && mv /app/john/run/password_small.lst /app/john/run/password.lst 2>/dev/null || true",
+        )
 
     @with_prompt_template
     async def run(

@@ -16,7 +16,6 @@ interface ForegroundResult {
   stdout: string;
   stderr: string;
   code: number;
-  timedOut: boolean;
   aborted: boolean;
   elapsedMs: number;
   // true = 这不是命令真的跑完了,是用户按 Ctrl+B 转后台——handler 要用一条干净的"已转后台"
@@ -63,7 +62,6 @@ let pythonInlineNudged = false;
 function runForeground(
   command: string,
   cwd: string,
-  timeout: number,
   signal?: AbortSignal,
   disableSandbox?: boolean,
   headless?: boolean,
@@ -72,16 +70,15 @@ function runForeground(
   return new Promise((resolve) => {
     const startTime = Date.now();
     // 用 spawn + detached(进程组)+ 杀整组:exec/kill 只杀 shell,Linux 下子进程(如 sleep)会存活,
-    // 导致 ESC/超时无法真正中断前台命令。杀进程组才能连同 shell 的所有孙进程一起结束。
+    // 导致 ESC 无法真正中断前台命令。杀进程组才能连同 shell 的所有孙进程一起结束。
     let aborted = false;
-    let timedOut = false;
     let done = false;
     let stdout = "";
     let stderr = "";
     let capped = false;
     // S4 沙箱:启用则裹进 Seatbelt/bubblewrap(工作区可写、其余只读);未启用照常 shell 执行。
     const sb = sandboxSpawn(command, cwd, disableSandbox);
-    if (sb && "error" in sb) { resolve({ stdout: "", stderr: `沙箱不可用:${sb.error}`, code: 1, aborted: false, timedOut: false, elapsedMs: 0 }); return; }
+    if (sb && "error" in sb) { resolve({ stdout: "", stderr: `沙箱不可用:${sb.error}`, code: 1, aborted: false, elapsedMs: 0 }); return; }
     const child = sb
       ? spawn(sb.file, sb.args, { cwd, detached: true, env: scrubbedEnv() })
       : spawn(command, { cwd, shell: true, detached: true, env: scrubbedEnv() }); // S5.2 env 脱敏
@@ -106,9 +103,6 @@ function runForeground(
     const onStderr = (d: Buffer) => append(d, "e");
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
-    // 超时:仅在用户显式指定 timeout 时生效;默认无超时,命令跑到自己退出为止。
-    // 之前默认 120s 超时会杀掉正在跑的长任务(如 john --wordlist),让 dao 误以为方案失败而换策略。
-    const timer = timeout > 0 ? setTimeout(() => { timedOut = true; killGroup("SIGTERM"); }, timeout) : undefined;
     function onAbort() { aborted = true; killGroup("SIGTERM"); }
     if (signal) {
       if (signal.aborted) onAbort();
@@ -121,16 +115,15 @@ function runForeground(
       if (done) return;
       done = true;
       registry?.unregister(regId);
-      clearTimeout(timer!);
       if (exitGraceTimer) clearTimeout(exitGraceTimer);
       if (signal) signal.removeEventListener("abort", onAbort);
       if (capped) stderr += "\n[输出超过 10MB 上限被截断,请用更精确的命令或重定向到文件后再 grep/Read]";
-      resolve({ stdout, stderr, code, timedOut, aborted, elapsedMs: Date.now() - startTime });
+      resolve({ stdout, stderr, code, aborted, elapsedMs: Date.now() - startTime });
     };
     // "close" 要等 stdio 流全部看到 EOF 才触发——如果命令拉起了一个没把 stdout/stderr 重定向
     // 走(继承了父进程管道)的后台服务(比如 init 脚本式的 `xxx start`),服务只要还活着就一直
-    // 占着管道不放,"close" 就永远不会来,即便超时/SIGTERM 已经正确杀掉了能杀到的那部分进程组,
-    // Promise 也会永久卡住、超时机制形同虚设。真实撞见过(terminal-bench mailman 任务,启动
+    // 占着管道不放,"close" 就永远不会来,即便中断/SIGTERM 已经正确杀掉了能杀到的那部分进程组,
+    // Promise 也会永久卡住。真实撞见过(terminal-bench mailman 任务,启动
     // postfix/mailman3 服务后 Bash 卡死超过1500秒,直到外层 harbor 硬超时才被杀)。
     // 用 Node 实测验证过:同一个子进程,"exit"(进程自己退出)几乎立刻触发,"close"(stdio 流
     // 关闭)要等占着管道的孤儿进程自己退出才触发,如果那个孤儿进程是长期运行的服务,永远等不到。
@@ -148,7 +141,6 @@ function runForeground(
     registry?.register(regId, () => {
       if (done) return; // 命令恰好在这一瞬间自然结束了,done 标志位保证只 settle 一次
       done = true;
-      clearTimeout(timer!);
       // 解绑原来的 abort 监听器:过继之后,终止这个进程的唯一入口应该是 KillShell(processManager
       // 生命周期管),不能让这条 ctx.signal 上的旧 onAbort 继续认领"我负责杀它"。
       if (signal) signal.removeEventListener("abort", onAbort);
@@ -157,7 +149,7 @@ function runForeground(
       const id = processManager.adopt(child, command, cwd, { stdout, stderr });
       resolve({
         stdout: `已转后台(id=${id})。进程完成后会自动通知你——做完别的事后可以用 BashOutput 看一眼进度趋势,发现异常用 KillShell 终止。`,
-        stderr: "", code: 0, aborted: false, timedOut: false, elapsedMs: Date.now() - startTime, converted: true,
+        stderr: "", code: 0, aborted: false, elapsedMs: Date.now() - startTime, converted: true,
       });
     });
   });
@@ -167,20 +159,24 @@ export const execShellTool = defineTool({
   name: "Bash",
   description:
     "在工作区目录执行 shell 命令(git、跑测试、npm/pip 等构建工具都走它)。前台执行等到命令结束,返回 stdout/stderr" +
-    "和退出码/超时/中断状态;background=true 立即返回进程 id 不阻塞(适合起个服务、跑个长任务)," +
+    "和退出码/中断状态;background=true 立即返回进程 id 不阻塞(适合起个服务、跑个长任务)," +
     "进程完成后会自动通知你--不需要轮询,可以去做别的事,结果到了下一个回合自动回灌。" +
     "用 BashOutput 读取中间输出(看进度/查报错),KillShell 结束它--别对同一命令又前台等又后台起。background=true 启动的" +
     "是真正独立于 DAO 自身进程存活的后台进程,不会随这次调用结束而自动消失——只在确实需要它持续跑着(起服务、" +
     "长时间任务)时才用,命令本身很快就能跑完就别用后台;不再需要时记得 KillShell 收尾,除非任务本身就要求" +
     "这个服务保持运行(比如要求'启动并保持在后台运行'的服务类任务,这种就应该让它继续跑,不用主动杀)。" +
-    "前台无默认超时,命令跑到自己退出为止;可用 timeout(毫秒)设定上限,上限 600000(10 分钟)。" +
-    "超时或中断都会杀掉整个进程组(不只是 shell 本身,命令里再拉起的子进程也一起终止)。" +
+    "前台没有超时机制,命令跑到自己退出为止——判断要不要用这个工具等一个命令,责任在你自己:预计会久的" +
+    "命令优先走 background(完成后自动通知,不占着前台);真放到前台跑,就是打算等到它自然结束,没有谁会替你" +
+    "强行掐断。中断(ESC,仅交互式会话可用)会杀掉整个进程组(不只是 shell 本身,命令里再拉起的子进程也一起" +
+    "终止)——但 KillShell 只能停掉已经在后台(background=true 或 Ctrl+B 转后台)的进程,救不了正在前台等待" +
+    "中的这次调用本身,所以别指望'等太久了再 KillShell'这种事后补救,前台判断错了就是要等到底。" +
     "输出在内存里最多攒 10MB,超了会截断并提示改用更精确的命令或重定向到文件后再查——命令本身别指望它能把一个几十MB" +
     "的输出原样倒给你。\n" +
     "长耗时命令策略:执行前自判命令是否可能耗时超过 180 秒(npm install、build、test suite、大数据处理等)。" +
     "如果是,优先 background 执行--不只是\"起后台\",而是:做完别的事后用 BashOutput 做 checkpoint 式进度检查," +
-    "看输出趋势判断是否正常推进;发现异常(连续报错、长时间无输出、偏离预期)用 KillShell 终止,别等超时。" +
-    "无进度输出但可拆解的命令,拆成小步骤分步跑。都不行再前台跑,设合理 timeout。" +
+    "看输出趋势判断是否正常推进;发现异常(连续报错、长时间无输出、偏离预期)用 KillShell 终止。" +
+    "无进度输出但可拆解的命令,拆成小步骤分步跑。都不行再前台跑,让它自然结束——这个分支意味着你已经确认" +
+    "它会自己退出,不是在赌一个数字。" +
     "持续关注型场景(如等某条 ERROR 出现)可考虑 Monitor 工具,它主动推送输出;一般 checkpoint 式检查用 BashOutput 即可。\n" +
     "查文件内容用 Grep、查文件名/路径用 Glob、读文件用 Read——不要用本工具拼 grep/rg/find/cat/head/tail," +
     "专用工具有护栏(大小限制、二进制探测)且不占审批。同理,简单文本/日志搜索也别现写 python3 -c 内联脚本模拟" +
@@ -199,21 +195,26 @@ export const execShellTool = defineTool({
     "可选参数:description(命令语义描述,用于审计日志);dangerouslyDisableSandbox(设为 true 绕过 DAO_SANDBOX 沙箱,仅在确认沙箱导致命令失败时使用,会强制审批)。",
   descriptionEn:
     "Executes a shell command in the workspace directory (git, running tests, build tools like npm/pip). Foreground execution waits for completion and returns stdout/stderr " +
-    "plus exit code / timeout / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) - " +
+    "plus exit code / abort status; background=true returns a process id immediately without blocking (good for starting a service or a long task) - " +
     "you'll be automatically notified when it finishes, so don't poll; go do something else and the result arrives at the next turn boundary. " +
     "Use BashOutput to check intermediate output (progress/errors), KillShell to stop it. Don't both wait in foreground and also start the same command in background. " +
     "A background=true process is genuinely independent of DAO's own process lifetime — it does NOT vanish just because this call returns. Only reach for it when " +
     "something actually needs to keep running (a service, a long task) — not for commands that will finish quickly anyway. Remember to KillShell it once it's " +
     "no longer needed, unless the task itself requires the service to keep running (e.g. a task asking you to 'start and keep it running in the background' — leave " +
     "that one up, don't kill it). " +
-    "Foreground has no default timeout - the command runs until it exits; use timeout (ms) to set a limit, max 600000 (10 min). " +
-    "child processes spawned by the command are terminated too. Output is capped at 10MB in memory; past that it's truncated with a hint to use a more precise " +
+    "Foreground has no timeout mechanism at all - the command runs until it exits. Whether this tool is the right way to wait for something is your call: " +
+    "a command you expect to be long should go to background (auto-notifies on completion) rather than tying up the foreground on the assumption something " +
+    "will cut it off. Abort (ESC, interactive sessions only) kills the entire process group (not just the shell — child processes spawned by the command too) " +
+    "— but KillShell only stops processes already in the background (background=true or converted via Ctrl+B); it can't rescue a call that's currently " +
+    "blocking in the foreground, so don't count on \"KillShell it if it's taking too long\" as a fallback — a wrong foreground call runs to completion, full stop. " +
+    "Output is capped at 10MB in memory; past that it's truncated with a hint to use a more precise " +
     "command or redirect to a file and inspect that instead — don't expect a raw multi-MB output to come back intact.\n" +
     "Long-running command strategy: before executing, judge whether the command may take over 180 seconds (npm install, build, test suite, " +
     "large data processing, etc.). If so, prefer background execution - not just \"start it in background\", but: after doing other work, " +
     "use BashOutput for checkpoint-style progress checks, watching the output trend to judge whether it's advancing normally; if you spot " +
-    "anomalies (repeated errors, long silence, diverging from expectation) use KillShell to terminate - don't wait for timeout. For commands " +
-    "with no progress output but decomposable, break into smaller steps. If neither works, run foreground with a reasonable timeout. " +
+    "anomalies (repeated errors, long silence, diverging from expectation) use KillShell to terminate. For commands " +
+    "with no progress output but decomposable, break into smaller steps. If neither works, run foreground and let it finish naturally — reaching this " +
+    "branch means you've already concluded it will exit on its own, not that you're betting on a number. " +
     "For continuous-attention scenarios (like waiting for an ERROR line to appear) consider the Monitor tool, which pushes output to you " +
     "proactively; for general checkpoint-style checks, BashOutput suffices.\n" +
     "Use Grep for content search, Glob for filename/path search, Read for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated " +
@@ -237,7 +238,6 @@ export const execShellTool = defineTool({
     command: z.string().describe("要执行的 shell 命令"),
     description: z.string().optional().describe("命令的语义描述(用于审计日志,如 'List files in current directory')"),
     background: z.boolean().optional().describe("是否后台运行(长任务/服务)"),
-    timeout: z.number().int().min(1).optional().describe("前台超时(毫秒),默认 120000"),
     dangerouslyDisableSandbox: z.boolean().optional().describe("设为 true 绕过沙箱(DAO_SANDBOX=1 时生效);仅在确认沙箱导致命令失败时使用,会强制审批"),
   }),
   // 参数级自检:危险命令(rm -rf /、curl|sh、提权、写裸盘…)→ 强制确认,即便有放宽规则放行
@@ -286,12 +286,12 @@ export const execShellTool = defineTool({
       }
       pythonInlineStreak += 1;
     } else { pythonInlineStreak = 0; pythonInlineNudged = false; }
-    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), args.timeout ?? 0, ctx.signal, args.dangerouslyDisableSandbox, ctx.headless, ctx.foregroundRegistry);
+    const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), ctx.signal, args.dangerouslyDisableSandbox, ctx.headless, ctx.foregroundRegistry);
     if (r.converted) return r.stdout; // Ctrl+B 转后台:干净返回,不走下面 exit code/运行时长的拼接
     const parts: string[] = [];
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());
     if (r.stderr.trim()) parts.push(`[stderr]\n${r.stderr.trimEnd()}`);
-    parts.push(r.aborted ? `[已中断,运行 ${Math.round(r.elapsedMs / 1000)}s]` : r.timedOut ? `[超时,已终止,运行 ${Math.round(r.elapsedMs / 1000)}s]` : `[exit ${r.code},运行 ${Math.round(r.elapsedMs / 1000)}s]`);
+    parts.push(r.aborted ? `[已中断,运行 ${Math.round(r.elapsedMs / 1000)}s]` : `[exit ${r.code},运行 ${Math.round(r.elapsedMs / 1000)}s]`);
     if (isPythonInline && pythonInlineStreak >= 3 && !pythonInlineNudged) {
       pythonInlineNudged = true;
       parts.push(
@@ -301,26 +301,28 @@ export const execShellTool = defineTool({
         `可以考虑派 explore 子代理去做。`,
       );
     }
-    // 包管理器命令(apt-get/apt/dpkg)被超时打断,可能把 dpkg 事务留在半途(interrupted 态)——
+    // 包管理器命令(apt-get/apt/dpkg)被中断打断,可能把 dpkg 事务留在半途(interrupted 态)——
     // 不自动恢复的话,这个损坏会悄悄传染到本次会话之后所有包管理操作,甚至连累到别处
     // (真实撞见:merge-diff-arc-agi-task 任务,算法本身完全正确,纯因为早先一次 apt-get
-    // 被 120s 超时强杀在事务中途、dpkg 卡在 interrupted 态,导致 verifier 自己装 curl/uv 也
+    // 被前台超时强杀在事务中途、dpkg 卡在 interrupted 态,导致 verifier 自己装 curl/uv 也
     // 失败、pytest 从未跑起来,判了 0 分——这是第2次独立复现同一个具体机制,不是孤立事件)。
-    // 只在"我们自己的超时"打断时才自动修(不含用户主动 abort,那种不该附加额外动作);
-    // 用 dpkg --configure -a 这个幂等、安全的标准恢复命令,失败也不影响本次调用正常返回。
-    if (r.timedOut && PKG_MGR_TIMEOUT_RE.test(args.command)) {
-      let fix = await runForeground("dpkg --configure -a", (ctx.cwd ?? ctx.workspaceRoot), 30000);
+    // 触发条件原本是"仅我们自己的超时打断"(显式排除用户主动 abort)——去掉 timeout 机制后,
+    // DAO 自己已经不会再主动打断任何前台命令,abort(ESC/信号中断)成了这类命令唯一还会被
+    // 打断的途径,所以改成在 abort 时也触发;dpkg --configure -a 本身幂等、安全,多跑一次
+    // 不会有副作用,失败也不影响本次调用正常返回。
+    if (r.aborted && PKG_MGR_TIMEOUT_RE.test(args.command)) {
+      let fix = await runForeground("dpkg --configure -a", (ctx.cwd ?? ctx.workspaceRoot));
       if (fix.code !== 0) {
         // 真实撞见(merge-diff-arc-agi-task 复测):第一次恢复尝试就失败过——猜测是刚被杀掉的
         // 包管理器进程还没来得及释放 dpkg 锁,恢复命令撞了个空。等一小段时间再试一次,
         // dpkg --configure -a 本身幂等安全,重试不会有副作用,只是给锁释放留出窗口。
         await new Promise((resolve) => setTimeout(resolve, 2000));
-        fix = await runForeground("dpkg --configure -a", (ctx.cwd ?? ctx.workspaceRoot), 30000);
+        fix = await runForeground("dpkg --configure -a", (ctx.cwd ?? ctx.workspaceRoot));
       }
       parts.push(
         fix.code === 0
-          ? "[自动恢复] 检测到包管理器命令被超时打断,已跑 `dpkg --configure -a` 修复 dpkg 状态,可以重试。"
-          : `[自动恢复失败] 检测到包管理器命令被超时打断,尝试 \`dpkg --configure -a\` 修复但仍失败(已重试1次)——继续前建议手动确认 dpkg 状态。${fix.stderr.trim() ? `\n[恢复命令输出]\n${fix.stderr.trim()}` : ""}`,
+          ? "[自动恢复] 检测到包管理器命令被中断打断,已跑 `dpkg --configure -a` 修复 dpkg 状态,可以重试。"
+          : `[自动恢复失败] 检测到包管理器命令被中断打断,尝试 \`dpkg --configure -a\` 修复但仍失败(已重试1次)——继续前建议手动确认 dpkg 状态。${fix.stderr.trim() ? `\n[恢复命令输出]\n${fix.stderr.trim()}` : ""}`,
       );
     }
     return spillOutput(parts.join("\n"), (ctx.cwd ?? ctx.workspaceRoot));

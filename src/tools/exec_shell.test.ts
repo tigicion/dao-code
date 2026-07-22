@@ -62,21 +62,25 @@ describe("Bash tool", () => {
     expect(elapsed).toBeLessThan(3000); // 远小于孙进程的 30s 存活时间,证明没有卡在等 close
   });
 
-  it("apt-get 类命令被超时打断 → 自动尝试 dpkg --configure -a 修复,并在输出里说明", async () => {
+  it("apt-get 类命令被中断打断 → 自动尝试 dpkg --configure -a 修复,并在输出里说明", async () => {
     // 根因(真实撞见:terminal-bench merge-diff-arc-agi-task 任务,算法本身完全正确,纯因为
-    // 早先一次 apt-get 被 120s 超时强杀在事务中途、dpkg 卡在 interrupted 态,导致 verifier
-    // 自己装 curl/uv 也失败、pytest 从未跑起来,判了 0 分——这是"apt-get被超时打断损坏dpkg"
-    // 这个具体机制的第2次独立复现,不是孤立事件)。造一个名字叫 apt-get、实际会跑超过
-    // timeout 的假可执行文件、塞进 PATH 最前面,来触发这条路径,不依赖真实 apt-get/dpkg
-    // 是否装在测试机上——断言只关心"检测到超时+命令名匹配 → 触发了自动恢复尝试并在输出
-    // 里说明",不关心 dpkg 命令本身在这台机器上成不成功。
+    // 早先一次 apt-get 被前台超时强杀在事务中途、dpkg 卡在 interrupted 态,导致 verifier
+    // 自己装 curl/uv 也失败、pytest 从未跑起来,判了 0 分——这是"apt-get被中断打断损坏dpkg"
+    // 这个具体机制的第2次独立复现,不是孤立事件)。去掉 timeout 机制后,DAO 已经不会再主动
+    // 打断前台命令,唯一还会触发这条恢复路径的是 abort(ESC/信号中断)——用 AbortController
+    // 模拟,造一个名字叫 apt-get、实际会跑超过 abort 时机的假可执行文件、塞进 PATH 最前面,
+    // 不依赖真实 apt-get/dpkg 是否装在测试机上——断言只关心"检测到 abort+命令名匹配 →
+    // 触发了自动恢复尝试并在输出里说明",不关心 dpkg 命令本身在这台机器上成不成功。
     const fakeBin = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
     writeFileSync(path.join(fakeBin, "apt-get"), "#!/bin/sh\nsleep 5\n", { mode: 0o755 });
-    const out = await execShellTool.handler(
-      { command: `PATH="${fakeBin}:$PATH" apt-get install foo`, timeout: 100 },
-      ctx,
+    const controller = new AbortController();
+    const p = execShellTool.handler(
+      { command: `PATH="${fakeBin}:$PATH" apt-get install foo` },
+      { ...ctx, signal: controller.signal },
     );
-    expect(out).toContain("[超时,已终止,");
+    setTimeout(() => controller.abort(), 100);
+    const out = await p;
+    expect(out).toContain("[已中断,");
     expect(out).toMatch(/\[自动恢复(失败)?\]/);
     expect(out).toContain("dpkg --configure -a");
   });
@@ -103,10 +107,13 @@ describe("Bash tool", () => {
     const originalPath = process.env.PATH;
     process.env.PATH = `${fakeBin}:${originalPath}`;
     try {
-      const out = await execShellTool.handler(
-        { command: "apt-get install foo", timeout: 100 },
-        ctx,
+      const controller = new AbortController();
+      const p = execShellTool.handler(
+        { command: "apt-get install foo" },
+        { ...ctx, signal: controller.signal },
       );
+      setTimeout(() => controller.abort(), 100);
+      const out = await p;
       expect(out).toContain("[自动恢复]");
       expect(out).not.toContain("[自动恢复失败]");
       // 计数文件应该是 2:第一次失败 + 重试一次成功。
@@ -116,9 +123,15 @@ describe("Bash tool", () => {
     }
   });
 
-  it("非包管理器命令超时 → 不触发 dpkg 自动恢复", async () => {
-    const out = await execShellTool.handler({ command: "sh -c 'sleep 5'", timeout: 100 }, ctx);
-    expect(out).toContain("[超时,已终止,");
+  it("非包管理器命令被中断 → 不触发 dpkg 自动恢复", async () => {
+    const controller = new AbortController();
+    const p = execShellTool.handler(
+      { command: "sh -c 'sleep 5'" },
+      { ...ctx, signal: controller.signal },
+    );
+    setTimeout(() => controller.abort(), 100);
+    const out = await p;
+    expect(out).toContain("[已中断,");
     expect(out).not.toContain("自动恢复");
     expect(out).not.toContain("dpkg");
   });
