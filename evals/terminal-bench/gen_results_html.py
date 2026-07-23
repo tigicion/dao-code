@@ -14,6 +14,14 @@ log_text = open("evolution-log.md").read()
 # 用户确认 adaptive-rejection-sampler 已通过 Write-first 复测
 ARS_PASSED = True
 
+# task_overrides.json 里可选的 "caveat" 字段：跟 reward 无关的诚实披露性备注
+# (比如任务环境本身被自进化循环修改过、reward 不能直接跟官方 terminal-bench 数字比)，
+# 显示在排查结论列最前面，不受 low_priority/abandoned 的选题逻辑影响。
+try:
+    _overrides = json.load(open("task_overrides.json"))
+except FileNotFoundError:
+    _overrides = {}
+
 def get_diagnosis(task, log):
     """从 evolution-log.md 提取每道题的排查结论摘要。"""
     lines = log.split("\n")
@@ -46,6 +54,9 @@ no_result = []
 
 for r in results:
     r["diagnosis"] = get_diagnosis(r["task"], log_text)
+    caveat = _overrides.get(r["task"], {}).get("caveat")
+    if caveat:
+        r["diagnosis"] = f"⚠️ {caveat} | {r['diagnosis']}" if r["diagnosis"] else f"⚠️ {caveat}"
     if r["reward"] == 1:
         passed.append(r)
     elif r["reward"] == 0:

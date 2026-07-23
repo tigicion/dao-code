@@ -8,5 +8,6 @@
   "feal-differential-cryptanalysis": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
   "feal-linear-cryptanalysis": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
   "path-tracing": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
-  "torch-pipeline-parallelism": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" }
+  "torch-pipeline-parallelism": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
+  "crack-7z-hash": {"caveat": "agent/harbor_dao_agent.py 在装机阶段把 john 真实密码字典(约170万条)裁剪成前5000条,是对任务环境本身的修改(不是DAO代码/行为的改动)。这题的reward不能跟官方terminal-bench难度下的结果直接比较——通过也只代表在被人为简化过的字典下通过。" }
 }

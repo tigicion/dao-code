@@ -80,7 +80,13 @@ class DaoAgent(BaseInstalledAgent):
             environment,
             command=f"chmod +x {shlex.quote(DAO_BINARY_REMOTE_PATH)} && mkdir -p {shlex.quote(_AGENT_DIR)}",
         )
-        # 把 john 自带的 170 万条大字典替换为前 5000 条小字典,避免 dao 被"字典太大跑不完"吓退而跳过 wordlist 模式
+        # 【披露:改的是任务数据,不是 DAO 行为】把 john 自带的 170 万条大字典替换为前 5000
+        # 条小字典,避免 dao 被"字典太大跑不完"吓退而跳过 wordlist 模式(crack-7z-hash 专用)。
+        # 这是对 crack-7z-hash 任务本身难度的人为削减,不是修复 DAO 的代码/提示词——该题在
+        # 这套自进化循环里的 reward 因此不能跟官方 terminal-bench 难度下的结果直接比较,
+        # 通过也只代表在被简化过的字典下通过。保留理由 + 明确标注见
+        # evals/terminal-bench/task_overrides.json 的 crack-7z-hash caveat 字段
+        # (会显示在 results.html 排查结论列)。
         await self.exec_as_agent(
             environment,
             command="head -5000 /app/john/run/password.lst > /app/john/run/password_small.lst && mv /app/john/run/password_small.lst /app/john/run/password.lst 2>/dev/null || true",

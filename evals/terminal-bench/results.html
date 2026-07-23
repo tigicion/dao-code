@@ -57,9 +57,9 @@
 <body>
 <h1>Terminal-Bench 结果汇总</h1>
 <div class="meta">
-  最后更新: 2026-07-23 19:47 |
-  DAO版本: <code>57a0da5 fix(skills): verify 技能补回&quot;缺工具先试装&quot;规则,修复 verify_done 移除时的回归</code> |
-  二进制commit: <code>57a0da5</code>
+  最后更新: 2026-07-23 20:01 |
+  DAO版本: <code>bb368a3 chore(terminal-bench): 标记 reasoning不收敛家族低优先级 + 刷新结果表</code> |
+  二进制commit: <code>bb368a3</code>
 </div>
 <div class="stats">
   <div class="stat"><div class="label">总计</div><div class="num">89</div></div>
@@ -80,7 +80,7 @@
 <tbody>
 <tr><td>1</td><td class='task'>chess-best-move</td><td class='diff-medium'>medium</td><td>games</td><td>2026-07-16 04:10</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>15</td><td>15</td><td>476K</td><td>56K</td><td class='trace'>archive/pre-round-0723/iter11-2048/chess-best-move__fc7HRv6</td><td class='diag'>**反复推理反模式族当前累计：22例确认样本**（含install-windows-3.11第20例、</td></tr>
 <tr><td>2</td><td class='task'>circuit-fibsqrt</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 01:51</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='badge pass' title='2026-07-14 06:03 / iter2-single-circuit-r7'>✓ 曾过</span></td><td>2</td><td>2</td><td>74K</td><td>22K</td><td class='trace'>jobs/circuit-fibsqrt/iter-circuit-fibsqrt-0721/circuit-fibsqrt__Qbi9gwg</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
-<tr><td>3</td><td class='task'>crack-7z-hash</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-21 17:08</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>32</td><td>43</td><td>1.2M</td><td>30K</td><td class='trace'>jobs/crack-7z-hash/iter-crack-7z-hash-0721/crack-7z-hash__CWhWgDq</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>3</td><td class='task'>crack-7z-hash</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-21 17:08</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>32</td><td>43</td><td>1.2M</td><td>30K</td><td class='trace'>jobs/crack-7z-hash/iter-crack-7z-hash-0721/crack-7z-hash__CWhWgDq</td><td class='diag'>⚠️ agent/harbor_dao_agent.py 在装机阶段把 john 真实密码字典(约170万条)裁剪成前5000条,是对任务环境本身的修改(不是DAO代码/行为的改动)。这题的reward不能跟官方terminal-bench</td></tr>
 <tr><td>4</td><td class='task'>db-wal-recovery</td><td class='diff-medium'>medium</td><td>file-operations</td><td>2026-07-21 03:11</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='badge pass' title='2026-07-15 17:13 / reverify-iter7-2048'>✓ 曾过</span></td><td>8</td><td>16</td><td>241K</td><td>27K</td><td class='trace'>jobs/db-wal-recovery/iter-db-wal-recovery-0721/db-wal-recovery__h9vZfwP</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
 <tr><td>5</td><td class='task'>dna-assembly</td><td class='diff-hard'>hard</td><td>scientific-computing</td><td>2026-07-21 03:42</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>18</td><td>20</td><td>653K</td><td>115K</td><td class='trace'>jobs/dna-assembly/iter-dna-assembly-0721/dna-assembly__FYocpxU</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
 <tr><td>6</td><td class='task'>dna-insert</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-21 03:56</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>25</td><td>25</td><td>885K</td><td>41K</td><td class='trace'>jobs/dna-insert/iter-dna-insert-0721/dna-insert__mZba6wN</td><td class='diag'>同样没被触发。跟 sanitize-git-repo（iteration 17&quot;Weak Verification&quot;）、dna-insert</td></tr>
