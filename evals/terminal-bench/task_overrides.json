@@ -1,4 +1,12 @@
 {
   "chess-best-move": {"tag": "low_priority", "reason": "视觉题" },
-  "extract-moves-from-video": {"tag": "low_priority", "reason": "视觉题" }
+  "extract-moves-from-video": {"tag": "low_priority", "reason": "视觉题" },
+  "regex-chess": {"tag": "low_priority", "reason": "reasoning不收敛家族,3候选修复(收敛提示/降reasoning_effort/硬max_tokens)已验证机制生效但翻不动reward,无新点子前不重跑,见evolution-log.md" },
+  "gpt2-codegolf": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
+  "db-wal-recovery": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
+  "circuit-fibsqrt": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
+  "feal-differential-cryptanalysis": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
+  "feal-linear-cryptanalysis": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
+  "path-tracing": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
+  "torch-pipeline-parallelism": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" }
 }
