@@ -1,5 +1,6 @@
 agent/bin*/
 jobs/
+archive/
 runs/
 *.log
 venv/
@@ -7,3 +8,9 @@ venv/
 .env-*
 dataset-2-1/
 results.json
+evolution-log.md
+improvements.jsonl
+timeline.json
+timeline.md
+IMPROVEMENTS.md
+QUANT_SUMMARY.md

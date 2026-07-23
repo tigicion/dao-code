@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terminal-Bench 结果汇总</title>
+<style>
+  :root {
+    --bg: #0d1117; --fg: #c9d1d9; --border: #30363d; --header: #161b22;
+    --pass: #3fb950; --fail: #f85149; --warn: #d29922; --muted: #6e7681;
+    --link: #58a6ff; --row-hover: #1c2128;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); font-family: -apple-system, "SF Mono", "Cascadia Code", monospace;
+    margin: 0; padding: 20px; font-size: 13px; line-height: 1.5;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .meta { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .stats { display: flex; gap: 24px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat { background: var(--header); border: 1px solid var(--border); border-radius: 6px; padding: 12px 20px; }
+  .stat .num { font-size: 28px; font-weight: 700; }
+  .stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .stat.pass .num { color: var(--pass); }
+  .stat.fail .num { color: var(--fail); }
+  .stat.rate .num { color: var(--warn); }
+  h2 { font-size: 16px; margin: 28px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { background: var(--header); font-size: 11px; text-transform: uppercase; color: var(--muted); position: sticky; top: 0; }
+  td { overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  tr:hover td { background: var(--row-hover); }
+  td.diag { max-width: 300px; white-space: normal; color: var(--muted); font-size: 12px; }
+  td.task { font-weight: 600; color: var(--link); }
+  td.trace { font-size: 11px; color: var(--muted); max-width: 250px; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+  .badge.pass { background: rgba(63,185,80,0.15); color: var(--pass); }
+  .badge.fail { background: rgba(248,81,73,0.15); color: var(--fail); }
+  .badge.none { background: rgba(110,118,129,0.15); color: var(--muted); }
+  .badge.timeout { background: rgba(210,153,34,0.15); color: var(--warn); }
+  .badge.ext { background: rgba(248,81,73,0.1); color: var(--fail); }
+  .badge.cancel { background: rgba(110,118,129,0.15); color: var(--muted); }
+  .badge.other { background: rgba(110,118,129,0.15); color: var(--muted); }
+  .muted { color: var(--muted); }
+  .diff-easy { color: var(--pass); } .diff-medium { color: var(--warn); } .diff-hard { color: var(--fail); }
+  .todo { background: var(--header); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 8px; }
+  .todo code { color: var(--link); }
+  .evolve-table td { white-space: normal; }
+  .evolve-table code { color: var(--link); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .toggle-passed { cursor: pointer; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .toggle-passed:hover { color: var(--fg); }
+  #passed-body { display: none; }
+</style>
+</head>
+<body>
+<h1>Terminal-Bench 结果汇总</h1>
+<div class="meta">
+  最后更新: 2026-07-23 12:02 |
+  DAO版本: <code>5601341 chore(release): v0.4.18</code> |
+  二进制commit: <code>5601341</code>
+</div>
+<div class="stats">
+  <div class="stat"><div class="label">总计</div><div class="num">89</div></div>
+  <div class="stat pass"><div class="label">通过</div><div class="num">58</div></div>
+  <div class="stat fail"><div class="label">未通过</div><div class="num">30</div></div>
+  <div class="stat rate"><div class="label">通过率</div><div class="num">65.9%</div></div>
+</div>
+<h2>未通过题</h2>
+<table>
+<thead><tr><th>#</th><th>题目</th><th>难度</th><th>类别</th><th>运行时间</th><th>provider</th><th>exc</th><th>轮次</th><th>工具调用</th><th>token_in</th><th>token_out</th><th>trace 目录</th><th>排查结论</th></tr></thead>
+<tbody>
+<tr><td>1</td><td class='task'>chess-best-move</td><td class='diff-medium'>medium</td><td>games</td><td>2026-07-16 04:10</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td>15</td><td>15</td><td>476K</td><td>56K</td><td class='trace'>archive/pre-round-0723/iter11-2048/chess-best-move__fc7HRv6</td><td class='diag'>**反复推理反模式族当前累计：22例确认样本**（含install-windows-3.11第20例、</td></tr>
+<tr><td>2</td><td class='task'>circuit-fibsqrt</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 01:51</td><td>volcengine</td><td><span class='muted'>-</span></td><td>2</td><td>2</td><td>74K</td><td>22K</td><td class='trace'>jobs/iter-circuit-fibsqrt-0721/circuit-fibsqrt__Qbi9gwg</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>3</td><td class='task'>crack-7z-hash</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-21 17:08</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>32</td><td>43</td><td>1.2M</td><td>30K</td><td class='trace'>jobs/iter-crack-7z-hash-0721/crack-7z-hash__CWhWgDq</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>4</td><td class='task'>db-wal-recovery</td><td class='diff-medium'>medium</td><td>file-operations</td><td>2026-07-21 03:11</td><td>volcengine</td><td><span class='muted'>-</span></td><td>8</td><td>16</td><td>241K</td><td>27K</td><td class='trace'>jobs/iter-db-wal-recovery-0721/db-wal-recovery__h9vZfwP</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>5</td><td class='task'>dna-assembly</td><td class='diff-hard'>hard</td><td>scientific-computing</td><td>2026-07-21 03:42</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>18</td><td>20</td><td>653K</td><td>115K</td><td class='trace'>jobs/iter-dna-assembly-0721/dna-assembly__FYocpxU</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>6</td><td class='task'>dna-insert</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-21 03:56</td><td>volcengine</td><td><span class='muted'>-</span></td><td>25</td><td>25</td><td>885K</td><td>41K</td><td class='trace'>jobs/iter-dna-insert-0721/dna-insert__mZba6wN</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>7</td><td class='task'>extract-moves-from-video</td><td class='diff-hard'>hard</td><td>file-operations</td><td>2026-07-16 02:03</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td>76</td><td>80</td><td>3.4M</td><td>36K</td><td class='trace'>archive/pre-round-0723/iter10-2048/extract-moves-from-video__koVx5Py</td><td class='diag'>## torch-tensor-parallelism dpkg 复现追根溯源:不是修复失效,是意图-行动脱节</td></tr>
+<tr><td>8</td><td class='task'>feal-differential-cryptanalysis</td><td class='diff-hard'>hard</td><td>mathematics</td><td>2026-07-21 04:02</td><td>volcengine</td><td><span class='muted'>-</span></td><td>2</td><td>1</td><td>68K</td><td>22K</td><td class='trace'>jobs/iter-feal-differential-cryptanalysis-0721/feal-differential-cryptanalysis__NoQb5WF</td><td class='diag'>**结果**: reward=0, 无 exception, 仅1次工具调用(Read), 跨度0s, 1800s预算(0%)</td></tr>
+<tr><td>9</td><td class='task'>feal-linear-cryptanalysis</td><td class='diff-hard'>hard</td><td>mathematics</td><td>2026-07-21 04:09</td><td>volcengine</td><td><span class='muted'>-</span></td><td>3</td><td>5</td><td>103K</td><td>28K</td><td class='trace'>jobs/iter-feal-linear-cryptanalysis-0721/feal-linear-cryptanalysis__CTcB9QW</td><td class='diag'>**结果**: reward=0, 无 exception, 5次工具调用, 84s/1800s(5%)</td></tr>
+<tr><td>10</td><td class='task'>gcode-to-text</td><td class='diff-medium'>medium</td><td>file-operations</td><td>2026-07-21 04:30</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>33</td><td>38</td><td>2.4M</td><td>60K</td><td class='trace'>jobs/iter-gcode-to-text-0721/gcode-to-text__8JH28Ai</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>11</td><td class='task'>gpt2-codegolf</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 04:37</td><td>volcengine</td><td><span class='muted'>-</span></td><td>1</td><td>0</td><td>44K</td><td>22K</td><td class='trace'>jobs/iter-gpt2-codegolf-0721/gpt2-codegolf__aR4FRn5</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>12</td><td class='task'>largest-eigenval</td><td class='diff-medium'>medium</td><td>mathematics</td><td>2026-07-21 04:55</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>13</td><td>14</td><td>330K</td><td>54K</td><td class='trace'>jobs/iter-largest-eigenval-0721/largest-eigenval__AG6qGT7</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>13</td><td class='task'>make-doom-for-mips</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 05:11</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>18</td><td>34</td><td>1.1M</td><td>60K</td><td class='trace'>jobs/iter-make-doom-for-mips-0721/make-doom-for-mips__MB9QMf4</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>14</td><td class='task'>make-mips-interpreter</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 05:43</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>25</td><td>37</td><td>1.6M</td><td>129K</td><td class='trace'>jobs/iter-make-mips-interpreter-0721/make-mips-interpreter__zhoKA5L</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>15</td><td class='task'>overfull-hbox</td><td class='diff-easy'>easy</td><td>debugging</td><td>2026-07-21 05:57</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>30</td><td>32</td><td>1.5M</td><td>51K</td><td class='trace'>jobs/iter-overfull-hbox-0721/overfull-hbox__BVuQYWD</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>16</td><td class='task'>password-recovery</td><td class='diff-hard'>hard</td><td>security</td><td>2026-07-21 06:13</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>28</td><td>50</td><td>790K</td><td>57K</td><td class='trace'>jobs/iter-password-recovery-0721/password-recovery__EtjSbDR</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>17</td><td class='task'>path-tracing</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 06:23</td><td>volcengine</td><td><span class='muted'>-</span></td><td>11</td><td>11</td><td>342K</td><td>30K</td><td class='trace'>jobs/iter-path-tracing-0721/path-tracing__SCCuuHF</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>18</td><td class='task'>path-tracing-reverse</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 06:54</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>31</td><td>47</td><td>2.3M</td><td>121K</td><td class='trace'>jobs/iter-path-tracing-reverse-0721/path-tracing-reverse__pnWcxD7</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>19</td><td class='task'>polyglot-rust-c</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 07:10</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>10</td><td>21</td><td>240K</td><td>59K</td><td class='trace'>jobs/iter-polyglot-rust-c-0721/polyglot-rust-c__yWiH3p7</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>20</td><td class='task'>qemu-alpine-ssh</td><td class='diff-medium'>medium</td><td>system-administration</td><td>2026-07-21 07:27</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>40</td><td>57</td><td>1.3M</td><td>51K</td><td class='trace'>jobs/iter-qemu-alpine-ssh-0721/qemu-alpine-ssh__NeRSr8Q</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>21</td><td class='task'>qemu-startup</td><td class='diff-medium'>medium</td><td>system-administration</td><td>2026-07-21 07:44</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>48</td><td>62</td><td>1.5M</td><td>50K</td><td class='trace'>jobs/iter-qemu-startup-0721/qemu-startup__JPEasHJ</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>22</td><td class='task'>query-optimize</td><td class='diff-medium'>medium</td><td>data-science</td><td>2026-07-21 08:10</td><td>volcengine</td><td><span class='badge timeout'>Timeout</span></td><td>14</td><td>21</td><td>377K</td><td>46K</td><td class='trace'>jobs/iter-query-optimize-0721/query-optimize__kECpMR5</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>23</td><td class='task'>raman-fitting</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-21 08:20</td><td>volcengine</td><td><span class='muted'>-</span></td><td>21</td><td>20</td><td>1.1M</td><td>30K</td><td class='trace'>jobs/iter-raman-fitting-0721/raman-fitting__ASpnwGY</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>24</td><td class='task'>regex-chess</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-22 15:28</td><td>volcengine</td><td><span class='muted'>-</span></td><td>2</td><td>1</td><td>73K</td><td>22K</td><td class='trace'>jobs/rerun-regex-chess-0722/regex-chess__hFw8dov</td><td class='diag'>| torch-pipeline-parallelism | 0 | 无 | ~459s/900s(51%) | 3 | 0 | Step Repetition (reasoning不收敛) |</td></tr>
+<tr><td>25</td><td class='task'>torch-pipeline-parallelism</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-22 14:54</td><td>volcengine</td><td><span class='muted'>-</span></td><td>3</td><td>3</td><td>93K</td><td>22K</td><td class='trace'>jobs/rerun-torch-pipe-0722v2/torch-pipeline-parallelism__crdeUZ3</td><td class='diag'>0 次 verify_done。**纯模型判断失误，非框架缺陷，不 EVOLVE。**</td></tr>
+<tr><td>26</td><td class='task'>torch-tensor-parallelism</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-22 15:19</td><td>volcengine</td><td><span class='muted'>-</span></td><td>7</td><td>6</td><td>175K</td><td>5K</td><td class='trace'>jobs/rerun-torch-tensor-0722/torch-tensor-parallelism__oFRwma3</td><td class='diag'>| sanitize-git-repo | 0 | 无 | 300s/900s(33%) | 40 | 0 | Weak Verification |</td></tr>
+<tr><td>27</td><td class='task'>train-fasttext</td><td class='diff-hard'>hard</td><td>model-training</td><td>2026-07-16 08:52</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td>23</td><td>26</td><td>1.0M</td><td>9K</td><td class='trace'>jobs/iter13-fasttext-rerun/train-fasttext__HtxYbXX</td><td class='diag'>## dna-assembly 深挖结果：反复推理反模式确认样本第29例（同一酶切机制被独立重推10次）</td></tr>
+<tr><td>28</td><td class='task'>tune-mjcf</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-16 08:18</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td>9</td><td>9</td><td>262K</td><td>11K</td><td class='trace'>archive/pre-round-0723/iter14-2048/tune-mjcf__43Fz63B</td><td class='diag'>- ✅ reward=1（6题）：large-scale-text-editing, modernize-scientific-stack,</td></tr>
+<tr><td>29</td><td class='task'>video-processing</td><td class='diff-hard'>hard</td><td>video-processing</td><td>2026-07-16 05:29</td><td>qianfan</td><td><span class='muted'>-</span></td><td>36</td><td>37</td><td>2.1M</td><td>93K</td><td class='trace'>archive/pre-round-0723/iter12-2048/video-processing__wqV3HZ7</td><td class='diag'>- ❌ reward=0（9题）：build-cython-ext/count-dataset-tokens/gcode-to-text/</td></tr>
+<tr><td>30</td><td class='task'>write-compressor</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-16 04:10</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td>6</td><td>8</td><td>168K</td><td>45K</td><td class='trace'>archive/pre-round-0723/iter11-2048/write-compressor__ucztyRo</td><td class='diag'>反复推理反模式确认样本累计**第28例**。</td></tr>
+</tbody></table>
+<h2>已通过题</h2>
+<div class="toggle-passed" onclick="var b=document.getElementById('passed-body');b.style.display=b.style.display=='none'?'':'none';this.textContent=b.style.display=='none'?'▶ 展开 58 题':'▼ 收起'">▶ 展开 58 题</div>
+<div id="passed-body">
+<table>
+<thead><tr><th>#</th><th>题目</th><th>难度</th><th>类别</th><th>运行时间</th><th>provider</th><th>轮次</th><th>工具调用</th><th>token_in</th><th>token_out</th><th>trace 目录</th></tr></thead>
+<tbody>
+<tr><td>1</td><td class='task'>adaptive-rejection-sampler</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-16 06:17</td><td>qianfan</td><td>2</td><td>2</td><td>53K</td><td>45K</td><td class='trace'>archive/pre-round-0723/heldout-check7/adaptive-rejection-sampler__sEiqWCW</td></tr>
+<tr><td>2</td><td class='task'>bn-fit-modify</td><td class='diff-hard'>hard</td><td>scientific-computing</td><td>2026-07-16 06:46</td><td>qianfan</td><td>45</td><td>45</td><td>2.0M</td><td>20K</td><td class='trace'>archive/pre-round-0723/iter13-2048/bn-fit-modify__XD2Xcui</td></tr>
+<tr><td>3</td><td class='task'>break-filter-js-from-html</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-15 14:26</td><td>qianfan</td><td>30</td><td>30</td><td>1.1M</td><td>52K</td><td class='trace'>archive/pre-round-0723/heldout-check-2/break-filter-js-from-html__sZjeBpZ</td></tr>
+<tr><td>4</td><td class='task'>build-cython-ext</td><td class='diff-medium'>medium</td><td>debugging</td><td>2026-07-19 20:18</td><td>volcengine</td><td>73</td><td>116</td><td>3.8M</td><td>24K</td><td class='trace'>jobs/rerun-cython/build-cython-ext__KvwXDFU</td></tr>
+<tr><td>5</td><td class='task'>build-pmars</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-20 23:34</td><td>volcengine</td><td>38</td><td>42</td><td>1.2M</td><td>14K</td><td class='trace'>jobs/iter-build-pmars-0720/build-pmars__HqySqHZ</td></tr>
+<tr><td>6</td><td class='task'>build-pov-ray</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-16 04:10</td><td>qianfan</td><td>24</td><td>36</td><td>913K</td><td>7K</td><td class='trace'>archive/pre-round-0723/iter11-2048/build-pov-ray__fZcSkGQ</td></tr>
+<tr><td>7</td><td class='task'>caffe-cifar-10</td><td class='diff-medium'>medium</td><td>machine-learning</td><td>2026-07-21 14:01</td><td>volcengine</td><td>151</td><td>165</td><td>10.2M</td><td>52K</td><td class='trace'>archive/pre-round-0723/verify-caffe-s3-0721/caffe-cifar-10__bnaG8j8</td></tr>
+<tr><td>8</td><td class='task'>cancel-async-tasks</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-16 06:46</td><td>qianfan</td><td>7</td><td>5</td><td>192K</td><td>7K</td><td class='trace'>archive/pre-round-0723/iter13-2048/cancel-async-tasks__PP2E8Uz</td></tr>
+<tr><td>9</td><td class='task'>cobol-modernization</td><td class='diff-easy'>easy</td><td>software-engineering</td><td>2026-07-16 05:29</td><td>qianfan</td><td>21</td><td>26</td><td>660K</td><td>55K</td><td class='trace'>archive/pre-round-0723/iter12-2048/cobol-modernization__9Ycnkhv</td></tr>
+<tr><td>10</td><td class='task'>code-from-image</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-15 21:39</td><td>qianfan</td><td>37</td><td>37</td><td>1.4M</td><td>63K</td><td class='trace'>archive/pre-round-0723/heldout-check-3/code-from-image__CVv9E6S</td></tr>
+<tr><td>11</td><td class='task'>compile-compcert</td><td class='diff-medium'>medium</td><td>system-administration</td><td>2026-07-21 02:07</td><td>volcengine</td><td>44</td><td>52</td><td>1.5M</td><td>11K</td><td class='trace'>jobs/iter-compile-compcert-0721/compile-compcert__vFRZUjF</td></tr>
+<tr><td>12</td><td class='task'>configure-git-webserver</td><td class='diff-hard'>hard</td><td>system-administration</td><td>2026-07-16 04:10</td><td>qianfan</td><td>19</td><td>18</td><td>537K</td><td>4K</td><td class='trace'>archive/pre-round-0723/iter11-2048/configure-git-webserver__fLBSWsE</td></tr>
+<tr><td>13</td><td class='task'>constraints-scheduling</td><td class='diff-medium'>medium</td><td>personal-assistant</td><td>2026-07-16 05:29</td><td>qianfan</td><td>7</td><td>7</td><td>204K</td><td>10K</td><td class='trace'>archive/pre-round-0723/iter12-2048/constraints-scheduling__542LaUx</td></tr>
+<tr><td>14</td><td class='task'>count-dataset-tokens</td><td class='diff-medium'>medium</td><td>model-training</td><td>2026-07-19 20:40</td><td>volcengine</td><td>11</td><td>12</td><td>317K</td><td>4K</td><td class='trace'>jobs/rerun-tokens/count-dataset-tokens__Jqh827V</td></tr>
+<tr><td>15</td><td class='task'>custom-memory-heap-crash</td><td class='diff-medium'>medium</td><td>debugging</td><td>2026-07-21 03:03</td><td>volcengine</td><td>24</td><td>30</td><td>717K</td><td>89K</td><td class='trace'>jobs/iter-custom-memory-heap-crash-0721/custom-memory-heap-crash__fDHk84e</td></tr>
+<tr><td>16</td><td class='task'>distribution-search</td><td class='diff-medium'>medium</td><td>machine-learning</td><td>2026-07-16 02:58</td><td>qianfan</td><td>14</td><td>13</td><td>579K</td><td>41K</td><td class='trace'>archive/pre-round-0723/heldout-check-4/distribution-search__XZanBGz</td></tr>
+<tr><td>17</td><td class='task'>extract-elf</td><td class='diff-medium'>medium</td><td>file-operations</td><td>2026-07-16 04:10</td><td>qianfan</td><td>17</td><td>22</td><td>560K</td><td>27K</td><td class='trace'>archive/pre-round-0723/iter11-2048/extract-elf__27bUyC2</td></tr>
+<tr><td>18</td><td class='task'>filter-js-from-html</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-16 07:56</td><td>qianfan</td><td>13</td><td>12</td><td>371K</td><td>19K</td><td class='trace'>archive/pre-round-0723/iter14-8192/filter-js-from-html__Eidrg8K</td></tr>
+<tr><td>19</td><td class='task'>financial-document-processor</td><td class='diff-medium'>medium</td><td>data-processing</td><td>2026-07-21 04:14</td><td>volcengine</td><td>14</td><td>25</td><td>403K</td><td>11K</td><td class='trace'>jobs/iter-financial-document-processor-0721/financial-document-processor__kFSYg2r</td></tr>
+<tr><td>20</td><td class='task'>fix-code-vulnerability</td><td class='diff-hard'>hard</td><td>security</td><td>2026-07-16 06:46</td><td>qianfan</td><td>25</td><td>35</td><td>1.4M</td><td>10K</td><td class='trace'>archive/pre-round-0723/iter13-2048/fix-code-vulnerability__pcH9ucZ</td></tr>
+<tr><td>21</td><td class='task'>fix-git</td><td class='diff-easy'>easy</td><td>software-engineering</td><td>2026-07-16 02:03</td><td>qianfan</td><td>14</td><td>15</td><td>399K</td><td>3K</td><td class='trace'>archive/pre-round-0723/iter10-2048/fix-git__kTqRabp</td></tr>
+<tr><td>22</td><td class='task'>fix-ocaml-gc</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-16 05:29</td><td>qianfan</td><td>43</td><td>60</td><td>3.4M</td><td>112K</td><td class='trace'>archive/pre-round-0723/iter12-2048/fix-ocaml-gc__Go9efqp</td></tr>
+<tr><td>23</td><td class='task'>git-leak-recovery</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-16 11:19</td><td>qianfan</td><td>10</td><td>16</td><td>274K</td><td>2K</td><td class='trace'>archive/pre-round-0723/iter15-2048/git-leak-recovery__vt5Jszi</td></tr>
+<tr><td>24</td><td class='task'>git-multibranch</td><td class='diff-medium'>medium</td><td>system-administration</td><td>2026-07-16 02:03</td><td>qianfan</td><td>36</td><td>49</td><td>1.3M</td><td>9K</td><td class='trace'>archive/pre-round-0723/iter10-2048/git-multibranch__rW2YaRA</td></tr>
+<tr><td>25</td><td class='task'>headless-terminal</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-16 05:29</td><td>qianfan</td><td>11</td><td>10</td><td>304K</td><td>13K</td><td class='trace'>archive/pre-round-0723/iter12-2048/headless-terminal__oqafVbk</td></tr>
+<tr><td>26</td><td class='task'>hf-model-inference</td><td class='diff-medium'>medium</td><td>data-science</td><td>2026-07-16 05:29</td><td>qianfan</td><td>13</td><td>13</td><td>360K</td><td>3K</td><td class='trace'>archive/pre-round-0723/iter12-2048/hf-model-inference__wRiV2AF</td></tr>
+<tr><td>27</td><td class='task'>kv-store-grpc</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-21 04:39</td><td>volcengine</td><td>16</td><td>15</td><td>400K</td><td>3K</td><td class='trace'>jobs/iter-kv-store-grpc-0721/kv-store-grpc__WGNogd2</td></tr>
+<tr><td>28</td><td class='task'>large-scale-text-editing</td><td class='diff-medium'>medium</td><td>file-operations</td><td>2026-07-16 08:18</td><td>qianfan</td><td>24</td><td>26</td><td>844K</td><td>67K</td><td class='trace'>archive/pre-round-0723/iter14-2048/large-scale-text-editing__3Yfnngk</td></tr>
+<tr><td>29</td><td class='task'>llm-inference-batching-scheduler</td><td class='diff-hard'>hard</td><td>machine-learning</td><td>2026-07-16 11:19</td><td>qianfan</td><td>34</td><td>36</td><td>3.3M</td><td>94K</td><td class='trace'>archive/pre-round-0723/iter15-2048/llm-inference-batching-scheduler__8m6Jpwf</td></tr>
+<tr><td>30</td><td class='task'>log-summary-date-ranges</td><td class='diff-medium'>medium</td><td>data-processing</td><td>2026-07-16 09:10</td><td>qianfan</td><td>7</td><td>7</td><td>202K</td><td>3K</td><td class='trace'>jobs/heldout-check8-2048/log-summary-date-ranges__abj345U</td></tr>
+<tr><td>31</td><td class='task'>mailman</td><td class='diff-medium'>medium</td><td>system-administration</td><td>2026-07-16 04:10</td><td>qianfan</td><td>41</td><td>60</td><td>2.2M</td><td>36K</td><td class='trace'>archive/pre-round-0723/iter11-2048/mailman__XJiZAGX</td></tr>
+<tr><td>32</td><td class='task'>mcmc-sampling-stan</td><td class='diff-hard'>hard</td><td>data-science</td><td>2026-07-16 09:30</td><td>qianfan</td><td>39</td><td>47</td><td>1.4M</td><td>9K</td><td class='trace'>jobs/heldout-check8-8192/mcmc-sampling-stan__NJJY8PE</td></tr>
+<tr><td>33</td><td class='task'>merge-diff-arc-agi-task</td><td class='diff-medium'>medium</td><td>debugging</td><td>2026-07-16 07:57</td><td>qianfan</td><td>24</td><td>30</td><td>741K</td><td>32K</td><td class='trace'>jobs/evolve-dpkg-retry-verify/merge-diff-arc-agi-task__oXxFyW9</td></tr>
+<tr><td>34</td><td class='task'>model-extraction-relu-logits</td><td class='diff-hard'>hard</td><td>mathematics</td><td>2026-07-16 11:33</td><td>deepseek</td><td>20</td><td>19</td><td>1.1M</td><td>42K</td><td class='trace'>jobs/fix-emptytrunc-relu/model-extraction-relu-logits__arbq8Vc</td></tr>
+<tr><td>35</td><td class='task'>modernize-scientific-stack</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-16 08:18</td><td>qianfan</td><td>6</td><td>8</td><td>169K</td><td>2K</td><td class='trace'>archive/pre-round-0723/iter14-2048/modernize-scientific-stack__GexthYG</td></tr>
+<tr><td>36</td><td class='task'>mteb-leaderboard</td><td class='diff-medium'>medium</td><td>data-science</td><td>2026-07-16 04:04</td><td>qianfan</td><td>48</td><td>49</td><td>2.3M</td><td>21K</td><td class='trace'>jobs/iter11-8192/mteb-leaderboard__LmF2EYE</td></tr>
+<tr><td>37</td><td class='task'>mteb-retrieve</td><td class='diff-medium'>medium</td><td>data-science</td><td>2026-07-16 06:46</td><td>qianfan</td><td>18</td><td>18</td><td>578K</td><td>8K</td><td class='trace'>archive/pre-round-0723/iter13-2048/mteb-retrieve__mBA5Xfm</td></tr>
+<tr><td>38</td><td class='task'>multi-source-data-merger</td><td class='diff-medium'>medium</td><td>data-processing</td><td>2026-07-16 06:46</td><td>qianfan</td><td>6</td><td>8</td><td>168K</td><td>3K</td><td class='trace'>archive/pre-round-0723/iter13-2048/multi-source-data-merger__FKnw539</td></tr>
+<tr><td>39</td><td class='task'>nginx-request-logging</td><td class='diff-medium'>medium</td><td>system-administration</td><td>2026-07-16 04:10</td><td>qianfan</td><td>17</td><td>26</td><td>530K</td><td>4K</td><td class='trace'>archive/pre-round-0723/iter11-2048/nginx-request-logging__AUT72K4</td></tr>
+<tr><td>40</td><td class='task'>openssl-selfsigned-cert</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-16 06:17</td><td>qianfan</td><td>13</td><td>12</td><td>357K</td><td>4K</td><td class='trace'>archive/pre-round-0723/heldout-check7/openssl-selfsigned-cert__LvmcWUe</td></tr>
+<tr><td>41</td><td class='task'>polyglot-c-py</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-16 08:18</td><td>qianfan</td><td>12</td><td>15</td><td>324K</td><td>38K</td><td class='trace'>archive/pre-round-0723/iter14-2048/polyglot-c-py__mvwPrn3</td></tr>
+<tr><td>42</td><td class='task'>portfolio-optimization</td><td class='diff-medium'>medium</td><td>optimization</td><td>2026-07-16 04:04</td><td>qianfan</td><td>16</td><td>20</td><td>528K</td><td>24K</td><td class='trace'>jobs/iter11-4096/portfolio-optimization__y3yJhEi</td></tr>
+<tr><td>43</td><td class='task'>protein-assembly</td><td class='diff-hard'>hard</td><td>scientific-computing</td><td>2026-07-15 17:31</td><td>qianfan</td><td>43</td><td>289</td><td>7.6M</td><td>134K</td><td class='trace'>jobs/reverify-iter7-4096/protein-assembly__oZD4pHt</td></tr>
+<tr><td>44</td><td class='task'>prove-plus-comm</td><td class='diff-easy'>easy</td><td>software-engineering</td><td>2026-07-15 14:26</td><td>qianfan</td><td>11</td><td>10</td><td>297K</td><td>6K</td><td class='trace'>archive/pre-round-0723/heldout-check-2/prove-plus-comm__gZbMaqW</td></tr>
+<tr><td>45</td><td class='task'>pypi-server</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-16 06:46</td><td>qianfan</td><td>22</td><td>23</td><td>644K</td><td>4K</td><td class='trace'>archive/pre-round-0723/iter13-2048/pypi-server__5cQh9Kz</td></tr>
+<tr><td>46</td><td class='task'>pytorch-model-cli</td><td class='diff-medium'>medium</td><td>model-training</td><td>2026-07-16 04:10</td><td>qianfan</td><td>26</td><td>32</td><td>811K</td><td>10K</td><td class='trace'>archive/pre-round-0723/iter11-2048/pytorch-model-cli__fdxHVcu</td></tr>
+<tr><td>47</td><td class='task'>pytorch-model-recovery</td><td class='diff-medium'>medium</td><td>model-training</td><td>2026-07-16 04:10</td><td>qianfan</td><td>14</td><td>13</td><td>511K</td><td>18K</td><td class='trace'>archive/pre-round-0723/iter11-2048/pytorch-model-recovery__iR3vrMu</td></tr>
+<tr><td>48</td><td class='task'>regex-log</td><td class='diff-medium'>medium</td><td>data-processing</td><td>2026-07-16 05:29</td><td>qianfan</td><td>10</td><td>9</td><td>285K</td><td>24K</td><td class='trace'>archive/pre-round-0723/iter12-2048/regex-log__pYcN6Zw</td></tr>
+<tr><td>49</td><td class='task'>reshard-c4-data</td><td class='diff-medium'>medium</td><td>data-science</td><td>2026-07-16 06:46</td><td>qianfan</td><td>21</td><td>28</td><td>804K</td><td>29K</td><td class='trace'>archive/pre-round-0723/iter13-2048/reshard-c4-data__28CRuZS</td></tr>
+<tr><td>50</td><td class='task'>rstan-to-pystan</td><td class='diff-medium'>medium</td><td>data-science</td><td>2026-07-16 02:40</td><td>qianfan</td><td>35</td><td>43</td><td>1.7M</td><td>42K</td><td class='trace'>jobs/iter10-rstan-rerun/rstan-to-pystan__AWENuds</td></tr>
+<tr><td>51</td><td class='task'>sam-cell-seg</td><td class='diff-hard'>hard</td><td>data-science</td><td>2026-07-16 10:33</td><td>qianfan</td><td>32</td><td>35</td><td>1.3M</td><td>41K</td><td class='trace'>jobs/iter15-4096/sam-cell-seg__CusEB5q</td></tr>
+<tr><td>52</td><td class='task'>sanitize-git-repo</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-23 10:38</td><td>volcengine</td><td>25</td><td>39</td><td>1.1M</td><td>12K</td><td class='trace'>jobs/verify-only-matching-0723/sanitize-git-repo__mcaeVBj</td></tr>
+<tr><td>53</td><td class='task'>schemelike-metacircular-eval</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-16 21:11</td><td>deepseek</td><td>24</td><td>40</td><td>1.8M</td><td>51K</td><td class='trace'>jobs/fix-promptaction-scheme/schemelike-metacircular-eval__8vSMggH</td></tr>
+<tr><td>54</td><td class='task'>sparql-university</td><td class='diff-hard'>hard</td><td>data-querying</td><td>2026-07-16 04:10</td><td>qianfan</td><td>16</td><td>14</td><td>605K</td><td>29K</td><td class='trace'>archive/pre-round-0723/iter11-2048/sparql-university__px2DPGp</td></tr>
+<tr><td>55</td><td class='task'>sqlite-db-truncate</td><td class='diff-medium'>medium</td><td>debugging</td><td>2026-07-16 11:19</td><td>qianfan</td><td>9</td><td>8</td><td>300K</td><td>14K</td><td class='trace'>archive/pre-round-0723/iter15-2048/sqlite-db-truncate__96ZYCm9</td></tr>
+<tr><td>56</td><td class='task'>sqlite-with-gcov</td><td class='diff-medium'>medium</td><td>system-administration</td><td>2026-07-16 06:46</td><td>qianfan</td><td>24</td><td>26</td><td>707K</td><td>5K</td><td class='trace'>archive/pre-round-0723/iter13-2048/sqlite-with-gcov__7haDwcU</td></tr>
+<tr><td>57</td><td class='task'>vulnerable-secret</td><td class='diff-medium'>medium</td><td>security</td><td>2026-07-16 08:18</td><td>qianfan</td><td>16</td><td>23</td><td>465K</td><td>4K</td><td class='trace'>archive/pre-round-0723/iter14-2048/vulnerable-secret__3t3oudT</td></tr>
+<tr><td>58</td><td class='task'>winning-avg-corewars</td><td class='diff-medium'>medium</td><td>software-engineering</td><td>2026-07-16 08:18</td><td>qianfan</td><td>44</td><td>53</td><td>1.9M</td><td>180K</td><td class='trace'>archive/pre-round-0723/iter14-2048/winning-avg-corewars__5KEUCpn</td></tr>
+</tbody></table>
+</div>
+<h2>无结果</h2>
+<ul>
+<li><strong>install-windows-3.11</strong>: <span class='badge timeout'>Timeout</span> (2026-07-16 02:58, <code>archive/pre-round-0723/heldout-check-4/install-windows-3.11__j9oav63</code>)</li>
+</ul>
+<h2>待闭环事项</h2>
+<div class="todo">☐ <code>make-mips-interpreter</code> 大文件单次 write_file 导致 qianfan 流失败 -- 三次写千行级 vm.js 全失败</div>
+<div class="todo">☐ <code>build-pmars</code> verify_done 零参数不锚定任务原文验收点 -- 两轮修复后复测仍 reward=0</div>
+<div class="todo">☐ <code>regex-chess</code> reasoning 阶段自身不收敛 -- 候选(a)(b)(c)均未翻转 reward，已结案保留(c)省成本</div>
+<h2>最近 EVOLVE 周期</h2>
+<table class="evolve-table">
+<thead><tr><th>commit</th><th>内容</th><th>复测状态</th></tr></thead>
+<tbody>
+<tr><td><code>226f55f</code></td><td>Write-first规则:推理中产出完整代码后必须先落盘再修bug</td><td>adaptive-rejection-sampler复测通过(用户确认)</td></tr>
+<tr><td><code>330f166</code></td><td>onEmptyTruncation重试叠加硬max_tokens上限</td><td>机制生效(成本降55%/22%),未翻转reward,已结案</td></tr>
+<tr><td><code>5f91c45</code></td><td>收敛提示改结构性约束</td><td>不足以解决,已被(c)间接验证</td></tr>
+<tr><td><code>e152a75</code></td><td>重试调低reasoning_effort</td><td>机制不足,探测脚本排除参数无效误判</td></tr>
+</tbody></table>
+</body></html>
