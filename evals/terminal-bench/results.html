@@ -57,9 +57,9 @@
 <body>
 <h1>Terminal-Bench 结果汇总</h1>
 <div class="meta">
-  最后更新: 2026-07-23 20:16 |
-  DAO版本: <code>aa674cd chore(terminal-bench): 披露 crack-7z-hash 密码字典裁剪对官方难度的影响</code> |
-  二进制commit: <code>aa674cd</code>
+  最后更新: 2026-07-23 21:21 |
+  DAO版本: <code>d1ab22a test(scripts): train-fasttext 卡点快速验证脚本(streamChat重放,不烧评测预算)</code> |
+  二进制commit: <code>d1ab22a</code>
 </div>
 <div class="stats">
   <div class="stat"><div class="label">总计</div><div class="num">89</div></div>
@@ -103,7 +103,7 @@
 <tr><td>23</td><td class='task'>regex-chess</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-22 15:28</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>2</td><td>1</td><td>73K</td><td>22K</td><td class='trace'>jobs/regex-chess/rerun-regex-chess-0722/regex-chess__hFw8dov</td><td class='diag'>| torch-pipeline-parallelism | 0 | 无 | ~459s/900s(51%) | 3 | 0 | Step Repetition (reasoning不收敛) |</td></tr>
 <tr><td>24</td><td class='task'>torch-pipeline-parallelism</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-22 14:54</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>3</td><td>3</td><td>93K</td><td>22K</td><td class='trace'>jobs/torch-pipeline-parallelism/rerun-torch-pipe-0722v2/torch-pipeline-parallelism__crdeUZ3</td><td class='diag'>0 次 verify_done。**纯模型判断失误，非框架缺陷，不 EVOLVE。**</td></tr>
 <tr><td>25</td><td class='task'>torch-tensor-parallelism</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-23 19:44</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>3</td><td>2</td><td>73K</td><td>13K</td><td class='trace'>jobs/torch-tensor-parallelism/verify-installhint-0723/torch-tensor-parallelism__Fzsursy</td><td class='diag'>reward=0（不变）。但 `agent_execution` 只跑了 3m49s（900s 预算的 21%），</td></tr>
-<tr><td>26</td><td class='task'>train-fasttext</td><td class='diff-hard'>hard</td><td>model-training</td><td>2026-07-16 08:52</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>23</td><td>26</td><td>1.0M</td><td>9K</td><td class='trace'>jobs/train-fasttext/iter13-fasttext-rerun/train-fasttext__HtxYbXX</td><td class='diag'>## dna-assembly 深挖结果：反复推理反模式确认样本第29例（同一酶切机制被独立重推10次）</td></tr>
+<tr><td>26</td><td class='task'>train-fasttext</td><td class='diff-hard'>hard</td><td>model-training</td><td>2026-07-16 08:52</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>23</td><td>26</td><td>1.0M</td><td>9K</td><td class='trace'>jobs/train-fasttext/iter13-fasttext-rerun/train-fasttext__HtxYbXX</td><td class='diag'>## train-fasttext：重新定位卡点，之前&quot;真实难度&quot;结论可能是同一个已修复的框架 bug 的又一个受害者</td></tr>
 <tr><td>27</td><td class='task'>tune-mjcf</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-16 08:18</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td><span class='badge pass' title='2026-07-14 20:39 / verify-eval-fix-r2'>✓ 曾过</span></td><td>9</td><td>9</td><td>262K</td><td>11K</td><td class='trace'>archive/pre-round-0723/iter14-2048/tune-mjcf__43Fz63B</td><td class='diag'>- ✅ reward=1（6题）：large-scale-text-editing, modernize-scientific-stack,</td></tr>
 <tr><td>28</td><td class='task'>video-processing</td><td class='diff-hard'>hard</td><td>video-processing</td><td>2026-07-16 05:29</td><td>qianfan</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>36</td><td>37</td><td>2.1M</td><td>93K</td><td class='trace'>archive/pre-round-0723/iter12-2048/video-processing__wqV3HZ7</td><td class='diag'>- ❌ reward=0（9题）：build-cython-ext/count-dataset-tokens/gcode-to-text/</td></tr>
 <tr><td>29</td><td class='task'>write-compressor</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-16 04:10</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td><span class='badge pass' title='2026-07-13 17:41 / smoke-fix-check3'>✓ 曾过</span></td><td>6</td><td>8</td><td>168K</td><td>45K</td><td class='trace'>archive/pre-round-0723/iter11-2048/write-compressor__ucztyRo</td><td class='diag'>反复推理反模式确认样本累计**第28例**。</td></tr>
