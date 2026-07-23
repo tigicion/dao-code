@@ -27,7 +27,7 @@ export const fileSearchTool = defineTool({
   approval: "auto",
   schema: z.object({
     glob: z.string().describe("文件名/路径 glob"),
-    path: z.string().optional().describe("搜索子目录,默认工作区根"),
+    path: z.string().optional().describe("搜索子目录或具体某个文件,默认工作区根"),
   }),
   handler: async (args, ctx) => {
     const { abs: root, external } = classifyPath(ctx.cwd ?? ctx.workspaceRoot, args.path ?? ".");

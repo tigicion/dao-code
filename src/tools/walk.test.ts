@@ -34,4 +34,10 @@ describe("walkFiles", () => {
     const rels = await collect(root);
     expect(rels.some((r) => r.includes("node_modules"))).toBe(false);
   });
+
+  it("root 直接指向一个文件(不是目录)时,只返回这一个文件,而不是静默返回空", async () => {
+    const filePath = path.join(root, "a.txt");
+    const rels = await collect(filePath);
+    expect(rels).toEqual(["a.txt"]);
+  });
 });
