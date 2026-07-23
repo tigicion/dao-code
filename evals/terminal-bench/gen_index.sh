@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 生成 jobs/INDEX.md：当前 jobs/ 目录下每个 job 的一览表(类型/task/reward/时间)
+# 生成 jobs/INDEX.md：当前 jobs/ 目录下每个 job 的一览表(task/job/reward/时间)
+# jobs/ 按题分文件夹(jobs/<task>/<job>/)，2026-07-23起
 # 用法: bash gen_index.sh
 cd "$(dirname "$0")"
 
@@ -13,40 +14,35 @@ mkdir -p jobs
   echo
   echo "生成时间: $(date '+%Y-%m-%d %H:%M:%S')"
   echo
-  echo "| job | 类型 | task | reward | trial数 | 修改时间 |"
-  echo "|---|---|---|---|---|---|"
+  echo "| task | job | reward | trial数 | 修改时间 |"
+  echo "|---|---|---|---|---|"
 
-  for d in jobs/*/; do
-    job=$(basename "$d")
-    [ "$job" = "archive" ] && continue
+  for taskdir in jobs/*/; do
+    task=$(basename "$taskdir")
+    [ "$task" = "archive" ] && continue
+    [ -f "$taskdir" ] && continue  # 跳过 jobs/ 下的散落文件(如 INDEX.md)
 
-    trials=$(find "$d" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
-    n=$(echo "$trials" | grep -c . )
-    [ -z "$trials" ] && n=0
+    for d in "$taskdir"*/; do
+      [ -d "$d" ] || continue
+      job=$(basename "$d")
 
-    if [ "$n" -gt 1 ]; then
-      kind="批次"
-      task="(${n}题,见下)"
-    elif [ "$n" -eq 1 ]; then
-      kind="单题"
-      trial_dir=$(echo "$trials" | head -1)
-      task=$(basename "$trial_dir" | sed 's/__.*//')
-    else
-      kind="(空)"
-      task="-"
-    fi
+      trials=$(find "$d" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+      n=$(echo "$trials" | grep -c .)
+      [ -z "$trials" ] && n=0
 
-    reward="-"
-    if [ "$n" -eq 1 ]; then
-      rp="${trial_dir}/verifier/reward.txt"
-      [ -f "$rp" ] && reward=$(cat "$rp" 2>/dev/null)
-      [ -f "${trial_dir}/exception.txt" ] && reward="EXCEPTION"
-    fi
+      reward="-"
+      if [ "$n" -eq 1 ]; then
+        trial_dir=$(echo "$trials" | head -1)
+        rp="${trial_dir}/verifier/reward.txt"
+        [ -f "$rp" ] && reward=$(cat "$rp" 2>/dev/null)
+        [ -f "${trial_dir}/exception.txt" ] && reward="EXCEPTION"
+      fi
 
-    mtime=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$d" 2>/dev/null || stat -c "%y" "$d" 2>/dev/null | cut -d. -f1)
+      mtime=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M" "$d" 2>/dev/null || stat -c "%y" "$d" 2>/dev/null | cut -d. -f1)
 
-    echo "| $job | $kind | $task | $reward | $n | $mtime |"
-  done | sort -t'|' -k6 -r
+      echo "| $task | $job | $reward | $n | $mtime |"
+    done
+  done | sort -t'|' -k5 -r
 
   echo
   echo "归档批次(不在上表): \`archive/\` 下按批次分组，见 \`archive/pre-round-0723/\`。"

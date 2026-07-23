@@ -8,6 +8,7 @@ venv/
 .env-*
 dataset-2-1/
 results.json
+results.md
 evolution-log.md
 improvements.jsonl
 timeline.json

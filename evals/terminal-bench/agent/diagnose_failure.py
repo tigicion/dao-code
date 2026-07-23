@@ -3,8 +3,8 @@
 变成每道失败题跑一遍就有的固定产出。对应 README"基准驱动自进化"设计里说的"经验可观测"
 debugger 那一层,之前一直是手工读日志时想起来才查,这个脚本把检查项固化下来。
 
-用法: python3 diagnose_failure.py <job_dir>/<task_dir>
-例:   python3 diagnose_failure.py jobs/iter4-qianfan-2048/large-scale-text-editing__wUBZLfG
+用法: python3 diagnose_failure.py <trial_dir>
+例:   python3 diagnose_failure.py jobs/large-scale-text-editing/iter4-qianfan-2048/large-scale-text-editing__wUBZLfG
 
 输出固定检查这几项(每一项都是之前靠人工翻日志才发现问题的地方):
 1. exception.txt 有没有,是不是 _handle_sigterm(外部杀进程)还是 AgentTimeoutError(自然超时)

@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """从 jobs/ 和 archive/ 目录收集每道题的最新有效结果，输出 results.json 供汇总表使用。
 
-对每个 task 取最新一次有 reward 的 trial（没有 reward 的取最新一次）。
+对每个 task 取最新一次有 reward 的 trial（没有 reward 的取最新一次）作为主记录，
+同时扫全部历史 trial 算出该题是否曾经通过过一次（ever_passed），支持两种通过口径：
+"按最新"（当前这版代码/prompt 是否还能稳定过）和"按曾通过一次"（能力上限是否已证明达到）。
+两者可能不同——同一题多次迭代下，最新一次未必等于历史最好成绩（比如撞上非确定性抖动、
+或后续改动引入了真回归）。
+
 提取：时间、provider、model、reward、exception 类型、工具调用数、token 统计、
 运行命令、trial 目录路径、任务元信息（难度/类别/超时/内存）。
 
@@ -124,8 +129,9 @@ def extract_from_trial(job_dir, trial_dir):
 
 def main():
     all_trials = []
-    # jobs/<job>/ 是活跃迭代目录；archive/<批次>/<job>/ 是归档批次，两者形状一致(job目录下挂trial目录)
-    job_dirs = glob.glob("jobs/*/") + glob.glob("archive/*/*/")
+    # jobs/<task>/<job>/ 是活跃迭代目录(按题分文件夹，2026-07-23起)；
+    # archive/<批次>/<job>/ 是归档批次，job目录下都挂trial目录，形状一致
+    job_dirs = glob.glob("jobs/*/*/") + glob.glob("archive/*/*/")
     for d in sorted(job_dirs):
         for sub in glob.glob(d + "*/"):
             if "__" not in os.path.basename(sub.rstrip("/")): continue
@@ -135,7 +141,7 @@ def main():
             except Exception as e:
                 print(f"WARNING: skip {sub}: {e}", file=sys.stderr)
 
-    # 每个 task 取最新的有 reward 的
+    # 每个 task 取最新的有 reward 的（"按最新"口径的主记录）
     by_task = {}
     for r in all_trials:
         t = r["task"]
@@ -144,6 +150,19 @@ def main():
         elif r["reward"] is not None and (by_task[t]["reward"] is None or r["time"] > by_task[t]["time"]):
             by_task[t] = r
 
+    # 每个 task 是否曾经通过过一次（"按曾通过一次"口径），记第一次通过的时间/job 溯源
+    first_pass = {}
+    for r in sorted(all_trials, key=lambda x: x["time"]):
+        t = r["task"]
+        if r["reward"] == 1 and t not in first_pass:
+            first_pass[t] = {"time": r["time"], "jobname": r["jobname"], "trial_id": r["trial_id"]}
+
+    for t, r in by_task.items():
+        fp = first_pass.get(t)
+        r["ever_passed"] = fp is not None
+        r["first_pass_time"] = fp["time"] if fp else None
+        r["first_pass_jobname"] = fp["jobname"] if fp else None
+
     results = sorted(by_task.values(), key=lambda x: x["task"])
     with open("results.json", "w") as f:
         json.dump(results, f, indent=2, ensure_ascii=False, default=str)
@@ -151,8 +170,10 @@ def main():
     passed = [r for r in results if r["reward"] == 1]
     failed = [r for r in results if r["reward"] == 0]
     no_result = [r for r in results if r["reward"] is None]
+    ever_passed = [r for r in results if r["ever_passed"]]
 
-    print(f"总计: {len(results)} 题 | 通过: {len(passed)} | 未通过: {len(failed)} | 无结果: {len(no_result)}")
+    print(f"总计: {len(results)} 题 | 按最新-通过: {len(passed)} | 按最新-未通过: {len(failed)} | 无结果: {len(no_result)}")
+    print(f"按曾通过一次-通过: {len(ever_passed)} | 未通过: {len(results) - len(ever_passed)}")
     print(f"已写入 results.json")
 
     if "--verbose" in sys.argv:

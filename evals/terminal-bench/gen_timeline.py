@@ -28,7 +28,7 @@ def load_improvements():
 
 def collect_events():
     events = []
-    for rp in glob.glob("jobs/*/*/result.json") + glob.glob("archive/*/*/*/result.json"):
+    for rp in glob.glob("jobs/*/*/*/result.json") + glob.glob("archive/*/*/*/result.json"):
         try:
             d = json.load(open(rp))
         except Exception:

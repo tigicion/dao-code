@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 # 查看 terminal-bench 正在运行的 job 的实时状态
 # 用法: bash status.sh [job_name]
-#   不带参数：自动找最新运行的 job
+#   job_name 不用带 task 前缀，会自动在 jobs/<task>/<job_name>/ 下定位
+#   不带参数：自动找最近修改的 job
 cd "$(dirname "$0")"
 
 if [ -n "$1" ]; then
-  JOB="$1"
+  JOBDIR=$(find jobs -maxdepth 2 -type d -name "$1" 2>/dev/null | head -1)
 else
-  # 找最新的有 dao_stdout 的 job 目录
-  JOB=$(ls -t jobs/*/agent/dao_stdout.txt 2>/dev/null | head -1 | sed 's|jobs/||;s|/agent/dao_stdout.txt||')
+  # 找最近修改的 dao_stdout.txt(jobs/<task>/<job>/<trial>/agent/dao_stdout.txt)，反推 job 目录
+  STDOUT_LATEST=$(ls -t jobs/*/*/*/agent/dao_stdout.txt 2>/dev/null | head -1)
+  if [ -n "$STDOUT_LATEST" ]; then
+    JOBDIR=$(echo "$STDOUT_LATEST" | sed -E 's#(jobs/[^/]+/[^/]+)/.*#\1#')
+  fi
 fi
 
-if [ -z "$JOB" ]; then
+if [ -z "$JOBDIR" ]; then
   echo "没有找到运行中的 job"
   exit 0
 fi
+JOB=$(basename "$JOBDIR")
 
-TRIAL=$(ls -d "jobs/${JOB}"/*/ 2>/dev/null | head -1)
+TRIAL=$(ls -d "${JOBDIR}"/*/ 2>/dev/null | head -1)
 if [ -z "$TRIAL" ]; then
   echo "job=${JOB} 但无 trial 目录"
   exit 0
@@ -26,8 +31,8 @@ TASK=$(basename "$TRIAL" | sed 's/__.*//')
 STDOUT="${TRIAL}agent/dao_stdout.txt"
 
 echo "=============================================="
-echo "job:   ${JOB}"
 echo "task:  ${TASK}"
+echo "job:   ${JOB}"
 echo "=============================================="
 
 # 结果

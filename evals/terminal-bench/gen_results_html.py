@@ -65,6 +65,11 @@ no_result.sort(key=lambda x: x["task"])
 total = len(passed) + len(failed)
 pass_rate = len(passed) / total * 100 if total else 0
 
+# "按曾通过一次"口径：跟"按最新"口径分开统计，两者可能不同（同一题多次迭代，
+# 最新一次未必等于历史最好成绩——比如非确定性抖动或后续改动引入了真回归）
+ever_passed_count = sum(1 for r in results if r.get("ever_passed"))
+ever_pass_rate = ever_passed_count / total * 100 if total else 0
+
 git_log = os.popen("git log --oneline -1").read().strip()
 git_hash = os.popen("git rev-parse --short HEAD").read().strip()
 now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -155,19 +160,28 @@ parts.append(f"""<!DOCTYPE html>
 </div>
 <div class="stats">
   <div class="stat"><div class="label">总计</div><div class="num">{len(results)}</div></div>
-  <div class="stat pass"><div class="label">通过</div><div class="num">{len(passed)}</div></div>
-  <div class="stat fail"><div class="label">未通过</div><div class="num">{len(failed)}</div></div>
-  <div class="stat rate"><div class="label">通过率</div><div class="num">{pass_rate:.1f}%</div></div>
+  <div class="stat pass"><div class="label">按最新-通过</div><div class="num">{len(passed)}</div></div>
+  <div class="stat fail"><div class="label">按最新-未通过</div><div class="num">{len(failed)}</div></div>
+  <div class="stat rate"><div class="label">按最新-通过率</div><div class="num">{pass_rate:.1f}%</div></div>
+  <div class="stat pass"><div class="label">按曾通过一次</div><div class="num">{ever_passed_count}</div></div>
+  <div class="stat rate"><div class="label">曾通过-通过率</div><div class="num">{ever_pass_rate:.1f}%</div></div>
+</div>
+<div class="meta">
+  两种口径：<b>按最新</b>=该题最近一次运行是否通过（反映当前代码/prompt 稳不稳定）；
+  <b>按曾通过一次</b>=历史上是否至少通过过一次（反映能力上限是否已证明达到）。
+  下方"未通过题"表里「曾通过」列标 ✓ 的题，两个口径的结论不一致。
 </div>
 """)
 
 # 未通过题
 parts.append('<h2>未通过题</h2>\n')
 parts.append('<table>\n<thead><tr>')
-parts.append('<th>#</th><th>题目</th><th>难度</th><th>类别</th><th>运行时间</th><th>provider</th><th>exc</th><th>轮次</th><th>工具调用</th><th>token_in</th><th>token_out</th><th>trace 目录</th><th>排查结论</th>')
+parts.append('<th>#</th><th>题目</th><th>难度</th><th>类别</th><th>运行时间</th><th>provider</th><th>exc</th><th>曾通过</th><th>轮次</th><th>工具调用</th><th>token_in</th><th>token_out</th><th>trace 目录</th><th>排查结论</th>')
 parts.append('</tr></thead>\n<tbody>\n')
 for i, r in enumerate(failed, 1):
     diff_cls = {"easy": "diff-easy", "medium": "diff-medium", "hard": "diff-hard"}.get(r["difficulty"], "")
+    ever_badge = (f"<span class='badge pass' title='{esc(r.get('first_pass_time'))} / {esc(r.get('first_pass_jobname'))}'>✓ 曾过</span>"
+                  if r.get("ever_passed") else "<span class='muted'>-</span>")
     parts.append(f"<tr>")
     parts.append(f"<td>{i}</td>")
     parts.append(f"<td class='task'>{esc(r['task'])}</td>")
@@ -176,6 +190,7 @@ for i, r in enumerate(failed, 1):
     parts.append(f"<td>{esc(r['time'])}</td>")
     parts.append(f"<td>{esc(r['provider'])}</td>")
     parts.append(f"<td>{exc_badge(r['exc_type'])}</td>")
+    parts.append(f"<td>{ever_badge}</td>")
     parts.append(f"<td>{r['turns']}</td>")
     parts.append(f"<td>{r['tool_calls']}</td>")
     parts.append(f"<td>{fmt_tokens(r['tokens_in'])}</td>")
