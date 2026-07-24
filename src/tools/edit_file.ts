@@ -63,7 +63,11 @@ export const editFileTool = defineTool({
         throw new Error(`未找到 old_string:${args.path}${hint ? `。${hint}` : ""}`);
       }
       if (count > 1 && !args.replace_all) {
-        throw new Error(`old_string 在 ${args.path} 出现 ${count} 次,不唯一;用 replace_all 或扩大上下文`);
+        throw new Error(
+          `old_string 在 ${args.path} 出现 ${count} 次,不唯一;用 replace_all,或扩大 old_string 使其唯一——` +
+            `扩大时新增的上下文文字必须原样也写进 new_string,不能只放大 old_string 却不放大 new_string,` +
+            `否则会把这部分上下文文字删掉`,
+        );
       }
       // split/join 对单处(count===1)与全部替换都正确,且不会把 new_string 里的 $ 当成替换模式。
       const next = raw.split(oldString).join(args.new_string);

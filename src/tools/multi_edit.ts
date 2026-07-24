@@ -72,7 +72,11 @@ export const multiEditTool = defineTool({
           );
         }
         if (count > 1 && !e.replace_all) {
-          throw new Error(`第 ${i + 1} 处 old_string 出现 ${count} 次、不唯一;用 replace_all 或扩大上下文(整体未改)`);
+          throw new Error(
+            `第 ${i + 1} 处 old_string 出现 ${count} 次、不唯一;用 replace_all,或扩大 old_string 使其唯一——` +
+              `扩大时新增的上下文文字必须原样也写进 new_string,不能只放大 old_string 却不放大 new_string,` +
+              `否则会把这部分上下文文字删掉(整体未改)`,
+          );
         }
         // 每处编辑生成 diff hunk(基于当前文本,施加前)
         const hunk = buildEditHunk(text, oldString, e.new_string);
