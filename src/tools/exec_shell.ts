@@ -219,8 +219,10 @@ export const execShellTool = defineTool({
     "proactively; for general checkpoint-style checks, BashOutput suffices.\n" +
     "Use Grep for content search, Glob for filename/path search, Read for reading files — do not shell out to grep/rg/find/cat/head/tail; the dedicated " +
     "tools have guardrails (size limits, binary detection) and skip approval. Likewise, don't write inline python3 -c scripts to reimplement grep for " +
-    "simple text/log search — the Grep tool gets there in one shot. For logic Grep genuinely can't do (JSON/structured parsing), prefer Write-ing a .py " +
-    "file and running it, rather than trial-and-error inside -c.\n" +
+    "simple text/log search — the Grep tool gets there in one shot. For logic Grep genuinely can't do (JSON/structured parsing), prefer Write-ing a helper " +
+    "file and running it, rather than trial-and-error inside -c. Use whatever language is actually available in this environment — python is the common " +
+    "default, but if it's missing, fall back to node/perl/awk, or even a compiled helper (e.g. a throwaway .c file built with gcc/cc) if that's what's " +
+    "present; the goal is automating the repetitive part, not a specific language.\n" +
     "High-risk commands (rm -rf /, piping curl straight into a shell, privilege escalation, writing raw disk devices, etc.) force a confirmation even if approval rules " +
     "are otherwise relaxed - there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.\n" +
     "When choosing command parameters, think about how to invoke the tool to best solve the problem, not just pass parameters by intuition. A tool's default behavior " +
