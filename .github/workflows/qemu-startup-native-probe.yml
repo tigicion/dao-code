@@ -9,6 +9,8 @@ name: qemu-startup native x86_64 probe (one-off diagnostic, safe to delete)
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: [qemu-native-probe]
 
 jobs:
   probe:
