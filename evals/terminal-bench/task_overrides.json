@@ -9,5 +9,6 @@
   "feal-linear-cryptanalysis": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
   "path-tracing": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
   "torch-pipeline-parallelism": {"tag": "low_priority", "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md" },
-  "crack-7z-hash": {"caveat": "agent/harbor_dao_agent.py 在装机阶段把 john 真实密码字典(约170万条)裁剪成前5000条,是对任务环境本身的修改(不是DAO代码/行为的改动)。这题的reward不能跟官方terminal-bench难度下的结果直接比较——通过也只代表在被人为简化过的字典下通过。" }
+  "crack-7z-hash": {"caveat": "agent/harbor_dao_agent.py 在装机阶段把 john 真实密码字典(约170万条)裁剪成前5000条,是对任务环境本身的修改(不是DAO代码/行为的改动)。这题的reward不能跟官方terminal-bench难度下的结果直接比较——通过也只代表在被人为简化过的字典下通过。" },
+  "train-fasttext": {"tag": "abandoned", "reason": "两个真实框架bug(exec_shell timeout机制/autotune优先)已修复验证,但任务本身卡在硬件限制(容器仅1核,fastText/autotune严重依赖多线程)+模型对fastText dim参数的记忆性锚定(6/6冷启动采样都是dim=100,两轮不同措辞快速验证0/19未绕开,结合学术文献确认是anchoring effect,对通用提示词干预有实证抵抗力)。人工决定放弃,见evolution-log.md" }
 }
