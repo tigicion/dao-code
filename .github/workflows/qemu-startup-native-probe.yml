@@ -1,0 +1,49 @@
+name: qemu-startup native x86_64 probe (one-off diagnostic, safe to delete)
+
+# 一次性诊断:terminal-bench qemu-startup 这道题在本地(Apple Silicon + Docker Desktop +
+# Rosetta 2 转译)环境下,QEMU 的 TCG JIT 调用 pkey_mprotect(syscall 282)会被 Rosetta
+# 直接杀掉进程。这个 workflow 在真正的原生 x86_64 runner 上跑同一个任务镜像 + 官方参考
+# 解法的 QEMU 启动命令,验证在没有 Rosetta 的环境下这个问题是否真的不存在。
+# 不涉及 DAO agent / 任何 LLM API,不需要任何 secrets。
+# evals/terminal-bench/evolution-log.md 补排查 #28 相关。
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Confirm native x86_64 (no Rosetta involved)
+        run: |
+          uname -m
+          cat /proc/cpuinfo | grep "model name" | head -1
+
+      - name: Pull task image and boot QEMU with the task's golden solution
+        run: |
+          docker run --rm --privileged alexgshaw/qemu-startup:20251031 bash -c '
+            set -x
+            file /usr/bin/qemu-system-x86_64 || true
+            qemu-system-x86_64 --version
+
+            qemu-system-x86_64 -m 1024 \
+              -cdrom /app/alpine.iso \
+              -drive file=/app/alpine-disk.qcow2,format=qcow2 \
+              -boot d \
+              -nic user,hostfwd=tcp::2222-:22 \
+              -daemonize -display none -vga none \
+              -serial mon:telnet:127.0.0.1:6665,server,nowait
+
+            sleep 5
+            # 探测QEMU进程是否还活着(而不是像Rosetta环境下那样秒退)
+            pgrep -f qemu-system-x86_64 && echo "QEMU_STILL_ALIVE=yes" || echo "QEMU_STILL_ALIVE=no"
+
+            sleep 20
+            pgrep -f qemu-system-x86_64 && echo "QEMU_ALIVE_AFTER_25S=yes" || echo "QEMU_ALIVE_AFTER_25S=no"
+
+            # 尝试连telnet看有没有login提示(golden solution验收标准)
+            apt-get install -y telnet netcat >/dev/null 2>&1 || true
+            (echo -e "\r"; sleep 2) | timeout 10 telnet 127.0.0.1 6665 2>&1 | tee /tmp/telnet_out.txt || true
+            grep -qi "login" /tmp/telnet_out.txt && echo "RESULT=BOOTED_TO_LOGIN" || echo "RESULT=NO_LOGIN_PROMPT_YET"
+          '
