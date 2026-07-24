@@ -21,6 +21,14 @@
 import json
 import glob
 import os
+import time
+
+# 多个 worktree/终端并行迭代时,选题只读表、不占位会导致两边独立选中同一条"排第一"
+# 的待迭代题(2026-07-24 path-tracing-reverse 真实撞见过)。用 jobs/{task}/.in_progress
+# 标记文件的 mtime 当占位锁,超过 TTL 视为僵尸标记(会话崩溃/中断没清理)自动失效,
+# 不需要额外的清理机制。TTL 覆盖一次完整 debug-evolve 周期(含较长的 trace 分析),
+# 不是只覆盖 harbor run 本身的 agent_timeout。
+IN_PROGRESS_TTL_SEC = 4 * 3600
 
 
 def load_overrides():
@@ -28,6 +36,21 @@ def load_overrides():
     if not os.path.exists(path):
         return {}
     return json.load(open(path))
+
+
+def load_in_progress():
+    """扫 jobs/{task}/.in_progress,返回仍新鲜(未过TTL)的任务名集合。"""
+    fresh = set()
+    now = time.time()
+    for path in glob.glob("jobs/*/.in_progress"):
+        task = path.split(os.sep)[1]
+        try:
+            age = now - os.path.getmtime(path)
+        except OSError:
+            continue
+        if age < IN_PROGRESS_TTL_SEC:
+            fresh.add(task)
+    return fresh
 
 
 def load_trials():
@@ -67,6 +90,7 @@ def main():
     all_tasks = sorted(t["name"] for t in meta)
     trials = load_trials()
     overrides = load_overrides()
+    in_progress = load_in_progress()
 
     by_task = {}
     for t in trials:
@@ -102,6 +126,9 @@ def main():
         # 已放弃只在还没通过时生效——真通过了就没有"放弃"这回事，以最新结果为准
         if tag == "abandoned" and reward != 1:
             status = "🚫 已放弃"
+        elif reward != 1 and task in in_progress:
+            # 有会话正在这题上(选题时写的占位标记,未过TTL);已通过/已放弃优先于此
+            status = "🔒 进行中"
         if tag and override.get("reason"):
             label = {"abandoned": "已放弃", "low_priority": "低优先级"}.get(tag, tag)
             notes.append(f"[{label}] {override['reason']}")
@@ -111,13 +138,15 @@ def main():
     def priority_of(status, tag):
         # 用前缀判断,不用精确匹配--状态字符串可能带 "(曾通过)" 后缀
         if status.startswith("✅"):
-            return 4  # 已通过,最后
+            return 5  # 已通过,最后
         if status.startswith("🚫"):
-            return 3  # 已放弃,不再投入,但排在已通过之前(跟"还没处理的"分开看)
+            return 4  # 已放弃,不再投入,但排在已通过之前(跟"还没处理的"分开看)
         if tag == "low_priority":
-            return 2  # 低优先级(如视觉题),其它待迭代题跑完再轮到它
+            return 3  # 低优先级(如视觉题),其它待迭代题跑完再轮到它
         if status.startswith("⬜"):
-            return 1  # 未开始
+            return 2  # 未开始
+        if status.startswith("🔒"):
+            return 1  # 进行中(别的会话正在跑),排在正常待迭代之后避免被重复选中
         return 0  # 🔁 待迭代 / ⚠️ 异常待重跑,最高优先级
 
     rows.sort(key=lambda r: r[5], reverse=True)  # 次序键:最近活动时间倒序,"-" 自然排最后
@@ -127,13 +156,17 @@ def main():
     abandoned = sum(1 for r in rows if r[1].startswith("🚫"))
     pending = sum(1 for r in rows if r[1].startswith("🔁") or r[1].startswith("⚠️"))
     notstarted = sum(1 for r in rows if r[1].startswith("⬜"))
+    inprogress = sum(1 for r in rows if r[1].startswith("🔒"))
 
     with open("jobs/TASK_STATUS.md", "w") as f:
         f.write("# 按题迭代进度\n\n")
         f.write("自动生成，不进 git。刷新: `python3 gen_task_status.py`\n\n")
-        f.write(f"共 {len(rows)} 题：已通过 {passed}，待迭代 {pending}，未开始 {notstarted}，已放弃 {abandoned}\n\n")
-        f.write("下一轮迭代直接从下表状态非「✅ 已通过」「🚫 已放弃」的行里按顺序取，"
-                "低优先级(如视觉题)排在其它待迭代题之后。"
+        f.write(f"共 {len(rows)} 题：已通过 {passed}，待迭代 {pending}，进行中 {inprogress}，"
+                f"未开始 {notstarted}，已放弃 {abandoned}\n\n")
+        f.write("下一轮迭代直接从下表状态非「✅ 已通过」「🚫 已放弃」「🔒 进行中」的行里按顺序取，"
+                "低优先级(如视觉题)排在其它待迭代题之后。「🔒 进行中」代表有其它会话正在这题上"
+                "(jobs/{task}/.in_progress 标记未过期)，跳过不要重复选中；标记超过4小时自动失效"
+                "(僵尸标记，一般是会话崩溃/中断没清理)，届时会自动恢复成正常状态。"
                 "「备注」列的日志线索不是结论；真要放弃/降优先级某题，编辑 `task_overrides.json`，"
                 "不要只在备注里写一句就当处理完。\n\n")
         f.write("| task | 状态 | reward | 尝试次数 | 最新job | 最近活动 | 备注 |\n")
@@ -142,7 +175,7 @@ def main():
             f.write(f"| {task} | {status} | {reward} | {attempts} | {last_job} | {last_time} | {note} |\n")
 
     print(f"已写入 jobs/TASK_STATUS.md：{len(rows)} 题，已通过 {passed}，待迭代 {pending}，"
-          f"未开始 {notstarted}，已放弃 {abandoned}")
+          f"进行中 {inprogress}，未开始 {notstarted}，已放弃 {abandoned}")
 
 
 if __name__ == "__main__":
