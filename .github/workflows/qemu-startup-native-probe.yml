@@ -38,14 +38,21 @@ jobs:
               -serial mon:telnet:127.0.0.1:6665,server,nowait
 
             sleep 5
-            # 探测QEMU进程是否还活着(而不是像Rosetta环境下那样秒退)
-            pgrep -f qemu-system-x86_64 && echo "QEMU_STILL_ALIVE=yes" || echo "QEMU_STILL_ALIVE=no"
+            # 探测QEMU进程是否还活着(而不是像Rosetta环境下那样秒退)——ps不依赖procps额外安装
+            ps aux | grep -v grep | grep qemu-system-x86_64 && echo "QEMU_STILL_ALIVE=yes" || echo "QEMU_STILL_ALIVE=no"
 
-            sleep 20
-            pgrep -f qemu-system-x86_64 && echo "QEMU_ALIVE_AFTER_25S=yes" || echo "QEMU_ALIVE_AFTER_25S=no"
-
-            # 尝试连telnet看有没有login提示(golden solution验收标准)
             apt-get install -y telnet netcat >/dev/null 2>&1 || true
-            (echo -e "\r"; sleep 2) | timeout 10 telnet 127.0.0.1 6665 2>&1 | tee /tmp/telnet_out.txt || true
-            grep -qi "login" /tmp/telnet_out.txt && echo "RESULT=BOOTED_TO_LOGIN" || echo "RESULT=NO_LOGIN_PROMPT_YET"
+
+            # 官方golden solution给的等待窗口是300秒,这里按同样量级轮询,不是干等
+            for i in $(seq 1 28); do
+              sleep 10
+              ps aux | grep -v grep | grep qemu-system-x86_64 > /dev/null && ALIVE=yes || ALIVE=no
+              echo "T+$((5 + i * 10))s: QEMU_ALIVE=$ALIVE"
+              (echo -e "\r"; sleep 1) | timeout 5 telnet 127.0.0.1 6665 2>&1 | tee /tmp/telnet_out.txt || true
+              if grep -qi "login" /tmp/telnet_out.txt; then
+                echo "RESULT=BOOTED_TO_LOGIN at T+$((5 + i * 10))s"
+                break
+              fi
+            done
+            grep -qi "login" /tmp/telnet_out.txt && echo "FINAL_RESULT=BOOTED_TO_LOGIN" || echo "FINAL_RESULT=NO_LOGIN_PROMPT_WITHIN_WINDOW"
           '
