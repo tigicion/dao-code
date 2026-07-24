@@ -151,7 +151,7 @@ describe("streamChat", () => {
     expect(sentBody.max_tokens).toBeUndefined();
   });
 
-  it("strips reasoningContent from history before sending (never replayed to the API)", async () => {
+  it("strips reasoningContent from a turn that made no tool call (DeepSeek docs: not needed without a tool call)", async () => {
     let sentBody: any;
     const capturingFetch = (async (_url: string, init: any) => {
       sentBody = JSON.parse(init.body);
@@ -168,6 +168,30 @@ describe("streamChat", () => {
       }),
     );
     expect(sentBody.messages[1]).toEqual({ role: "assistant", content: "hello" });
+    expect(sentBody.messages[1].reasoningContent).toBeUndefined();
+    expect(sentBody.messages[1].reasoning_content).toBeUndefined();
+  });
+
+  it("keeps reasoning_content on the wire for a turn that made a tool call (DeepSeek docs + ARK empirical test 2026-07-24: required for tool-call continuation)", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    const toolCalls = [{ id: "call_1", type: "function" as const, function: { name: "Read", arguments: "{}" } }];
+    await run(
+      streamChat({
+        ...base,
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "", tool_calls: toolCalls, reasoningContent: "先想清楚该读哪个文件" },
+          { role: "tool", tool_call_id: "call_1", content: "file contents" },
+        ],
+        fetchImpl: capturingFetch,
+      }),
+    );
+    expect(sentBody.messages[1].reasoning_content).toBe("先想清楚该读哪个文件");
+    expect(sentBody.messages[1].tool_calls).toEqual(toolCalls);
     expect(sentBody.messages[1].reasoningContent).toBeUndefined();
   });
 

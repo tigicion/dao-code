@@ -61,11 +61,17 @@ export async function* streamChat(
   opts: StreamChatOptions,
 ): AsyncGenerator<StreamDelta, AssistantMessage> {
   const fetchImpl = opts.fetchImpl ?? fetch;
-  // 发给 API 的消息绝不带 reasoningContent(那是上一轮落盘用的思维链,不是该重放给模型的上下文——
-  // 多数 reasoning 模型的最佳实践是不要把旧思维链塞回上下文,也没必要多花 token)。
+  // DeepSeek 官方文档(api-docs.deepseek.com/guides/thinking_mode):两个 user 消息之间,
+  // 若这一轮 assistant 发起过工具调用,思维链必须在后续所有请求里原样带回去(reasoning_content
+  // 字段);没发起工具调用的轮次则不需要、也不应该带(原生 API 甚至会 400)。2026-07-24 用真实
+  // 火山方舟(ARK)网关做过对照实验:两种做法都不报错(ARK 比原生 API 宽松),但带上时
+  // prompt_tokens 确实按思维链长度真实增长——说明 ARK 会读这个字段喂给模型,不是静默丢弃。
   const wireMessages = opts.messages.map((m) => {
     if (m.role === "assistant" && m.reasoningContent) {
-      return { role: m.role, content: m.content, ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}) };
+      if (m.tool_calls) {
+        return { role: m.role, content: m.content, tool_calls: m.tool_calls, reasoning_content: m.reasoningContent };
+      }
+      return { role: m.role, content: m.content };
     }
     if (m.role === "tool" && m.imageData) {
       // imageData 是内部字段(图片已通过单独的 user message 注入),不发给 API
