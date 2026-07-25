@@ -79,5 +79,9 @@
   "overfull-hbox": {
     "tag": "abandoned",
     "reason": "两处卡点:一(MultiEdit扩大上下文丢词的机制性bug)已修复并真实复测验证生效,已保留;二(大写专有名词如\"Middle West\"命中synonyms.txt里仅小写的\"middle\"族,判分脚本按大小写严格匹配解析该文件,导致这类替换字面上不可能合法)——两次独立会话分析(相隔约1天)得到一致根因判断:任务原文(\"replace words...with their specified synonyms\",未显式排除专有名词)与隐藏判分逻辑(大小写字面严格匹配)存在真实的指令-判分落差。累计4轮候选提示词验证(前一会话3轮语义说服+本轮1轮机制自查角度,本轮受限于volcengine账号周配额耗尽、切千帆后基线信号不干净)均未能稳定绕开。用户2026-07-25确认标记abandoned,见evolution-log.md"
+  },
+  "make-doom-for-mips": {
+    "tag": "abandoned",
+    "reason": "官方task.toml确认expert_time_estimate_min=480(专家人类预计8小时)、junior_time_estimate_min=1920(32小时),agent预算仅900s(15分钟),相差32倍。官方solve.sh(diff共11538行)用clang→LLVM IR→llc(-relocation-model=static)→MIPS汇编→mips-linux-gnu-as/ld的迂回路径从根上避开GCC默认abicalls/PIC假设,并重写约80个doomgeneric源文件配合完整自制freestanding libc。两次独立千帆账号复测(0725-qf/0725-qf-r2)均未见'反复重推不收敛'反模式,各自真实推进到不同更深阶段(第一次:全部.o编译通过、卡在链接阶段abicalls/PIC冲突;第二次:链接成功产出可运行MIPS二进制、node vm.js真实跑起来、doom.wad被打开,卡在更深的IWAD识别运行时逻辑),均在900秒硬超时打断时仍在做正确方向的线性排查而非空转循环。与此前同一题另一次trial(volcengine账号)判定的'反模式'结论相矛盾,本轮以官方元数据+两次交叉验证为准,判定为任务本身工程量超预算的真实难度,非DAO框架/提示词缺陷。用户2026-07-25确认标记abandoned,见evolution-log.md"
   }
 }
