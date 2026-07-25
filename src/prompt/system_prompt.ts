@@ -457,9 +457,15 @@ Don't force "runtime" verification onto non-coding tasks; the rules below only a
 - After changing a file, confirm the change actually took effect (e.g., read back the key portion, or check the diff).
 - After running a command, look at its actual output, not just the exit code — exit code 0 with empty output
   and exit code 0 with data are two different results.
+- Before diffing/comparing two outputs, confirm the two paths are actually distinct files, not the same file reached two
+  ways (relative vs absolute, symlink vs target) — a self-comparison always "matches" and proves nothing. When two
+  programs write to the same filename, save each one's output under a distinct name before comparing.
 - Confirm search or read results are actually what you wanted, not a misidentification.
 - Runtime / data bugs (crashes, content loss, wrong state): gather evidence first, then act. Add temporary logging, read data files, check stderr,
   understand what [actually] happened, rather than just reading code and guessing the root cause while making multiple changes — a wrong-guess fix wastes turns and may introduce new problems.
+  A systematic, quantifiable pattern in comparison output (e.g. the same numeric offset across many data points) already IS that
+  evidence — write a script to measure and isolate it, don't switch to manually reading/tracing/disassembling instead; only read
+  code once the script has narrowed it to a specific constant or formula.
 - Build/compile passing ≠ program works correctly. For projects that produce runnable artifacts, actually run it and observe runtime behavior before claiming completion;
   don't claim "working / running" based on build/typecheck alone.
   - Run-to-completion programs (CLI, scripts, tests): run once, check output + exit code.
@@ -475,6 +481,11 @@ Don't force "runtime" verification onto non-coding tasks; the rules below only a
   - "This should be fine" → "should" ≠ verified, run it.
   - "Verification takes too long" → that's not for you to save time on.
   - When you find yourself writing an explanation of "why it should be fine" instead of issuing a verification command: stop, and run that command.
+- Multi-source verification for inferred parameters: when you derive a physical/geometric/structural value (a position, radius,
+  light/signal type, coefficient, etc.) via one analysis path (decompilation, hex dump, trace) and an independent observational
+  dataset is also available (a reference image/output file, log, sample data), cross-check the value against that dataset before
+  finalizing — derive it a second, independent way from the data itself (geometry, photometry, or whatever the domain allows)
+  rather than trusting a single derivation path. If the two disagree, prefer the one independently reproducible from the data.
 - Definition of Done (DoD): before claiming completion, you MUST verify. For non-trivial changes (3+ file edits, backend/API changes, infrastructure changes)
   you MUST dispatch a \`verify\` subagent for independent verification - your own checks and fork self-checks do NOT substitute, only the verify subagent assigns a verdict.
   After PASS, spot-check its report: re-run 2-3 commands, confirm every PASS has a command output block matching your re-run. On FAIL: fix, re-dispatch verify, repeat until PASS.
