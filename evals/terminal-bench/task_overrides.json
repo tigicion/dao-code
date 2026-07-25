@@ -91,5 +91,9 @@
   "largest-eigenval": {
     "tag": "abandoned",
     "reason": "四轮快速验证(5种性质完全不同的候选:2版Action Discipline文字改动/1次真实loop.ts进度提醒机制注入/Engineering Restraint重新定性/事实性剩余时间信号)累计0/15命中率,达debug-evolve规定的5轮验证上限。真实trial(t≈841s)已用benchmark验证dgeev方案在全部5个尺寸(2x2-10x10)上稳定超过numpy(1.07x-1.83x),满足任务字面要求\"consistentlyfaster\",但模型认为幅度不够大,继续设想更复杂方案直至900秒超时,eigen.py全程未被写过一次。内省诊断确认模型自己承认\"不是不会写,是不想写\",且推理原文明确写出\"That's consistently faster...it should pass\"却仍不落盘。5个候选覆盖不同章节定位(Action Discipline/Engineering Restraint)、不同信息类型(说理性指令/真实机制文案/纯事实时间信号),推理原文显示模型对全部候选内容均无任何回应或呼应,独立复述同一结论。归入对提示词/机制干预有实证抵抗力的家族(同train-fasttext的dim锚定、torch-tensor-parallelism的意图-行动脱节)。用户2026-07-25确认标记abandoned,见evolution-log.md"
+  },
+  "make-mips-interpreter": {
+    "tag": "abandoned",
+    "reason": "9次独立尝试(2026-07-15至2026-07-26)均确认真实难度:参考解法约2100行完整MIPS指令集+syscall仿真+ELF加载,相对1800s预算天然过大。本轮(0725-qf-retest)重新分析确认非reasoning不收敛/非misstep反复复现——模型全程真实推进(ELF分析→写vm.js→调试BEQ/寄存器),超时前精确诊断出delay slot未执行、JAL/JALR返回地址PC+8误写成PC+4两个真实MIPS语义bug,只是代码未写完就被硬超时切断。9次尝试均显示持续改善(Write调用从0到3,真实编译/调试行为),判定为工程量/预算错配,非框架缺陷。用户2026-07-26确认标记abandoned,见evolution-log.md补排查#33"
   }
 }
