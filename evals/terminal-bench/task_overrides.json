@@ -83,5 +83,9 @@
   "make-doom-for-mips": {
     "tag": "abandoned",
     "reason": "官方task.toml确认expert_time_estimate_min=480(专家人类预计8小时)、junior_time_estimate_min=1920(32小时),agent预算仅900s(15分钟),相差32倍。官方solve.sh(diff共11538行)用clang→LLVM IR→llc(-relocation-model=static)→MIPS汇编→mips-linux-gnu-as/ld的迂回路径从根上避开GCC默认abicalls/PIC假设,并重写约80个doomgeneric源文件配合完整自制freestanding libc。两次独立千帆账号复测(0725-qf/0725-qf-r2)均未见'反复重推不收敛'反模式,各自真实推进到不同更深阶段(第一次:全部.o编译通过、卡在链接阶段abicalls/PIC冲突;第二次:链接成功产出可运行MIPS二进制、node vm.js真实跑起来、doom.wad被打开,卡在更深的IWAD识别运行时逻辑),均在900秒硬超时打断时仍在做正确方向的线性排查而非空转循环。与此前同一题另一次trial(volcengine账号)判定的'反模式'结论相矛盾,本轮以官方元数据+两次交叉验证为准,判定为任务本身工程量超预算的真实难度,非DAO框架/提示词缺陷。用户2026-07-25确认标记abandoned,见evolution-log.md"
+  },
+  "gcode-to-text": {
+    "tag": "abandoned",
+    "reason": "创造性几何洞察缺口(同raman-fitting类型):任务需从G-code反推3D打印机压印文字。模型正确解析出压印文字对象坐标、也正确观察到异常信号(推理原文'Z range goes from 0.2 up to 64.88mm... very high for text'),但把异常归因为'物体本身有这么高',而非'文字所在面在3D空间被整体倾斜/旋转了'——参考解法的关键洞察是抓原始3D坐标做欧拉旋转校正把倾斜面转正、再正交投影渲染成图用OCR识别。模型反而在错误的平面假设上反复调整分辨率/切片方式(20-37次调用共18次高度雷同的小改动),直到900秒超时截断,全程0次Write,未收敛出任何候选答案。此前另一trial(u2XmF3R)是猜出错误答案'Embossed text',本次(8JH28Ai)是压根没收敛。需要G-code/3D坐标系统专门领域知识+创造性几何洞察,不是通用的'重新检查假设'提示词能补上的缺口,n=1过窄领域知识写进提示词有过拟合单题风险。用户2026-07-25确认标记abandoned,见evolution-log.md"
   }
 }
