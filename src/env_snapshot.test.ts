@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields, probeNetwork } from "./env_snapshot.js";
+import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields, probeNetwork, wrapDelayedEnvNotice } from "./env_snapshot.js";
 
 let ws: string;
 beforeEach(async () => {
@@ -113,6 +113,33 @@ describe("formatEnvSnapshot", () => {
       formatEnvSnapshot({ toolchain: [], gitBranch: null, gitDirtyCount: null, network: null }, false),
     ).toBe("");
   });
+
+  it("zh:网络可达/不可达分别列出,附代理", () => {
+    const out = formatEnvSnapshot(
+      {
+        toolchain: [],
+        gitBranch: null,
+        gitDirtyCount: null,
+        network: { reachable: { "npm registry": true, "PyPI": false }, proxy: "http://127.0.0.1:7890" },
+      },
+      false,
+    );
+    expect(out).toContain("网络: 可访问 npm registry;不可访问 PyPI(经代理 http://127.0.0.1:7890)");
+  });
+
+  it("en:网络行", () => {
+    const out = formatEnvSnapshot(
+      { toolchain: [], gitBranch: null, gitDirtyCount: null, network: { reachable: { "npm registry": true, "PyPI": true }, proxy: null } },
+      true,
+    );
+    expect(out).toContain("Network: reachable npm registry, PyPI");
+  });
+
+  it("network 为 null → 不产出网络行(其它字段照常显示)", () => {
+    const out = formatEnvSnapshot({ toolchain: ["node v20"], gitBranch: null, gitDirtyCount: null, network: null }, false);
+    expect(out).toContain("可用语言/工具: node v20");
+    expect(out).not.toContain("网络");
+  });
 });
 
 describe("probeTopLevelDir", () => {
@@ -210,5 +237,24 @@ describe("probeNetwork", () => {
     stubProxyEnvCleared();
     const result = await probeNetwork(50);
     expect(result.proxy).toBeNull();
+  });
+});
+
+describe("wrapDelayedEnvNotice", () => {
+  it("空内容 → 空串,不产出空 tag", () => {
+    expect(wrapDelayedEnvNotice("", false)).toBe("");
+  });
+
+  it("非空内容包上说明 tag(zh)", () => {
+    const out = wrapDelayedEnvNotice("- 可用语言/工具: node v20", false);
+    expect(out).toContain("<环境探测补充");
+    expect(out).toContain("- 可用语言/工具: node v20");
+    expect(out).toContain("</环境探测补充>");
+  });
+
+  it("非空内容包上说明 tag(en)", () => {
+    const out = wrapDelayedEnvNotice("- Available languages/tools: node v20", true);
+    expect(out).toContain("<environment-probe");
+    expect(out).toContain("</environment-probe>");
   });
 });

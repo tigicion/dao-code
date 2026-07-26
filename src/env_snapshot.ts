@@ -169,6 +169,20 @@ export function formatEnvSnapshot(data: EnvSnapshotData | null, isEn: boolean): 
           : "干净";
     parts.push(`${isEn ? "Git branch" : "Git 分支"}: ${data.gitBranch} (${status})`);
   }
+  if (data.network) {
+    const entries = Object.entries(data.network.reachable);
+    const reachableNames = entries.filter(([, ok]) => ok).map(([name]) => name);
+    const unreachableNames = entries.filter(([, ok]) => !ok).map(([name]) => name);
+    const bits: string[] = [];
+    if (reachableNames.length) bits.push(`${isEn ? "reachable" : "可访问"} ${reachableNames.join(", ")}`);
+    if (unreachableNames.length) bits.push(`${isEn ? "unreachable" : "不可访问"} ${unreachableNames.join(", ")}`);
+    const proxyNote = data.network.proxy
+      ? isEn
+        ? ` (via proxy ${data.network.proxy})`
+        : `(经代理 ${data.network.proxy})`
+      : "";
+    if (bits.length) parts.push(`${isEn ? "Network" : "网络"}: ${bits.join(isEn ? "; " : ";")}${proxyNote}`);
+  }
   return parts.length ? `- ${parts.join("\n- ")}` : "";
 }
 
@@ -239,4 +253,13 @@ export function formatFastEnvFields(
     );
   }
   return parts.length ? `- ${parts.join("\n- ")}` : "";
+}
+
+/** 慢字段(工具链/git/网络)如果比第一条请求慢,补投递时用这个包一层 tag,明确告诉模型
+ *  这是启动时发起、异步延迟才到达的信息,不是当场发生的——避免模型误判"刚刚才变化"。 */
+export function wrapDelayedEnvNotice(formatted: string, isEn: boolean): string {
+  if (!formatted.trim()) return "";
+  return isEn
+    ? `<environment-probe note="probing started at process launch; this arrived after your first reply because async I/O was slower">\n${formatted}\n</environment-probe>`
+    : `<环境探测补充 说明="进程启动时已发起探测,因异步 I/O 比第一条消息慢完成,现在补上">\n${formatted}\n</环境探测补充>`;
 }
