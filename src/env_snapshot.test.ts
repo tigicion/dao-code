@@ -23,6 +23,15 @@ describe("gatherEnvSnapshotData", () => {
     expect(data!.gitDirtyCount).toBeNull();
   });
 
+  it("补充探测 pip3/yarn/cargo(有则报版本,无则报 not found)", async () => {
+    const data = await gatherEnvSnapshotData(ws);
+    expect(data).not.toBeNull();
+    const joined = data!.toolchain.join(" | ");
+    expect(/pip \d|pip3: not found/.test(joined)).toBe(true);
+    expect(/yarn [\d.]+|yarn: not found/.test(joined)).toBe(true);
+    expect(/cargo \d|cargo: not found/.test(joined)).toBe(true);
+  });
+
   it("git 仓库(干净):探测到分支、脏文件数为 0", async () => {
     execFileSync("git", ["init", "-q", "-b", "main"], { cwd: ws });
     execFileSync("git", ["-c", "user.email=t@t.com", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init"], { cwd: ws });
