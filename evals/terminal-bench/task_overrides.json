@@ -99,5 +99,9 @@
   "adaptive-rejection-sampler": {
     "tag": "abandoned",
     "reason": "已确认的reasoning不收敛家族第34个样本(同regex-chess/gpt2-codegolf/torch-pipeline-parallelism/path-tracing/feal-*/db-wal-recovery/circuit-fibsqrt/largest-eigenval,该家族此前5种Tier1候选累计0/15命中率)。本次(2026-07-26)干净AgentTimeoutError复测:900s全程仅2次工具调用(t=0/3.4s安装R环境),此后896秒纯推理文字,全文34次\"Let me write the code (now)\"却0次真正调用Write,ars.R从未创建。三层内省诊断(未跳过)确认:模型自陈\"宣布要写\"是心理代偿而非行动前奏,且被明确追问\"文字提示词能否解决\"时给出结论\"倾向于认为不能\",提出运行时调用计数硬中断作为替代方案(与代码里已有但当前对全套89题禁用的--progress-advice机制设计高度重合)。用户2026-07-26确认标记abandoned,等待并行会话对--progress-advice机制的验证结果,如证明对该家族普遍有效再回头统一复测。见evolution-log.md补排查#34"
+  },
+  "video-processing": {
+    "tag": "abandoned",
+    "reason": "与raman-fitting/gcode-to-text同属\"创造性/领域特定算法洞察缺口\"家族。干净完成(非超时非反模式,900s预算仅用49%),模型开发的\"背景差分+全身质心Y轨迹谷值检测\"算法在唯一的example_video.mp4上给出合理结果(52,78)后即声称通用并verify_done收尾,但隐藏测试视频上完全失败(输出1,期望[219,223])。参考解法用完全不同的技术:裁剪画面底部专门追踪双脚/脚踝区域的步幅模式中断,而非全身质心。三层内省诊断(未跳过)确认:模型自陈这不是\"没想到脚部\"而是\"质心是背景差分思路的自然延伸,唯一样本上给出合理数字后探索就终止了\"——本质是概念层面的重构缺口(把\"跳跃\"分解为\"脚离地→空中→脚触地\"这个更底层物理事件链),不是调参层面的精进。明确判断:\"即使把提示词里所有关于验证/过拟合/泛化的警告都提到最高优先级,只要没有具体的领域hint,大概率还是会选质心信号\"。n=1过窄领域知识写进提示词有过拟合单题风险。与此前两次独立历史分析结论一致。用户2026-07-26确认标记abandoned,见evolution-log.md补排查#35"
   }
 }
