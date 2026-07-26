@@ -996,6 +996,39 @@ describe("runTurn", () => {
     expect(out.join("")).toContain("后台任务结果"); // 注入时给用户可见提示
   });
 
+  it("drainEnvNotices:回合边界把环境探测补充注入为 system 消息(不发可见提示)", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    let drained = false;
+    const out: string[] = [];
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }) as any,
+      executeToolCalls: async () => [],
+      write: (sx) => out.push(sx),
+      drainEnvNotices: () => (drained ? [] : (drained = true, ["<环境探测补充>...</环境探测补充>"])),
+    });
+    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("<环境探测补充>"))).toBe(true);
+  });
+
+  it("drainEnvNotices:只投递一次,不重复注入", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    let calls = 0;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: scripted([
+        turn([], { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "Write", arguments: "{}" } }] }),
+        turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" }),
+      ]),
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "w", content: "ok" }],
+      write: () => {},
+      drainEnvNotices: () => { calls++; return calls === 1 ? ["<环境探测补充>...</环境探测补充>"] : []; },
+    });
+    const count = s.messages.filter((m) => m.role === "system" && String(m.content).includes("<环境探测补充>")).length;
+    expect(count).toBe(1);
+  });
+
   it("omits write/exec tools in plan mode", async () => {
     const r = new ToolRegistry();
     r.register(defineTool({ name: "Read", description: "", capability: "read", approval: "auto", schema: z.object({}), handler: async () => "" }));

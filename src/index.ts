@@ -29,7 +29,7 @@ import { scheduleTool } from "./tools/schedule_tool.js";
 import { skillInstallTool } from "./tools/skill_install.js";
 import { loadPlugins, installPlugin, removePlugin, pluginsRoot, pluginComponentDirs } from "./plugins.js";
 import { loadProjectInstructions } from "./project_doc.js";
-import { gatherEnvSnapshotData, formatEnvSnapshot } from "./env_snapshot.js";
+import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields, wrapDelayedEnvNotice } from "./env_snapshot.js";
 import { execShellTool } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
@@ -778,7 +778,9 @@ async function main() {
   // 真正的交互式会话:有 TTY 且不是一次性 --goal 调用——决定 ctx.askChoice 是否注入(下方)、
   // 也决定系统提示词要不要加"会话特定指引"(AskUserQuestion 在 headless 下没人回答)。
   const interactiveSession = process.stdin.isTTY === true && !argvPrompt;
-  const envSnapshot = formatEnvSnapshot(await envSnapshotPromise, lang === "en");
+  // 快字段(顶层目录/内存)同步瞬时,直接拼进不可变 system prompt。慢字段(工具链/git/网络)
+  // 不再同步 await——见下方 envNoticeQueue,避免网络探测拖慢 Ink 挂载(index.ts 里的 runInkApp)。
+  const envSnapshot = formatFastEnvFields(probeTopLevelDir(workspaceRoot), probeMemory(), lang === "en");
   const systemPrompt =
     buildSystemPrompt({
       modelId: cfg.model,
@@ -794,6 +796,16 @@ async function main() {
       reflectChallengerEnabled: reflectChallengerFlag,
       interactive: interactiveSession,
     }) + agentTypesSection + skillsSection;
+
+  // 慢字段(工具链/git/网络):envSnapshotPromise 在 index.ts:297 就已经发起、和 onboarding 等
+  // 慢启动流程并发跑;这里只是等它就绪后格式化打 tag、推进队列。loop.ts 的 drainEnvNotices 在
+  // 下一次面向模型的请求前统一消费——赶上第一条请求就自然随它一起出现,赶不上就在下一次请求
+  // 前补投递,只投一次,不阻塞任何交互界面挂载。
+  const envNoticeQueue: string[] = [];
+  envSnapshotPromise.then((data) => {
+    const formatted = wrapDelayedEnvNotice(formatEnvSnapshot(data, lang === "en"), lang === "en");
+    if (formatted) envNoticeQueue.push(formatted);
+  });
 
   // Ink 交互态注册的审批/提问模态(App 挂载后填入);未填则回退 readline。
   let inkApprovalPrompt: ApprovalPrompt | null = null;
@@ -1325,6 +1337,7 @@ async function main() {
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
       drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], // 后台子代理 + 后台 shell 完成结果:回合边界回灌
       drainMcpNotices: () => mcpChangeQueue.splice(0), // MCP server 状态变化:回合边界回灌,不插进 tool_use/result 中间
+      drainEnvNotices: () => envNoticeQueue.splice(0), // 环境探测补充:回合边界回灌(Task 5 新增)
       onCheckpoint,
     }));
     // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
@@ -1606,6 +1619,7 @@ async function main() {
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
             drainMcpNotices: () => mcpChangeQueue.splice(0), // MCP server 状态变化:回合边界回灌,不插进 tool_use/result 中间
+            drainEnvNotices: () => envNoticeQueue.splice(0), // 环境探测补充:回合边界回灌(Task 5 新增)
             drainPending: () => steeringQueue.splice(0), // 运行中排队的补充输入:下一个工具轮边界注入,不等整个大回合跑完
             listOtherAccounts: () => listAccounts().filter((a) => !a.active).map((a) => ({ name: a.name })), // 限流菜单用
             switchAccountAndWait,
