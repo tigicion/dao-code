@@ -95,5 +95,9 @@
   "make-mips-interpreter": {
     "tag": "abandoned",
     "reason": "9次独立尝试(2026-07-15至2026-07-26)均确认真实难度:参考解法约2100行完整MIPS指令集+syscall仿真+ELF加载,相对1800s预算天然过大。本轮(0725-qf-retest)重新分析确认非reasoning不收敛/非misstep反复复现——模型全程真实推进(ELF分析→写vm.js→调试BEQ/寄存器),超时前精确诊断出delay slot未执行、JAL/JALR返回地址PC+8误写成PC+4两个真实MIPS语义bug,只是代码未写完就被硬超时切断。9次尝试均显示持续改善(Write调用从0到3,真实编译/调试行为),判定为工程量/预算错配,非框架缺陷。用户2026-07-26确认标记abandoned,见evolution-log.md补排查#33"
+  },
+  "adaptive-rejection-sampler": {
+    "tag": "abandoned",
+    "reason": "已确认的reasoning不收敛家族第34个样本(同regex-chess/gpt2-codegolf/torch-pipeline-parallelism/path-tracing/feal-*/db-wal-recovery/circuit-fibsqrt/largest-eigenval,该家族此前5种Tier1候选累计0/15命中率)。本次(2026-07-26)干净AgentTimeoutError复测:900s全程仅2次工具调用(t=0/3.4s安装R环境),此后896秒纯推理文字,全文34次\"Let me write the code (now)\"却0次真正调用Write,ars.R从未创建。三层内省诊断(未跳过)确认:模型自陈\"宣布要写\"是心理代偿而非行动前奏,且被明确追问\"文字提示词能否解决\"时给出结论\"倾向于认为不能\",提出运行时调用计数硬中断作为替代方案(与代码里已有但当前对全套89题禁用的--progress-advice机制设计高度重合)。用户2026-07-26确认标记abandoned,等待并行会话对--progress-advice机制的验证结果,如证明对该家族普遍有效再回头统一复测。见evolution-log.md补排查#34"
   }
 }
