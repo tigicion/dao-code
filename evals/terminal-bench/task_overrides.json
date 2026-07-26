@@ -87,5 +87,9 @@
   "gcode-to-text": {
     "tag": "abandoned",
     "reason": "创造性几何洞察缺口(同raman-fitting类型):任务需从G-code反推3D打印机压印文字。模型正确解析出压印文字对象坐标、也正确观察到异常信号(推理原文'Z range goes from 0.2 up to 64.88mm... very high for text'),但把异常归因为'物体本身有这么高',而非'文字所在面在3D空间被整体倾斜/旋转了'——参考解法的关键洞察是抓原始3D坐标做欧拉旋转校正把倾斜面转正、再正交投影渲染成图用OCR识别。模型反而在错误的平面假设上反复调整分辨率/切片方式(20-37次调用共18次高度雷同的小改动),直到900秒超时截断,全程0次Write,未收敛出任何候选答案。此前另一trial(u2XmF3R)是猜出错误答案'Embossed text',本次(8JH28Ai)是压根没收敛。需要G-code/3D坐标系统专门领域知识+创造性几何洞察,不是通用的'重新检查假设'提示词能补上的缺口,n=1过窄领域知识写进提示词有过拟合单题风险。用户2026-07-25确认标记abandoned,见evolution-log.md"
+  },
+  "dna-assembly": {
+    "tag": "abandoned",
+    "reason": "指令-判分隐藏实现细节落差(同overfull-hbox类型):任务是Golden Gate引物设计,需用primer3的oligotm计算Tm(任务原文明确指定工具和参数,模型确实照做:装primer3、跑oligotm -tp 1 -sc 1 -mv 50 -dv 2 -n 0.8 -d 500)。但判分脚本test_outputs.py的make_fragment()对'退火区'边界的定义比指令原文暗示的更复杂——不是简单取引物结合区子串跑Tm,而是先定位结合区起点后再向上游延伸最多4个碱基(若与引物自身设计的4bp突出端在模板上重叠),这段延伸也要并入送进oligotm的真实退火区,但任务原文(instruction.md)完全没提及这层'重叠延伸'规则。真实复测(0726-progressadvice)显示模型用同一工具同一参数算出input_fwd引物Tm=59.8°C(18nt结合区),判分脚本按其内部更长的延伸边界算出57.684°C(差0.316°C未达58°C下限)——同一工具同一参数,喂入边界不同,是无法单从指令文本推导出的隐藏判分实现细节,不是模型的验证纪律缺失或领域知识缺口。本轮同时发现并修复一个独立的真实框架缺口:DAO内置的进度提醒机制(loop.ts noProgress计数器)默认关闭,需显式传--progress-advice才激活,而harbor_dao_agent.py评测命令行从未传过这个参数,导致该机制在所有terminal-bench评测里从未真正生效过(此前make-mips-interpreter/path-tracing-reverse两次会话已独立发现同一缺口,本次首次动手修复并加入命令行)。修复后真实复测显示明确正向变化:此前3次trial(fix-promptaction-dna/iter-dna-assembly-0721两次)里2次是'反复推理不落盘'反模式(0次Write,AgentTimeoutError),这次进度提醒真实触发3次(第630/1632/1941行)后agent自然完成(1597s/1800s,非超时),primers.fasta真的被创建——但暴露出的是上述指令-判分落差这个新的、不同性质的问题,不是同一反模式的延续。--progress-advice这个全局开关本身独立于这题的abandoned判定,予以保留提交,对整个'反复推理不落盘'家族(regex-chess/gpt2-codegolf/path-tracing等7+题)有潜在正向影响。用户2026-07-26确认dna-assembly标记abandoned,见evolution-log.md"
   }
 }
