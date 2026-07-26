@@ -181,7 +181,17 @@ export function formatEnvSnapshot(data: EnvSnapshotData | null, isEn: boolean): 
         ? ` (via proxy ${data.network.proxy})`
         : `(经代理 ${data.network.proxy})`
       : "";
-    if (bits.length) parts.push(`${isEn ? "Network" : "网络"}: ${bits.join(isEn ? "; " : ";")}${proxyNote}`);
+    // Node 内置 fetch 不认 HTTP(S)_PROXY——探测请求是直连发出的。所以在"配了代理 + 有目标不可达"
+    // 这个组合下,"不可访问"很可能只是直连被墙、经代理其实通,属假阴性。这里如实标注,
+    // 免得模型据此判定"这台机器没网"而跳过 npm install / pip install。
+    const falseNegativeNote =
+      data.network.proxy && unreachableNames.length
+        ? isEn
+          ? "; note: the probe connects directly and does not honor the proxy, so \"unreachable\" may be a false negative"
+          : ";注:探测为直连、未经代理,故\"不可访问\"可能是假阴性"
+        : "";
+    if (bits.length)
+      parts.push(`${isEn ? "Network" : "网络"}: ${bits.join(isEn ? "; " : ";")}${proxyNote}${falseNegativeNote}`);
   }
   return parts.length ? `- ${parts.join("\n- ")}` : "";
 }
