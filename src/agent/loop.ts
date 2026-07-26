@@ -86,6 +86,11 @@ export interface TurnDeps {
   // 不是紧跟着 tool 消息"这种结构,下一次请求会被 API 判成 400。和 drainNotifications 一样,
   // 只在工具轮边界(这里)统一消费,保证不会插进一对未闭合的 tool_use/tool_result 中间。
   drainMcpNotices?: () => string[];
+  // 回合边界注入的环境探测补充(system 角色):env_snapshot.ts 的慢字段(工具链/git/网络)
+  // 后台探测完才就绪,若比第一条请求慢,就在下一次面向模型的请求前(不限定用户轮次,同一用户
+  // 回合内的工具轮边界也算)补投递一条打了 tag 的 system 消息。只投一次,省略=不启用(子代理/
+  // eval 不需要这个)。
+  drainEnvNotices?: () => string[];
   // L2.2 反应式压缩:streamChat 报"上下文超限"时调用它压缩后重试本轮(估算阈值之外的安全网)。
   compact?: () => Promise<void>;
   // §4 轮内主动压缩:每个工具轮前若返回 true 则先 compact()——防长回合中途撞上限(粒度到工具轮)。
@@ -371,6 +376,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     if (deps.drainMcpNotices) {
       for (const n of deps.drainMcpNotices()) {
         events.notice(`\n[MCP] ${n}\n`);
+        session.messages.push({ role: "system", content: n });
+      }
+    }
+    // 环境探测补充:不发 events.notice——这是背景元信息,不像 MCP 状态变化/审视者介入那样
+    // 需要用户立刻关注,静默注入即可,模型看到 tag 自然知道怎么用。
+    if (deps.drainEnvNotices) {
+      for (const n of deps.drainEnvNotices()) {
         session.messages.push({ role: "system", content: n });
       }
     }
