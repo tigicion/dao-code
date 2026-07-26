@@ -34,6 +34,49 @@ export interface EnvSnapshotData {
   toolchain: string[];
   gitBranch: string | null;
   gitDirtyCount: number | null; // null = 非 git 仓库(或探测不到分支)
+  network: NetworkProbeResult | null;
+}
+
+const NETWORK_PROBE_TIMEOUT_MS = 1500;
+const NETWORK_TARGETS: Array<{ name: string; url: string }> = [
+  { name: "npm registry", url: "https://registry.npmjs.org" },
+  { name: "PyPI", url: "https://pypi.org" },
+];
+
+async function probeOneHost(url: string, timeoutMs: number): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: "HEAD", signal: controller.signal });
+    return res.status < 500;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface NetworkProbeResult {
+  reachable: Record<string, boolean>;
+  proxy: string | null;
+}
+
+/** 两个目标并行探测,各自独立超时/失败,不互相拖累。代理变量只读不发请求,零延迟零风险。 */
+export async function probeNetwork(timeoutMs: number = NETWORK_PROBE_TIMEOUT_MS): Promise<NetworkProbeResult> {
+  const results = await Promise.all(NETWORK_TARGETS.map((t) => probeOneHost(t.url, timeoutMs)));
+  const reachable: Record<string, boolean> = {};
+  NETWORK_TARGETS.forEach((t, i) => {
+    reachable[t.name] = results[i]!;
+  });
+  const proxy =
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy ||
+    null;
+  return { reachable, proxy };
 }
 
 function runProbe(cwd: string, timeoutMs: number): Promise<string> {
@@ -63,40 +106,46 @@ function runProbe(cwd: string, timeoutMs: number): Promise<string> {
   });
 }
 
-/** 探测运行时/工具链 + git 状态;超时或任何失败都静默返回 null,绝不阻塞或抛出到调用方主流程之外。
+/** 探测运行时/工具链 + git 状态 + 网络连通性;shell 探测与网络探测并行、各自独立超时/失败,
+ *  任一方出问题都不影响另一方,也绝不阻塞或抛出到调用方主流程之外。
  *  timeoutMs 仅供测试注入极小值验证超时路径;生产调用方一律用默认值。 */
 export async function gatherEnvSnapshotData(
   cwd: string,
   timeoutMs: number = PROBE_TIMEOUT_MS,
+  networkTimeoutMs: number = NETWORK_PROBE_TIMEOUT_MS,
 ): Promise<EnvSnapshotData | null> {
-  let stdout: string;
-  try {
-    stdout = await runProbe(cwd, timeoutMs);
-  } catch {
-    return null;
-  }
-  if (!stdout.trim()) return null;
+  const [shellResult, networkResult] = await Promise.allSettled([
+    runProbe(cwd, timeoutMs),
+    probeNetwork(networkTimeoutMs),
+  ]);
 
-  const sections: Record<string, string[]> = {};
-  let key = "";
-  for (const line of stdout.split("\n")) {
-    const m = line.match(/^@@(\w+)@@$/);
-    if (m?.[1]) {
-      key = m[1];
-      sections[key] = [];
-      continue;
+  let toolchain: string[] = [];
+  let gitBranch: string | null = null;
+  let gitDirtyCount: number | null = null;
+  if (shellResult.status === "fulfilled" && shellResult.value.trim()) {
+    const stdout = shellResult.value;
+    const sections: Record<string, string[]> = {};
+    let key = "";
+    for (const line of stdout.split("\n")) {
+      const m = line.match(/^@@(\w+)@@$/);
+      if (m?.[1]) {
+        key = m[1];
+        sections[key] = [];
+        continue;
+      }
+      if (key) sections[key]?.push(line);
     }
-    if (key) sections[key]?.push(line);
+    toolchain = (sections.LANG ?? []).map((l) => l.trim()).filter(Boolean);
+    gitBranch = (sections.GIT_BRANCH ?? []).join("").trim() || null;
+    gitDirtyCount = gitBranch
+      ? (sections.GIT_DIRTY ?? []).map((l) => l.trim()).filter(Boolean).length
+      : null;
   }
 
-  const toolchain = (sections.LANG ?? []).map((l) => l.trim()).filter(Boolean);
-  const gitBranch = (sections.GIT_BRANCH ?? []).join("").trim() || null;
-  const gitDirtyCount = gitBranch
-    ? (sections.GIT_DIRTY ?? []).map((l) => l.trim()).filter(Boolean).length
-    : null;
+  const network = networkResult.status === "fulfilled" ? networkResult.value : null;
 
-  if (toolchain.length === 0 && !gitBranch) return null;
-  return { toolchain, gitBranch, gitDirtyCount };
+  if (toolchain.length === 0 && !gitBranch && !network) return null;
+  return { toolchain, gitBranch, gitDirtyCount, network };
 }
 
 /** 纯格式化,不做 I/O——语言选择与探测时机解耦,方便在 onboarding 改语言后仍能正确渲染。 */

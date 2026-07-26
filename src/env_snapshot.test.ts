@@ -1,16 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields } from "./env_snapshot.js";
+import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields, probeNetwork } from "./env_snapshot.js";
 
 let ws: string;
 beforeEach(async () => {
   ws = await fs.mkdtemp(path.join(os.tmpdir(), "dao-envsnap-"));
+  // 默认模拟"无网络",避免单测真的打外网(慢/flaky/CI 沙箱可能本来就没网)。
+  // 需要"网络可达"场景的用例自己覆盖这个 stub。
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network disabled in tests")));
 });
 afterEach(async () => {
   await fs.rm(ws, { recursive: true, force: true });
+  vi.unstubAllGlobals();
 });
 
 describe("gatherEnvSnapshotData", () => {
@@ -51,14 +55,21 @@ describe("gatherEnvSnapshotData", () => {
     expect(data!.gitDirtyCount).toBe(1);
   });
 
-  it("超时预算极小时静默返回 null(不抛出、不挂起)", async () => {
+  it("超时预算极小时:工具链/git 为空,网络探测独立完成、显示不可达(不抛出、不挂起)", async () => {
     const data = await gatherEnvSnapshotData(ws, 1);
-    expect(data).toBeNull();
+    expect(data).not.toBeNull();
+    expect(data!.toolchain).toEqual([]);
+    expect(data!.gitBranch).toBeNull();
+    expect(data!.network?.reachable["npm registry"]).toBe(false);
+    expect(data!.network?.reachable["PyPI"]).toBe(false);
   });
 
-  it("不存在的目录:静默返回 null,不抛出", async () => {
+  it("不存在的目录:工具链/git 探测失败,网络探测仍独立完成、不抛出", async () => {
     const data = await gatherEnvSnapshotData(path.join(ws, "does-not-exist"));
-    expect(data).toBeNull();
+    expect(data).not.toBeNull();
+    expect(data!.toolchain).toEqual([]);
+    expect(data!.gitBranch).toBeNull();
+    expect(data!.network).not.toBeNull();
   });
 });
 
@@ -69,7 +80,7 @@ describe("formatEnvSnapshot", () => {
 
   it("zh:格式化工具链 + 干净分支", () => {
     const out = formatEnvSnapshot(
-      { toolchain: ["node v20.0.0"], gitBranch: "master", gitDirtyCount: 0 },
+      { toolchain: ["node v20.0.0"], gitBranch: "master", gitDirtyCount: 0, network: null },
       false,
     );
     expect(out).toContain("可用语言/工具: node v20.0.0");
@@ -77,21 +88,23 @@ describe("formatEnvSnapshot", () => {
   });
 
   it("zh:脏分支显示改动数", () => {
-    const out = formatEnvSnapshot({ toolchain: [], gitBranch: "master", gitDirtyCount: 3 }, false);
+    const out = formatEnvSnapshot({ toolchain: [], gitBranch: "master", gitDirtyCount: 3, network: null }, false);
     expect(out).toContain("3 个未提交改动");
   });
 
   it("en:格式化工具链 + branch", () => {
     const out = formatEnvSnapshot(
-      { toolchain: ["node v20.0.0"], gitBranch: "master", gitDirtyCount: 0 },
+      { toolchain: ["node v20.0.0"], gitBranch: "master", gitDirtyCount: 0, network: null },
       true,
     );
     expect(out).toContain("Available languages/tools: node v20.0.0");
     expect(out).toContain("Git branch: master (clean)");
   });
 
-  it("既无工具链也无分支 → 空串", () => {
-    expect(formatEnvSnapshot({ toolchain: [], gitBranch: null, gitDirtyCount: null }, false)).toBe("");
+  it("既无工具链也无分支也无网络 → 空串", () => {
+    expect(
+      formatEnvSnapshot({ toolchain: [], gitBranch: null, gitDirtyCount: null, network: null }, false),
+    ).toBe("");
   });
 });
 
@@ -145,5 +158,51 @@ describe("formatFastEnvFields", () => {
 
   it("两项都为 null → 空串", () => {
     expect(formatFastEnvFields(null, null, false)).toBe("");
+  });
+});
+
+describe("probeNetwork", () => {
+  it("npm 可达、PyPI 不可达:分别报告", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url.includes("npmjs")
+          ? Promise.resolve(new Response(null, { status: 200 }))
+          : Promise.reject(new Error("unreachable")),
+      ),
+    );
+    const result = await probeNetwork(50);
+    expect(result.reachable["npm registry"]).toBe(true);
+    expect(result.reachable["PyPI"]).toBe(false);
+  });
+
+  it("超时:AbortController 触发,判定为不可达,不挂起", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, opts: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          opts.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+      ),
+    );
+    const result = await probeNetwork(20);
+    expect(result.reachable["npm registry"]).toBe(false);
+    expect(result.reachable["PyPI"]).toBe(false);
+  });
+
+  it("代理环境变量:附带在结果里", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    const prev = process.env.HTTPS_PROXY;
+    process.env.HTTPS_PROXY = "http://127.0.0.1:7890";
+    const result = await probeNetwork(50);
+    expect(result.proxy).toBe("http://127.0.0.1:7890");
+    if (prev === undefined) delete process.env.HTTPS_PROXY;
+    else process.env.HTTPS_PROXY = prev;
+  });
+
+  it("无代理变量 → proxy 为 null", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    const result = await probeNetwork(50);
+    expect(result.proxy).toBeNull();
   });
 });
