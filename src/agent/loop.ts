@@ -88,8 +88,9 @@ export interface TurnDeps {
   drainMcpNotices?: () => string[];
   // 回合边界注入的环境探测补充(system 角色):env_snapshot.ts 的慢字段(工具链/git/网络)
   // 后台探测完才就绪,若比第一条请求慢,就在下一次面向模型的请求前(不限定用户轮次,同一用户
-  // 回合内的工具轮边界也算)补投递一条打了 tag 的 system 消息。只投一次,省略=不启用(子代理/
-  // eval 不需要这个)。
+  // 回合内的工具轮边界也算)补投递一条打了 tag 的 system 消息。只投一次。
+  // 这是主会话专属机制:index.ts 给交互态和 headless(--goal/--eval)两条主会话路径都接了它,
+  // 只有子代理不接(子代理有自己的上下文,不需要宿主机环境快照)。省略=不启用。
   drainEnvNotices?: () => string[];
   // L2.2 反应式压缩:streamChat 报"上下文超限"时调用它压缩后重试本轮(估算阈值之外的安全网)。
   compact?: () => Promise<void>;
