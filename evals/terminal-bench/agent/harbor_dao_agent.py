@@ -118,7 +118,7 @@ class DaoAgent(BaseInstalledAgent):
         await self.exec_as_agent(
             environment,
             command=(
-                f"{DAO_BINARY_REMOTE_PATH} --yolo --eval "
+                f"{DAO_BINARY_REMOTE_PATH} --yolo --eval --progress-advice "
                 f'--api-key "${self._api_key_env}" --provider {shlex.quote(self._provider)} '
                 + (f'--model {shlex.quote(self._model)} ' if self._model else '')
                 + f"{escaped_instruction} "
