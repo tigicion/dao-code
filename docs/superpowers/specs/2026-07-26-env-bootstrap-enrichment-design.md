@@ -19,7 +19,7 @@
 - **不做多语言全量包管理器锁文件解析**(如识别 package-lock.json/pnpm-lock.yaml 判断项目实际用哪个包管理器)。这次只补齐"有没有装这个工具/版本号",不做"这个项目实际用哪个"的推断——后者信息密度更高但需要额外的文件扫描与格式约定,留作后续独立需求。
 - **网络探测目标不铺开到 GitHub/crates.io/Go proxy**。只测 npm registry + PyPI,覆盖工具链探测已经覆盖的两大生态(JS/TS、Python),边际扩展的信息量对启动开销不划算。
 - **顶层目录列表不做递归/多层级展开**。只列 cwd 直接子项(文件+目录),更深层结构继续依赖模型按需调用 `ListDir`/`Glob`,不在启动时主动展开,避免大仓库把 prompt 撑爆。
-- **headless 一次性任务(`--goal`/单条 argv prompt)不做异步延迟投递**。这类会话只有一轮,没有"下一轮"可以延迟补,继续保留现在的同步 await 行为——反正没有交互界面挂载时机要保护,阻塞至多 3 秒不影响任何人观感。
+- ~~headless 一次性任务不做异步延迟投递~~——**已在写计划阶段读代码修正**:headless(`--goal`/单条 argv prompt)和交互态共用同一个 `runTurn`(`index.ts` 里 `runOneTurn` 与 Ink 提交处理器都调用它),`runTurn` 内部本来就按"工具轮边界"循环多次(headless 一次用户回合内常有大量工具调用往返),`drainMcpNotices` 这类回合边界注入机制在两条路径上写法完全一致、没有特殊分支。慢字段投递复用同一机制,天然对 headless 同样生效,不需要额外的"同步 await"特例——这个特例是过度设计,已去掉。
 
 ## 设计方案
 
@@ -45,7 +45,7 @@
 **快字段**:`buildSystemPrompt` 调用处(`index.ts:781` 附近)新增一次同步的顶层目录+内存探测,和 cwd/platform 一起直接拼进 `# 环境` 段落,不引入任何 Promise/await,这一步本身仍是瞬时的。
 
 **慢字段**:
-1. 进程启动时(`index.ts:297` 附近)照旧发起 `gatherEnvSnapshotData(cwd)`,但**不再同步 await 后才继续构建 system prompt / 挂载 Ink**。交互会话(`interactiveSession === true`)下,system prompt 只含快字段,Ink 界面立即挂载,用户可以立刻开始输入。
+1. 进程启动时(`index.ts:297` 附近)照旧发起 `gatherEnvSnapshotData(cwd)`,但**不再同步 await 后才继续构建 system prompt / 挂载 Ink**——不区分交互态/headless,system prompt 一律只含快字段,Ink 界面立即挂载,用户可以立刻开始输入。
 2. 探测 Promise 在后台跑完后,若此时用户第一条消息还没发出去,就把格式化结果整理好,等到真正要组装第一条 LLM 请求时正常带上(体验上和现状一致,没有可感知差异)。
 3. 若用户第一条消息已经先发出去了(探测还没就绪),不追加等待——这条请求就不带这部分信息。探测就绪后,在**下一次**发起 LLM 请求前,往 `session.messages` 里插入一条一次性 `role: "system"` 消息(沿用 `src/agent/compact.ts` 里"压缩后插入 pinned 任务清单"的现成模式,不是新发明的机制),显式打 tag 说明这是启动时发起、因异步延迟才补到的信息:
 
@@ -59,7 +59,7 @@
 4. 只投递一次(投递后置位标记,不重复插入)。若探测彻底失败/超时,永不投递,和现状"静默降级"行为一致。
 5. "下一次发起 LLM 请求"指下一次面向模型的请求,不限定是下一个用户轮次——同一用户轮次内如果还有工具调用往返(多次内部请求),补充消息会在最近的一次内部请求前就插入,不用等到用户发下一句话。
 6. 补充消息作为普通历史消息处理,**不**像 `compact.ts` 里的 pinned 任务清单那样跨压缩强制保留——这是一次性的环境快照信息,过期后被摘要概括掉是可接受的,不需要专门的锚点保护逻辑。
-7. **headless 一次性任务**:`interactiveSession === false` 时不走上述解耦逻辑,保留现在"同步 await 后再继续"的行为——这类会话只有一轮,没有"下一轮"可以延迟补。
+7. **交互态与 headless 用同一套机制,不分支**:`index.ts` 里 headless(`runOneTurn`)和交互态(Ink 提交处理器)调用的是同一个 `runTurn`,`drainMcpNotices` 等回合边界注入机制在两处写法一致——headless 一次用户回合内部本来就可能有大量工具轮往返,补充消息一样能在某次工具轮边界被 drain 到,不需要单独的"同步 await"特例。
 
 ### 呈现格式(`formatEnvSnapshot` 扩展)
 
@@ -76,8 +76,8 @@
 ## 影响范围
 
 - `src/env_snapshot.ts`:`PROBE_CMD` 加 pip3/yarn/cargo 三行;新增 `probeTopLevelDir`/`probeMemory`(同步,供快字段路径直接调用)、`probeNetwork`(异步,并入 `gatherEnvSnapshotData` 内部的 `Promise.allSettled`);`formatEnvSnapshot` 扩展新字段的格式化。
-- `index.ts`:`interactiveSession` 分支下,system prompt 构建改为只用快字段(同步),`gatherEnvSnapshotData` 的 promise 转为后台监听,就绪时机决定"随第一条请求带上"还是"下一轮延迟补投递";headless 分支保持现状同步 await。
-- `src/agent/loop.ts`(或等价的请求组装点):新增"待投递的环境补充消息"检查——每次发起 LLM 请求前,若慢字段已就绪且尚未投递,插入一条 `role: system` 消息(参考 `compact.ts` 的插入方式)。
+- `index.ts`:system prompt 构建改为只用快字段(同步),不区分交互态/headless;`gatherEnvSnapshotData` 的 promise 转为后台监听,就绪后格式化打 tag 推进一个模块级队列(`envNoticeQueue`,和现有 `mcpChangeQueue` 同款)。
+- `src/agent/loop.ts`:`TurnDeps` 新增 `drainEnvNotices?: () => string[]`,复用已有的"工具轮边界 drain 注入"机制(与 `drainMcpNotices`/`drainAdvisories`/`drainNotifications` 同一套,不是新发明的模式)——每次发起 LLM 请求前(不限交互态/headless,也不限用户轮次,同一用户回合内的工具轮边界同样生效)检查队列,有则作为 `role: "system"` 消息插入。
 - `system_prompt.ts`/`{env_snapshot}` 占位符本身不用改,快字段部分继续走原有拼装方式。
 
 ## 边界情况
@@ -95,9 +95,7 @@
   - 网络探测:mock fetch 成功/超时/DNS 失败,验证独立超时不互相拖累;mock 代理环境变量验证附注文案。
   - pip3/yarn/cargo 版本探测:复用现有 mock spawn 输出的测试方式。
   - `gatherEnvSnapshotData` 整体:某一路(如网络)故意报错时,另一路(shell 探测)结果仍完整返回。
-- `index.ts`/loop 集成测试新增:
-  - 交互会话下,Ink 挂载不等待慢字段 promise(mock 一个永不 resolve 的慢探测,断言挂载仍正常完成)。
-  - 慢字段在第一条消息发出前就绪:结果正常出现在第一条请求的 system prompt 里。
-  - 慢字段在第一条消息发出后才就绪:不出现在第一条请求里,出现在下一条请求前插入的 `role: system` 补充消息里,且带预期的 tag 文案。
-  - 补充消息只插入一次:连续多轮请求,已投递后不重复插入。
-  - headless 一次性任务:保留同步 await 行为(慢字段必定出现在唯一一条请求里)。
+- `loop.ts` 测试新增(`drainEnvNotices`,与既有 `drainMcpNotices`/`drainAdvisories` 测试同款写法):
+  - 队列里有内容:回合边界注入为 `role: "system"` 消息,内容含预期的 tag 文案。
+  - 只投递一次:连续多个工具轮/多次调用,已投递后不重复插入。
+- `index.ts` 无自动化测试覆盖(仓库里这个文件本来就没有单测),接线部分靠手动冒烟验证:Ink 挂载不因慢探测而明显延迟、补充信息最终确实出现在某一轮对话里。
