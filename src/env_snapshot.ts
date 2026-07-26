@@ -58,7 +58,17 @@ async function probeOneHost(url: string, timeoutMs: number): Promise<boolean> {
 
 export interface NetworkProbeResult {
   reachable: Record<string, boolean>;
+  /** 已脱敏:userinfo(user:pass@)在 probeNetwork 里就被抹成 ***@,不会带原始凭据进这个结构。 */
   proxy: string | null;
+}
+
+/** 代理变量常见形如 `http://user:pass@proxy.corp:8080`,而这个值会进 system prompt/请求体/
+ *  落盘会话/transcript——和 safe_env.ts 防"子进程把凭据带出去"是同一类风险,只是换成网络路径。
+ *  只抹 userinfo,保留 scheme/host/port(这部分才是模型需要的信息)。幂等:重复调用结果不变。 */
+export function redactProxyCredentials(raw: string): string {
+  const m = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)?([^/]*@)(.*)$/);
+  if (!m) return raw; // 不含 userinfo 分隔符(或 @ 落在 path 里)→ 无凭据可抹,原样返回
+  return `${m[1] ?? ""}***@${m[3] ?? ""}`;
 }
 
 /** 两个目标并行探测,各自独立超时/失败,不互相拖累。代理变量只读不发请求,零延迟零风险。 */
@@ -68,7 +78,7 @@ export async function probeNetwork(timeoutMs: number = NETWORK_PROBE_TIMEOUT_MS)
   NETWORK_TARGETS.forEach((t, i) => {
     reachable[t.name] = results[i]!;
   });
-  const proxy =
+  const rawProxy =
     process.env.HTTPS_PROXY ||
     process.env.https_proxy ||
     process.env.HTTP_PROXY ||
@@ -76,7 +86,8 @@ export async function probeNetwork(timeoutMs: number = NETWORK_PROBE_TIMEOUT_MS)
     process.env.ALL_PROXY ||
     process.env.all_proxy ||
     null;
-  return { reachable, proxy };
+  // 在源头就脱敏,原始凭据根本不进入返回值——这样任何下游消费者(渲染/序列化/落盘)都天然安全。
+  return { reachable, proxy: rawProxy ? redactProxyCredentials(rawProxy) : null };
 }
 
 function runProbe(cwd: string, timeoutMs: number): Promise<string> {
@@ -176,20 +187,32 @@ export function formatEnvSnapshot(data: EnvSnapshotData | null, isEn: boolean): 
     const bits: string[] = [];
     if (reachableNames.length) bits.push(`${isEn ? "reachable" : "可访问"} ${reachableNames.join(", ")}`);
     if (unreachableNames.length) bits.push(`${isEn ? "unreachable" : "不可访问"} ${unreachableNames.join(", ")}`);
-    const proxyNote = data.network.proxy
-      ? isEn
-        ? ` (via proxy ${data.network.proxy})`
-        : `(经代理 ${data.network.proxy})`
-      : "";
+    // probeNetwork 已在源头脱敏;这里再抹一次是最后一道闸(幂等),挡住手工构造 data 的调用路径。
+    const proxy = data.network.proxy ? redactProxyCredentials(data.network.proxy) : null;
+    const proxyNote = proxy ? (isEn ? ` (via proxy ${proxy})` : `(经代理 ${proxy})`) : "";
     if (bits.length) parts.push(`${isEn ? "Network" : "网络"}: ${bits.join(isEn ? "; " : ";")}${proxyNote}`);
   }
   return parts.length ? `- ${parts.join("\n- ")}` : "";
 }
 
 const TOP_LEVEL_DIR_CAP = 40;
+const ENTRY_NAME_MAX_LEN = 80;
+
+/** 文件名会原样拼进不可变的 system prompt 前缀,而 POSIX 只禁止 `/` 和 NUL——换行、回车、
+ *  制表符乃至 ANSI 转义都能出现在合法文件名里。不清洗的话,一个叫 `a\n## 新指令` 的文件就能在
+ *  渲染出来的 prompt 里伪造出看似独立的指令段落。这里把所有 C0/C1 控制字符压成 U+FFFD,
+ *  并给单条名字限长,保证任何文件名都破坏不了 prompt 的行结构、也撑不爆输出。 */
+function sanitizeEntryName(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  const flattened = name.replace(/[\u0000-\u001F\u007F-\u009F]/g, "\uFFFD");
+  return flattened.length > ENTRY_NAME_MAX_LEN
+    ? `${flattened.slice(0, ENTRY_NAME_MAX_LEN - 1)}\u2026`
+    : flattened;
+}
 
 /** 只列 cwd 直接子项(不递归),排除 .git(已有 git 分支信息,重复无意义)。
- *  目录优先、字母序,失败(权限/不存在/空目录)一律静默返回 null。 */
+ *  目录优先、字母序,失败(权限/不存在/空目录)一律静默返回 null。
+ *  条目名一律经 sanitizeEntryName 清洗后才返回——调用方会把它拼进 system prompt。 */
 export function probeTopLevelDir(cwd: string): string[] | null {
   let entries;
   try {
@@ -199,7 +222,7 @@ export function probeTopLevelDir(cwd: string): string[] | null {
   }
   const names = entries
     .filter((e) => e.name !== ".git")
-    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+    .map((e) => (e.isDirectory() ? `${sanitizeEntryName(e.name)}/` : sanitizeEntryName(e.name)))
     .sort((a, b) => {
       const aDir = a.endsWith("/");
       const bDir = b.endsWith("/");
@@ -255,11 +278,13 @@ export function formatFastEnvFields(
   return parts.length ? `- ${parts.join("\n- ")}` : "";
 }
 
-/** 慢字段(工具链/git/网络)如果比第一条请求慢,补投递时用这个包一层 tag,明确告诉模型
- *  这是启动时发起、异步延迟才到达的信息,不是当场发生的——避免模型误判"刚刚才变化"。 */
+/** 慢字段(工具链/git/网络)补投递时包一层 tag,告诉模型这是启动时发起的探测结果、不是当场
+ *  发生的变化——避免模型误判"环境刚刚变了"。
+ *  措辞刻意保持中性:这条 tag 不区分探测是赶在第一条请求前完成还是之后才到(接线层也不记这个
+ *  状态),所以文案里不能出现"迟到/比第一条消息慢"这类暗示——多数情况下探测其实是早到的。 */
 export function wrapDelayedEnvNotice(formatted: string, isEn: boolean): string {
   if (!formatted.trim()) return "";
   return isEn
-    ? `<environment-probe note="probing started at process launch; this arrived after your first reply because async I/O was slower">\n${formatted}\n</environment-probe>`
-    : `<环境探测补充 说明="进程启动时已发起探测,因异步 I/O 比第一条消息慢完成,现在补上">\n${formatted}\n</环境探测补充>`;
+    ? `<environment-probe note="environment probe results from process launch">\n${formatted}\n</environment-probe>`
+    : `<环境探测补充 说明="进程启动时发起的环境探测结果">\n${formatted}\n</环境探测补充>`;
 }
