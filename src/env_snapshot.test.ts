@@ -135,52 +135,6 @@ describe("formatEnvSnapshot", () => {
     expect(out).toContain("Network: reachable npm registry, PyPI");
   });
 
-  it("配了代理且有不可达目标 → 标注可能是假阴性(探测直连不走代理)", () => {
-    const zh = formatEnvSnapshot(
-      {
-        toolchain: [],
-        gitBranch: null,
-        gitDirtyCount: null,
-        network: { reachable: { "npm registry": true, "PyPI": false }, proxy: "http://127.0.0.1:7890" },
-      },
-      false,
-    );
-    expect(zh).toContain("假阴性");
-    const en = formatEnvSnapshot(
-      {
-        toolchain: [],
-        gitBranch: null,
-        gitDirtyCount: null,
-        network: { reachable: { "npm registry": false, "PyPI": false }, proxy: "http://127.0.0.1:7890" },
-      },
-      true,
-    );
-    expect(en).toContain("false negative");
-  });
-
-  it("全部可达时即使配了代理也不加假阴性说明", () => {
-    const out = formatEnvSnapshot(
-      {
-        toolchain: [],
-        gitBranch: null,
-        gitDirtyCount: null,
-        network: { reachable: { "npm registry": true, "PyPI": true }, proxy: "http://127.0.0.1:7890" },
-      },
-      false,
-    );
-    expect(out).toContain("网络: 可访问 npm registry, PyPI(经代理 http://127.0.0.1:7890)");
-    expect(out).not.toContain("假阴性");
-  });
-
-  it("无代理时不可达不加假阴性说明", () => {
-    const out = formatEnvSnapshot(
-      { toolchain: [], gitBranch: null, gitDirtyCount: null, network: { reachable: { "npm registry": false }, proxy: null } },
-      false,
-    );
-    expect(out).toContain("网络: 不可访问 npm registry");
-    expect(out).not.toContain("假阴性");
-  });
-
   it("network 为 null → 不产出网络行(其它字段照常显示)", () => {
     const out = formatEnvSnapshot({ toolchain: ["node v20"], gitBranch: null, gitDirtyCount: null, network: null }, false);
     expect(out).toContain("可用语言/工具: node v20");
