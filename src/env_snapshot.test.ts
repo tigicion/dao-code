@@ -15,7 +15,14 @@ beforeEach(async () => {
 afterEach(async () => {
   await fs.rm(ws, { recursive: true, force: true });
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
+
+/** probeNetwork 读的全部代理变量。测试必须把六个都隔离掉,否则跑测试的机器/CI 上真实存在的代理会污染断言。 */
+const PROXY_ENV_KEYS = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"] as const;
+function stubProxyEnvCleared(): void {
+  for (const k of PROXY_ENV_KEYS) vi.stubEnv(k, undefined);
+}
 
 describe("gatherEnvSnapshotData", () => {
   it("非 git 目录:探测到工具链,gitBranch/gitDirtyCount 为 null", async () => {
@@ -192,16 +199,15 @@ describe("probeNetwork", () => {
 
   it("代理环境变量:附带在结果里", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
-    const prev = process.env.HTTPS_PROXY;
-    process.env.HTTPS_PROXY = "http://127.0.0.1:7890";
+    stubProxyEnvCleared();
+    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:7890");
     const result = await probeNetwork(50);
     expect(result.proxy).toBe("http://127.0.0.1:7890");
-    if (prev === undefined) delete process.env.HTTPS_PROXY;
-    else process.env.HTTPS_PROXY = prev;
   });
 
   it("无代理变量 → proxy 为 null", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
+    stubProxyEnvCleared();
     const result = await probeNetwork(50);
     expect(result.proxy).toBeNull();
   });
