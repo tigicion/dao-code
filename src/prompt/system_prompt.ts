@@ -1,6 +1,9 @@
 import type { Lang } from "../i18n/i18n.js";
+import { supportsVision } from "../config/profiles.js";
 
 const BODY = `# 你是谁
+
+你当前运行的模型是 {model_id}。{model_vision_note}
 
 你是一个交互式智能助手，帮助用户完成软件工程任务。请使用以下指令和可用工具来协助用户。
 
@@ -283,6 +286,8 @@ const BODY = `# 你是谁
 `;
 
 const BODY_EN = `# Who You Are
+
+You are currently running as {model_id}. {model_vision_note_en}
 
 You are an interactive intelligent assistant that helps users complete software engineering tasks. Use the following instructions and available tools to assist the user.
 
@@ -744,6 +749,22 @@ Where you're unsure, make a reasonable default judgment and keep going; write yo
 `;
 }
 
+// 模型自我认知:告知模型自己当前实际运行的模型名+是否支持视觉,而不是让它只能从工具描述里
+// 读到"仅 kimi-k2.6 等支持视觉的模型可用"这类第三人称表述、自己去猜"我是不是其中之一"。
+// 已观察到真实反模式:模型在推理里准确引用出这条工具说明,却因为找不到"我current是谁"的
+// 锚点而反过来断定自己不支持视觉,从未尝试 Read 图片就转去找 OCR 等替代方案。
+function buildModelVisionNote(modelId: string): string {
+  return supportsVision(modelId)
+    ? "这个模型支持图片输入——遇到需要查看图片/截图/视频帧内容的任务,直接用 Read 工具读取图片文件(png/jpg/gif/webp),不要因为怀疑自己“只是文本模型”就绕开这条路径去找 OCR 等替代方案。"
+    : "这个模型不支持图片输入,Read 工具遇到图片文件会报错——遇到图片/视频类任务,需要用 OCR、图像处理脚本等其它手段间接提取信息,不要尝试直接用 Read 查看图片内容。";
+}
+
+function buildModelVisionNoteEn(modelId: string): string {
+  return supportsVision(modelId)
+    ? "This model supports image input — for tasks that require viewing images/screenshots/video frames, use the Read tool directly on the image file (png/jpg/gif/webp); don't talk yourself out of it by assuming you're \"just a text model\" and reach for OCR or other workarounds instead."
+    : "This model does not support image input — the Read tool will error on image files. For image/video tasks, use OCR, image-processing scripts, or other indirect means to extract information; don't attempt to view image content directly via Read.";
+}
+
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const isEn = opts.lang === "en";
   const template = isEn ? BODY_EN : BODY;
@@ -755,6 +776,8 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const interactive = opts.interactive ?? true;
   return template
     .replaceAll("{model_id}", opts.modelId)
+    .replaceAll("{model_vision_note}", buildModelVisionNote(opts.modelId))
+    .replaceAll("{model_vision_note_en}", buildModelVisionNoteEn(opts.modelId))
     .replaceAll("{project_instruction_files}", opts.projectInstructions && opts.projectInstructions.trim() ? opts.projectInstructions : (isEn ? "(none)" : "(无)"))
     .replaceAll("{tools}", opts.toolSummaries)
     .replaceAll("{cwd}", opts.cwd && opts.cwd.trim() ? opts.cwd : unknown)

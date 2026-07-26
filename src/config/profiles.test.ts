@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { migrateConfig, resolveActive, DEFAULTS, MODELS_BY_PROVIDER } from "./profiles.js";
+import { migrateConfig, resolveActive, DEFAULTS, MODELS_BY_PROVIDER, supportsVision } from "./profiles.js";
 
 describe("migrateConfig", () => {
   it("wraps a legacy { apiKey } config into a default deepseek profile", () => {
@@ -116,5 +116,17 @@ describe("MODELS_BY_PROVIDER", () => {
       "minimax-m2.7",
       "minimax-m3",
     ]);
+  });
+});
+
+describe("supportsVision", () => {
+  it("kimi-k2.6 和 kimi-k2.7-code 都支持视觉", () => {
+    expect(supportsVision("kimi-k2.6")).toBe(true);
+    expect(supportsVision("kimi-k2.7-code")).toBe(true);
+  });
+  it("deepseek-v4-pro 等非视觉模型返回 false", () => {
+    expect(supportsVision("deepseek-v4-pro")).toBe(false);
+    expect(supportsVision("glm-5.2")).toBe(false);
+    expect(supportsVision("unknown-model")).toBe(false);
   });
 });

@@ -17,6 +17,14 @@ describe("buildSystemPrompt (zh)", () => {
     expect(prompt).toContain("- Write:写文件");
   });
 
+  it("model self-identification (zh): states model id + vision support", () => {
+    expect(prompt).toContain("你当前运行的模型是 deepseek-v4-pro");
+    expect(prompt).toContain("不支持图片输入");
+    const visionPrompt = buildSystemPrompt({ modelId: "kimi-k2.7-code", toolSummaries: "- a:b" });
+    expect(visionPrompt).toContain("你当前运行的模型是 kimi-k2.7-code");
+    expect(visionPrompt).toContain("这个模型支持图片输入");
+  });
+
 
   it("reflectMemoryEnabled/reflectChallengerEnabled 默认都关闭 → 整段审视/反思提醒都不出现", () => {
     expect(prompt).not.toContain("[审视者]");
@@ -258,6 +266,20 @@ describe("buildSystemPrompt (en)", () => {
     expect(prompt).toContain("categorically different approach");
     expect(prompt).toContain("retrying a 3rd");
     expect(prompt).toContain("Don't confuse \"viable\"");
+  });
+
+  it("model self-identification: states the running model id and vision support (positive case)", () => {
+    const p = buildSystemPrompt({ modelId: "kimi-k2.6", toolSummaries: "- a:b", lang: "en" });
+    expect(p).toContain("You are currently running as kimi-k2.6");
+    expect(p).toContain("This model supports image input");
+    expect(p).not.toContain("does not support image input");
+  });
+
+  it("model self-identification: non-vision model gets the negative note, not the positive one", () => {
+    const p = buildSystemPrompt({ modelId: "deepseek-v4-pro", toolSummaries: "- a:b", lang: "en" });
+    expect(p).toContain("You are currently running as deepseek-v4-pro");
+    expect(p).toContain("does not support image input");
+    expect(p).not.toContain("This model supports image input");
   });
 });
 
