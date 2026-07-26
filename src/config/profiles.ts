@@ -52,13 +52,15 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
 };
 
 // 支持视觉(图片输入)的模型名集合。按模型粒度精确匹配(跨 provider)。
-// 维护依据(2026-07-17 核实官方文档):
+// 维护依据(2026-07-17 核实官方文档,2026-07-26 补充 kimi-k2.7-code 用户确认):
 // - kimi-k2.6: Kimi 官方文档明确"支持图片和视频输入"
+// - kimi-k2.7-code: 用户确认同样支持图片输入
 // - glm-5.2/glm-5.1: 智谱文档标注"输入模态:文本",不支持
 // - ernie-5.1: 千帆模型列表只在"文本生成"分类,不支持
 // - deepseek-v4-pro/flash: 千帆模型列表只在"文本生成"分类,不支持
 export const VISION_MODELS = new Set<string>([
   "kimi-k2.6",
+  "kimi-k2.7-code",
 ]);
 
 /** 当前 model 是否支持图片输入。不在 VISION_MODELS 中的模型一律视为不支持。 */

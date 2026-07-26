@@ -1,8 +1,4 @@
 {
-  "chess-best-move": {
-    "tag": "low_priority",
-    "reason": "视觉题"
-  },
   "extract-moves-from-video": {
     "tag": "low_priority",
     "reason": "视觉题"
