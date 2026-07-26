@@ -57,9 +57,9 @@
 <body>
 <h1>Terminal-Bench 结果汇总</h1>
 <div class="meta">
-  最后更新: 2026-07-26 15:39 |
-  DAO版本: <code>16798ce chore(terminal-bench): adaptive-rejection-sampler 内省诊断脚本(确认reasoning不收敛家族第34例)</code> |
-  二进制commit: <code>16798ce</code>
+  最后更新: 2026-07-26 15:42 |
+  DAO版本: <code>bee2b49 chore(terminal-bench): merge tb/dna-assembly (启用--progress-advice + dna-assembly标记已放弃)</code> |
+  二进制commit: <code>bee2b49</code>
 </div>
 <div class="stats">
   <div class="stat"><div class="label">总计</div><div class="num">89</div></div>
@@ -81,7 +81,7 @@
 <tr><td>1</td><td class='task'>chess-best-move</td><td class='diff-medium'>medium</td><td>games</td><td>2026-07-16 04:10</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>15</td><td>15</td><td>476K</td><td>56K</td><td class='trace'>archive/pre-round-0723/iter11-2048/chess-best-move__fc7HRv6</td><td class='diag'>**反复推理反模式族当前累计：22例确认样本**（含install-windows-3.11第20例、</td></tr>
 <tr><td>2</td><td class='task'>circuit-fibsqrt</td><td class='diff-hard'>hard</td><td>software-engineering</td><td>2026-07-21 01:51</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='badge pass' title='2026-07-14 06:03 / iter2-single-circuit-r7'>✓ 曾过</span></td><td>2</td><td>2</td><td>74K</td><td>22K</td><td class='trace'>jobs/circuit-fibsqrt/iter-circuit-fibsqrt-0721/circuit-fibsqrt__Qbi9gwg</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
 <tr><td>3</td><td class='task'>db-wal-recovery</td><td class='diff-medium'>medium</td><td>file-operations</td><td>2026-07-21 03:11</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='badge pass' title='2026-07-15 17:13 / reverify-iter7-2048'>✓ 曾过</span></td><td>8</td><td>16</td><td>241K</td><td>27K</td><td class='trace'>jobs/db-wal-recovery/iter-db-wal-recovery-0721/db-wal-recovery__h9vZfwP</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
-<tr><td>4</td><td class='task'>dna-assembly</td><td class='diff-hard'>hard</td><td>scientific-computing</td><td>2026-07-26 10:56</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>30</td><td>29</td><td>2.2M</td><td>99K</td><td class='trace'>jobs/dna-assembly/0726-progressadvice/dna-assembly__v6esqDT</td><td class='diag'>| 真实精度差距 | 4 | dna-insert, query-optimize, raman-fitting, polyglot-rust-c |</td></tr>
+<tr><td>4</td><td class='task'>dna-assembly</td><td class='diff-hard'>hard</td><td>scientific-computing</td><td>2026-07-26 10:56</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>30</td><td>29</td><td>2.2M</td><td>99K</td><td class='trace'>jobs/dna-assembly/0726-progressadvice/dna-assembly__v6esqDT</td><td class='diag'>huoshan，加了`--progress-advice`）：**reward=0，但agent自然完成（1597s/1800s，</td></tr>
 <tr><td>5</td><td class='task'>dna-insert</td><td class='diff-medium'>medium</td><td>scientific-computing</td><td>2026-07-24 17:53</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>23</td><td>23</td><td>745K</td><td>13K</td><td class='trace'>jobs/dna-insert/0724-fix-r2/dna-insert__zrB9uBt</td><td class='diag'>**第四步真实复测（第2次）**：`jobs/dna-insert/0724-fix-r2`（v6 精简版），reward=0，</td></tr>
 <tr><td>6</td><td class='task'>extract-moves-from-video</td><td class='diff-hard'>hard</td><td>file-operations</td><td>2026-07-16 02:03</td><td>qianfan</td><td><span class='badge timeout'>Timeout</span></td><td><span class='muted'>-</span></td><td>76</td><td>80</td><td>3.4M</td><td>36K</td><td class='trace'>archive/pre-round-0723/iter10-2048/extract-moves-from-video__koVx5Py</td><td class='diag'>## torch-tensor-parallelism dpkg 复现追根溯源:不是修复失效,是意图-行动脱节</td></tr>
 <tr><td>7</td><td class='task'>feal-differential-cryptanalysis</td><td class='diff-hard'>hard</td><td>mathematics</td><td>2026-07-21 04:02</td><td>volcengine</td><td><span class='muted'>-</span></td><td><span class='muted'>-</span></td><td>2</td><td>1</td><td>68K</td><td>22K</td><td class='trace'>jobs/feal-differential-cryptanalysis/iter-feal-differential-cryptanalysis-0721/feal-differential-cryptanalysis__NoQb5WF</td><td class='diag'>**结果**: reward=0, 无 exception, 仅1次工具调用(Read), 跨度0s, 1800s预算(0%)</td></tr>
