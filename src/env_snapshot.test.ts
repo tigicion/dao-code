@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { gatherEnvSnapshotData, formatEnvSnapshot } from "./env_snapshot.js";
+import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields } from "./env_snapshot.js";
 
 let ws: string;
 beforeEach(async () => {
@@ -92,5 +92,58 @@ describe("formatEnvSnapshot", () => {
 
   it("既无工具链也无分支 → 空串", () => {
     expect(formatEnvSnapshot({ toolchain: [], gitBranch: null, gitDirtyCount: null }, false)).toBe("");
+  });
+});
+
+describe("probeTopLevelDir", () => {
+  it("列出 cwd 直接子项,目录带斜杠、目录优先、排除 .git", async () => {
+    await fs.mkdir(path.join(ws, ".git"));
+    await fs.mkdir(path.join(ws, "src"));
+    await fs.writeFile(path.join(ws, "package.json"), "{}");
+    const names = probeTopLevelDir(ws);
+    expect(names).toEqual(["src/", "package.json"]);
+  });
+
+  it("空目录 → null", async () => {
+    expect(probeTopLevelDir(ws)).toBeNull();
+  });
+
+  it("不存在的目录 → null,不抛出", () => {
+    expect(probeTopLevelDir(path.join(ws, "does-not-exist"))).toBeNull();
+  });
+
+  it("超过 40 项:formatFastEnvFields 截断并注明总数", async () => {
+    for (let i = 0; i < 45; i++) await fs.writeFile(path.join(ws, `f${String(i).padStart(2, "0")}.txt`), "x");
+    const names = probeTopLevelDir(ws);
+    expect(names!.length).toBe(45);
+    const out = formatFastEnvFields(names, null, false);
+    expect(out).toContain("(共 45 项)");
+  });
+});
+
+describe("probeMemory", () => {
+  it("返回总量/可用量(GB,保留 1 位小数)", () => {
+    const mem = probeMemory();
+    expect(mem).not.toBeNull();
+    expect(mem!.totalGB).toBeGreaterThan(0);
+    expect(mem!.freeGB).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("formatFastEnvFields", () => {
+  it("zh:目录 + 内存两行", () => {
+    const out = formatFastEnvFields(["src/", "package.json"], { totalGB: 16, freeGB: 4.2 }, false);
+    expect(out).toContain("顶层目录: src/, package.json");
+    expect(out).toContain("系统内存: 16 GB 总量,4.2 GB 可用");
+  });
+
+  it("en:目录 + 内存两行", () => {
+    const out = formatFastEnvFields(["src/"], { totalGB: 16, freeGB: 4.2 }, true);
+    expect(out).toContain("Top-level entries: src/");
+    expect(out).toContain("System memory: 16 GB total, 4.2 GB free");
+  });
+
+  it("两项都为 null → 空串", () => {
+    expect(formatFastEnvFields(null, null, false)).toBe("");
   });
 });

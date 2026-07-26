@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
+import os from "node:os";
 import { scrubbedEnv } from "./tools/safe_env.js";
 
 // 会话启动时探测一次(语言运行时 + git 分支/脏状态),塞进系统提示词的 Environment 段落,
@@ -117,6 +119,75 @@ export function formatEnvSnapshot(data: EnvSnapshotData | null, isEn: boolean): 
           ? "clean"
           : "干净";
     parts.push(`${isEn ? "Git branch" : "Git 分支"}: ${data.gitBranch} (${status})`);
+  }
+  return parts.length ? `- ${parts.join("\n- ")}` : "";
+}
+
+const TOP_LEVEL_DIR_CAP = 40;
+
+/** 只列 cwd 直接子项(不递归),排除 .git(已有 git 分支信息,重复无意义)。
+ *  目录优先、字母序,失败(权限/不存在/空目录)一律静默返回 null。 */
+export function probeTopLevelDir(cwd: string): string[] | null {
+  let entries;
+  try {
+    entries = readdirSync(cwd, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const names = entries
+    .filter((e) => e.name !== ".git")
+    .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+    .sort((a, b) => {
+      const aDir = a.endsWith("/");
+      const bDir = b.endsWith("/");
+      if (aDir !== bDir) return aDir ? -1 : 1;
+      return a.localeCompare(b);
+    });
+  return names.length ? names : null;
+}
+
+export interface MemorySnapshot {
+  totalGB: number;
+  freeGB: number;
+}
+
+export function probeMemory(): MemorySnapshot | null {
+  try {
+    const total = os.totalmem();
+    const free = os.freemem();
+    if (!total) return null;
+    return {
+      totalGB: Math.round((total / 1024 ** 3) * 10) / 10,
+      freeGB: Math.round((free / 1024 ** 3) * 10) / 10,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 快字段(顶层目录+内存):纯同步本地操作,零 I/O 等待,由调用方直接拼进不可变 system prompt 前缀。 */
+export function formatFastEnvFields(
+  topLevelDir: string[] | null,
+  memory: MemorySnapshot | null,
+  isEn: boolean,
+): string {
+  const parts: string[] = [];
+  if (topLevelDir && topLevelDir.length) {
+    const capped = topLevelDir.slice(0, TOP_LEVEL_DIR_CAP);
+    const suffix =
+      topLevelDir.length > TOP_LEVEL_DIR_CAP
+        ? isEn
+          ? `, ...(${topLevelDir.length} total)`
+          : `,...(共 ${topLevelDir.length} 项)`
+        : "";
+    parts.push(`${isEn ? "Top-level entries" : "顶层目录"}: ${capped.join(", ")}${suffix}`);
+  }
+  if (memory) {
+    parts.push(
+      isEn
+        ? `System memory: ${memory.totalGB} GB total, ${memory.freeGB} GB free`
+        : `系统内存: ${memory.totalGB} GB 总量,${memory.freeGB} GB 可用`,
+    );
   }
   return parts.length ? `- ${parts.join("\n- ")}` : "";
 }
