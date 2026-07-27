@@ -162,6 +162,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 预算耗尽后那一次强制重试里,允许模型选的工具。此刻的状态按定义就是"整个输出预算烧在推理上
   // 却没动手",缺的不是信息是动作;Bash 在功能上已经涵盖读文件/搜索(cat/grep/ls),所以排除
   // Read/Grep/Glob 并不剥夺查看能力,只是要求这个动作走一条同时也能产出东西的通道。
+  // 局限(2026-07-27 真实重放确认,见下方 requestAssistant extra 里的说明):这道收窄在网关
+  // 不校验 tool_calls 是否落在本次请求 tools 数组内时不是硬墙——补测过"不强制但收窄"这一档,
+  // 5 个样本里 3 个模型仍吐出了不在这份名单里的 TodoWrite,根源是系统提示词的叙事文本
+  // (messages[0],不随某一次请求的 tools 数组收窄)明确写着"多步任务转成 TodoWrite 清单",
+  // 模型凭这段记忆调用,火山网关未拦截。当前留着这道收窄是因为它零成本、且在 tool_choice
+  // 真被接受的 provider 上仍是有意义的信号,不是因为它已被证实能挡住网关不校验的情况。
   const FORCED_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
   // 强制重试第一档仍为空时的加大档位。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成
   // 速率约 60.7 tok/s:16000≈264s(1800s 预算的 14.7%)、32000≈528s(29.3%)、72000≈1187s(65.9%)。
@@ -227,11 +233,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           // 这里只压这一次请求。
           extra: {
             reasoning_effort: effortOverride ?? reasoningEffort,
-            // tool_choice 是 API 层唯一硬遵守的约束——文字层那条"第一步必须是工具调用"管不住
-            // reasoning 阶段(三次真实观测都精确撞满同一个 max_tokens 上限,提示注入了但没
-            // 改变行为);而且哪怕模型愿意配合"下一步先调工具",也没有文字能保证它选的是
-            // 一个真正产出/执行东西的工具,而不是一个查看/规划类的元工具(见下方 FORCED_TOOLS
-            // 的收敛理由)。只在那一次重试上加,正常回合不受影响。
+            // 文字层那条"第一步必须是工具调用"管不住 reasoning 阶段(三次真实观测都精确
+            // 撞满同一个 max_tokens 上限,提示注入了但没改变行为),tool_choice 是 API 层
+            // 想要的硬约束,但【是否真被网关遵守因 provider 而异】——2026-07-27 直接探测
+            // 确认火山方舟(评测实际在用的 provider)对 tool_choice=required 一律 400,只认
+            // auto/none;同一请求打 DeepSeek 原生 API 则 200 通过。下方 catch 分支就是给这种
+            // 不支持的网关准备的,在火山上是每次都会走到的主路径,不是罕见兜底。只在那一次
+            // 重试上加,正常回合不受影响。
             ...(forceToolCall ? { tool_choice: "required" } : {}),
           },
           ...(maxTokensOverride ? { maxTokens: maxTokensOverride } : {}),
@@ -486,11 +494,28 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       //    这样收尾的 trial 平均只用掉 32.9% 预算就自杀,丢弃 67.1%。
       // 现在改成:不再压预算,改用 API 层 tool_choice=required 硬性要求吐出工具调用,并把
       // 可选工具收敛到能产出/能执行的那几个;第一档仍为空再加大预算强制一次。
+      //
+      // 2026-07-27 五组真实重放(同一决策点,只改请求参数)补充了两点原计划没预料到的现实,
+      // 都不需要改动这段逻辑本身(下面的 catch 兜底和这里的分层设计已经把两者都接住了),
+      // 但会改变"这条修复到底靠什么起效"的因果叙述,记录下来避免以后误判:
+      //  · tool_choice=required 在火山方舟(ARK,当前评测实际在用的 provider)被直接 400 拒绝
+      //    ——直接探测确认 auto/none 都是 200,required 和具名函数强制都是 400,与
+      //    parallel_tool_calls 无关,是网关的 API 面限制。同一个请求打 DeepSeek 原生 API
+      //    (api.deepseek.com)则 200 通过、真吐出工具调用——机制本身没问题,卡在网关这层。
+      //    也就是说在 ARK 上,下面的 forced 分支【每次都会走进 catch】,真正生效的其实是
+      //    "加大预算+退回原始全量工具集"这条兜底路径,不是 tool_choice 本身;这条兜底路径
+      //    单独真实测过命中率(小样本,n=3~5)比旧的 6000+无强制基线明显更高。
+      //  · 收窄工具集(forcedTools)在网关不校验 tool_calls 是否落在本次请求 tools 数组内时
+      //    不是硬约束:补测过"不强制但收窄"这一档,模型仍然吐出了不在当次 tools 数组里的
+      //    TodoWrite(5 个样本里 3 个)——根源是系统提示词的叙事文本(messages[0],不受
+      //    某一次请求 tools 数组收窄的约束)明确写着"多步任务转成 TodoWrite 清单",模型
+      //    凭这段记忆调用,网关未拦截。工具集收窄在这类网关上是软偏置,不是可信赖的防线。
       if (wasEmptyTruncation) {
         const forced = tools.filter((tl) => FORCED_TOOLS.has(tl.function.name));
         const forcedTools = forced.length > 0 ? forced : tools;
-        // tool_choice 此前在 src/ 里零使用,各家 OpenAI 兼容网关支持程度未知。被拒时必须
-        // 退回普通重试——否则异常直接上抛、整个会话崩掉,比修复前更糟。
+        // tool_choice 此前在 src/ 里零使用。被拒时必须退回普通重试——否则异常直接上抛、
+        // 整个会话崩掉,比修复前更糟(这条兜底在火山方舟上不是"以防万一",是每次真实评测
+        // 都会走到的主路径,见上方说明)。
         let forcingUnsupported = false;
         const attempt = async (maxTokensOverride?: number): Promise<AssistantMessage> => {
           if (!forcingUnsupported) {

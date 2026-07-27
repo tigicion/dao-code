@@ -269,9 +269,11 @@ describe("runTurn", () => {
     expect(choiceSeen[2]).toBe("required");
   });
 
-  it("服务端不接受 tool_choice → 回退一次普通重试,不让整轮崩掉", async () => {
-    // 防御性:tool_choice 此前在 src/ 里零使用,各家 OpenAI 兼容网关支持程度未知。
-    // 如果强制请求被拒,原先的行为是异常直接上抛、整个会话崩掉——比修复前更糟。
+  it("服务端不接受 tool_choice → 回退一次普通重试,不让整轮崩掉(火山方舟上是每次都会走到的主路径,非罕见兜底)", async () => {
+    // 2026-07-27 直接探测坐实:火山方舟(评测实际在用的 provider)对 tool_choice=required
+    // 一律 400(auto/none 都是 200),同一请求打 DeepSeek 原生 API 则 200 通过——机制本身
+    // 没问题,是网关不支持。也就是说在这个 provider 上,下面这条回退不是"万一被拒才用",
+    // 是每次真实评测都会执行的代码路径,必须验证它不会让会话崩掉。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -300,6 +302,53 @@ describe("runTurn", () => {
     expect(choiceSeen[1]).toBe("required"); // 第一次尝试强制
     expect(choiceSeen[2]).toBeUndefined(); // 被拒后回退成普通重试
     expect(s.messages.at(-1)).toEqual({ role: "assistant", content: "回退后的回答" });
+  });
+
+  it("tool_choice 被拒后的回退请求用【原始全量工具集】,不是收窄过的 FORCED_TOOLS", async () => {
+    // 这不只是防御性代码,是火山方舟上的真实主路径(见上一条用例)。收窄工具集本身在这类
+    // 网关上也不是硬墙:2026-07-27 真实重放里,即便只发送 5 个生产性工具,模型仍吐出过
+    // 不在名单里的 TodoWrite(5 个样本 3 次)——系统提示词的叙事文本持续写着"多步任务转成
+    // TodoWrite 清单",不受某一次请求 tools 数组收窄的约束,网关也未拦截。既然收窄工具集
+    // 在被拒之后不是可信赖的防线,回退请求就没有理由继续收窄,让模型拿到完整能力总比拿到
+    // 一个"看起来收窄、实际拦不住"的假限制更诚实。
+    const r = new ToolRegistry();
+    for (const [n, cap] of [["Read", "read"], ["Skill", "read"], ["TodoWrite", "write"], ["Write", "write"], ["Bash", "exec"]] as const) {
+      r.register(defineTool({ name: n, description: "", capability: cap, approval: "auto", schema: z.object({}), handler: async () => "" }));
+    }
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const toolsSeen: string[][] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      toolsSeen.push((opts.tools ?? []).map((t) => t.function.name));
+      if (call === 1) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      if (call === 2) throw new Error("tool_choice is not supported");
+      if (call === 3) {
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "TodoWrite", arguments: "{}" } }] };
+        })();
+      }
+      // call 4:工具执行完之后 runTurn 会再请求一轮,必须让它收尾,否则 mock 无限吐工具调用
+      // 会撞上 runTurn 没有 maxTurns 上限时的无限循环(此前在这里漏了这个分支,导致测试
+      // 跑到 JS 堆 OOM——4 轮就该稳定复现,写死轮次比动态判断更不容易再犯同一个错)。
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        return { role: "assistant", content: "done" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: r, ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async (tcs: { id: string }[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" } as ToolMessage)),
+      write: () => {},
+    });
+    expect(toolsSeen[1]).toEqual(["Write", "Bash"]); // 强制那次请求:确实收窄了
+    expect(toolsSeen[2]).toEqual(["Read", "Skill", "TodoWrite", "Write", "Bash"]); // 被拒回退:恢复全量
   });
 
   it("普通空响应(非 onEmptyTruncation)→ 重试不压低 reasoning_effort,只有思考耗尽预算这一支才压", async () => {
