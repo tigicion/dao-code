@@ -15,8 +15,8 @@ const ICON: Record<TodoStatus, string> = {
 function completionNudge(todos: { status: TodoStatus }[]): string {
   if (todos.length < 3 || !todos.every((t) => t.status === "completed")) return "";
   return msg(
-    "\n\n(清单已全部勾完——先别急着收尾报告:这只是你自己记的进度,不代表验证过。逐项拿实际证据核实一遍,或派 verify 子代理独立验证。)",
-    "\n\n(All items checked off — before wrapping up: this checklist only reflects your own progress tracking, not verification. Confirm each item against actual evidence, or dispatch a verify subagent.)",
+    "\n\n(清单已全部勾完——先别急着收尾报告:这只是你自己记的进度,不代表验证过。调用 VerifyDone 逐项对实际证据核实一遍;非琐碎改动再派 verify 子代理独立验证。)",
+    "\n\n(All items checked off — before wrapping up: this checklist only reflects your own progress tracking, not verification. Call VerifyDone to check each item against actual evidence; for non-trivial changes also dispatch a verify subagent.)",
   );
 }
 

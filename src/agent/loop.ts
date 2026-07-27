@@ -151,7 +151,23 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     const parsed = raw ? raw.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0) : [];
     return parsed.length ? parsed : [5, 4, 3];
   })();
-  const PROGRESS_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "TodoWrite"]);
+  // 判据要回答的是"这一轮有没有真的动工程",不是"工具名在不在白名单里"。两处修正(2026-07-27):
+  // 加 Bash——模型大量用 `cat > file <<EOF` 走 shell 落盘,真实 trace 里 43 次调用被判成 0 次
+  // 推进,而交付物其实写了两次、外加 6 个脚本;况且提醒文案要求的就是"写脚本算出来、跑命令查",
+  // 不把跑命令计入等于和自己的措辞打架。去 TodoWrite——纯记账的元动作什么也不产出,却能把
+  // "卡住"计数器清零——用一个不产出任何东西的元动作满足判据,是同一类漏洞的另一面
+  // (真实 trace 里模型面对"该动手了"的压力时也调用过 Skill(make-plan) 这类元工具,
+  // 但那发生在撞上限、触发强制重试之前,不是对强制约束本身的观测规避)。
+  const PROGRESS_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
+  // 预算耗尽后那一次强制重试里,允许模型选的工具。此刻的状态按定义就是"整个输出预算烧在推理上
+  // 却没动手",缺的不是信息是动作;Bash 在功能上已经涵盖读文件/搜索(cat/grep/ls),所以排除
+  // Read/Grep/Glob 并不剥夺查看能力,只是要求这个动作走一条同时也能产出东西的通道。
+  const FORCED_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
+  // 强制重试第一档仍为空时的加大档位。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成
+  // 速率约 60.7 tok/s:16000≈264s(1800s 预算的 14.7%)、32000≈528s(29.3%)、72000≈1187s(65.9%)。
+  // 再往上叠(16k+32k+72k≈1979s)已超过整个任务预算,最后一档必然在生成中途被 agent timeout
+  // 砍断、什么都留不下,所以阶梯到 32000 为止。
+  const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 32000;
   let noProgress = 0;
   let nextAdviceAt = ADVISE_GAPS[0]!;
   // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
@@ -175,7 +191,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
   // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
   const reasoningEffort = deps.reasoningEffort ?? process.env.DAO_REASONING_EFFORT ?? "max";
-  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number, effortOverride?: string, maxTokensOverride?: number): Promise<AssistantMessage> => {
+  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number, effortOverride?: string, maxTokensOverride?: number, forceToolCall?: boolean): Promise<AssistantMessage> => {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
     let usedFallback = false;
     let hardRetries = 0; // 主模型+回退模型都遇到同类网络/超时错误后,退避重试整轮的次数上限
@@ -209,7 +225,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           // effortOverride/maxTokensOverride:单次调用级别的临时覆盖(目前只用于 onEmptyTruncation
           // 重试,见下方),不影响 reasoningEffort/会话默认 maxTokens——那些是整个会话固定的档位,
           // 这里只压这一次请求。
-          extra: { reasoning_effort: effortOverride ?? reasoningEffort },
+          extra: {
+            reasoning_effort: effortOverride ?? reasoningEffort,
+            // tool_choice 是 API 层唯一硬遵守的约束——文字层那条"第一步必须是工具调用"管不住
+            // reasoning 阶段(三次真实观测都精确撞满同一个 max_tokens 上限,提示注入了但没
+            // 改变行为);而且哪怕模型愿意配合"下一步先调工具",也没有文字能保证它选的是
+            // 一个真正产出/执行东西的工具,而不是一个查看/规划类的元工具(见下方 FORCED_TOOLS
+            // 的收敛理由)。只在那一次重试上加,正常回合不受影响。
+            ...(forceToolCall ? { tool_choice: "required" } : {}),
+          },
           ...(maxTokensOverride ? { maxTokens: maxTokensOverride } : {}),
           onUsage: (u) => {
             session.addUsage(u, model); // B-2 按模型记账
@@ -449,17 +473,55 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       // 单独调低 reasoning_effort 到"low"复测(regex-chess__wEqpsZA)也不够:探测脚本
       // 证实"low"在正常场景下确实会让模型更早收敛(completion从16001降到8660),但对
       // 已经陷入具体反复重算循环的这一次重试,completion两次都精确撞满同一个 max_tokens
-      // 上限——说明 reasoning_effort 只是"目标预算"的软提示,遇到强反模式会被压过去,
-      // 而 max_tokens 才是 API 唯一保真遵守的硬上限(三次真实观测:都精确停在这个值)。
-      // 因此在调低 effort 的同时,额外给这一次重试一个远小于会话默认(16000)的硬
-      // max_tokens——即便模型仍想继续同一条推导链,也会被更早、更便宜地截断,不再
-      // 白白烧掉整个预算;正常场景下(如探测脚本的对照组)"low"本就会自然收敛在这个
-      // 范围内,不会提前误伤真正需要空间收尾的回复。
-      assistant = await requestAssistant(tools, t, wasEmptyTruncation ? "low" : undefined, wasEmptyTruncation ? 6000 : undefined);
-      toolCalls = assistant.tool_calls ?? [];
-      hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+      // 上限——说明 reasoning_effort 只是"目标预算"的软提示,遇到强反模式会被压过去。
+      //
+      // 2026-07-27 复盘推翻了当时基于这个观察做出的第三档(把重试预算压到 6000):
+      //  · 压预算是自我实现的失败——上面这段注释自己记录的探测值就是"low 档自然收敛在
+      //    8660",6000 比它还小,等于保证这次重试也被截断;
+      //  · 文字约束本身没有硬保证——同一份真实 trace 里,模型在撞上限之前(不是作为对
+      //    这条重试提示的反应)调用过 Skill(make-plan) 这类不产出任何东西的元工具,
+      //    说明"愿意先调用工具"和"调用的是能真正推进任务的工具"是两件事,文字管不了
+      //    第二件;
+      //  · 代价被量化了:难度受控的前后对比里,这条死法在本家族从 0% 涨到 48.7%,
+      //    这样收尾的 trial 平均只用掉 32.9% 预算就自杀,丢弃 67.1%。
+      // 现在改成:不再压预算,改用 API 层 tool_choice=required 硬性要求吐出工具调用,并把
+      // 可选工具收敛到能产出/能执行的那几个;第一档仍为空再加大预算强制一次。
+      if (wasEmptyTruncation) {
+        const forced = tools.filter((tl) => FORCED_TOOLS.has(tl.function.name));
+        const forcedTools = forced.length > 0 ? forced : tools;
+        // tool_choice 此前在 src/ 里零使用,各家 OpenAI 兼容网关支持程度未知。被拒时必须
+        // 退回普通重试——否则异常直接上抛、整个会话崩掉,比修复前更糟。
+        let forcingUnsupported = false;
+        const attempt = async (maxTokensOverride?: number): Promise<AssistantMessage> => {
+          if (!forcingUnsupported) {
+            try {
+              return await requestAssistant(forcedTools, t, "low", maxTokensOverride, true);
+            } catch (e) {
+              if (signal?.aborted) throw e;
+              forcingUnsupported = true;
+              events.notice("\n[服务端不接受强制工具调用,回退成普通重试…]\n");
+            }
+          }
+          return await requestAssistant(tools, t, "low", maxTokensOverride);
+        };
+        assistant = await attempt(undefined);
+        toolCalls = assistant.tool_calls ?? [];
+        hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+        if (toolCalls.length === 0 && !hasContent) {
+          events.notice(`\n[强制工具调用后仍为空,加大输出预算到 ${ESCALATED_MAX_TOKENS} 再试一次…]\n`);
+          assistant = await attempt(ESCALATED_MAX_TOKENS);
+          toolCalls = assistant.tool_calls ?? [];
+          hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+        }
+      } else {
+        assistant = await requestAssistant(tools, t);
+        toolCalls = assistant.tool_calls ?? [];
+        hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+      }
       if (toolCalls.length === 0 && !hasContent) {
-        events.notice("\n[连续两次空响应,结束本轮]\n");
+        events.notice(wasEmptyTruncation
+          ? "\n[强制工具调用+加大预算后仍是空响应,结束本轮]\n"
+          : "\n[连续两次空响应,结束本轮]\n");
         return;
       }
     }
@@ -565,16 +627,16 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         : "用 AskUserQuestion 向用户求助";
       advisories.push(
         !escalate
-          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请派 verify 子代理验证后收尾;如果确实卡住了,${stuckFallback},不要空转。`
+          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件、也没有执行命令。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,先调用 VerifyDone 逐条对证据核实后再收尾(非琐碎改动另派 verify 子代理);如果确实卡住了,${stuckFallback},不要空转。`
           : stuckAdviceCount > 1
-            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,${stuckFallback}。`
-            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,${stuckFallback}。`,
+            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件、也没有执行命令,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,${stuckFallback}。`
+            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件、也没有执行命令。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,${stuckFallback}。`,
       );
       const label = stuckAdviceCount > 1 ? `·第${stuckAdviceCount}次` : escalate ? `·本会话第${totalStuckEvents}次卡住` : "";
       events.notice(`\n[进度提醒${label}:已连续 ${noProgress} 轮无实质推进]\n`);
     }
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
-      advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时派 verify 子代理验证或向用户汇报现状)。`);
+      advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时调用 VerifyDone 核实证据、或派 verify 子代理验证,再向用户汇报现状)。`);
       events.notice(`\n[轮数提醒:接近最大轮数 ${t + 1}/${maxTurns}]\n`);
     }
     // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者。检测(廉价纯函数)与应对(贵的 LLM)解耦:

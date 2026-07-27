@@ -132,7 +132,7 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试请求同时调低 reasoning_effort 和 max_tokens(候选(b)+(c))", async () => {
+  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试调低 reasoning_effort,但【不再】压低 max_tokens", async () => {
     // 根因链条(2026-07-19 regex-chess 真实复测坐实,逐层递进):
     // 候选(a)——收敛提示改成结构性约束("第一步必须是工具调用")——单独复测仍然复现:
     // 提示确实注入了,但重试请求同样把预算耗在 reasoning 阶段的心算推导上,再次空响应。
@@ -142,9 +142,11 @@ describe("runTurn", () => {
     // max/low)证实"low"在正常场景下确实会让模型更早收敛(completion 从16001→8660,
     // finish_reason 从 length→stop)——说明 reasoning_effort 不是无效参数,只是遇到
     // 已经陷入具体反复重算循环的强反模式时会被压过去,是"目标预算"而非硬上限。
-    // 真正被三次真实观测证实"永远精确遵守"的只有 max_tokens 本身——因此候选(c):
-    // 在调低 effort 的同时,额外给这一次重试一个远小于会话默认(16000)的硬 max_tokens
-    // (6000),即便模型仍想继续同一条推导链,也会被更早、更便宜地截断。
+    // 候选(c)当时的做法是再叠一道远小于会话默认(16000)的硬 max_tokens(6000)。
+    // 2026-07-27 复盘推翻了这一档:上面这段注释自己记录的探测值就是"low 档自然收敛在
+    // 8660",而 6000 比它还小——等于保证这次重试也会被截断,是自我实现的失败。改成
+    // 第一档不压预算(走会话默认),靠 API 层 tool_choice 强制吐出工具调用来阻断螺旋,
+    // 而不是靠把腾挪空间压得更死。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -175,7 +177,129 @@ describe("runTurn", () => {
     expect(effortSeen[0]).toBe("max"); // 首次请求:默认档位,不受影响
     expect(effortSeen[1]).toBe("low"); // onEmptyTruncation 触发后的重试:物理压低
     expect(maxTokensSeen[0]).toBeUndefined(); // 首次请求:不设覆盖,走会话默认上限
-    expect(maxTokensSeen[1]).toBe(6000); // 重试:额外加一道硬上限,不靠 effort 单独把关
+    expect(maxTokensSeen[1]).toBeUndefined(); // 重试第一档:不再压低预算(见上方注释)
+  });
+
+  it("预算耗尽重试:API 层强制工具调用(tool_choice=required),候选工具收敛为能产出/执行的那几个", async () => {
+    // 根因(2026-07-27 feal-differential-cryptanalysis 真实 trace):候选(a)那条"第一步
+    // 必须是工具调用"是【文字】约束,管不住 reasoning 阶段。且同一份 trace 里,模型在撞
+    // 上限之前(不是作为对这条重试提示的反应)调用过 Skill(make-plan) 这类不产出任何
+    // 东西的元工具——说明"愿意先调用工具"不等于"调用的是能真正推进任务的工具",文字
+    // 管不了后者。tool_choice 是 API 层唯一硬遵守的约束,但它只保证前者,工具集还要
+    // 同时收敛才能保证后者。
+    // 工具集同时收敛为"能写盘/能执行"那几个:此刻的状态按定义就是"整个输出预算烧在推理上
+    // 却没动手",缺的不是信息是动作。Bash 在功能上已经涵盖读文件/搜索(cat/grep/ls),所以
+    // 排除 Read/Grep/Glob 并不剥夺查看能力,只是要求这个动作走一条同时也能产出东西的通道。
+    const r = new ToolRegistry();
+    for (const [n, cap] of [["Read", "read"], ["Grep", "read"], ["Skill", "read"],
+      ["TodoWrite", "write"], ["Write", "write"], ["Bash", "exec"]] as const) {
+      r.register(defineTool({ name: n, description: "", capability: cap, approval: "auto", schema: z.object({}), handler: async () => "" }));
+    }
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const choiceSeen: unknown[] = [];
+    const toolsSeen: string[][] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      choiceSeen.push((opts.extra as { tool_choice?: unknown } | undefined)?.tool_choice);
+      toolsSeen.push((opts.tools ?? []).map((t) => t.function.name));
+      if (call === 1) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      if (call === 2) {
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "Write", arguments: "{}" } }] };
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        return { role: "assistant", content: "写完了" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: r, ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async (tcs: { id: string }[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" } as ToolMessage)),
+      write: () => {},
+    });
+    expect(choiceSeen[0]).toBeUndefined(); // 首次请求:不强制
+    expect(choiceSeen[1]).toBe("required"); // 预算耗尽后的重试:API 层硬约束
+    expect(toolsSeen[0]).toContain("Skill"); // 首次请求:完整工具集
+    expect(toolsSeen[1]).toEqual(["Write", "Bash"]); // 重试:元工具/纯读工具被剔除
+    expect(choiceSeen[2]).toBeUndefined(); // 恢复正常后的下一轮:不再强制
+    expect(toolsSeen[2]).toContain("Skill"); // 也恢复完整工具集
+  });
+
+  it("预算耗尽重试:第一档仍为空 → 加大输出预算到 32000 再强制一次,而不是直接放弃本轮", async () => {
+    // 为什么是 32000 而不是继续加码:347 个 trial 的 cache 记录实测,撞满上限的请求中位
+    // 生成速率约 60.7 tok/s——16000 tok≈264s(占 1800s 预算 14.7%),32000≈528s(29.3%),
+    // 72000≈1187s(65.9%)。三档叠加(16k+32k+72k≈1979s)已经超过整个任务预算,最后一档
+    // 必然在生成中途被 agent timeout 砍断、什么也留不下,所以阶梯到 32000 为止。
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const maxTokensSeen: unknown[] = [];
+    const choiceSeen: unknown[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      maxTokensSeen.push(opts.maxTokens);
+      choiceSeen.push((opts.extra as { tool_choice?: unknown } | undefined)?.tool_choice);
+      if (call <= 2) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        return { role: "assistant", content: "终于收敛了" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(call).toBe(3); // 不再是"两次空就结束本轮"
+    expect(maxTokensSeen[1]).toBeUndefined(); // 第一档:会话默认预算
+    expect(maxTokensSeen[2]).toBe(32000); // 第二档:加大预算再强制一次
+    expect(choiceSeen[2]).toBe("required");
+  });
+
+  it("服务端不接受 tool_choice → 回退一次普通重试,不让整轮崩掉", async () => {
+    // 防御性:tool_choice 此前在 src/ 里零使用,各家 OpenAI 兼容网关支持程度未知。
+    // 如果强制请求被拒,原先的行为是异常直接上抛、整个会话崩掉——比修复前更糟。
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const choiceSeen: unknown[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      choiceSeen.push((opts.extra as { tool_choice?: unknown } | undefined)?.tool_choice);
+      if (call === 1) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      if (call === 2) throw new Error("Invalid request: tool_choice is not supported by this endpoint");
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        return { role: "assistant", content: "回退后的回答" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(call).toBe(3);
+    expect(choiceSeen[1]).toBe("required"); // 第一次尝试强制
+    expect(choiceSeen[2]).toBeUndefined(); // 被拒后回退成普通重试
+    expect(s.messages.at(-1)).toEqual({ role: "assistant", content: "回退后的回答" });
   });
 
   it("普通空响应(非 onEmptyTruncation)→ 重试不压低 reasoning_effort,只有思考耗尽预算这一支才压", async () => {

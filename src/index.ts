@@ -31,6 +31,7 @@ import { loadPlugins, installPlugin, removePlugin, pluginsRoot, pluginComponentD
 import { loadProjectInstructions } from "./project_doc.js";
 import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields, wrapDelayedEnvNotice } from "./env_snapshot.js";
 import { execShellTool, cleanupDbBackups } from "./tools/exec_shell.js";
+import { verifyDoneTool } from "./tools/verify.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
 import { grepFilesTool } from "./tools/grep_files.js";
@@ -261,18 +262,28 @@ async function main() {
   // 这是另一套独立机制(不依赖 --reflect-memory),之前一直无条件跑(仅一次性 headless 因
   // argvPrompt 而被跳过),交互态/非 TTY 多轮管道下每轮都在算 + 命中阈值就 fork 一次 LLM 调用。
   const reflectChallengerFlag = rawArgs.includes("--reflect-challenger");
-  // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-hooks --no-project-instructions。
-  // 每个子开关也可单独使用。--no-skills 的隔离范围覆盖整个"磁盘/插件自定义"通道:
-  // 技能本体 + 自定义子代理定义(.dao/agents)+ 自定义 slash 命令(.dao/commands)——三者都是同一类
+  // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-project-instructions。
+  // 每个子开关也可单独使用。--no-skills 的隔离范围覆盖"磁盘/插件自定义"通道:
+  // 磁盘/插件技能 + 自定义子代理定义(.dao/agents)+ 自定义 slash 命令(.dao/commands)——三者都是同一类
   // 用户/项目/插件自带的、会改变模型行为的注入源,不隔离会让评测结果混入本机个性化配置的影响。
+  // DAO 自带的内置技能(BUNDLED_SKILLS)和 hooks 不受 --eval 影响:它们是 DAO 本身能力的一部分,
+  // 不是"本机个性化配置",评测时应该像真实使用一样可用;仍可用 --no-skills/--no-hooks 单独关闭。
   const evalFlag = rawArgs.includes("--eval");
-  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)默认关闭,--progress-advice 才开。
+  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)【默认开启】,--no-progress-advice 才关。
   // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
-  const progressAdviceFlag = rawArgs.includes("--progress-advice");
+  // 2026-07-19 的 f939ddf 曾把它改成需要显式 --progress-advice 才开,而真实评测从未传过这个参数,
+  // 等于在所有无人值守长任务里静默失去了这道保险(真实案例:一道题的历史通过 trace 里提醒在第 5 轮
+  // 触发、触发后模型立刻收敛写完,回归后同一题再没通过过)。默认打开才符合这个机制的用途——它保护的
+  // 恰恰是没人盯着的场景。同时判据已修正为"改动文件或执行命令"(见 loop.ts 的 PROGRESS_TOOLS),
+  // 误触发率比当初关掉它的时候低得多。
+  const progressAdviceFlag = !rawArgs.includes("--no-progress-advice");
   const noMemory = evalFlag || rawArgs.includes("--no-memory");
+  // 只管磁盘/插件技能 + 自定义子代理/命令,不管内置技能(见下面 noBuiltinSkills)。
   const noSkills = evalFlag || rawArgs.includes("--no-skills");
+  // 内置技能单独一个开关,--eval 不隐含它,只有显式 --no-skills 才关。
+  const noBuiltinSkills = rawArgs.includes("--no-skills");
   const noMcp = evalFlag || rawArgs.includes("--no-mcp");
-  const noHooks = evalFlag || rawArgs.includes("--no-hooks");
+  const noHooks = rawArgs.includes("--no-hooks");
   // 项目/用户级自定义指令(DAO.md,CLAUDE.md 的 DAO 对应物)。之前一直无条件加载并注入系统提示词,
   // --eval 完全没覆盖到——同样是"用户自定义、会改变模型行为"的影响源,单独给一个子开关。
   const noProjectInstructions = evalFlag || rawArgs.includes("--no-project-instructions");
@@ -283,7 +294,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--no-progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -542,7 +553,7 @@ async function main() {
     enterPlanModeTool, exitPlanModeTool,
     enterWorktreeTool, exitWorktreeTool,
     monitorTool,
-    configTool, sendMessageTool,
+    configTool, sendMessageTool, verifyDoneTool,
     cronCreateTool, cronDeleteTool, cronListTool,
   ]) {
     registry.register(t);
@@ -701,8 +712,8 @@ async function main() {
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
   // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关(对标 CC disableBundledSkills)。
-  // --no-skills / --eval 时也清空(不注入内置技能描述)。
-  const coreBundled = noSkills ? [] : BUNDLED_SKILLS
+  // 只有显式 --no-skills 才清空;--eval 不隐含关闭内置技能(见 noBuiltinSkills 定义处的说明)。
+  const coreBundled = noBuiltinSkills ? [] : BUNDLED_SKILLS
     .filter((b) => b.core && !diskNames.has(b.name) && !disabledSet.has(b.name))
     .map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name, ...(b.modelInvokable === false ? { modelInvokable: false } : {}), ...(b.userInvocable === false ? { userInvocable: false } : {}) } as import("./skills/skills.js").Skill));
   const pluginsDir = pluginsRoot();
@@ -1063,7 +1074,7 @@ async function main() {
   ctx.adaptSkill = makeSkillAdapter({ daoTools, catalog: toolCatalog, callFlash, homeDir: os.homedir() });
 
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
-  // --no-hooks / --eval 跳过(评测场景不需要用户自定义的自动执行面)。
+  // 只有显式 --no-hooks 才跳过;--eval 不再隐含关闭 hooks(hooks 视为 DAO 正常能力的一部分)。
   const hooks = noHooks ? [] : loadHooks([
     { path: path.join(os.homedir(), ".dao", "hooks.json") },
     ...pluginComp.hookFiles.map((h) => ({ path: h.file, pluginRoot: h.root })), // B-5 插件 hooks(pluginRoot=插件根,兼容 CC 的 hooks/ 子目录布局)
@@ -1332,7 +1343,7 @@ async function main() {
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
-      progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
+      progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
       interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
@@ -1617,7 +1628,7 @@ async function main() {
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
-            progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
+            progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
             interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory

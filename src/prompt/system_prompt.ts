@@ -228,10 +228,12 @@ const BODY = `# 你是谁
   (参考图像/输出文件、日志、样本数据),在定稿前拿这份数据反过来交叉核对一遍——从数据本身
   独立地再推一次(几何、测光,或该领域允许的任何方式),不要只信单一推导路径。两者不一致时,
   以能从数据独立复现的那一方为准。
-- 完成定义(DoD):声称任务完成前必须验证。非琐碎改动(3+ 文件编辑、后端/API 改动、基础设施变更)
-  必须派 \`verify\` 子代理独立验证后才能报告完成--你自己的检查、fork 的自检都不能替代,只有 verify 子代理能给判定。
-  通过后抽查它的报告:重跑 2-3 条命令,确认每个"通过"都有命令输出且与重跑一致。不通过就修、再派 verify,直到通过。
-  琐碎改动可自己照"反自我合理化清单"真跑起来验证,别让"看起来对"过关。
+- 完成定义(DoD):声称任务完成前必须验证,而且必须留下痕迹——先调用 VerifyDone 过一遍证据清单。
+  它不替你判断做没做对,只逼你把任务原文里的每一条要求逐条对上你手里的实际证据(读回改动、跑相关
+  命令、看输出);最容易漏的是那些不影响"跑不跑得通"、但原文明确写了的结构性/格式性要求。
+  非琐碎改动(3+ 文件编辑、后端/API 改动、基础设施变更)在此之上还要派 \`verify\` 子代理独立实跑验证,
+  通过后抽查它的报告:重跑 2-3 条命令,确认每个"通过"都有命令输出且与重跑一致。不通过就修、再验,直到通过。
+  琐碎改动照"反自我合理化清单"自己真跑起来验证即可,别让"看起来对"过关。
 
 # 语言
 
@@ -569,9 +571,13 @@ Don't force "runtime" verification onto non-coding tasks; the rules below only a
   dataset is also available (a reference image/output file, log, sample data), cross-check the value against that dataset before
   finalizing — derive it a second, independent way from the data itself (geometry, photometry, or whatever the domain allows)
   rather than trusting a single derivation path. If the two disagree, prefer the one independently reproducible from the data.
-- Definition of Done (DoD): before claiming completion, you MUST verify. For non-trivial changes (3+ file edits, backend/API changes, infrastructure changes)
-  you MUST dispatch a \`verify\` subagent for independent verification - your own checks and fork self-checks do NOT substitute, only the verify subagent assigns a verdict.
-  After PASS, spot-check its report: re-run 2-3 commands, confirm every PASS has a command output block matching your re-run. On FAIL: fix, re-dispatch verify, repeat until PASS.
+- Definition of Done (DoD): before claiming completion you MUST verify, and that verification must leave a trace — first call VerifyDone
+  to walk the evidence checklist. It won't judge correctness for you; it forces you to match every requirement in the original task text
+  against actual evidence you hold (read back the change, run the relevant command, check the output). The ones most often missed are
+  structural/format requirements the task stated explicitly but that don't affect whether it "runs".
+  For non-trivial changes (3+ file edits, backend/API changes, infrastructure changes), additionally dispatch a \`verify\` subagent for
+  independent hands-on verification. After PASS, spot-check its report: re-run 2-3 commands, confirm every PASS has a command output
+  block matching your re-run. On FAIL: fix, re-verify, repeat until PASS.
   For trivial changes, apply the "anti-self-rationalization checklist" and actually run it yourself; don't let "looks right" pass.
 
 # Language

@@ -64,6 +64,53 @@ describe("L4.2/L4.3 advisor", () => {
     expect(sentLog.every((m) => !m.some((x: any) => typeof x.content === "string" && x.content.includes("进度提醒")))).toBe(true);
   });
 
+  it("Bash 执行也算实质推进——shell heredoc 写文件是真实产出,不该被判成空转", async () => {
+    // 根因(2026-07-27 path-tracing 真实 trace):PROGRESS_TOOLS 只认四类写文件工具,
+    // 而模型这一整轮都在用 `cat > file <<EOF` 走 Bash 落盘——43 次工具调用里被计为
+    // "有推进"的是 0 次,交付物写了两次、还有 6 个脚本,检测器却全程认为它在空转。
+    // 提醒文案本身要求的就是"写脚本算出来、跑命令查",不把跑命令计入等于自相矛盾。
+    process.env.DAO_ADVISE_GAPS = "2,2,2";
+    const sentLog: any[] = [];
+    let turn = 0;
+    const streamChat = (opts: StreamChatOptions) => {
+      sentLog.push([...opts.messages]);
+      turn++;
+      return (async function* (): AsyncGenerator<never, AssistantMessage> {
+        if (turn <= 4) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "Bash", arguments: "{}" } }] };
+        return { role: "assistant", content: "done" };
+      })();
+    };
+    const executeToolCalls = async (tcs: any[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" }));
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    await runTurn(baseDeps(s, streamChat, executeToolCalls));
+    delete process.env.DAO_ADVISE_GAPS;
+    expect(sentLog.every((m) => !m.some((x: any) => typeof x.content === "string" && x.content.includes("进度提醒")))).toBe(true);
+  });
+
+  it("TodoWrite 不算实质推进——纯记账的元动作不能把「卡住」计数器清零", async () => {
+    // 同一个结构缺陷的另一面:计数器此前把 TodoWrite 当成推进,于是一个只更新任务清单、
+    // 不产出任何东西的回合就能把提醒压下去——和"强制工具调用被 Skill(make-plan) 兑现"
+    // 是同一类漏洞(用元动作满足判据)。
+    process.env.DAO_ADVISE_GAPS = "2,2,2";
+    const sentLog: any[] = [];
+    let turn = 0;
+    const streamChat = (opts: StreamChatOptions) => {
+      sentLog.push([...opts.messages]);
+      turn++;
+      return (async function* (): AsyncGenerator<never, AssistantMessage> {
+        if (turn <= 3) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "TodoWrite", arguments: "{}" } }] };
+        return { role: "assistant", content: "done" };
+      })();
+    };
+    const executeToolCalls = async (tcs: any[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" }));
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    await runTurn(baseDeps(s, streamChat, executeToolCalls));
+    delete process.env.DAO_ADVISE_GAPS;
+    expect(s.messages.some((m) => typeof m.content === "string" && m.content.includes("进度提醒"))).toBe(true);
+  });
+
   it("三档提醒间隔递减:第1次等5轮,第2次再等4轮(累计9),第3次起再等3轮(累计12/15…)", async () => {
     const sentLog: any[] = [];
     let turn = 0;
