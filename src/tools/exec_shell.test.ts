@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { execShellTool } from "./exec_shell.js";
+import { execShellTool, cleanupDbBackups } from "./exec_shell.js";
 import { processManager } from "./process_manager.js";
 import { createForegroundRegistry } from "../tui/foreground_registry.js";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -202,6 +202,110 @@ describe("Bash tool", () => {
     await execShellTool.handler({ command: "echo reset-streak" }, ctx);
     const out = await execShellTool.handler({ command: 'python -c "print(1)"' }, ctx);
     expect(out).not.toContain("[提示]");
+  });
+
+  describe("数据库文件执行前自动备份", () => {
+    it("命令引用了存在的 .db 主文件 → 执行前自动备份主文件和它的 WAL/SHM/journal 边车文件", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      const main = path.join(dir, "main.db");
+      const wal = path.join(dir, "main.db-wal");
+      writeFileSync(main, "main-content");
+      writeFileSync(wal, "wal-content");
+      // 命令文本里只提到了 main.db,没提到 main.db-wal——边车文件要能被隐式识别并备份。
+      const out = await execShellTool.handler({ command: `wc -c ${main}` }, ctx);
+      expect(out).toContain("[自动备份]");
+      expect(out).toContain("main.db");
+      expect(readFileSync(main + ".dao-backup", "utf8")).toBe("main-content");
+      expect(readFileSync(wal + ".dao-backup", "utf8")).toBe("wal-content");
+    });
+
+    it("已经备份过的文件不重复覆盖(保留最早的干净版本)", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      const main = path.join(dir, "app.sqlite3");
+      writeFileSync(main, "v1");
+      await execShellTool.handler({ command: `wc -c ${main}` }, ctx);
+      expect(readFileSync(main + ".dao-backup", "utf8")).toBe("v1");
+      writeFileSync(main, "v2-corrupted-by-something-else");
+      const out2 = await execShellTool.handler({ command: `wc -c ${main}` }, ctx);
+      expect(out2).not.toContain("[自动备份]"); // 已备份过,这次不该再触发/覆盖
+      expect(readFileSync(main + ".dao-backup", "utf8")).toBe("v1"); // 备份仍是最早的干净版本
+    });
+
+    it("命令没有引用任何数据库文件 → 不触发,不额外产生备份文件", async () => {
+      const out = await execShellTool.handler({ command: "echo no-db-here" }, ctx);
+      expect(out).not.toContain("[自动备份]");
+    });
+
+    it("python3 -c 内联脚本里引用了数据库文件也能识别(不局限于普通 shell 命令)", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      const main = path.join(dir, "main.db");
+      writeFileSync(main, "content");
+      // 这段脚本引用的其它路径不是"小文本文件",不会被 python-inline 小文件拦截提前挡掉。
+      const out = await execShellTool.handler(
+        { command: `python3 -c "import sqlite3; sqlite3.connect('${main}').execute('SELECT 1')"` },
+        ctx,
+      );
+      expect(out).toContain("[自动备份]");
+      expect(readFileSync(main + ".dao-backup", "utf8")).toBe("content");
+    });
+
+    it("被 python-inline 小文件规则提前拦截、命令根本没执行时 → 不做无意义的备份", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      const small = path.join(dir, "notes.txt");
+      writeFileSync(small, "hello");
+      const out = await execShellTool.handler(
+        { command: `python3 -c "open('${small}')"` },
+        ctx,
+      );
+      expect(out).toContain("不用写 python 脚本"); // 确认真的被小文件规则拦下、命令未执行
+      expect(out).not.toContain("[自动备份]");
+    });
+
+    it("Redis/Firebird/KeePass/dBase 等同构扩展名也能识别", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      for (const name of ["dump.rdb", "log.aof", "vault.kdbx", "table.dbf"]) {
+        const f = path.join(dir, name);
+        writeFileSync(f, "content");
+        const out = await execShellTool.handler({ command: `wc -c ${f}` }, ctx);
+        expect(out).toContain("[自动备份]");
+        expect(readFileSync(f + ".dao-backup", "utf8")).toBe("content");
+      }
+    });
+
+    it("回归:'db' 是 'db3'/'dbf' 的前缀,不能被短的那个抢先截断匹配掉", async () => {
+      // 之前的写法(扩展名后面没加边界)会把 "state.db3" 错误截断匹配成 "state.db",
+      // 按不存在的文件名去 statSync,找不到就被判定"不是备份目标"、什么也没做。
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      const f = path.join(dir, "state.db3");
+      writeFileSync(f, "content");
+      const out = await execShellTool.handler({ command: `wc -c ${f}` }, ctx);
+      expect(out).toContain("[自动备份]");
+      expect(readFileSync(f + ".dao-backup", "utf8")).toBe("content");
+    });
+  });
+
+  describe("会话结束清理 .dao-backup 文件", () => {
+    it("递归清理工作区下所有 .dao-backup 文件,不影响其它文件", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      const sub = path.join(dir, "nested");
+      mkdirSync(sub);
+      writeFileSync(path.join(dir, "main.db.dao-backup"), "backup1");
+      writeFileSync(path.join(sub, "app.sqlite3.dao-backup"), "backup2");
+      writeFileSync(path.join(dir, "keep.txt"), "keep-me");
+      const n = await cleanupDbBackups(dir);
+      expect(n).toBe(2);
+      expect(existsSync(path.join(dir, "main.db.dao-backup"))).toBe(false);
+      expect(existsSync(path.join(sub, "app.sqlite3.dao-backup"))).toBe(false);
+      expect(existsSync(path.join(dir, "keep.txt"))).toBe(true);
+    });
+
+    it("没有任何 .dao-backup 文件时返回 0,不报错", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));
+      writeFileSync(path.join(dir, "normal.txt"), "hi");
+      const n = await cleanupDbBackups(dir);
+      expect(n).toBe(0);
+      expect(readFileSync(path.join(dir, "normal.txt"), "utf8")).toBe("hi");
+    });
   });
 
   it("declares exec capability and required approval", () => {
