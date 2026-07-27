@@ -101,6 +101,10 @@ export interface TurnDeps {
   // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒):默认关闭,--progress-advice 才开。
   // 和 reflect/selfChallenge(挑战者/纠偏者,LLM fork)是完全独立的机制,不依赖它们。
   progressAdvice?: boolean;
+  // 当前是否真正交互式会话(有人在场、能回答 AskUserQuestion)。默认 true(省略按交互态处理,
+  // 不影响交互态提醒文案字节)。headless/一次性调用应显式传 false——进度提醒文案里"卡住了
+  // 用 AskUserQuestion 求助"这条在无人值守场景没有意义(同 system_prompt.ts 的会话特定指引口径)。
+  interactive?: boolean;
   // 限流菜单用:返回除当前激活账号外的全部账号名(交互场景,配合 askChoice 里的"切到账号 X"选项)。
   // 省略/返回空数组 = 菜单不出现账号切换选项,行为同现状。
   listOtherAccounts?: () => { name: string }[];
@@ -139,9 +143,17 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
   // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时,把提醒【追加】进 session.messages(append-only)。
-  const ADVISE_EVERY = Number(process.env.DAO_ADVISE_EVERY) || 5;
+  // 三档提醒的等待间隔:第1次卡住等5轮,第2次再等4轮,第3次起每次再等3轮——同一次卡住反复
+  // 提醒过还没缓解,说明情况比first look更糟,催的间隔应该收紧,不该一直按固定节奏干等。
+  // DAO_ADVISE_GAPS 可覆盖(逗号分隔,如 "2,2,2"),测试/调参用;不设则用默认档位。
+  const ADVISE_GAPS = (() => {
+    const raw = process.env.DAO_ADVISE_GAPS;
+    const parsed = raw ? raw.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0) : [];
+    return parsed.length ? parsed : [5, 4, 3];
+  })();
   const PROGRESS_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "TodoWrite"]);
   let noProgress = 0;
+  let nextAdviceAt = ADVISE_GAPS[0]!;
   // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
   // 动机:蒸馏过 4 道 terminal-bench 超时题(dna-assembly/llm-inference-batching-scheduler/
   // raman-fitting/rstan-to-pystan)后发现同一个反模式——遇到不确定的点(某个坐标/公式/参数)
@@ -532,23 +544,31 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // L4.2/L4.3 进度评估:本轮有无"实质推进"(写文件/改文件/推进任务清单)。
     // 连续空转或临近上限 → 下一轮注入一次性 advisor 提醒,促其回看目标/收尾/求助,防长程漂移与空耗。
     const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name));
-    if (progressed) { noProgress = 0; stuckAdviceCount = 0; } else { noProgress++; }
+    if (progressed) { noProgress = 0; stuckAdviceCount = 0; nextAdviceAt = ADVISE_GAPS[0]!; } else { noProgress++; }
     // 提醒【追加】进对话(append-only,缓存安全),而非每轮拼到请求尾部又撤(那会反复废缓存)。
     const advisories: string[] = [];
-    if (deps.progressAdvice && noProgress > 0 && noProgress % ADVISE_EVERY === 0) {
+    if (deps.progressAdvice && noProgress > 0 && noProgress === nextAdviceAt) {
       stuckAdviceCount++;
       totalStuckEvents++;
+      // 下一次提醒的等待间隔:第1次(现在)5轮,第2次起4轮,第3次起3轮——同一次卡住反复
+      // 提醒过还没缓解,就该催得更紧,不再按固定节奏干等。
+      nextAdviceAt = noProgress + ADVISE_GAPS[Math.min(stuckAdviceCount, ADVISE_GAPS.length - 1)]!;
       // 首次(且本会话此前也没反复卡住过):通用措辞。第2次起同一次卡住还没缓解,或者
       // 虽然这次是"第1次"但本会话已经因零星编辑被清零过好几回(totalStuckEvents 够高)
       // → 说明通用措辞没用或者一直在被规避检测,换成直接点破"別再文字循环、换成能拿到
       // 确定结果的动作"这条更具体的建议。
       const escalate = stuckAdviceCount > 1 || totalStuckEvents >= 3;
+      // headless/一次性运行没人会回答 AskUserQuestion(同 system_prompt.ts 的会话特定
+      // 指引口径),这里不建议它当卡住时的出路,换成"按合理判断继续、如实汇报现状"。
+      const stuckFallback = deps.interactive === false
+        ? "按你此刻最合理的判断继续推进,并在最终汇报里如实说明卡在哪、你做了什么取舍"
+        : "用 AskUserQuestion 向用户求助";
       advisories.push(
         !escalate
-          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请派 verify 子代理验证后收尾;如果确实卡住了,用 AskUserQuestion 向用户求助,不要空转。`
+          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请派 verify 子代理验证后收尾;如果确实卡住了,${stuckFallback},不要空转。`
           : stuckAdviceCount > 1
-            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,用 AskUserQuestion 求助或如实汇报现状。`
-            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,用 AskUserQuestion 求助或如实汇报现状。`,
+            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,${stuckFallback}。`
+            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,${stuckFallback}。`,
       );
       const label = stuckAdviceCount > 1 ? `·第${stuckAdviceCount}次` : escalate ? `·本会话第${totalStuckEvents}次卡住` : "";
       events.notice(`\n[进度提醒${label}:已连续 ${noProgress} 轮无实质推进]\n`);

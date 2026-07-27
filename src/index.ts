@@ -30,7 +30,7 @@ import { skillInstallTool } from "./tools/skill_install.js";
 import { loadPlugins, installPlugin, removePlugin, pluginsRoot, pluginComponentDirs } from "./plugins.js";
 import { loadProjectInstructions } from "./project_doc.js";
 import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields, wrapDelayedEnvNotice } from "./env_snapshot.js";
-import { execShellTool } from "./tools/exec_shell.js";
+import { execShellTool, cleanupDbBackups } from "./tools/exec_shell.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
 import { grepFilesTool } from "./tools/grep_files.js";
@@ -1333,6 +1333,7 @@ async function main() {
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
       progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
+      interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
       drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], // 后台子代理 + 后台 shell 完成结果:回合边界回灌
@@ -1503,6 +1504,7 @@ async function main() {
         store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } }),
       );
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(CC 对等:一次性运行也触发)
+      await cleanupDbBackups(workspaceRoot); // 清理本次运行留下的 .dao-backup 安全网文件
       store.saveState({
         cwd: workspaceRoot, model: session.model, mode: session.mode,
         messages: session.messages, usage: { ...session.usage },
@@ -1616,6 +1618,7 @@ async function main() {
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
             progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
+            interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
             drainMcpNotices: () => mcpChangeQueue.splice(0), // MCP server 状态变化:回合边界回灌,不插进 tool_use/result 中间
@@ -2224,6 +2227,7 @@ async function main() {
       });
       taskManager.cancelAll(); // 退出时中止所有后台任务
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子
+      await cleanupDbBackups(workspaceRoot); // 清理本次运行留下的 .dao-backup 安全网文件
       await mcp.close(); // 关闭 MCP 连接
       lspManager.disposeAll(); // 关闭 LSP server 进程
       store.markDone(); // 干净退出 → 标记会话完成(不再被 findResumable 当崩溃会话)
@@ -2276,6 +2280,7 @@ async function main() {
       await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], getProvider: () => cfg.provider });
       persistRepl(); // 干净退出前再存一次(覆盖最后一轮是"纯文本收尾早退"、没触发过 onCheckpoint 的情形)
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
+      await cleanupDbBackups(workspaceRoot); // 清理本次运行留下的 .dao-backup 安全网文件
       await mcp.close();
       lspManager.disposeAll();
       store.markDone(); // 干净退出标记(与 TTY 分支对齐)

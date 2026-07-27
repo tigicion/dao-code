@@ -57,11 +57,15 @@ class DaoAgent(BaseInstalledAgent):
     def name() -> str:
         return "dao-code"
 
-    def __init__(self, *args, bin_dir: str = _DEFAULT_BIN_DIR, provider: str = "deepseek", model: str = "", **kwargs):
+    def __init__(self, *args, bin_dir: str = _DEFAULT_BIN_DIR, provider: str = "deepseek", model: str = "", progress_advice: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self._bin_dir = bin_dir
         self._provider = provider
         self._model = model
+        # 测试用开关(经 --ak progress_advice=true 传入),默认 False——不改变真实评测的
+        # 默认行为。DAO 的 --progress-advice 目前从未被真实评测传递过,这个开关只用来做
+        # 单题对照复测,不代表这个 flag 已经决定要在全部真实评测里打开。
+        self._progress_advice = progress_advice
         self._api_key_env = _API_KEY_ENV.get(provider, f"{provider.upper()}_API_KEY")
 
     def get_version_command(self) -> str | None:
@@ -121,6 +125,7 @@ class DaoAgent(BaseInstalledAgent):
                 f"{DAO_BINARY_REMOTE_PATH} --yolo --eval "
                 f'--api-key "${self._api_key_env}" --provider {shlex.quote(self._provider)} '
                 + (f'--model {shlex.quote(self._model)} ' if self._model else '')
+                + ("--progress-advice " if self._progress_advice else "")
                 + f"{escaped_instruction} "
                 + f"> {shlex.quote(_STDOUT_FILE)} 2>&1"
             ),
