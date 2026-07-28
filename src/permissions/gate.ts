@@ -5,7 +5,7 @@ import { rememberRule } from "./identity.js";
 import type { PermissionsConfig, PermissionMode } from "./settings.js";
 import type { ChatMessage } from "../client/types.js";
 
-// 熔断阈值(对标 CC denialTracking.ts):连续 deny 达上限或总 deny 达上限时,
+// 熔断阈值:连续 deny 达上限或总 deny 达上限时,
 // auto 模式回退人工审批,不再调分类器(省 API 调用 + 避免卡死)。
 // 30 分钟后自动重置(分类器可能因为换话题/改 prompt 后表现不同,不该永久熔断)。
 const MAX_CONSECUTIVE_DENIALS = 3;
@@ -37,7 +37,7 @@ export class PermissionGate implements ApprovalGate {
     return this.lastSources.get(id);
   }
 
-  // 熔断状态(对标 CC denialTracking.ts)。
+  // 熔断状态。
   private consecutiveDenials = 0;
   private totalDenials = 0;
   private lastResetTime = Date.now();
@@ -145,7 +145,7 @@ export class PermissionGate implements ApprovalGate {
     let toAsk = requests;
     if (this.getMode() === "auto" && this.classify) {
       const needHuman: ApprovalRequest[] = [];
-      // 熔断检查:连续/总 deny 超限时跳过分类器,全部转人工(对标 CC denialTracking)。
+      // 熔断检查:连续/总 deny 超限时跳过分类器,全部转人工。
       const tripped = this.isTripped();
       for (const r of requests) {
         if (r.sensitive || tripped) { needHuman.push(r); continue; } // 敏感/危险 或已熔断:绝不交分类器

@@ -1,7 +1,7 @@
 import type { ChatMessage } from "../client/types.js";
 
 // ---------------------------------------------------------------------------
-// auto 模式安全分类器 prompt(对标 CC yoloClassifier 三层架构)
+// auto 模式安全分类器 prompt(三层架构)
 //
 // 三层:
 //   1. BASE_PROMPT(TS 常量,会话内稳定不变)--分类流程 + ALLOW/BLOCK 类别 + 边界条件 + 输出格式
@@ -244,7 +244,7 @@ export function buildClassifierSystemPrompt(rules?: AutoModeRules, lang: "zh" | 
 }
 
 // ---------------------------------------------------------------------------
-// XML 解析(对标 CC parseXmlBlock / parseXmlReason / stripThinking)
+// XML 解析
 // ---------------------------------------------------------------------------
 
 /**

@@ -55,7 +55,7 @@ export const multiEditTool = defineTool({
       // 先全部校验+施加到内存,全部通过才落盘(原子)。
       for (let i = 0; i < args.edits.length; i++) {
         const e = args.edits[i]!;
-        // 精确匹配优先;失败后尝试归一化匹配(对标 CC findActualString)。
+        // 精确匹配优先;失败后尝试归一化匹配。
         let oldString = e.old_string;
         let count = text.split(oldString).length - 1;
         if (count === 0) {

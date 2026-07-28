@@ -48,7 +48,7 @@ export const editFileTool = defineTool({
         throw new Error(`编辑前请先用 Read 读过它:${args.path}`);
       }
       const raw = await fs.readFile(abs, "utf8");
-      // 精确匹配优先;失败后尝试归一化匹配(对标 CC findActualString)。
+      // 精确匹配优先;失败后尝试归一化匹配。
       let oldString = args.old_string;
       let count = raw.split(oldString).length - 1;
       if (count === 0) {

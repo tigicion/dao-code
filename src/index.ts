@@ -448,9 +448,9 @@ async function main() {
   let keySource = resolved.source;
   const cfg = { apiKey: resolved.key, baseUrl: resolved.baseUrl, model: resolved.model, provider: resolved.provider };
 
-  // ---- 目录信任(P2-37):紧接 key 之后,作为首次 onboarding 的第二步(对标 CC 单一连贯流程)----
+  // ---- 目录信任(P2-37):紧接 key 之后,作为首次 onboarding 的第二步 ----
   // 未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行。必须在加载任何项目级配置之前决定。
-  // 对标 CC 信任对话:交互终端进入未信任文件夹时直接问,y→信任整个文件夹并当场加载(无需重启);
+  // 信任对话:交互终端进入未信任文件夹时直接问,y→信任整个文件夹并当场加载(无需重启);
   // 否则继续不信任(只用用户级)。headless(-p 一次性)与非 TTY 不弹问,默认不信任(自动化不卡交互、安全默认)。
   // trustProject 已在首启分支前求值;首启(firstRun)时 onboarding 已问过信任,这里不再用 readline 重复问。
   if (!trustProject) {
@@ -711,7 +711,7 @@ async function main() {
   // 禁用集(~/.dao/skills-disabled.json):被禁用的技能(内置或磁盘)都不注入上下文(省 token),/skills 可开关。
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
-  // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关(对标 CC disableBundledSkills)。
+  // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关。
   // 只有显式 --no-skills 才清空;--eval 不隐含关闭内置技能(见 noBuiltinSkills 定义处的说明)。
   const coreBundled = noBuiltinSkills ? [] : BUNDLED_SKILLS
     .filter((b) => b.core && !diskNames.has(b.name) && !disabledSet.has(b.name))
@@ -1239,7 +1239,7 @@ async function main() {
   // 【成本实测/勿误信】命中虽真,但 pro 的 miss 价(3￥/1M)与输出价(6￥/1M)均是 flash 的 3 倍,
   // 64–74% 命中折扣压不过那部分 miss+输出 → pro 摘要其实比"冷发 flash"贵约 63%(整会话 ~+12%)。
   // 默认仍用主模型【是为摘要质量/长任务续接更稳】,不是为省钱;想省钱用 DAO_SUMMARY_MODEL=…flash 切回。
-  // 对标 CC:先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
+  // 先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
   const COMPACT_INSTRUCTION = `现在把【以上整段对话】压缩成一份详尽的中文摘要,重点保留用户的明确请求和你已做的动作,确保技术细节、代码模式、架构决策不丢,以便不丢上下文地继续工作。
 
 注意:对话开头可能有【早期对话摘要】或【当前任务清单】这类系统消息——它们会被原样保留,请【不要重复摘要它们】,只摘要其后的真实对话内容。
@@ -1639,7 +1639,7 @@ async function main() {
             listOtherAccounts: () => listAccounts().filter((a) => !a.active).map((a) => ({ name: a.name })), // 限流菜单用
             switchAccountAndWait,
             events: logEvents(events, store), // 渲染的同时写日志
-            // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
+            // 主会话不限轮数:靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
             onCheckpoint: persist, // 每个工具轮落一次盘,回合中途异常上抛也不连带丢掉此前已成功的步骤
           }));
