@@ -169,10 +169,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 模型凭这段记忆调用,火山网关未拦截。当前留着这道收窄是因为它零成本、且在 tool_choice
   // 真被接受的 provider 上仍是有意义的信号,不是因为它已被证实能挡住网关不校验的情况。
   const FORCED_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
-  // 强制重试第一档仍为空时的加大档位。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成
-  // 速率约 60.7 tok/s:16000≈264s(1800s 预算的 14.7%)、32000≈528s(29.3%)、72000≈1187s(65.9%)。
-  // 再往上叠(16k+32k+72k≈1979s)已超过整个任务预算,最后一档必然在生成中途被 agent timeout
-  // 砍断、什么都留不下,所以阶梯到 32000 为止。
+  // 空响应重试直接用的预算(2026-07-28 起不再先按会话默认重试一次,见下方 wasEmptyTruncation
+  // 分支的注释)。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成速率约 60.7 tok/s:
+  // 16000≈264s(1800s 预算的 14.7%)、32000≈528s(29.3%)、72000≈1187s(65.9%)。不设 72000 档:
+  // 三档叠加(16k+32k+72k≈1979s)已超过整个任务预算,最后一档必然在生成中途被 agent timeout
+  // 砍断、什么都留不下。
   const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 32000;
   let noProgress = 0;
   let nextAdviceAt = ADVISE_GAPS[0]!;
@@ -510,6 +511,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       //    TodoWrite(5 个样本里 3 个)——根源是系统提示词的叙事文本(messages[0],不受
       //    某一次请求 tools 数组收窄的约束)明确写着"多步任务转成 TodoWrite 清单",模型
       //    凭这段记忆调用,网关未拦截。工具集收窄在这类网关上是软偏置,不是可信赖的防线。
+      // 2026-07-28 真实复测(write-compressor,两次独立trial)推翻了"先在默认预算重试一次,
+      // 仍空再加大"这个两档设计:两次真实数据里,第一档(维持默认~16000)重试都【同样撞满】,
+      // 各自白白搭进去约200-280秒才轮到加大预算那一档;而加大到32000那次,完成时只用了
+      // 7668/4329 token——远低于原来的16000上限,不是"给多少用多少"。这说明"先按兵不动
+      // 试一次默认预算"这个中间档从未兑现过(理论依据是"low档可能自然收敛在更短",但两次
+      // 真实观测里都没发生),而"给更大空间"也没有让模型输出更啰嗦——直接铺开预算反而收敛
+      // 更快。故只保留一次重试,直接用 ESCALATED_MAX_TOKENS,不再分两档。
       if (wasEmptyTruncation) {
         const forced = tools.filter((tl) => FORCED_TOOLS.has(tl.function.name));
         const forcedTools = forced.length > 0 ? forced : tools;
@@ -529,15 +537,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           }
           return await requestAssistant(tools, t, "low", maxTokensOverride);
         };
-        assistant = await attempt(undefined);
+        assistant = await attempt(ESCALATED_MAX_TOKENS);
         toolCalls = assistant.tool_calls ?? [];
         hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
-        if (toolCalls.length === 0 && !hasContent) {
-          events.notice(`\n[强制工具调用后仍为空,加大输出预算到 ${ESCALATED_MAX_TOKENS} 再试一次…]\n`);
-          assistant = await attempt(ESCALATED_MAX_TOKENS);
-          toolCalls = assistant.tool_calls ?? [];
-          hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
-        }
       } else {
         assistant = await requestAssistant(tools, t);
         toolCalls = assistant.tool_calls ?? [];

@@ -132,7 +132,7 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试调低 reasoning_effort,但【不再】压低 max_tokens", async () => {
+  it("reasoning 耗尽预算(onEmptyTruncation)→ 重试调低 reasoning_effort,直接用加大后的 max_tokens", async () => {
     // 根因链条(2026-07-19 regex-chess 真实复测坐实,逐层递进):
     // 候选(a)——收敛提示改成结构性约束("第一步必须是工具调用")——单独复测仍然复现:
     // 提示确实注入了,但重试请求同样把预算耗在 reasoning 阶段的心算推导上,再次空响应。
@@ -144,9 +144,11 @@ describe("runTurn", () => {
     // 已经陷入具体反复重算循环的强反模式时会被压过去,是"目标预算"而非硬上限。
     // 候选(c)当时的做法是再叠一道远小于会话默认(16000)的硬 max_tokens(6000)。
     // 2026-07-27 复盘推翻了这一档:上面这段注释自己记录的探测值就是"low 档自然收敛在
-    // 8660",而 6000 比它还小——等于保证这次重试也会被截断,是自我实现的失败。改成
-    // 第一档不压预算(走会话默认),靠 API 层 tool_choice 强制吐出工具调用来阻断螺旋,
-    // 而不是靠把腾挪空间压得更死。
+    // 8660",而 6000 比它还小——等于保证这次重试也会被截断,是自我实现的失败。
+    // 2026-07-28 真实复测(write-compressor 两次独立trial)进一步推翻了"先按会话默认
+    // 预算重试一次,仍空再加大"这个两档设计:两次真实数据里,默认预算那一档都同样撞满,
+    // 白白搭进去200-280秒;加大预算那次完成时反而只用了远低于默认上限的token数——给
+    // 更大空间没让模型更啰嗦,收敛反而更快。改成重试直接用加大后的预算,不再分两档。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -177,7 +179,7 @@ describe("runTurn", () => {
     expect(effortSeen[0]).toBe("max"); // 首次请求:默认档位,不受影响
     expect(effortSeen[1]).toBe("low"); // onEmptyTruncation 触发后的重试:物理压低
     expect(maxTokensSeen[0]).toBeUndefined(); // 首次请求:不设覆盖,走会话默认上限
-    expect(maxTokensSeen[1]).toBeUndefined(); // 重试第一档:不再压低预算(见上方注释)
+    expect(maxTokensSeen[1]).toBe(32000); // 重试:直接用加大后的预算,不再先按默认重试一次
   });
 
   it("预算耗尽重试:API 层强制工具调用(tool_choice=required),候选工具收敛为能产出/执行的那几个", async () => {
@@ -233,11 +235,13 @@ describe("runTurn", () => {
     expect(toolsSeen[2]).toContain("Skill"); // 也恢复完整工具集
   });
 
-  it("预算耗尽重试:第一档仍为空 → 加大输出预算到 32000 再强制一次,而不是直接放弃本轮", async () => {
-    // 为什么是 32000 而不是继续加码:347 个 trial 的 cache 记录实测,撞满上限的请求中位
-    // 生成速率约 60.7 tok/s——16000 tok≈264s(占 1800s 预算 14.7%),32000≈528s(29.3%),
-    // 72000≈1187s(65.9%)。三档叠加(16k+32k+72k≈1979s)已经超过整个任务预算,最后一档
-    // 必然在生成中途被 agent timeout 砍断、什么也留不下,所以阶梯到 32000 为止。
+  it("预算耗尽重试:直接用加大预算(32000)只重试一次,仍为空则结束本轮(不再有第三次机会)", async () => {
+    // 2026-07-28 真实复测推翻了"先按默认预算重试、仍空再加大"的两档设计(见上方
+    // maxTokensSeen 用例的注释)——只保留一次重试,直接用加大后的预算。为什么止步于
+    // 32000 而不是继续加码:347 个 trial 的 cache 记录实测,撞满上限的请求中位生成速率
+    // 约 60.7 tok/s——16000 tok≈264s(占 1800s 预算 14.7%),32000≈528s(29.3%),
+    // 72000≈1187s(65.9%),叠加后逼近整个任务预算,最后一档必然在生成中途被 agent
+    // timeout 砍断、什么也留不下。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -247,14 +251,9 @@ describe("runTurn", () => {
       call++;
       maxTokensSeen.push(opts.maxTokens);
       choiceSeen.push((opts.extra as { tool_choice?: unknown } | undefined)?.tool_choice);
-      if (call <= 2) {
-        opts.onEmptyTruncation?.();
-        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-          return { role: "assistant", content: "" };
-        })();
-      }
+      opts.onEmptyTruncation?.();
       return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-        return { role: "assistant", content: "终于收敛了" };
+        return { role: "assistant", content: "" }; // 自然请求 + 唯一一次重试都空
       })();
     }) as any;
     await runTurn({
@@ -263,10 +262,10 @@ describe("runTurn", () => {
       executeToolCalls: async () => [],
       write: () => {},
     });
-    expect(call).toBe(3); // 不再是"两次空就结束本轮"
-    expect(maxTokensSeen[1]).toBeUndefined(); // 第一档:会话默认预算
-    expect(maxTokensSeen[2]).toBe(32000); // 第二档:加大预算再强制一次
-    expect(choiceSeen[2]).toBe("required");
+    expect(call).toBe(2); // 自然请求 + 唯一一次重试,不再有第三次机会
+    expect(maxTokensSeen[0]).toBeUndefined(); // 自然请求:会话默认预算
+    expect(maxTokensSeen[1]).toBe(32000); // 唯一一次重试:直接用加大预算
+    expect(choiceSeen[1]).toBe("required");
   });
 
   it("服务端不接受 tool_choice → 回退一次普通重试,不让整轮崩掉(火山方舟上是每次都会走到的主路径,非罕见兜底)", async () => {
