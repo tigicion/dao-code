@@ -51,7 +51,7 @@ export const taskOutputTool = defineTool({
     "staring at TaskList's running status waiting.",
   capability: "read",
   approval: "auto",
-  shouldDefer: true,
+  // 不再 defer,见 task_create.ts 顶部注释(2026-07-28)。
   schema: z.object({
     id: z.string().min(1).describe("任务 id(来自 TaskList/agent(background:true) 的返回)"),
   }),

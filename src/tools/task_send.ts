@@ -24,7 +24,7 @@ export const taskSendTool = defineTool({
     "have already advanced a few steps by then.",
   capability: "plan",
   approval: "auto",
-  shouldDefer: true,
+  // 不再 defer,见 task_create.ts 顶部注释(2026-07-28)。
   schema: z.object({
     id: z.string().describe("后台任务 id(如 task-3)"),
     message: z.string().min(1).describe("要追加给该任务的指令"),

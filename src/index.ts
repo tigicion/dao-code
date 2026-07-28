@@ -579,8 +579,17 @@ async function main() {
   // 由 runTurn 在工具轮边界(loop.ts 的 drainMcpNotices)统一消费,保证时机安全。
   const mcpChangeQueue: string[] = [];
   mcp.onServerChange = (notice) => mcpChangeQueue.push(notice);
-  // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 ToolSearch 去找它们。
-  if (mcp.connectedCount > 0 || registry.countMcpTools() > 0) registry.register(toolSearchTool);
+  // MCP 工具默认隐藏(见 registry.isMcpVisible)。ToolSearch 无条件注册——它不只是发现 MCP 工具的
+  // 入口,也是激活上面 22 个内置 shouldDefer 工具(TaskOutput/TaskCreate/Monitor 等)的唯一入口,
+  // 这些内置工具跟连不连 MCP 无关、任何模式下都无条件注册。此前按"连了 MCP 才注册 ToolSearch"
+  // 门这个条件,导致 --eval/--no-mcp 场景下(评测环境从不连 MCP)这些内置工具永久不可达——而
+  // system_prompt.ts 明确写着"调用前必须先用 ToolSearch 搜该工具名"、Agent 工具描述明确指导
+  // "用 TaskOutput 做 checkpoint 式进度检查",这两条指导在这些场景里根本执行不了(真实撞见:
+  // torch-pipeline-parallelism 复测,模型派了后台 verify 子代理后想用 TaskOutput 查进度,发现
+  // 工具不可见,以为自己没有 ToolSearch,放弃等待提前收尾,子代理真实验证结果永久丢失)。
+  // ToolSearch 本身只读、无副作用,不引入外部状态,无条件注册不违背"--eval 保持纯净"的本意
+  // (那条注释针对的是外部 MCP server 连接,不是内置工具能不能被发现)。
+  registry.register(toolSearchTool);
 
   // LSP:不接入任何语言的二进制,纯协议客户端;server 命令完全来自用户配置(同 MCP 的配置文件模式)。
   // 没配置任何 server 就不注册 lsp 工具(没意义,只会让模型看见一个必然报错的工具)。

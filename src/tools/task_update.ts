@@ -20,7 +20,7 @@ export const taskUpdateTool = defineTool({
     "'done' in conversation without updating its status.",
   capability: "plan",
   approval: "auto",
-  shouldDefer: true,
+  // 不再 defer,见 task_create.ts 顶部注释(2026-07-28)。
   schema: z.object({
     id: z.string().min(1).describe("任务 id"),
     description: z.string().optional().describe("新描述(可选)"),
