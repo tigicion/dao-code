@@ -410,6 +410,7 @@ ${skill.body}` });
     subagentDepth: subDepth,
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
+    pendingUnverifiedWrites: new Set<string>(),
     sessionModel: resolvedModel,
     ...(worktreePath ? { workspaceRoot: worktreePath } : {}),
     ...(messageParent ? { messageParent } : {}),

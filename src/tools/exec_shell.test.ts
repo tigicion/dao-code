@@ -27,6 +27,25 @@ describe("Bash tool", () => {
     expect(out).toContain("自动通知");
   });
 
+  it("前台执行(即便非零退出)清空 pendingUnverifiedWrites——任何一次真实执行都算已有反馈,不判定针对哪个文件", async () => {
+    const pendingUnverifiedWrites = new Set<string>(["/app/compress.rs"]);
+    await execShellTool.handler({ command: "sh -c 'exit 1'" }, { ...ctx, pendingUnverifiedWrites });
+    expect(pendingUnverifiedWrites.size).toBe(0);
+  });
+
+  it("后台命令一发起就清空 pendingUnverifiedWrites(不等命令跑完)", async () => {
+    const pendingUnverifiedWrites = new Set<string>(["/app/compress.rs"]);
+    await execShellTool.handler({ command: "echo bg", background: true }, { ...ctx, pendingUnverifiedWrites });
+    expect(pendingUnverifiedWrites.size).toBe(0);
+  });
+
+  it("sleep 拦截/小文件拦截这类【根本没有真正执行】的早退分支,不清空 pendingUnverifiedWrites", async () => {
+    const pendingUnverifiedWrites = new Set<string>(["/app/compress.rs"]);
+    const out = await execShellTool.handler({ command: "sleep 15" }, { ...ctx, pendingUnverifiedWrites });
+    expect(out).toContain("不要用 sleep 阻塞等待");
+    expect(pendingUnverifiedWrites.size).toBe(1); // 命令被拦截、从未真正执行,不能算"已有反馈"
+  });
+
   it("kills the foreground child on abort and returns promptly with [已中断]", async () => {
     const controller = new AbortController();
     const start = Date.now();

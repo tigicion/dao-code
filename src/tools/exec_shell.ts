@@ -347,6 +347,7 @@ export const execShellTool = defineTool({
       // 后台命令一定会真正执行,备份放在这里(不像下面 foreground 分支,还有可能被
       // python-inline 小文件拦截提前返回、命令根本没跑,那种情况不该白白备份一次)。
       const dbBackupNotice = backupDbFilesBeforeExec(args.command, ctx.cwd ?? ctx.workspaceRoot);
+      ctx.pendingUnverifiedWrites?.clear(); // 真实发起了一次执行——不判定是否针对某个具体文件,任何一次执行都算已有反馈
       const id = processManager.start(args.command, (ctx.cwd ?? ctx.workspaceRoot));
       const started = `已在后台启动(id=${id})。进程完成后会自动通知你--做完别的事后可以用 BashOutput 看一眼进度趋势,发现异常用 KillShell 终止。不是循环轮询,是 checkpoint 式检查。`;
       return dbBackupNotice ? `${dbBackupNotice}\n${started}` : started;
@@ -366,6 +367,7 @@ export const execShellTool = defineTool({
     // 执行前自动备份命令里涉及的数据库文件(及其 WAL/SHM/journal 边车文件)——硬约束,
     // 不依赖模型记不记得先备份;备份本身不阻塞、不影响命令是否执行,只是多一份磁盘拷贝。
     const dbBackupNotice = backupDbFilesBeforeExec(args.command, ctx.cwd ?? ctx.workspaceRoot);
+    ctx.pendingUnverifiedWrites?.clear(); // 真实发起了一次执行(即便报错/中断)——不判定是否针对某个具体文件,任何一次执行都算已有反馈
     const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), ctx.signal, args.dangerouslyDisableSandbox, ctx.headless, ctx.foregroundRegistry);
     if (r.converted) return r.stdout; // Ctrl+B 转后台:干净返回,不走下面 exit code/运行时长的拼接
     const parts: string[] = [];

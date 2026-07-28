@@ -28,6 +28,16 @@ export interface ToolContext {
   readFiles?: Set<string>;
   // P2-23 读时元信息(mtime/size):写前复核,文件自上次读后被外部改动则拒绝(防覆盖并发改动)。
   readMeta?: Map<string, { mtime: number; size: number }>;
+  // 已写入但自那以后还没有任何 Bash/exec_shell 调用发生的路径集合(真实撞见:write-compressor
+  // 复测里模型写完 compress.rs 从未编译运行过,凭记忆判断"这版思路不对"就整篇重写,第二版又被
+  // 超时打断,整个 trial 没有任何可运行的交付物——system_prompt.ts 里"写完就跑,别推倒重来"
+  // 那条规则本身已经写得很直白,模型读过仍然违反了)。Write 工具据此判断"对同一路径的第二次
+  // 整篇重写,前面有没有真的跑过一次" ——参照 readFiles 的先例(覆盖前必须先 Read,没读拒绝),
+  // 这里是同一类"用具体状态硬拦,而不是只在文字里劝"的机制,只挡 Write→Write,不挡 Edit/
+  // MultiEdit(那正是规则本身推荐的局部修正替代方案)。exec_shell 每次调用(无论成败,哪怕只是
+  // 报错)都清空整个集合——任何一次真实执行都算"已经有过反馈",不做"这次执行到底测的是不是
+  // 这个文件"的脆弱字符串匹配。
+  pendingUnverifiedWrites?: Set<string>;
   // 向用户提问(AskUserQuestion 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
   // 结构化选择(AskUserQuestion 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
