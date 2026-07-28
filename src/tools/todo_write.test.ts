@@ -63,6 +63,19 @@ describe("TodoWrite tool", () => {
     expect(out).toContain("verify 子代理");
   });
 
+  it("清单全勾完提醒:强制核对对象是任务原文本身,不是清单本身(2026-07-27 adaptive-rejection-sampler 撞见的具体绕过)", async () => {
+    // 真实复测撞见:模型调用 VerifyDone 拿到提示后,下一步是再调 TodoWrite 勾自己写的进度
+    // 清单、然后直接收尾——用勾清单代替了回去核对原文。补上"核对对象是任务原文,不是这份
+    // 清单"这句,防止同一个绕过路径在这个决策点上被同样忽略。
+    const out = await todoWriteTool.handler(
+      { todos: [{ content: "a", status: "completed" }, { content: "b", status: "completed" }, { content: "c", status: "completed" }] },
+      ctx,
+    );
+    expect(out).toContain("VerifyDone");
+    expect(out).toContain("任务原文本身");
+    expect(out).toContain("这不是完成的信号"); // 明确否定"清单勾完=完成"这个错误推论
+  });
+
   it("fewer than 3 items, all completed → no nudge", async () => {
     const out = await todoWriteTool.handler(
       {

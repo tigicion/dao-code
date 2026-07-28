@@ -10,13 +10,25 @@ const ICON: Record<TodoStatus, string> = {
 };
 
 // 全部完成且 ≥3 项时提醒一句:自述"完成"不等于验证过,别看着清单全勾就直接收尾报告。
-// 参考 CC 的 TodoWrite "全 done 触发 verification nudge" 机制——软提示,不强制,只在这个
-// 具体时刻(清单从有未完成变成全部完成)打个岔,提醒去派 verify 子代理或独立核实一遍。
+// 参考 CC 的 TodoWrite "全 done 触发 verification nudge" 机制,在这个具体时刻(清单从有
+// 未完成变成全部完成)打个岔。
+//
+// 2026-07-27 真实复测(adaptive-rejection-sampler)撞见这条提醒本身没能防住的具体绕过:
+// 模型调用 VerifyDone 拿到"逐条对照任务原文"的提示后,下一步却是再调一次 TodoWrite 勾掉
+// 自己先前写的、宽泛的进度条目("Writing ars.R"/"Running tests"这类,不是任务原文的具体
+// 句子),然后直接收尾——把"勾清单"当成了"核对过原文"的替代品。原文案只说"调用 VerifyDone
+// 核实",没有点破"核实的对象是任务原文本身,不是这份清单";补上这句降低被同一个绕过路径
+// 再次绕过的概率(不能杜绝——VerifyDone 描述本身已经把这条路径列进红旗表,这里是第二道
+// 防线,同一个提醒在决策点上再出现一次)。
 function completionNudge(todos: { status: TodoStatus }[]): string {
   if (todos.length < 3 || !todos.every((t) => t.status === "completed")) return "";
   return msg(
-    "\n\n(清单已全部勾完——先别急着收尾报告:这只是你自己记的进度,不代表验证过。调用 VerifyDone 逐项对实际证据核实一遍;非琐碎改动再派 verify 子代理独立验证。)",
-    "\n\n(All items checked off — before wrapping up: this checklist only reflects your own progress tracking, not verification. Call VerifyDone to check each item against actual evidence; for non-trivial changes also dispatch a verify subagent.)",
+    "\n\n(清单已全部勾完——这不是完成的信号,只是你自己的进度记录。收尾前必须调用 VerifyDone," +
+      "且核对的对象是【任务原文本身】,不是这份清单——清单条目是你自己写的,勾完不代表已经对照过" +
+      "原文的具体条款。非琐碎改动额外派 verify 子代理独立验证。)",
+    "\n\n(All items checked off — this is not a completion signal, only your own progress record. You must call VerifyDone before wrapping up, and check " +
+      "against the ORIGINAL TASK TEXT itself, not this checklist — these items are your own wording; checking them off doesn't mean you cross-checked the " +
+      "task's actual clauses. For non-trivial changes also dispatch a verify subagent.)",
   );
 }
 

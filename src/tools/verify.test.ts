@@ -35,4 +35,28 @@ describe("VerifyDone(完成前验证检查点)", () => {
   it("在异步子代理可用工具白名单里(移除时被一并删掉的两处之一)", () => {
     expect(ASYNC_AGENT_ALLOWED_TOOLS.has("VerifyDone")).toBe(true);
   });
+
+  it("描述文字用「不可协商」框定+红旗表结构(参照 using-superpowers),把已撞见的具体绕过路径列进表里", () => {
+    // 2026-07-27 真实复测(adaptive-rejection-sampler)撞见:模型调用 VerifyDone、拿到"逐条
+    // 对照原文"的提示后,下一步是再调 TodoWrite 勾掉自己写的进度清单、然后直接收尾——用勾清单
+    // 代替了真的回去核对原文。原大段说理式文案容易被扫读跳过,改成 using-superpowers 那种
+    // "不可协商"开场 + 具体念头→现实的红旗表,把这条具体绕过路径直接写进表里。
+    const zh = verifyDoneTool.description;
+    const en = verifyDoneTool.descriptionEn!;
+    expect(zh).toContain("不是可选项");
+    expect(en).toContain("not optional");
+    // 红旗表必须点名这次真实撞见的具体绕过路径(TodoWrite 清单 ≠ 对照原文),不能只留泛泛的
+    // "别自我合理化"。
+    expect(zh).toContain("TodoWrite 清单已经全部勾完了");
+    expect(en).toContain("TodoWrite checklist is all checked off");
+  });
+
+  it("handler 返回的提醒同样点名「清单都勾完了」这条具体绕过路径(不只在工具描述里)", async () => {
+    // 描述文字模型可能不会每次都完整看到,但 handler 的返回值是撞见绕过路径那一刻真实展示
+    // 给模型的内容——这段必须单独也带上强化后的框定,不能只改了描述、漏了真正的决策点文案。
+    const out = await verifyDoneTool.handler({}, { workspaceRoot: "/tmp" } as never);
+    expect(out).toContain("清单都勾完了");
+    expect(out).toContain("不是可选项");
+    expect(out).toContain("任务原文本身");
+  });
 });
