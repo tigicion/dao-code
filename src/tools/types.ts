@@ -38,6 +38,16 @@ export interface ToolContext {
   // 报错)都清空整个集合——任何一次真实执行都算"已经有过反馈",不做"这次执行到底测的是不是
   // 这个文件"的脆弱字符串匹配。
   pendingUnverifiedWrites?: Set<string>;
+  // 连续撞见"缺模块/库"报错的次数(exec_shell 用):达到阈值后,下一次仍是纯诊断性探测
+  // (查这个库到底在不在/叫什么名字,不是安装它也不是切到不依赖它的写法)会被拒绝执行,
+  // 逼模型二选一并继续。真实撞见:write-compressor 复测里模型选 Perl 写压缩器,读过的参考
+  // 实现(decomp.c)其实只用定长 int/long,却因为 Math::BigInt 不存在,连续 3 轮换着法子
+  // (-Mbigint/查@INC/find系统目录)确认"这个库到底在不在",没有一次真正做出选择。重放验证
+  // 过纯文字提醒(哪怕精确注入在报错发生的那一轮)完全无效——两组推理原文近乎逐字重复;换成
+  // 真拒绝执行后,3/3 触发样本要么真的装库、要么真的切到原生实现,0 个绕过。用对象包一层
+  // (而不是裸 number)是因为 ToolContext 按引用传递给同一 handler 的历次调用,裸 number
+  // 无法跨调用累加。
+  missingDepStrikes?: { count: number };
   // 向用户提问(AskUserQuestion 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
   // 结构化选择(AskUserQuestion 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。

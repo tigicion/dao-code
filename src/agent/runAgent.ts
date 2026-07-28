@@ -411,6 +411,7 @@ ${skill.body}` });
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
     pendingUnverifiedWrites: new Set<string>(),
+    missingDepStrikes: { count: 0 },
     sessionModel: resolvedModel,
     ...(worktreePath ? { workspaceRoot: worktreePath } : {}),
     ...(messageParent ? { messageParent } : {}),
