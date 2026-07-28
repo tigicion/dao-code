@@ -171,10 +171,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const FORCED_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
   // 空响应重试直接用的预算(2026-07-28 起不再先按会话默认重试一次,见下方 wasEmptyTruncation
   // 分支的注释)。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成速率约 60.7 tok/s:
-  // 16000≈264s(1800s 预算的 14.7%)、32000≈528s(29.3%)、72000≈1187s(65.9%)。不设 72000 档:
-  // 三档叠加(16k+32k+72k≈1979s)已超过整个任务预算,最后一档必然在生成中途被 agent timeout
-  // 砍断、什么都留不下。
+  // 16000≈264s、32000≈528s、72000≈1187s。
   const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 32000;
+  // 第二档(仅当第一档仍为空才用,再空就放弃,不循环):DAO 不是只服务 terminal-bench 这类
+  // 900-1800s 短预算评测的工具,真实、预算充裕的长任务里 72000(≈1187s)这个量级是合理的——
+  // 此前只在"write-compressor 900s 装不下三档叠加"这个评测特例上否决过 72000,不该反过来
+  // 当成通用设计的约束。
+  const FINAL_ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS_FINAL) || 72000;
   let noProgress = 0;
   let nextAdviceAt = ADVISE_GAPS[0]!;
   // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
@@ -537,9 +540,22 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           }
           return await requestAssistant(tools, t, "low", maxTokensOverride);
         };
+        // 2026-07-28 用户要求:仍为空不再直接放弃,再翻一次预算,还不行就停(不是无界循环)。
+        // 第二档定为 FINAL_ESCALATED_MAX_TOKENS(默认 72000,≈1187s@60.7tok/s)而不是机械的
+        // 2×32000——DAO 不是只服务 terminal-bench 这类 900-1800s 短预算评测的工具,72000
+        // 这个量级在真实、预算充裕的长任务里是合理的;此前否决 72000 是站在"write-compressor
+        // 900s 预算装不下三档叠加"这个评测特例上考虑的,不该反过来当成 DAO 通用设计的约束。
+        // 这条路径目前没有真实数据支撑(两次真实复测在32000这一档都已经成功,从未真的用到过
+        // 第二次加大),是防御性的完整性补齐,不是已验证的修复。
         assistant = await attempt(ESCALATED_MAX_TOKENS);
         toolCalls = assistant.tool_calls ?? [];
         hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+        if (toolCalls.length === 0 && !hasContent) {
+          events.notice(`\n[仍为空,加大输出预算到 ${FINAL_ESCALATED_MAX_TOKENS} 再试最后一次…]\n`);
+          assistant = await attempt(FINAL_ESCALATED_MAX_TOKENS);
+          toolCalls = assistant.tool_calls ?? [];
+          hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+        }
       } else {
         assistant = await requestAssistant(tools, t);
         toolCalls = assistant.tool_calls ?? [];

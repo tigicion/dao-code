@@ -235,13 +235,41 @@ describe("runTurn", () => {
     expect(toolsSeen[2]).toContain("Skill"); // 也恢复完整工具集
   });
 
-  it("预算耗尽重试:直接用加大预算(32000)只重试一次,仍为空则结束本轮(不再有第三次机会)", async () => {
+  it("预算耗尽重试:直接用加大预算(32000)重试一次,成功则不再有第二档", async () => {
     // 2026-07-28 真实复测推翻了"先按默认预算重试、仍空再加大"的两档设计(见上方
-    // maxTokensSeen 用例的注释)——只保留一次重试,直接用加大后的预算。为什么止步于
-    // 32000 而不是继续加码:347 个 trial 的 cache 记录实测,撞满上限的请求中位生成速率
-    // 约 60.7 tok/s——16000 tok≈264s(占 1800s 预算 14.7%),32000≈528s(29.3%),
-    // 72000≈1187s(65.9%),叠加后逼近整个任务预算,最后一档必然在生成中途被 agent
-    // timeout 砍断、什么也留不下。
+    // maxTokensSeen 用例的注释)——重试直接用加大后的预算。
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const maxTokensSeen: unknown[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      maxTokensSeen.push(opts.maxTokens);
+      if (call === 1) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        return { role: "assistant", content: "收敛了" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    expect(call).toBe(2); // 自然请求 + 唯一一次重试就成功,不需要第二档
+    expect(maxTokensSeen[0]).toBeUndefined(); // 自然请求:会话默认预算
+    expect(maxTokensSeen[1]).toBe(32000); // 重试:直接用加大预算
+  });
+
+  it("预算耗尽重试:32000 仍为空 → 再翻一次到 72000(第二档,也是最后一档),成功则收尾", async () => {
+    // 2026-07-28 用户明确要求:仍为空不直接放弃,再翻一次预算,但只翻一次不循环——DAO 不是
+    // 只服务 terminal-bench 短预算评测的工具,72000(≈1187s@60.7tok/s)在预算充裕的真实
+    // 长任务里是合理量级,不该被评测的短预算反过来约束成通用设计上限。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -251,9 +279,47 @@ describe("runTurn", () => {
       call++;
       maxTokensSeen.push(opts.maxTokens);
       choiceSeen.push((opts.extra as { tool_choice?: unknown } | undefined)?.tool_choice);
+      if (call <= 2) {
+        opts.onEmptyTruncation?.();
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "" };
+        })();
+      }
+      if (call === 3) {
+        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+          return { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "Write", arguments: "{}" } }] };
+        })();
+      }
+      // call 4:工具执行完之后 runTurn 会再请求一轮,必须让它收尾,否则 mock 无限吐工具调用
+      // 会撞上 runTurn 没有 maxTurns 上限时的无限循环(此前在别的用例里漏过一次这个分支,
+      // 跑到 JS 堆 OOM——写死轮次比动态判断更不容易再犯同一个错)。
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        return { role: "assistant", content: "done" };
+      })();
+    }) as any;
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async (tcs: { id: string }[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" } as ToolMessage)),
+      write: () => {},
+    });
+    expect(call).toBe(4); // 自然请求 + 32000 重试(仍空) + 72000 重试(成功,吐出 Write) + 执行完后的下一轮请求(收尾)
+    expect(maxTokensSeen[1]).toBe(32000); // 第一档
+    expect(maxTokensSeen[2]).toBe(72000); // 第二档(也是最后一档)
+    expect(choiceSeen[2]).toBe("required"); // 第二档仍然尝试强制工具调用
+  });
+
+  it("预算耗尽重试:32000 和 72000 都仍为空 → 结束本轮,不再有第三次机会(不循环)", async () => {
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const maxTokensSeen: unknown[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
+      call++;
+      maxTokensSeen.push(opts.maxTokens);
       opts.onEmptyTruncation?.();
       return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-        return { role: "assistant", content: "" }; // 自然请求 + 唯一一次重试都空
+        return { role: "assistant", content: "" }; // 三次请求(自然+两档重试)全部为空
       })();
     }) as any;
     await runTurn({
@@ -262,10 +328,9 @@ describe("runTurn", () => {
       executeToolCalls: async () => [],
       write: () => {},
     });
-    expect(call).toBe(2); // 自然请求 + 唯一一次重试,不再有第三次机会
-    expect(maxTokensSeen[0]).toBeUndefined(); // 自然请求:会话默认预算
-    expect(maxTokensSeen[1]).toBe(32000); // 唯一一次重试:直接用加大预算
-    expect(choiceSeen[1]).toBe("required");
+    expect(call).toBe(3); // 自然请求 + 32000 + 72000,到此为止,不循环翻第三次
+    expect(maxTokensSeen[1]).toBe(32000);
+    expect(maxTokensSeen[2]).toBe(72000);
   });
 
   it("服务端不接受 tool_choice → 回退一次普通重试,不让整轮崩掉(火山方舟上是每次都会走到的主路径,非罕见兜底)", async () => {
