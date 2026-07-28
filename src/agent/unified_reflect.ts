@@ -42,7 +42,7 @@ export const REFLECT_TAIL = `你对当前对话做一次【回合末反思】。
 
 5. **你做错但自己发现并修正了的**(type=procedural, confidence≥0.7)
    不是因为用户纠正,而是你通过工具验证自己发现的问题:
-   - MultiEdit 没先 Read 被拒,之后每次都先读→ 流程沉淀
+   - Edit 没先 Read 被拒,之后每次都先读→ 流程沉淀
    - Edit 的 old_string 不唯一报错,扩大上下文后通过→ 操作技巧
    记"第一次为什么错、正确的做法是什么"。
 

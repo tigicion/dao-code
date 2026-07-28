@@ -219,7 +219,7 @@ export class ToolRegistry implements ToolDispatcher {
       if (partial) {
         throw new Error(
           `invalid JSON arguments for ${name}(输出在生成过程中被截断,未执行——已生成到:${describeTruncatedArgs(partial)}。` +
-          `这次内容太长,把它拆成更小的几次调用:比如先用 Write 写一部分,再用 Edit/MultiEdit 续写剩余内容,不要试图一次性重新生成同样长度的内容。)`,
+          `这次内容太长,把它拆成更小的几次调用:比如先用 Write 写一部分,再用 Edit 续写剩余内容,不要试图一次性重新生成同样长度的内容。)`,
         );
       }
       throw new Error(`invalid JSON arguments for ${name}`);

@@ -21,7 +21,6 @@ import { readFileTool } from "./tools/read_file.js";
 import { listDirTool } from "./tools/list_dir.js";
 import { writeFileTool } from "./tools/write_file.js";
 import { editFileTool } from "./tools/edit_file.js";
-import { multiEditTool } from "./tools/multi_edit.js";
 import { notebookEditTool } from "./tools/notebook_edit.js";
 import { installSkills } from "./skills/install.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
@@ -546,7 +545,7 @@ async function main() {
 
   const registry = new ToolRegistry();
   for (const t of [
-    readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
+    readFileTool, listDirTool, writeFileTool, editFileTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
     grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
     taskCreateTool, taskListTool, taskGetTool, taskOutputTool, taskUpdateTool, taskStopTool, notifyUserTool,
@@ -977,6 +976,7 @@ async function main() {
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
     pendingUnverifiedWrites: new Set<string>(),
+    missingDepStrikes: { count: 0 },
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
     // 只在真正交互式会话里提供——非交互场景不给这个函数,让 AskUserQuestion 工具退回 ctx.ask()(已有

@@ -281,7 +281,7 @@ const BODY = `# 你是谁
 {tools}
 
 选择指南:读单个文件用 Read;按名字找文件用 Glob;按内容搜用 Grep;
-新建/整体重写用 Write,局部精确替换用 Edit(改前先 Read),同一文件多处一次性改用 MultiEdit(原子、全有或全无),Jupyter .ipynb 用 NotebookEdit;
+新建/整体重写用 Write,局部精确替换用 Edit(改前先 Read),同一文件多处改动就连续多次调用 Edit,Jupyter .ipynb 用 NotebookEdit;
 写文件【一律用上面这些工具,不要用 Bash 的 cat >/heredoc/echo > 写文件】——后者绕过路径校验与区外授权、非原子、且展示难看;
 跑命令用 Bash;常驻不自己退出的进程(GUI、server、watch 等)绝不要前台跑(前台没有超时机制,会真的
 一直不返回,不是"最终被超时杀掉"那种有兜底的等)——用 background:true 起,再用 BashOutput 看输出、KillShell 结束;
@@ -625,7 +625,7 @@ Tools at your disposal (use decisively as needed; parallelize those not dependen
 {tools}
 
 Selection guide: read single files with Read; find files by name with Glob; search by content with Grep;
-create/overwrite with Write; precise local replacement with Edit (Read first before editing); multiple edits in one file atomically with MultiEdit (all-or-nothing); Jupyter .ipynb with NotebookEdit;
+create/overwrite with Write; precise local replacement with Edit (Read first before editing); for multiple changes to one file just call Edit repeatedly; Jupyter .ipynb with NotebookEdit;
 [Always use the above tools to write files; never use Bash's cat >/heredoc/echo >] — the latter bypasses path validation and out-of-area authorization, is non-atomic, and displays poorly;
 run commands with Bash; long-running processes that don't exit on their own (GUI, server, watch, etc.) must never run in foreground (there's no timeout
 mechanism, so it will just block forever, not get killed and returned to you) — start with background:true, then use BashOutput to read output, KillShell to stop;

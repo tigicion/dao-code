@@ -7,7 +7,6 @@ const MAP: Record<string, { ccTool: string; arg: string }> = {
   Bash: { ccTool: "Bash", arg: "command" },
   Read: { ccTool: "Read", arg: "path" },
   Edit: { ccTool: "Edit", arg: "path" },
-  MultiEdit: { ccTool: "Edit", arg: "path" }, // 归到 Edit:Edit 规则 + acceptEdits 自动覆盖
   NotebookEdit: { ccTool: "Edit", arg: "path" },
   Write: { ccTool: "Write", arg: "path" },
   ListDir: { ccTool: "LS", arg: "path" },

@@ -158,7 +158,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // "卡住"计数器清零——用一个不产出任何东西的元动作满足判据,是同一类漏洞的另一面
   // (真实 trace 里模型面对"该动手了"的压力时也调用过 Skill(make-plan) 这类元工具,
   // 但那发生在撞上限、触发强制重试之前,不是对强制约束本身的观测规避)。
-  const PROGRESS_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
+  const PROGRESS_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "Bash"]);
   // 预算耗尽后那一次强制重试里,允许模型选的工具。此刻的状态按定义就是"整个输出预算烧在推理上
   // 却没动手",缺的不是信息是动作;Bash 在功能上已经涵盖读文件/搜索(cat/grep/ls),所以排除
   // Read/Grep/Glob 并不剥夺查看能力,只是要求这个动作走一条同时也能产出东西的通道。
@@ -168,7 +168,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // (messages[0],不随某一次请求的 tools 数组收窄)明确写着"多步任务转成 TodoWrite 清单",
   // 模型凭这段记忆调用,火山网关未拦截。当前留着这道收窄是因为它零成本、且在 tool_choice
   // 真被接受的 provider 上仍是有意义的信号,不是因为它已被证实能挡住网关不校验的情况。
-  const FORCED_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]);
+  const FORCED_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "Bash"]);
   // 空响应重试直接用的预算(2026-07-28 起不再先按会话默认重试一次,见下方 wasEmptyTruncation
   // 分支的注释)。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成速率约 60.7 tok/s:
   // 16000≈264s、32000≈528s、72000≈1187s。
@@ -655,7 +655,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
     // P2-11 编辑后诊断回灌:本轮改了文件 → 跑诊断命令,有报错就注入 [诊断],模型当轮自查自改。
     if (deps.diagnose) {
-      const wrote = toolCalls.some((tc) => ["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(tc.function.name));
+      const wrote = toolCalls.some((tc) => ["Write", "Edit", "NotebookEdit"].includes(tc.function.name));
       if (wrote && !signal?.aborted) {
         const d = await deps.diagnose();
         if (d) { session.messages.push({ role: "system", content: `[诊断:编辑后检查发现问题,请修复]\n${d}` }); events.notice("\n[已注入编辑后诊断]\n"); }

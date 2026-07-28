@@ -16,7 +16,7 @@ export function describeCall(name: string, argsJson: string): string {
   switch (name) {
     case "Bash": return `$ ${s(a.command) || name}`;
     case "Write": return en ? `Write ${s(a.path)}` : `写入 ${s(a.path)}`;
-    case "Edit": case "MultiEdit": return en ? `Edit ${s(a.path)}` : `编辑 ${s(a.path)}`;
+    case "Edit": return en ? `Edit ${s(a.path)}` : `编辑 ${s(a.path)}`;
     case "NotebookEdit": return en ? `Edit notebook ${s(a.path)}` : `编辑笔记本 ${s(a.path)}`;
     case "WebFetch": return en ? `Fetch ${s(a.url)}` : `抓取 ${s(a.url)}`;
     case "WebSearch": return en ? `Search ${s(a.query)}` : `搜索 ${s(a.query)}`;

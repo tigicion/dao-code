@@ -19,7 +19,7 @@ export const CUSTOM_AGENT_DISALLOWED_TOOLS = new Set([
 export const ASYNC_AGENT_ALLOWED_TOOLS = new Set([
   "Read", "ListDir", "Grep", "Glob",
   "Bash", "BashOutput", "KillShell",
-  "Write", "Edit", "MultiEdit", "NotebookEdit",
+  "Write", "Edit", "NotebookEdit",
   "WebSearch", "WebFetch",
   "TodoWrite",
   "Skill",
