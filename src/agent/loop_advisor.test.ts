@@ -111,7 +111,7 @@ describe("L4.2/L4.3 advisor", () => {
     expect(s.messages.some((m) => typeof m.content === "string" && m.content.includes("进度提醒"))).toBe(true);
   });
 
-  it("三档提醒间隔递减:第1次等5轮,第2次再等4轮(累计9),第3次起再等3轮(累计12/15…)", async () => {
+  it("三档提醒间隔递减:第1次等4轮,第2次再等3轮(累计7),第3次起再等2轮(累计9/11…)", async () => {
     const sentLog: any[] = [];
     let turn = 0;
     // 20轮全部不触碰 PROGRESS_TOOLS(用 Read 占位),让 noProgress 一路累积到 15+
@@ -131,10 +131,10 @@ describe("L4.2/L4.3 advisor", () => {
     // 请求 i 携带的是"上一轮结束时已经 append 的提醒"——所以 noProgress=5 那轮结束后 append 的
     // 提醒,出现在下一次(第6次)请求里(sentLog 下标从0开始,故为 sentLog[5])。
     const totalAdvisoriesBySent = (i: number) => (sentLog[i] as any[]).filter((m) => typeof m.content === "string" && m.content.startsWith("[进度提醒")).length;
-    expect(totalAdvisoriesBySent(5)).toBe(1); // 第5轮末触发第1次(累计阈值5)
-    expect(totalAdvisoriesBySent(9)).toBe(2); // 第9轮末触发第2次(5+4)
-    expect(totalAdvisoriesBySent(12)).toBe(3); // 第12轮末触发第3次(9+3)
-    expect(totalAdvisoriesBySent(15)).toBe(4); // 第15轮末触发第4次(12+3,此后维持3的间隔)
+    expect(totalAdvisoriesBySent(4)).toBe(1); // 第4轮末触发第1次(累计阈值4)
+    expect(totalAdvisoriesBySent(7)).toBe(2); // 第7轮末触发第2次(4+3)
+    expect(totalAdvisoriesBySent(9)).toBe(3); // 第9轮末触发第3次(7+2)
+    expect(totalAdvisoriesBySent(11)).toBe(4); // 第11轮末触发第4次(9+2,此后维持2的间隔)
   });
 
   it("headless(interactive: false)时,提醒不建议 AskUserQuestion,改成按判断继续+汇报", async () => {

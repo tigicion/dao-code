@@ -143,13 +143,13 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
   // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时,把提醒【追加】进 session.messages(append-only)。
-  // 三档提醒的等待间隔:第1次卡住等5轮,第2次再等4轮,第3次起每次再等3轮——同一次卡住反复
+  // 三档提醒的等待间隔:第1次卡住等4轮,第2次再等3轮,第3次起每次再等2轮——同一次卡住反复
   // 提醒过还没缓解,说明情况比first look更糟,催的间隔应该收紧,不该一直按固定节奏干等。
   // DAO_ADVISE_GAPS 可覆盖(逗号分隔,如 "2,2,2"),测试/调参用;不设则用默认档位。
   const ADVISE_GAPS = (() => {
     const raw = process.env.DAO_ADVISE_GAPS;
     const parsed = raw ? raw.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0) : [];
-    return parsed.length ? parsed : [5, 4, 3];
+    return parsed.length ? parsed : [4, 3, 2];
   })();
   // 判据要回答的是"这一轮有没有真的动工程",不是"工具名在不在白名单里"。两处修正(2026-07-27):
   // 加 Bash——模型大量用 `cat > file <<EOF` 走 shell 落盘,真实 trace 里 43 次调用被判成 0 次
