@@ -111,6 +111,73 @@ describe("L4.2/L4.3 advisor", () => {
     expect(s.messages.some((m) => typeof m.content === "string" && m.content.includes("进度提醒"))).toBe(true);
   });
 
+  it("todo_write enforcement:连续 N 次工具调用从未用过 TodoWrite → 运行时注入要求(只触发一次)", async () => {
+    // 真实撞见(2026-07-28,write-compressor 复测):6 次工具调用后进入约 620-800 秒的单轮
+    // 巨量推理,全程 TodoWrite 调用次数为 0。streamChat 重放坐实:注入这条运行时提醒后,
+    // 命中率从 1/4 升到 3/4——用户直接引用外部案例的措辞"the runtime asserts it",不是
+    // 提示词文字劝说(那条路径今天已经验证失败两次)。
+    process.env.DAO_TODOWRITE_ENFORCE_AT = "3";
+    const sentLog: any[] = [];
+    let turn = 0;
+    const streamChat = (opts: StreamChatOptions) => {
+      sentLog.push([...opts.messages]);
+      turn++;
+      return (async function* (): AsyncGenerator<never, AssistantMessage> {
+        if (turn <= 4) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "Bash", arguments: "{}" } }] };
+        return { role: "assistant", content: "done" };
+      })();
+    };
+    const executeToolCalls = async (tcs: any[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" }));
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    await runTurn(baseDeps(s, streamChat, executeToolCalls));
+    delete process.env.DAO_TODOWRITE_ENFORCE_AT;
+
+    const hasEnforcement = (msgs: any[]) => msgs.some((m) => typeof m.content === "string" && m.content.includes("[运行时要求]"));
+    expect(hasEnforcement(sentLog[2])).toBe(false); // 第3次请求:刚满3次工具调用,提醒在这轮工具调用【之后】才追加,还没轮到下一次请求带上
+    expect(hasEnforcement(sentLog[3])).toBe(true); // 第4次请求:第3轮末已追加提醒
+    expect(s.messages.filter((m) => typeof m.content === "string" && m.content.includes("[运行时要求]")).length).toBe(1); // 只触发一次,不重复
+  });
+
+  it("todo_write enforcement:阈值前已经调用过 TodoWrite → 不触发", async () => {
+    process.env.DAO_TODOWRITE_ENFORCE_AT = "3";
+    const sentLog: any[] = [];
+    let turn = 0;
+    const streamChat = (opts: StreamChatOptions) => {
+      sentLog.push([...opts.messages]);
+      turn++;
+      return (async function* (): AsyncGenerator<never, AssistantMessage> {
+        if (turn === 1) return { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "TodoWrite", arguments: "{}" } }] };
+        if (turn <= 4) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "Bash", arguments: "{}" } }] };
+        return { role: "assistant", content: "done" };
+      })();
+    };
+    const executeToolCalls = async (tcs: any[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" }));
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    await runTurn(baseDeps(s, streamChat, executeToolCalls));
+    delete process.env.DAO_TODOWRITE_ENFORCE_AT;
+    expect(s.messages.some((m) => typeof m.content === "string" && m.content.includes("[运行时要求]"))).toBe(false);
+  });
+
+  it("todo_write enforcement:progressAdvice 关闭时不触发", async () => {
+    process.env.DAO_TODOWRITE_ENFORCE_AT = "3";
+    let turn = 0;
+    const streamChat = (() => {
+      turn++;
+      return (async function* (): AsyncGenerator<never, AssistantMessage> {
+        if (turn <= 4) return { role: "assistant", content: "", tool_calls: [{ id: "t" + turn, type: "function", function: { name: "Bash", arguments: "{}" } }] };
+        return { role: "assistant", content: "done" };
+      })();
+    }) as any;
+    const executeToolCalls = async (tcs: any[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" }));
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    await runTurn({ ...baseDeps(s, streamChat, executeToolCalls), progressAdvice: false });
+    delete process.env.DAO_TODOWRITE_ENFORCE_AT;
+    expect(s.messages.some((m) => typeof m.content === "string" && m.content.includes("[运行时要求]"))).toBe(false);
+  });
+
   it("三档提醒间隔递减:第1次等4轮,第2次再等3轮(累计7),第3次起再等2轮(累计9/11…)", async () => {
     const sentLog: any[] = [];
     let turn = 0;

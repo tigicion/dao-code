@@ -195,6 +195,22 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 不代表核心问题真的被解决了)。这个计数器不看"当前这次卡住连续了几次",看"这整个会话
   // 里已经卡住又被复位过几次",复位掩盖不了这个累计数字。
   let totalStuckEvents = 0;
+  // todo_write enforcement(2026-07-28,用户直接引用外部案例的措辞:"Task decomposition
+  // triggers mandatory planning state updates. The agent is not trusted to remember to
+  // update its task list; the runtime asserts it.")——真实撞见:write-compressor 复测里
+  // 6 次工具调用后进入约 620-800 秒的单轮巨量推理,全程 TodoWrite 调用次数为 0,任务显然
+  // 有"理解格式/写代码/编译/验证/迭代"这几个子步骤却从未显式拆解。streamChat 重放坐实
+  // (verify-write-compressor-todowrite-enforcement-replay.ts,n=4):不注入时自然调用
+  // TodoWrite 命中 1/4,注入运行时提醒后命中 3/4——且这条提醒对应的具名 tool_choice 强制
+  // 在火山方舟上 4/4 全部被 400 拒绝(与 c51fe55 记录的"required"被拒是同一个网关限制),
+  // 真正起作用的是提醒文本本身,不是强制机制,故此处只走文本注入(复用已有的 advisories
+  // 追加机制),不额外实现一条从未在真实 provider 上生效过的强制分支。只在本会话触发一次
+  // (不像 noProgress 那样反复清零重触发)——这条只关心"TodoWrite 有没有被用过一次",
+  // 不是持续追踪进度。
+  let todoWriteEverUsed = false;
+  let todoWriteEnforcementFired = false;
+  let toolCallsSinceStart = 0;
+  const TODOWRITE_ENFORCE_AT = Number(process.env.DAO_TODOWRITE_ENFORCE_AT) || 8;
   // 反思层:确定性回合监控状态(跨本 runTurn 的各模型回合累积)。
   let health = initHealth();
   const healthCfg = defaultHealthConfig();
@@ -650,6 +666,8 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     // 连续空转或临近上限 → 下一轮注入一次性 advisor 提醒,促其回看目标/收尾/求助,防长程漂移与空耗。
     const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name));
     if (progressed) { noProgress = 0; stuckAdviceCount = 0; nextAdviceAt = ADVISE_GAPS[0]!; } else { noProgress++; }
+    toolCallsSinceStart += toolCalls.length;
+    if (toolCalls.some((tc) => tc.function.name === "TodoWrite")) todoWriteEverUsed = true;
     // 提醒【追加】进对话(append-only,缓存安全),而非每轮拼到请求尾部又撤(那会反复废缓存)。
     const advisories: string[] = [];
     if (deps.progressAdvice && noProgress > 0 && noProgress === nextAdviceAt) {
@@ -681,6 +699,15 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
       advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时调用 VerifyDone 核实证据、或派 verify 子代理验证,再向用户汇报现状)。`);
       events.notice(`\n[轮数提醒:接近最大轮数 ${t + 1}/${maxTurns}]\n`);
+    }
+    if (deps.progressAdvice && !todoWriteEverUsed && !todoWriteEnforcementFired && toolCallsSinceStart >= TODOWRITE_ENFORCE_AT) {
+      todoWriteEnforcementFired = true; // 只关心"有没有用过一次",本会话只触发一次,不像 noProgress 那样反复清零重触发
+      advisories.push(
+        `[运行时要求] 已经进行了 ${toolCallsSinceStart} 次工具调用,从未调用过 TodoWrite。这个任务显然涉及多个` +
+          `子步骤——下一步必须先调用 TodoWrite 把剩余的具体子步骤列出来,再继续;把已经想清楚的部分转成可追踪` +
+          `的任务项,不要接着在文字里继续分析而不落地。`,
+      );
+      events.notice(`\n[运行时要求:调用 TodoWrite 列出子步骤(已 ${toolCallsSinceStart} 次工具调用未建清单)]\n`);
     }
     // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者。检测(廉价纯函数)与应对(贵的 LLM)解耦:
     //   · 主回合(有 reflect)→ 起一个 fork 独立复核,结论作 advisory(命中热缓存)。
