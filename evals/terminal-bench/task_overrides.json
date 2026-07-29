@@ -11,10 +11,6 @@
     "tag": "abandoned",
     "reason": "reasoning不收敛家族(同regex-chess)。注:0728最新复测(18次工具调用,末次调用后裸推理约32秒)已不再复现零工具调用纯文字空转的原始签名,尚未做专门的post-fix深挖归因,暂沿用家族标签,见evolution-log.md"
   },
-  "feal-differential-cryptanalysis": {
-    "tag": "abandoned",
-    "reason": "0727 post-fix真实复测(反停滞四处回归修复c51fe55+29c5139之后)不再是reasoning不收敛签名:AgentTimeoutError≈1879s,cache.jsonl只有3次API请求且全部发生在开局81秒内,此后约1700秒无新请求。推理本身完全正确(推出FEAL结构、R3=C_left^C_right、256样本实测验证概率恒为1),拿到结果后说'让我更彻底地验证一下'发起第二次Bash调用,该调用疑似是把256样本抽样验证扩大成穷举全部输入空间的暴力方法,复杂度过大导致调用本身一直挂起直到容器超时(非直接观测,容器已销毁)。与feal-linear-cryptanalysis'验证方法选错导致给多少倍预算都跑不完'同源,是验证方式的工程效率问题,不是reasoning不收敛也不是数学错误。四处反停滞修复均未触发(会话没有再发起新请求)。见evolution-log.md"
-  },
   "feal-linear-cryptanalysis": {
     "tag": "abandoned",
     "reason": "0729真实复测(huoshan1账号)不再是reasoning不收敛签名:12次工具调用(Read×6/Bash×2/TodoWrite/Write×2/Bash),首次工具调用发生在进程启动37秒后,末次工具调用后只裸推理了16秒(占1800s预算不到1%),不是整段沉默。推理正确推导了线性逼近偏差,临近结束才写出并测试部分攻击代码,是多轮密钥恢复的数学/工程复杂度没能在预算内做完,不是停止落盘。见evolution-log.md"
