@@ -1410,6 +1410,55 @@ describe("runTurn", () => {
     expect(sys).not.toContain("[自检·必读]");
   });
 
+  it("工具通过赋值写入 ctx 的字段(如 EnterWorktree 的 cwd/activeWorktree)在下一次 runTurn(下一个用户轮次)里仍然可见", async () => {
+    // 真实撞见:EnterWorktree/ExitWorktree 用 ctx.cwd = ...、ctx.activeWorktree = ... 这种赋值方式写状态。
+    // runTurn 内部曾经用 `{ ...deps.ctx, ... }` 重新 spread 出一份 toolCtx,赋值只改到这份临时副本,
+    // 写不回调用方长期持有的 ctx——用户发下一条消息、index.ts 再次调用 runTurn 时,又会从没被
+    // 污染过的原始 ctx 重新 spread 一份,之前设的 cwd/activeWorktree 就悄悄消失了。
+    const r = new ToolRegistry();
+    r.register(defineTool({
+      name: "SetCwd",
+      description: "",
+      capability: "write",
+      approval: "auto",
+      schema: z.object({}),
+      handler: async (_args, toolCtx) => { toolCtx.cwd = "/repo/.dao/worktrees/x"; toolCtx.activeWorktree = { root: "/repo/.dao/worktrees/x" } as any; return "entered"; },
+    }));
+    const baseCtx: any = { workspaceRoot: "/repo" };
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("开个 worktree");
+
+    await runTurn({
+      session: s, config, registry: r, ctx: baseCtx, gate: stubGate,
+      streamChat: scripted([
+        turn([], { role: "assistant", content: null, tool_calls: [{ id: "c0", type: "function", function: { name: "SetCwd", arguments: "{}" } }] }),
+        turn([{ kind: "content", text: "已进入" }], { role: "assistant", content: "已进入" }),
+      ]),
+      // 模拟真实 execute.ts:直接把 runTurn 传下来的 ctx 转给工具 handler(不额外拷贝)。
+      executeToolCalls: async (tcs, registry, toolCtx) =>
+        Promise.all(tcs.map(async (tc) => {
+          const tool = registry.get(tc.function.name)!;
+          const content = await tool.handler({}, toolCtx);
+          return { role: "tool" as const, tool_call_id: tc.id, content };
+        })),
+      write: () => {},
+    });
+    expect(baseCtx.cwd).toBe("/repo/.dao/worktrees/x");
+    expect(baseCtx.activeWorktree).toBeDefined();
+
+    // 第二个用户轮次(新的一次 runTurn,和 index.ts 里 REPL 每条消息都重新调用 runTurn 的方式一致)。
+    s.addUser("继续");
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx: baseCtx, gate: stubGate,
+      streamChat: scripted([turn([{ kind: "content", text: "ok" }], { role: "assistant", content: "ok" })]),
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    // 断言:上一轮设置的 worktree 状态在这一轮开始时依然存在(不会悄悄回退到主工作树)。
+    expect(baseCtx.cwd).toBe("/repo/.dao/worktrees/x");
+    expect(baseCtx.activeWorktree).toBeDefined();
+  });
+
 });
 
 describe("sanitizeHistoryForResume", () => {

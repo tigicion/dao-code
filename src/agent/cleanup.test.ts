@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { promises as fs, existsSync } from "node:fs";
+import { promises as fs, existsSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { cleanup, maybeCleanup } from "./cleanup.js";
+import { createWorktree } from "./worktree.js";
 
 let root: string;
 const NOW = 1_900_000_000_000; // 固定时间戳(避免依赖 Date.now)
@@ -13,6 +15,12 @@ async function mk(rel: string, ageDays: number) {
   const p = path.join(root, rel);
   await fs.mkdir(path.dirname(p), { recursive: true });
   await fs.writeFile(p, "x");
+  const t = (NOW - ageDays * 86_400_000) / 1000;
+  await fs.utimes(p, t, t);
+}
+
+const git = (args: string[], cwd: string) => execFileSync("git", args, { cwd, stdio: "ignore" });
+async function age(p: string, ageDays: number) {
   const t = (NOW - ageDays * 86_400_000) / 1000;
   await fs.utimes(p, t, t);
 }
@@ -48,5 +56,55 @@ describe("cleanup", () => {
     await maybeCleanup(root, NOW);
     expect(existsSync(path.join(root, ".dao/spill/old.txt"))).toBe(true);
     delete process.env.DAO_NO_CLEANUP;
+  });
+
+  // ---- 孤儿 worktree 回收(崩溃会话/EnterWorktree 忘了 ExitWorktree 留下的) ----
+  describe("孤儿 worktree 回收", () => {
+    beforeEach(() => {
+      git(["init"], root);
+      git(["config", "user.email", "t@t"], root);
+      git(["config", "user.name", "t"], root);
+      writeFileSync(path.join(root, "a.txt"), "hi");
+      git(["add", "."], root);
+      git(["commit", "-m", "init"], root);
+    });
+
+    it("过期且干净(无改动、分支已完全合并)→ 目录和分支都回收", async () => {
+      const wt = createWorktree(root, "clean1")!;
+      await age(wt.root, 40);
+      const r = await cleanup(root, 30, NOW);
+      expect(r.worktreesReclaimed).toBe(1);
+      expect(existsSync(wt.root)).toBe(false);
+      expect(execFileSync("git", ["branch", "--list", wt.branch], { cwd: root, encoding: "utf8" }).trim()).toBe("");
+    });
+
+    it("过期但有未提交改动 → 不回收,目录和分支都留着", async () => {
+      const wt = createWorktree(root, "dirty1")!;
+      writeFileSync(path.join(wt.root, "b.txt"), "uncommitted");
+      await age(wt.root, 40);
+      const r = await cleanup(root, 30, NOW);
+      expect(r.worktreesReclaimed).toBe(0);
+      expect(existsSync(wt.root)).toBe(true);
+    });
+
+    it("过期但有已提交、未合并回主分支的改动 → 目录可以删(工作区本身干净),但分支保留不强删", async () => {
+      const wt = createWorktree(root, "committed1")!;
+      writeFileSync(path.join(wt.root, "b.txt"), "committed work");
+      git(["add", "."], wt.root);
+      git(["commit", "-m", "isolated work"], wt.root);
+      await age(wt.root, 40);
+      await cleanup(root, 30, NOW);
+      expect(existsSync(wt.root)).toBe(false); // worktree 目录本身没有未提交改动,可以安全 remove
+      // 分支还在(git branch -d 对未合并分支会拒绝,不强删,保留可恢复)
+      expect(execFileSync("git", ["branch", "--list", wt.branch], { cwd: root, encoding: "utf8" }).trim()).not.toBe("");
+    });
+
+    it("还没过期(近期)→ 不管干不干净都不动", async () => {
+      const wt = createWorktree(root, "recent1")!;
+      await age(wt.root, 1); // NOW 是固定的未来时间戳,真实 mtime 相对它总是"很老"——显式对齐成"近期"
+      const r = await cleanup(root, 30, NOW);
+      expect(r.worktreesReclaimed).toBe(0);
+      expect(existsSync(wt.root)).toBe(true);
+    });
   });
 });

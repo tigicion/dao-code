@@ -148,8 +148,16 @@ export interface TurnDeps {
 export async function runTurn(deps: TurnDeps): Promise<void> {
   const { session, signal } = deps;
   const events = deps.events ?? plainEvents(deps.write);
-  // 工具 ctx 透传取消信号(Bash 据此 SIGTERM);不改原 ctx 引用,按需补 signal + 当前模型名。
-  const toolCtx = { ...deps.ctx, sessionModel: session.model, ...(signal ? { signal } : {}) };
+  // 工具 ctx:直接在调用方长期持有的 deps.ctx 上原地补 signal + 当前模型名,不再 spread 出一份
+  // 临时副本。之前的 spread 曾导致工具用赋值方式写状态(如 EnterWorktree/ExitWorktree 的
+  // ctx.cwd=/ctx.activeWorktree=)只改到这份一次性副本上,回合结束就跟着丢弃——用户发下一条
+  // 消息、index.ts 再次调用 runTurn 时又会从没被污染过的原始 ctx 重新开始,worktree 状态悄悄
+  // 消失。signal 每回合都要按当前值覆盖(没有就删掉),否则上一回合的旧 signal(已经不会再被
+  // abort,但语义上已经过期)会残留到下一回合,被 Bash/fetch 等工具误当成"这一回合也可能被取消"。
+  const toolCtx = deps.ctx;
+  toolCtx.sessionModel = session.model;
+  if (signal) toolCtx.signal = signal;
+  else delete toolCtx.signal;
   // 边界保护参考:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
