@@ -1234,8 +1234,6 @@ async function main() {
   const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || 1_000_000;
   // Q1 当前上下文 token:优先用主模型上次真实 prompt_tokens(准,尤其中文),无则回退 chars/3 估算。
   const contextTokens = () => session.lastPromptTokens ?? estimateTokens(session.messages);
-  // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。
-  const FALLBACK_MODEL = process.env.DAO_FALLBACK_MODEL === "off" ? undefined : (process.env.DAO_FALLBACK_MODEL || "deepseek-v4-flash");
   // P2-11 编辑后诊断命令(如 "tsc --noEmit"):设了才在写/改文件后跑、把报错回灌模型。
   // 显式 DAO_DIAGNOSTICS_CMD 优先;否则 DAO_DIAGNOSTICS=1 时按项目自动探测(tsc/eslint)。默认不跑。
   const DIAG_CMD = process.env.DAO_DIAGNOSTICS_CMD?.trim()
@@ -1350,7 +1348,6 @@ async function main() {
       write,
       compact: runCompaction, // L2.2 反应式压缩
       shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
-      fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
       progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
@@ -1635,8 +1632,7 @@ async function main() {
             write: () => {},
             compact: inkCompact, // L2.2 反应式压缩
             shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
-            fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
-            diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
+                  diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
             progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
             interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议

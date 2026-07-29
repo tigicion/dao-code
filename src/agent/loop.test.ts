@@ -179,7 +179,7 @@ describe("runTurn", () => {
     expect(effortSeen[0]).toBe("max"); // 首次请求:默认档位,不受影响
     expect(effortSeen[1]).toBe("low"); // onEmptyTruncation 触发后的重试:物理压低
     expect(maxTokensSeen[0]).toBeUndefined(); // 首次请求:不设覆盖,走会话默认上限
-    expect(maxTokensSeen[1]).toBe(32000); // 重试:直接用加大后的预算,不再先按默认重试一次
+    expect(maxTokensSeen[1]).toBe(64000); // 重试:直接用加大后的预算,不再先按默认重试一次
   });
 
   it("预算耗尽重试:API 层强制工具调用(tool_choice=required),候选工具收敛为能产出/执行的那几个", async () => {
@@ -235,7 +235,7 @@ describe("runTurn", () => {
     expect(toolsSeen[2]).toContain("Skill"); // 也恢复完整工具集
   });
 
-  it("预算耗尽重试:直接用加大预算(32000)重试一次,成功则不再有第二档", async () => {
+  it("预算耗尽重试:直接用加大预算(64000)重试一次,成功则不再有第二档", async () => {
     // 2026-07-28 真实复测推翻了"先按默认预算重试、仍空再加大"的两档设计(见上方
     // maxTokensSeen 用例的注释)——重试直接用加大后的预算。
     const s = new Session("SYS", "deepseek-v4-pro");
@@ -263,12 +263,12 @@ describe("runTurn", () => {
     });
     expect(call).toBe(2); // 自然请求 + 唯一一次重试就成功,不需要第二档
     expect(maxTokensSeen[0]).toBeUndefined(); // 自然请求:会话默认预算
-    expect(maxTokensSeen[1]).toBe(32000); // 重试:直接用加大预算
+    expect(maxTokensSeen[1]).toBe(64000); // 重试:直接用加大预算
   });
 
-  it("预算耗尽重试:32000 仍为空 → 再翻一次到 72000(第二档,也是最后一档),成功则收尾", async () => {
+  it("预算耗尽重试:64000 仍为空 → 再翻一次到 128000(第二档,也是最后一档),成功则收尾", async () => {
     // 2026-07-28 用户明确要求:仍为空不直接放弃,再翻一次预算,但只翻一次不循环——DAO 不是
-    // 只服务 terminal-bench 短预算评测的工具,72000(≈1187s@60.7tok/s)在预算充裕的真实
+    // 只服务 terminal-bench 短预算评测的工具,128000(≈2109s@60.7tok/s)在预算充裕的真实
     // 长任务里是合理量级,不该被评测的短预算反过来约束成通用设计上限。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
@@ -303,13 +303,13 @@ describe("runTurn", () => {
       executeToolCalls: async (tcs: { id: string }[]) => tcs.map((tc) => ({ role: "tool", tool_call_id: tc.id, content: "ok" } as ToolMessage)),
       write: () => {},
     });
-    expect(call).toBe(4); // 自然请求 + 32000 重试(仍空) + 72000 重试(成功,吐出 Write) + 执行完后的下一轮请求(收尾)
-    expect(maxTokensSeen[1]).toBe(32000); // 第一档
-    expect(maxTokensSeen[2]).toBe(72000); // 第二档(也是最后一档)
+    expect(call).toBe(4); // 自然请求 + 64000 重试(仍空) + 128000 重试(成功,吐出 Write) + 执行完后的下一轮请求(收尾)
+    expect(maxTokensSeen[1]).toBe(64000); // 第一档
+    expect(maxTokensSeen[2]).toBe(128000); // 第二档(也是最后一档)
     expect(choiceSeen[2]).toBe("required"); // 第二档仍然尝试强制工具调用
   });
 
-  it("预算耗尽重试:32000 和 72000 都仍为空 → 结束本轮,不再有第三次机会(不循环)", async () => {
+  it("预算耗尽重试:64000 和 128000 都仍为空 → 结束本轮,不再有第三次机会(不循环)", async () => {
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -328,9 +328,9 @@ describe("runTurn", () => {
       executeToolCalls: async () => [],
       write: () => {},
     });
-    expect(call).toBe(3); // 自然请求 + 32000 + 72000,到此为止,不循环翻第三次
-    expect(maxTokensSeen[1]).toBe(32000);
-    expect(maxTokensSeen[2]).toBe(72000);
+    expect(call).toBe(3); // 自然请求 + 64000 + 128000,到此为止,不循环翻第三次
+    expect(maxTokensSeen[1]).toBe(64000);
+    expect(maxTokensSeen[2]).toBe(128000);
   });
 
   it("服务端不接受 tool_choice → 回退一次普通重试,不让整轮崩掉(火山方舟上是每次都会走到的主路径,非罕见兜底)", async () => {
@@ -469,24 +469,20 @@ describe("runTurn", () => {
     expect(stored.tool_calls![0]!.function.name).toBe("Write"); // 只清洗 arguments,不动其它字段
   });
 
-  it("主备模型都遇到网络/超时类异常 → 退避后整轮重试,不让整个episode崩溃退出", async () => {
-    // 根因(真实撞见:terminal-bench make-mips-interpreter):模型试图单次Write写入
-    // 千行级大文件,主模型先抛异常触发回退到flash,flash随后也120s空闲超时——此前这里
-    // 直接上抛,整个进程崩溃退出(NonZeroAgentExitCodeError exit 1),900s+预算和此前
-    // 全部真实进展作废。现在退避后把usedFallback重置、给主模型再来一次机会。
+  it("过载/超时类(非限流):主模型原地重试一次(不换备用模型),重试成功就正常继续", async () => {
     process.env.DAO_HARD_RETRY_DELAY_MS = "1"; // 测试里不等真实退避时间(0会被||1000兜底,故用1ms)
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
-    const streamChatMock = (() => {
+    const modelsUsed: string[] = [];
+    const streamChatMock = ((opts: StreamChatOptions) => {
       call++;
-      if (call <= 2) {
-        // 第1次(主模型)、第2次(回退到flash)都遇到网络/超时类异常
+      modelsUsed.push(opts.model);
+      if (call === 1) {
         return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
           throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
         })();
       }
-      // 第3次:退避重试后回到主模型,这次成功
       return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
         yield { kind: "content", text: "重试后成功了" };
         return { role: "assistant", content: "重试后成功了" };
@@ -495,12 +491,12 @@ describe("runTurn", () => {
     await runTurn({
       session: s, config, registry: emptyReg(), ctx, gate: stubGate,
       streamChat: streamChatMock,
-      fallbackModel: "deepseek-v4-flash",
       executeToolCalls: async () => [],
       write: () => {},
     });
     delete process.env.DAO_HARD_RETRY_DELAY_MS;
-    expect(call).toBe(3); // 主模型失败→回退flash失败→退避重试回到主模型成功
+    expect(call).toBe(2);
+    expect(modelsUsed).toEqual(["deepseek-v4-pro", "deepseek-v4-pro"]); // 全程主模型,不换备用
     expect(s.messages).toEqual([
       { role: "system", content: "SYS" },
       { role: "user", content: "hi" },
@@ -508,7 +504,56 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("限流(429):不换模型,原样等待重试(有 fallbackModel 也不降级)", async () => {
+  it("过载/超时类(非限流):重试一次仍失败 → 不抛异常崩会话,优雅收尾并保留上下文(headless)", async () => {
+    process.env.DAO_HARD_RETRY_DELAY_MS = "1";
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    let call = 0;
+    const streamChatMock = (() => {
+      call++;
+      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+        throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
+      })();
+    }) as any;
+    // ctx 无 askChoice(headless),不应抛出异常——runTurn 应正常 resolve
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    delete process.env.DAO_HARD_RETRY_DELAY_MS;
+    expect(call).toBe(2); // 首次 + 重试一次,不再继续
+    // 原有的 system/user 历史保留,末尾追加一条说明情况的 assistant 消息(不是裸异常)
+    expect(s.messages[0]).toEqual({ role: "system", content: "SYS" });
+    expect(s.messages[1]).toEqual({ role: "user", content: "hi" });
+    const last = s.messages.at(-1)!;
+    expect(last.role).toBe("assistant");
+    expect(typeof last.content === "string" && last.content).toContain("重试一次仍未恢复");
+  });
+
+  it("过载/超时类(非限流):重试一次仍失败(交互场景)→ 优雅收尾的文案提示可以重新发消息继续", async () => {
+    process.env.DAO_HARD_RETRY_DELAY_MS = "1";
+    const s = new Session("SYS", "deepseek-v4-pro");
+    s.addUser("hi");
+    const streamChatMock = (() => (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
+      throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
+    })()) as any;
+    let askChoiceCalled = false;
+    const interactiveCtx = { ...ctx, askChoice: async () => { askChoiceCalled = true; return ""; } };
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
+      streamChat: streamChatMock,
+      executeToolCalls: async () => [],
+      write: () => {},
+    });
+    delete process.env.DAO_HARD_RETRY_DELAY_MS;
+    expect(askChoiceCalled).toBe(false); // 不再弹菜单问用户,直接自动重试一次后收尾
+    const last = s.messages.at(-1)!;
+    expect(typeof last.content === "string" && last.content).toContain("可稍后重新发送消息继续");
+  });
+
+  it("限流(429):不换模型,原样等待重试", async () => {
     process.env.DAO_RATE_LIMIT_WAIT_MS = "1"; // 测试里不等真实退避
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
@@ -531,7 +576,6 @@ describe("runTurn", () => {
     await runTurn({
       session: s, config, registry: emptyReg(), ctx, gate: stubGate,
       streamChat: streamChatMock,
-      fallbackModel: "deepseek-v4-flash",
       executeToolCalls: async () => [],
       write: () => {},
     });
@@ -564,7 +608,6 @@ describe("runTurn", () => {
       runTurn({
         session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
         streamChat: streamChatMock,
-        fallbackModel: "deepseek-v4-flash",
         executeToolCalls: async () => [],
         write: () => {},
       }),
@@ -678,157 +721,10 @@ describe("runTurn", () => {
     expect(askedOptions).toEqual(["等待后用当前模型重试", "中止本轮(稍后可用 /account 切换账号)"]);
   });
 
-  it("过载/超时类(非限流):交互场景问用户,选\"等待\"则原地重试(不自动换模型)", async () => {
-    const s = new Session("SYS", "deepseek-v4-pro");
-    s.addUser("hi");
-    let call = 0;
-    const modelsUsed: string[] = [];
-    let askedQuestion = "";
-    let askedOptions: string[] = [];
-    process.env.DAO_RATE_LIMIT_WAIT_MS = "1";
-    const streamChatMock = ((opts: StreamChatOptions) => {
-      call++;
-      modelsUsed.push(opts.model);
-      if (call === 1) {
-        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-          throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
-        })();
-      }
-      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-        yield { kind: "content", text: "等待后成功" };
-        return { role: "assistant", content: "等待后成功" };
-      })();
-    }) as any;
-    const interactiveCtx = {
-      ...ctx,
-      askChoice: async (q: string, opts: string[]) => {
-        askedQuestion = q; askedOptions = opts;
-        return opts[0]!; // 选"等待后用当前模型重试"
-      },
-    };
-    await runTurn({
-      session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
-      streamChat: streamChatMock,
-      fallbackModel: "deepseek-v4-flash",
-      executeToolCalls: async () => [],
-      write: () => {},
-    });
-    delete process.env.DAO_RATE_LIMIT_WAIT_MS;
-    expect(call).toBe(2);
-    expect(modelsUsed).toEqual(["deepseek-v4-pro", "deepseek-v4-pro"]); // 没自动换成 flash
-    expect(askedQuestion).toMatch(/请求持续失败/);
-    expect(askedOptions).toEqual(["等待后用当前模型重试", "换成备用模型「deepseek-v4-flash」试试(本回合)", "中止本轮"]);
-    expect(s.messages.at(-1)).toEqual({ role: "assistant", content: "等待后成功" });
-  });
-
-  it("过载/超时类(非限流):交互场景选\"换成备用模型\"才切换(用户主动选,不是自动降级)", async () => {
-    const s = new Session("SYS", "deepseek-v4-pro");
-    s.addUser("hi");
-    const modelsUsed: string[] = [];
-    const streamChatMock = ((opts: StreamChatOptions) => {
-      modelsUsed.push(opts.model);
-      if (opts.model === "deepseek-v4-pro") {
-        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-          throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
-        })();
-      }
-      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-        yield { kind: "content", text: "换模型后成功" };
-        return { role: "assistant", content: "换模型后成功" };
-      })();
-    }) as any;
-    const interactiveCtx = {
-      ...ctx,
-      askChoice: async (_q: string, opts: string[]) => opts[1]!, // 选"换成备用模型"
-    };
-    await runTurn({
-      session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
-      streamChat: streamChatMock,
-      fallbackModel: "deepseek-v4-flash",
-      executeToolCalls: async () => [],
-      write: () => {},
-    });
-    expect(modelsUsed).toEqual(["deepseek-v4-pro", "deepseek-v4-flash"]);
-    expect(s.messages.at(-1)).toEqual({ role: "assistant", content: "换模型后成功" });
-  });
-
-  it("过载/超时类(非限流):交互场景选\"中止\"则报明确错误,不重试", async () => {
-    const s = new Session("SYS", "deepseek-v4-pro");
-    s.addUser("hi");
-    let call = 0;
-    const streamChatMock = (() => {
-      call++;
-      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-        throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
-      })();
-    }) as any;
-    const interactiveCtx = { ...ctx, askChoice: async (_q: string, opts: string[]) => opts.at(-1)! }; // 选"中止本轮"
-    await expect(
-      runTurn({
-        session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
-        streamChat: streamChatMock,
-        fallbackModel: "deepseek-v4-flash",
-        executeToolCalls: async () => [],
-        write: () => {},
-      }),
-    ).rejects.toThrow(/已中止/);
-    expect(call).toBe(1);
-  });
-
-  it("过载/超时类(非限流):没配置 fallbackModel 时,选项里不出现\"换成备用模型\"", async () => {
-    const s = new Session("SYS", "deepseek-v4-pro");
-    s.addUser("hi");
-    let askedOptions: string[] = [];
-    const streamChatMock = (() => (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-      throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
-    })()) as any;
-    const interactiveCtx = {
-      ...ctx,
-      askChoice: async (_q: string, opts: string[]) => { askedOptions = opts; return opts.at(-1)!; },
-    };
-    await expect(
-      runTurn({
-        session: s, config, registry: emptyReg(), ctx: interactiveCtx as any, gate: stubGate,
-        streamChat: streamChatMock,
-        // 没有 fallbackModel
-        executeToolCalls: async () => [],
-        write: () => {},
-      }),
-    ).rejects.toThrow(/已中止/);
-    expect(askedOptions).toEqual(["等待后用当前模型重试", "中止本轮"]);
-  });
-
-  it("headless(无 askChoice):过载/超时类仍走原自动回退+退避重试(不受这次改动影响)", async () => {
-    process.env.DAO_HARD_RETRY_DELAY_MS = "1";
-    const s = new Session("SYS", "deepseek-v4-pro");
-    s.addUser("hi");
-    const modelsUsed: string[] = [];
-    let call = 0;
-    const streamChatMock = ((opts: StreamChatOptions) => {
-      call++;
-      modelsUsed.push(opts.model);
-      if (call <= 2) {
-        return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-          throw new Error("模型流空闲超时(120s 未收到数据),已停止本回合");
-        })();
-      }
-      return (async function* (): AsyncGenerator<StreamDelta, AssistantMessage> {
-        yield { kind: "content", text: "自动恢复成功" };
-        return { role: "assistant", content: "自动恢复成功" };
-      })();
-    }) as any;
-    await runTurn({
-      session: s, config, registry: emptyReg(), ctx, gate: stubGate, // ctx 无 askChoice
-      streamChat: streamChatMock,
-      fallbackModel: "deepseek-v4-flash",
-      executeToolCalls: async () => [],
-      write: () => {},
-    });
-    delete process.env.DAO_HARD_RETRY_DELAY_MS;
-    expect(call).toBe(3);
-    expect(modelsUsed).toEqual(["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-pro"]); // 自动回退过
-    expect(s.messages.at(-1)).toEqual({ role: "assistant", content: "自动恢复成功" });
-  });
+  // 2026-07-29:交互场景下"等待/换备用模型/中止"这套菜单已随 L1.3 改版下线——过载/超时/网络类
+  // 异常现在统一走"主模型原地重试一次,仍失败就优雅收尾"(见上方新增的两个测试),不再区分交互/
+  // headless 问不问用户;上面 511/589/622 行三个限流(429)测试因为是完全不同的故障类型和解法,
+  // 不受这次改动影响,继续保留原有的"问用户/自动退避"菜单逻辑。
 
   it("sends session.model and runs tools then loops", async () => {
     const s = new Session("SYS", "deepseek-v4-flash");
