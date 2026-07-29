@@ -2,7 +2,7 @@
 // 多 key 切换 = 切 profile;多 provider = profile 带不同 provider;未来订阅 = 另一种凭证类型。
 // 不引入"用户(user)"概念——DAO 是本地 CLI,DeepSeek 无账号体系,user 等于给不存在的登录服务器建模。
 
-export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine" | "qianfan";
+export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine" | "qianfan" | "minimax";
 
 export interface Profile {
   provider: Provider;
@@ -23,6 +23,9 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   deepseek: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro" },
   volcengine: { baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", model: "deepseek-v4-pro" },
   qianfan: { baseUrl: "https://qianfan.baidubce.com/v2/tokenplan/personal", model: "deepseek-v4-pro" },
+  // MiniMax 直连:官方 OpenAI 兼容端点,全球站默认;国内站用 https://api.minimaxi.com/v1
+  // (建 profile 时改 baseUrl)。默认模型用官方 ID MiniMax-M3。
+  minimax: { baseUrl: "https://api.minimax.io/v1", model: "MiniMax-M3" },
   anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-4-8" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
 };
@@ -47,6 +50,8 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
     "minimax-m3",
   ],
   qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "ernie-5.1"],
+  // minimax 直连保留官方大小写 ID(MiniMax-M3/MiniMax-M2.7),而非上方那份列表里的小写别名。
+  minimax: ["MiniMax-M3", "MiniMax-M2.7"],
   anthropic: [DEFAULTS.anthropic.model],
   openai: [DEFAULTS.openai.model],
 };
@@ -57,13 +62,31 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
 // - glm-5.2/glm-5.1: 智谱文档标注"输入模态:文本",不支持
 // - ernie-5.1: 千帆模型列表只在"文本生成"分类,不支持
 // - deepseek-v4-pro/flash: 千帆模型列表只在"文本生成"分类,不支持
+// - MiniMax-M3: MiniMax 官方文档标注输入模态含图片与视频,支持;MiniMax-M2.7 仅文本,不支持
 export const VISION_MODELS = new Set<string>([
   "kimi-k2.6",
+  "MiniMax-M3",
 ]);
 
 /** 当前 model 是否支持图片输入。不在 VISION_MODELS 中的模型一律视为不支持。 */
 export function supportsVision(model: string): boolean {
   return VISION_MODELS.has(model);
+}
+
+// 各模型真实上下文窗口(token):按模型粒度解析,替代"一刀切 1M 默认"。窗口 <1M 的模型若沿用 1M,
+// 反应式压缩永不主动触发,撞真实上限处才崩(见 index.ts CONTEXT_WINDOW)。表中没有的模型回退 1M 默认,
+// 保持既有 provider 行为不变。依据(2026-07-23 核实官方文档):
+// - MiniMax-M3   = 1,000,000
+// - MiniMax-M2.7 =   204,800
+export const DEFAULT_CONTEXT_WINDOW = 1_000_000;
+export const CONTEXT_WINDOW_BY_MODEL: Record<string, number> = {
+  "MiniMax-M3": 1_000_000,
+  "MiniMax-M2.7": 204_800,
+};
+
+/** 解析某 model 的上下文窗口(token);未登记的模型回退到 1M 默认。 */
+export function resolveContextWindow(model: string): number {
+  return CONTEXT_WINDOW_BY_MODEL[model] ?? DEFAULT_CONTEXT_WINDOW;
 }
 
 function isV2(raw: unknown): raw is ProfilesConfig {

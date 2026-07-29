@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
-import { DEFAULTS, MODELS_BY_PROVIDER, type Provider, type ResolvedCredential } from "./config/profiles.js";
+import { DEFAULTS, MODELS_BY_PROVIDER, resolveContextWindow, type Provider, type ResolvedCredential } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
@@ -1196,9 +1196,10 @@ async function main() {
     return true;
   };
 
-  // L2.1:上下文窗口可被 env 覆盖(目标模型真实窗口若 <1M 必须设对,否则压缩永不触发→真实上限处崩)。
+  // L2.1:上下文窗口按【当前主模型】真实窗口解析(resolveContextWindow),避免给小窗口模型(如 MiniMax-M2.7
+  // 的 204,800)套用 1M 默认导致压缩永不触发。DAO_CONTEXT_WINDOW 显式设置仍最高优先;未登记模型回退 1M。
   // 真正的安全网是反应式压缩(见 loop.ts compact 钩子):即便此值偏大,撞上下文超限也会自动压缩重试。
-  const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || 1_000_000;
+  const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || resolveContextWindow(session.model);
   // Q1 当前上下文 token:优先用主模型上次真实 prompt_tokens(准,尤其中文),无则回退 chars/3 估算。
   const contextTokens = () => session.lastPromptTokens ?? estimateTokens(session.messages);
   // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。

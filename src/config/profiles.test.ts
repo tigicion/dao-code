@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { migrateConfig, resolveActive, DEFAULTS, MODELS_BY_PROVIDER } from "./profiles.js";
+import { migrateConfig, resolveActive, DEFAULTS, MODELS_BY_PROVIDER, supportsVision, resolveContextWindow } from "./profiles.js";
 
 describe("migrateConfig", () => {
   it("wraps a legacy { apiKey } config into a default deepseek profile", () => {
@@ -116,5 +116,34 @@ describe("MODELS_BY_PROVIDER", () => {
       "minimax-m2.7",
       "minimax-m3",
     ]);
+  });
+  it("minimax 直连保留官方大小写 ID(MiniMax-M3/MiniMax-M2.7)", () => {
+    expect(MODELS_BY_PROVIDER.minimax).toEqual(["MiniMax-M3", "MiniMax-M2.7"]);
+  });
+});
+
+describe("DEFAULTS.minimax", () => {
+  it("points at the official global OpenAI-compatible base url with MiniMax-M3 as default model", () => {
+    expect(DEFAULTS.minimax).toEqual({
+      baseUrl: "https://api.minimax.io/v1",
+      model: "MiniMax-M3",
+    });
+  });
+});
+
+describe("supportsVision", () => {
+  it("MiniMax-M3 supports image/video input; MiniMax-M2.7 does not", () => {
+    expect(supportsVision("MiniMax-M3")).toBe(true);
+    expect(supportsVision("MiniMax-M2.7")).toBe(false);
+  });
+});
+
+describe("resolveContextWindow", () => {
+  it("resolves each MiniMax model's real window instead of the flat 1M default", () => {
+    expect(resolveContextWindow("MiniMax-M3")).toBe(1_000_000);
+    expect(resolveContextWindow("MiniMax-M2.7")).toBe(204_800);
+  });
+  it("falls back to the 1M default for unregistered models", () => {
+    expect(resolveContextWindow("deepseek-v4-pro")).toBe(1_000_000);
   });
 });
