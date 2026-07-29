@@ -190,16 +190,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   const FORCED_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "Bash"]);
   // 空响应重试直接用的预算(2026-07-28 起不再先按会话默认重试一次,见下方 wasEmptyTruncation
   // 分支的注释)。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成速率约 60.7 tok/s:
-  // 32000≈527s、64000≈1054s、128000≈2109s。2026-07-29 基线预算(client.ts 的 DAO_MAX_OUTPUT_TOKENS
-  // 默认值)从 16000 上调到 32000 后,这两档跟着整体翻倍——否则第一档会跟基线撞在同一个数字上,
-  // 空响应重试请求和刚失败的那次预算完全一样,保证再撞一次同样的墙(参考下方 wasEmptyTruncation
-  // 分支注释里"同一档反复重试从未生效过"那条历史教训,同样的逻辑适用于"新档=旧基线"这种情况)。
-  const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 64000;
-  // 第二档(仅当第一档仍为空才用,再空就放弃,不循环):DAO 不是只服务 terminal-bench 这类
-  // 900-1800s 短预算评测的工具,真实、预算充裕的长任务里 128000(≈2109s)这个量级是合理的——
-  // 此前只在"write-compressor 900s 装不下三档叠加"这个评测特例上否决过更大的档位,不该反过来
-  // 当成通用设计的约束。
-  const FINAL_ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS_FINAL) || 128000;
+  // 64000≈1054s、128000≈2109s。2026-07-30 基线预算(client.ts 的 DAO_MAX_OUTPUT_TOKENS 默认值)
+  // 从 32000 再上调到 64000 后,重试只保留一档 128000(不再分两档)——基线本身已经翻倍到
+  // 64000,不需要再叠一个中间档去垫"基线和重试档不能撞同一个数字"这件事,直接一步到位用
+  // 128000,仍空就收尾,不循环(同样的逻辑此前也验证过:两档设计里那个"中间档"从未真正
+  // 兑现过价值,见下方 wasEmptyTruncation 分支注释)。
+  const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 128000;
   let noProgress = 0;
   let nextAdviceAt = ADVISE_GAPS[0]!;
   // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
@@ -498,7 +494,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
               "直接调用 Bash 或 Write 写一个一次性程序把它跑出来,不要在文字里重新推一遍。" +
               "惯用的脚本语言(如 python)如果在这个环境里不可用,换一种环境里确实存在的" +
               "语言/编译器(node、perl、awk,或任务本身已保证存在的编译器如 gcc/cc)写," +
-              "目标是自动化而不是固定某一种语言。",
+              "目标是自动化而不是固定某一种语言。" +
+              "更根本的是收敛方式:不要试图在文字里把完整方案想清楚、验证过一切分支后再动手——" +
+              "先写一个局部正确、哪怕明知不完整/大概率有 bug 的版本落地,跑起来看真实结果," +
+              "再根据具体反馈小步修正,比继续在脑内推演更完整的方案更接近目标;每一步只解决" +
+              "当前卡住的这一个具体问题,不要在动手前就想着一次性覆盖所有情况。",
           });
         } else {
           events.notice("\n[模型返回空响应,重试一次…]\n");
@@ -540,12 +540,14 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         //    某一次请求 tools 数组收窄的约束)明确写着"多步任务转成 TodoWrite 清单",模型
         //    凭这段记忆调用,网关未拦截。工具集收窄在这类网关上是软偏置,不是可信赖的防线。
         // 2026-07-28 真实复测(write-compressor,两次独立trial)推翻了"先在默认预算重试一次,
-        // 仍空再加大"这个两档设计:两次真实数据里,第一档(维持默认~16000)重试都【同样撞满】,
-        // 各自白白搭进去约200-280秒才轮到加大预算那一档;而加大到32000那次,完成时只用了
-        // 7668/4329 token——远低于原来的16000上限,不是"给多少用多少"。这说明"先按兵不动
+        // 仍空再加大"这个两档设计:两次真实数据里,第一档(维持默认预算)重试都【同样撞满】,
+        // 各自白白搭进去约200-280秒才轮到加大预算那一档;而加大预算那次,完成时只用了
+        // 7668/4329 token——远低于基线上限,不是"给多少用多少"。这说明"先按兵不动
         // 试一次默认预算"这个中间档从未兑现过(理论依据是"low档可能自然收敛在更短",但两次
         // 真实观测里都没发生),而"给更大空间"也没有让模型输出更啰嗦——直接铺开预算反而收敛
-        // 更快。故只保留一次重试,直接用 ESCALATED_MAX_TOKENS,不再分两档。
+        // 更快。故只保留一次重试,直接用 ESCALATED_MAX_TOKENS,不再分两档;2026-07-30 基线
+        // 预算本身再翻倍到 64000 后,重试档(128000)也只此一档,不再叠加第二档——基线已经
+        // 够大,不需要"重试档=2×基线"之外再留一层"重试档的重试档"。
         if (wasEmptyTruncation) {
           const forced = tools.filter((tl) => FORCED_TOOLS.has(tl.function.name));
           const forcedTools = forced.length > 0 ? forced : tools;
@@ -565,22 +567,9 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
             }
             return await requestAssistant(tools, t, "low", maxTokensOverride);
           };
-          // 2026-07-28 用户要求:仍为空不再直接放弃,再翻一次预算,还不行就停(不是无界循环)。
-          // 第二档定为 FINAL_ESCALATED_MAX_TOKENS(默认 72000,≈1187s@60.7tok/s)而不是机械的
-          // 2×32000——DAO 不是只服务 terminal-bench 这类 900-1800s 短预算评测的工具,72000
-          // 这个量级在真实、预算充裕的长任务里是合理的;此前否决 72000 是站在"write-compressor
-          // 900s 预算装不下三档叠加"这个评测特例上考虑的,不该反过来当成 DAO 通用设计的约束。
-          // 这条路径目前没有真实数据支撑(两次真实复测在32000这一档都已经成功,从未真的用到过
-          // 第二次加大),是防御性的完整性补齐,不是已验证的修复。
           assistant = await attempt(ESCALATED_MAX_TOKENS);
           toolCalls = assistant.tool_calls ?? [];
           hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
-          if (toolCalls.length === 0 && !hasContent) {
-            events.notice(`\n[仍为空,加大输出预算到 ${FINAL_ESCALATED_MAX_TOKENS} 再试最后一次…]\n`);
-            assistant = await attempt(FINAL_ESCALATED_MAX_TOKENS);
-            toolCalls = assistant.tool_calls ?? [];
-            hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
-          }
         } else {
           assistant = await requestAssistant(tools, t);
           toolCalls = assistant.tool_calls ?? [];

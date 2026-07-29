@@ -85,11 +85,12 @@ export async function* streamChat(
   // 还会被原样存进历史,下一轮把这条坏消息重发给 API 时直接 400 崩掉(千帆/ARK 对
   // tool_calls[].function.arguments 的 JSON 合法性校验比 DeepSeek 严格)。给一个远高于
   // 常见隐式默认值的显式上限,从源头上让这类大段单次输出不那么容易被截断。
-  // 32000 起步(2026-07-29 由 16000 上调——高频撞见需要大段代数推导/长脚本的任务在
-  // 16000 上限反复被截断,详见 loop.ts 的 emptyTruncation 处理)、可用 DAO_MAX_OUTPUT_TOKENS
-  // 覆盖;调用方也可用 opts.maxTokens 单次覆盖(如权限分类器这类只需要几个字的场景,
-  // 虽然不设也无妨——上限只是天花板,不影响实际生成量)。
-  const maxTokens = opts.maxTokens ?? (Number(process.env.DAO_MAX_OUTPUT_TOKENS) || 32000);
+  // 64000 起步(2026-07-30 由 32000 再上调一档——同一类"高频撞见需要大段代数推导/长脚本"
+  // 的任务在 32000 上限依然反复被截断,详见 loop.ts 的 emptyTruncation 处理;配合 loop.ts
+  // 把空响应重试从两档收窄成一档 128000,基线与重试档不再需要留出双倍差距)、可用
+  // DAO_MAX_OUTPUT_TOKENS 覆盖;调用方也可用 opts.maxTokens 单次覆盖(如权限分类器这类只
+  // 需要几个字的场景,虽然不设也无妨——上限只是天花板,不影响实际生成量)。
+  const maxTokens = opts.maxTokens ?? (Number(process.env.DAO_MAX_OUTPUT_TOKENS) || 64000);
   // OpenAI 的推理层模型(o1 系列、gpt-5 等)把 max_tokens 参数换成了 max_completion_tokens,
   // 传旧字段名会直接 400;其余(DeepSeek/火山方舟/千帆等 OpenAI-legacy 兼容网关)仍用 max_tokens。
   const maxTokensField = /^(gpt-5|o1|o3|o4)/i.test(opts.model) ? "max_completion_tokens" : "max_tokens";

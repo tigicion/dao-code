@@ -114,14 +114,14 @@ describe("streamChat", () => {
     expect(sentBody.stream).toBe(true);
   });
 
-  it("显式设置 max_tokens 上限,不依赖各家 API 隐式默认值(默认 32000,可用 opts.maxTokens 覆盖)", async () => {
+  it("显式设置 max_tokens 上限,不依赖各家 API 隐式默认值(默认 64000,可用 opts.maxTokens 覆盖)", async () => {
     let sentBody: any;
     const capturingFetch = (async (_url: string, init: any) => {
       sentBody = JSON.parse(init.body);
       return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
     }) as unknown as typeof fetch;
     await run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch }));
-    expect(sentBody.max_tokens).toBe(32000);
+    expect(sentBody.max_tokens).toBe(64000);
     expect(sentBody.max_completion_tokens).toBeUndefined();
 
     await run(streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch, maxTokens: 256 }));
@@ -147,7 +147,7 @@ describe("streamChat", () => {
       return new Response(sseStream(["data: [DONE]\n\n"]), { status: 200 });
     }) as unknown as typeof fetch;
     await run(streamChat({ ...base, model: "gpt-5", messages: [{ role: "user", content: "hi" }], fetchImpl: capturingFetch }));
-    expect(sentBody.max_completion_tokens).toBe(32000);
+    expect(sentBody.max_completion_tokens).toBe(64000);
     expect(sentBody.max_tokens).toBeUndefined();
   });
 

@@ -70,7 +70,7 @@ export interface StreamChatOptions {
   fetchImpl?: typeof fetch;
   // 透传给 API 的额外字段(如 thinking、reasoning_effort)。
   extra?: Record<string, unknown>;
-  // 单次输出上限(max_tokens/max_completion_tokens);省略则用 DAO_MAX_OUTPUT_TOKENS 或默认 32000。
+  // 单次输出上限(max_tokens/max_completion_tokens);省略则用 DAO_MAX_OUTPUT_TOKENS 或默认 64000。
   // 显式给一个远高于各家 API 隐式默认值的上限,防止大段单次输出(如整篇写文件)被静默截断
   // 成半截 JSON、进而污染历史(见 client.ts streamChat 内的详细说明)。
   maxTokens?: number;
