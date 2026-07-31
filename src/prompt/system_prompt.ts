@@ -809,6 +809,8 @@ function buildSessionGuidanceSection(interactive: boolean): string {
 当前是无人值守的一次性/非交互运行,AskUserQuestion 不会有人来回答(读到的是空输入)——别把它当成卡住时的出路。
 拿不准的地方按合理默认判断并继续推进,把假设和取舍写进最终总结,而不是停下来等一个不会到来的回答。
 
+没有人盯着这次运行、中途也不会有人替你纠偏——现在就用 TodoWrite 把任务拆成具体子步骤再开始动手,不要等跑了几轮/碰了几次壁才回头补。真正只需要一个原子动作就能完成的任务除外(比如就问一个事实、改一行配置)。
+
 
 `;
 }
@@ -819,6 +821,8 @@ function buildSessionGuidanceSectionEn(interactive: boolean): string {
 
 This is an unattended one-shot/non-interactive run — AskUserQuestion has no one to answer it (reads back empty input) — don't treat it as an escape hatch when stuck.
 Where you're unsure, make a reasonable default judgment and keep going; write your assumptions and trade-offs into the final summary instead of waiting for an answer that will never come.
+
+No one is watching this run or available to redirect you mid-course — use TodoWrite to break the task into concrete sub-steps before you start, not after several turns or a few dead ends. Exception: tasks that are genuinely a single atomic action (answer one factual question, change one config line).
 
 
 `;
