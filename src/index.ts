@@ -261,12 +261,18 @@ async function main() {
   // 这是另一套独立机制(不依赖 --reflect-memory),之前一直无条件跑(仅一次性 headless 因
   // argvPrompt 而被跳过),交互态/非 TTY 多轮管道下每轮都在算 + 命中阈值就 fork 一次 LLM 调用。
   const reflectChallengerFlag = rawArgs.includes("--reflect-challenger");
-  // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-project-instructions。
+  // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-project-instructions --no-web。
   // 每个子开关也可单独使用。--no-skills 的隔离范围覆盖"磁盘/插件自定义"通道:
   // 磁盘/插件技能 + 自定义子代理定义(.dao/agents)+ 自定义 slash 命令(.dao/commands)——三者都是同一类
   // 用户/项目/插件自带的、会改变模型行为的注入源,不隔离会让评测结果混入本机个性化配置的影响。
   // DAO 自带的内置技能(BUNDLED_SKILLS)和 hooks 不受 --eval 影响:它们是 DAO 本身能力的一部分,
   // 不是"本机个性化配置",评测时应该像真实使用一样可用;仍可用 --no-skills/--no-hooks 单独关闭。
+  // --no-web 关 WebSearch/WebFetch(和 MCP 同属"外部、不受控的信息源"):terminal-bench
+  // polyglot-rust-c 真实撞见过模型联网搜到并抓取了该题带 canary GUID 的官方 solve.sh 全文
+  // (2026-07-30 真实复测)——这类基准任务的参考答案已被公开镜像到 GitHub,评测时开着网络工具
+  // 就是给模型一条查答案的路,而不是在测真实解题能力,污染的是 reward 本身,不是某道具体题的
+  // 结果。这两个工具会连公网抓取任意内容,污染风险和 MCP server 是同一类,理应和 MCP 一起归入
+  // "评测保持纯净"的默认关闭范围。
   const evalFlag = rawArgs.includes("--eval");
   // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)【默认开启】,--no-progress-advice 才关。
   // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
@@ -286,6 +292,7 @@ async function main() {
   // 项目/用户级自定义指令(DAO.md,CLAUDE.md 的 DAO 对应物)。之前一直无条件加载并注入系统提示词,
   // --eval 完全没覆盖到——同样是"用户自定义、会改变模型行为"的影响源,单独给一个子开关。
   const noProjectInstructions = evalFlag || rawArgs.includes("--no-project-instructions");
+  const noWeb = evalFlag || rawArgs.includes("--no-web");
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
@@ -293,7 +300,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--no-progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--no-progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions", "--no-web"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -547,7 +554,11 @@ async function main() {
   for (const t of [
     readFileTool, listDirTool, writeFileTool, editFileTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
+    grepFilesTool, fileSearchTool, askUserTool,
+    // --no-web / --eval 跳过(见上方 noWeb 定义处说明):不注册就是全流程(含子代理,子代理复用
+    // 同一个 registry)都拿不到这两个工具,不是"注册了但不给用"这种更容易被绕过的软限制。
+    ...(noWeb ? [] : [fetchUrlTool, webSearchTool]),
+    todoWriteTool, memoryWriteTool, memoryReadTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
     taskCreateTool, taskListTool, taskGetTool, taskOutputTool, taskUpdateTool, taskStopTool, notifyUserTool,
     enterPlanModeTool, exitPlanModeTool,
     enterWorktreeTool, exitWorktreeTool,
