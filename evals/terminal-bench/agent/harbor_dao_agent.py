@@ -7,6 +7,13 @@ evals/terminal-bench/README.md 的发版流程),等不起也不该用来测未�
 
 关键设计:
 - 按容器架构(x86_64/aarch64)选对应二进制,装机时 `uname -m` 探测,原生跑不吃 QEMU 模拟开销。
+- qemu-startup/qemu-alpine-ssh 这两题需要在 `harbor run` 命令行上额外加 `--force-build`
+  (本地 Apple Silicon 上绕开 Rosetta 2 缺 pkey_mprotect/syscall 282 导致 QEMU 崩溃的问题)——
+  这个开关**没法放在这个 Agent 类里生效**:`force_build` 是 harbor 的 `EnvironmentConfig` 字段,
+  由 `trial.py` 在环境启动阶段(`_setup_environment()`)决定,发生在这个 Agent 类被实例化、
+  `run()` 执行之前;`BaseAgent`/`BaseInstalledAgent` 没有任何影响环境构建方式的钩子。实际生效
+  的地方在调用方的命令行,详见 `.claude/skills/terminal-bench-iterate/SKILL.md` 和
+  evolution-log.md(2026-07-29)。
 - DAO 自身输出 + `.dao/`(session 全量轨迹,含 reasoning_content)写进
   `EnvironmentPaths.agent_dir` 下——这个目录 harbor 在**超时路径也会下载**
   (harbor/trial/trial.py 的 AgentTimeoutError except 分支同样调用 _maybe_download_logs),

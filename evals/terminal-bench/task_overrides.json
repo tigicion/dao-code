@@ -17,7 +17,7 @@
   },
   "path-tracing": {
     "tag": "abandoned",
-    "reason": "0727 post-fix真实复测不再是reasoning不收敛签名:AgentTimeoutError≈1922s,109条消息/54次工具调用(Bash 42/Read 4/Write 3/Edit 1等),0个纯文字回合。verifier 3/5通过,失败在test_runs_and_produces_output/test_image_similarity——这次确实执行了编译出的二进制(msg 85),但三次改写image.c(msg 79/89/95)全部没有fopen调用、全篇不含'reconstructed'字符串,程序全程printf到stdout,从未按任务原文要求写入指定输出文件。四处反停滞修复均未触发,是独立于反停滞机制之外一个持续复现的规范遵循bug。见evolution-log.md"
+    "reason": "0727 post-fix真实复测不再是reasoning不收敛签名:AgentTimeoutError≈1922s,109条消息/54次工具调用(Bash 42/Read 4/Write 3/Edit 1等),0个纯文字回合。verifier 3/5通过,失败在test_runs_and_produces_output/test_image_similarity——这次确实执行了编译出的二进制(msg 85),但三次改写image.c(msg 79/89/95)全部没有fopen调用、全篇不含'reconstructed'字符串,程序全程printf到stdout,从未按任务原文要求写入指定输出文件。四处反停滞修复均未触发,是独立于反停滞机制之外一个持续复现的规范遵循bug。2026-07-31根因定位到底:官方镜像alexgshaw/path-tracing:20251031的Dockerfile只删了/app/orig.c源码,忘删编译出的/app/orig二进制(真实的任务环境泄漏,非DAO制造)——DAO自己0726新增的env_snapshot顶层目录快字段探测(probeTopLevelDir,commit efa42dd)会在第一条系统消息就把这个泄漏文件的名字直接递给模型('Top-level entries: image.ppm, orig'),模型因此在写完基础版本后又去反汇编这个二进制追求更高精度,把预算耗在这条弯路上,导致收尾阶段(把printf版本转成正式fopen版本)的时间被挤没。真实复测(2026-07-15 iter9-2048)对照:该版本预生成env_snapshot,系统提示词里没有这段目录信息,全程未碰/app/orig,纯经验拟合image.ppm像素数据,49%预算内写出可用版本,后段有充裕缓冲做收尾。诊断实验:本地临时改harbor缓存的Dockerfile删掉/app/orig、--force-build本地重建镜像复测,reward=1.0(5/5全过,含test_runs_and_produces_output),confirm了因果关系。但官方评测用的是registry上的固定镜像(alexgshaw/path-tracing:20251031),我们改不了,本地实验结果不能代表真实评测口径,tag维持abandoned。见evolution-log.md。"
   },
   "torch-pipeline-parallelism": {
     "tag": "abandoned",
@@ -37,10 +37,6 @@
   "train-fasttext": {
     "tag": "abandoned",
     "reason": "两个真实框架bug(exec_shell timeout机制/autotune优先)已修复验证,但任务本身卡在硬件限制(容器仅1核,fastText/autotune严重依赖多线程)+模型对fastText dim参数的记忆性锚定(6/6冷启动采样都是dim=100,两轮不同措辞快速验证0/19未绕开,结合学术文献确认是anchoring effect,对通用提示词干预有实证抵抗力)。人工决定放弃,见evolution-log.md"
-  },
-  "polyglot-rust-c": {
-    "tag": "abandoned",
-    "reason": "1胜5败(2026-07-14干净通过,之后连续5次失败)。真实复测确认失败特征:turn0推理精确顶到max_tokens上限被截断、0次工具调用、main.rs未创建。定位到具体卡点:模型在推理里已说'let me just try it'又自我否定'wait, I can't run rustc easily',内省诊断认定是长链条推理后对自身工具能力的错误感知,而非提示词缺条款(3处相关系统提示词原文均核实存在)。但把成功案例和失败案例的完整推理逐行对比后,发现更根本的差异:这题真正需要的是想清楚一个具体技巧(利用C++'//\\'行注释+反斜杠续行 vs Rust无此机制的差异隐藏跨语言代码),2026-07-14成功案例最终推导出这个技巧、内容收敛后一次编译通过;失败案例反复重新推导已被自己排除的死胡同(#if 0/attribute语法路线),或独立找到了同一个正确技巧但推导未完成就被截断。跨模型复测决定性:glm-5.2(qianfan)真实复测独立收敛到同一个'//\\'技巧,同样卡在推导中途;进一步把预算从16000真实翻倍到32000(--ae DAO_MAX_OUTPUT_TOKENS=32000,cache.jsonl确认真实生效)复测,仍0次工具调用、仍被截断——排除'预算不够大'解释,证明模型这类探索性推理没有可靠的内部收敛/止损机制,给多少预算就会用多少,不会主动提前收敛。两个不同模型(deepseek-v4-pro/glm-5.2)独立复现同一模式,判定为任务本身要求的单次长链条创造性推导、叠加当前agent循环'两次空响应即终止'机制的高方差交互结果,非DAO代码缺陷、非某条提示词缺失、非预算设置不当。用户2026-07-24确认标记abandoned,见evolution-log.md补排查#29/#30"
   },
   "dna-insert": {
     "tag": "abandoned",
