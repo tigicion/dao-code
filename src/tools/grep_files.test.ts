@@ -124,7 +124,7 @@ describe("Grep tool", () => {
     // 模拟 sanitize-git-repo 场景:真实 token 藏在一行几千字符的 JSON diff 字符串里,
     // 200+ 字符之后才出现,普通 Grep 会被 300 字符截断挡住
     const filler = "-".repeat(320); // 非字母数字,确保贪婪匹配不会吃进 filler
-    const secret = "hf_REDACTED_TEST_FIXTURE_TOKEN";
+    const secret = "hf_REDACTEDTESTFIXTUREPLACEHOLDERVALUE";
     const line = `{"diff": "${filler}${secret}${filler}"}`;
     await fs.writeFile(path.join(root, "big.json"), line + "\n", "utf8");
 

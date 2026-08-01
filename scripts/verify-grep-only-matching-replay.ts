@@ -84,9 +84,9 @@ const REAL_PREFIX =
   '         )\\n     else:\\n         params = create_params(args)\\n+        print(f\\"{params=}\\")\\n';
 const FILLER = 'x'.repeat(20500); // 撑到跟历史上"21393 字符"同量级,不追求逐字节还原(不影响机制验证)
 const REAL_TOKEN_CONTEXT =
-  "+    - echo 'export HF_TOKEN=hf_REDACTED_TEST_FIXTURE_TOKEN' >> ~/.bashrc\\n" +
+  "+    - echo 'export HF_TOKEN=hf_REDACTEDTESTFIXTUREPLACEHOLDERVALUE' >> ~/.bashrc\\n" +
   "+    - mkdir -p ~/.cache/huggingface/\\n" +
-  "+    - echo 'hf_REDACTED_TEST_FIXTURE_TOKEN' > ~/.cache/huggingface/token\\n" +
+  "+    - echo 'hf_REDACTEDTESTFIXTUREPLACEHOLDERVALUE' > ~/.cache/huggingface/token\\n" +
   "     - pip install --upgrade pip setuptools wheel\\n";
 const diffValue = REAL_PREFIX + FILLER + REAL_TOKEN_CONTEXT;
 
