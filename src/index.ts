@@ -7,6 +7,7 @@ import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
 import { DEFAULTS, MODELS_BY_PROVIDER, type Provider, type ResolvedCredential } from "./config/profiles.js";
+import { resolveExtractModel } from "./tools/fetch_extract.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
@@ -952,6 +953,31 @@ async function main() {
   // default/acceptEdits 由 getMode 读 loadedPerms.defaultMode 处理,无需在此设置。
   if (loadedPerms.defaultMode === "plan") session.mode = "plan";
   else if (loadedPerms.defaultMode === "bypassPermissions") yolo = true;
+  // WebFetch 智能提取(prompt 参数)用模型:DeepSeek 系 provider 默认 flash 档,其余(anthropic/openai
+  // 当前未配置便宜档)回退主模型,同 SUMMARY_MODEL 的既有降级方式。DAO_FETCH_EXTRACT_MODEL 可覆盖。
+  const EXTRACT_MODEL = resolveExtractModel(process.env.DAO_FETCH_EXTRACT_MODEL, cfg.provider, session.model);
+  const EXTRACT_INSTRUCTION = "下面是一个网页的纯文本内容,请严格按照<提取要求>从中提取相关信息,只输出提取结果," +
+    "不要复述原文、不要寒暄、不要输出提取要求之外的内容。如果页面里确实没有<提取要求>要的信息,明确说明没有,不要编造。";
+  const extractFromPage = async (text: string, prompt: string): Promise<string> => {
+    const gen = streamChat({
+      baseUrl: cfg.baseUrl,
+      apiKey: cfg.apiKey,
+      model: EXTRACT_MODEL,
+      messages: [{ role: "user", content: `${EXTRACT_INSTRUCTION}\n\n<页面内容>\n${text}\n</页面内容>\n\n<提取要求>\n${prompt}\n</提取要求>` }],
+      extra: { thinking: { type: "disabled" }, temperature: 0 },
+      onUsage: (u) => {
+        session.addUsage(u, EXTRACT_MODEL);
+        cacheSink.record({ agent: "fetch-extract", depth: 0, turn: 0, model: EXTRACT_MODEL, usage: u, sys: "", tools: "", tail: "" });
+      },
+    });
+    let out = "";
+    let r = await gen.next();
+    while (!r.done) {
+      if (r.value.kind === "content") out += r.value.text;
+      r = await gen.next();
+    }
+    return out.trim() || (typeof r.value.content === "string" ? r.value.content.trim() : "");
+  };
   // interactiveSession 已在系统提示词组装时算过(上方)。之前 askChoice 无条件构造,
   // headless/一次性调用(harbor/terminal-bench 这类没有真实 stdin 可交互的场景)里也会拿到
   // 这个函数,退回走 ask() 读 stdin——但那里的 stdin 不是真终端,读到的是空/EOF,不匹配任何
@@ -983,6 +1009,7 @@ async function main() {
       },
     } : {}),
     fetchImpl: fetch,
+    extractFromPage,
     today,
     notifyUser: (m: string) => notify("dao", m), // NotifyUser 用;主会话与子代理均可(复用现成的桌面通知)
     setMode: (mode: "normal" | "plan") => {

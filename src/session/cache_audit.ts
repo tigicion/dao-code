@@ -6,7 +6,7 @@ import { auditEnabled } from "./audit_switch.js";
 // 一次 API 调用的审计输入:调用点提供四维【原始内容】,sink 内部算哈希/变更/delta。
 // tools 传入已序列化的字符串(JSON.stringify(tools));工具调用类(classifier 等)可传空串。
 export interface CacheAuditInput {
-  agent: "main" | "sub" | "fork" | "bg" | "classifier" | "summary" | "distill";
+  agent: "main" | "sub" | "fork" | "bg" | "classifier" | "summary" | "distill" | "fetch-extract";
   subId?: string; // 子/后台 agent 短 id;main 与工具调用省略
   depth: number;  // subagentDepth;main=0
   turn: number;   // 该 agent 内回合序号(0 基)

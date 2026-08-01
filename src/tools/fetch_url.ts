@@ -29,7 +29,9 @@ export const fetchUrlTool = defineTool({
     "返回内容超过 max_chars 会在末尾标注'已截断',看到这个提示就该意识到没拿到全文,需要的话调低目标或分段再抓," +
     "别把截断后的片段当完整内容来下结论。同一 URL 15 分钟内重复抓取会命中缓存,不重新发请求(失败响应不缓存)。" +
     "GitHub 上的 PR/Issue/仓库内容优先用 Bash 里的 gh CLI(gh pr view/issue view/api),能拿到认证后的结构化数据," +
-    "比这个工具抓 HTML 更可靠;这个工具抓不到需要登录/认证的私有页面。",
+    "比这个工具抓 HTML 更可靠;这个工具抓不到需要登录/认证的私有页面。可选的 prompt 参数:传了就用小模型按这条" +
+    "指令从抓到的页面里提取相关内容,只返回提取结果(不是整页),适合长页面只要局部信息的场景;不传则和以前一样" +
+    "返回整页纯文本。提取失败(模型调用异常)会静默退化为返回整页原文,不会因此报错中断。",
   descriptionEn: "Fetches a web page URL, strips script/style and all tags, returns plain text — up to 20000 chars by default (adjustable via max_chars), " +
     "truncated if longer. 30s timeout so a slow site or bad URL never hangs the whole turn. Refuses internal/loopback/cloud-metadata addresses (SSRF protection, " +
     "prevents this tool being used to probe internal networks). Fetches raw HTML only, no JS execution — pages that rely heavily on client-side rendering (SPAs) " +
@@ -38,12 +40,15 @@ export const fetchUrlTool = defineTool({
     "When output exceeds max_chars, it's marked '(truncated)' at the end — treat that as a sign you didn't get the full text, not as complete content to draw conclusions from. " +
     "Repeated fetches of the same URL within 15 minutes hit a cache and skip the network request (failed responses aren't cached). " +
     "For GitHub PRs/issues/repo content, prefer the gh CLI via Bash (gh pr view, gh issue view, gh api) — it returns authenticated, structured data, " +
-    "more reliable than scraping HTML here; this tool can't reach pages that require login.",
+    "more reliable than scraping HTML here; this tool can't reach pages that require login. Optional prompt param: when given, a small model extracts " +
+    "just the relevant content per that instruction and returns the extraction instead of the full page — useful for long pages when you only need a " +
+    "part of them; omit it to get the full plain text as before. Extraction failures (model call errors) silently fall back to the full page, never error out.",
   capability: "network",
   approval: "suggest",
   schema: z.object({
     url: z.string().url().describe("要抓取的 http(s) URL"),
     max_chars: z.number().int().min(100).optional().describe("最多返回字符数,默认 20000"),
+    prompt: z.string().optional().describe("按此指令从抓到的页面里提取相关内容,返回提取结果而非整页;不传则返回整页纯文本(默认行为)"),
   }),
   handler: async (args, ctx) => {
     const blocked = blockedUrlReason(args.url); // S5.3 SSRF:拦内网/环回/云元数据端点
@@ -65,6 +70,13 @@ export const fetchUrlTool = defineTool({
       const html = await res.text();
       text = htmlToText(html);
       setCachedFetch(args.url, text);
+    }
+    if (args.prompt && ctx.extractFromPage) {
+      try {
+        text = await ctx.extractFromPage(text, args.prompt); // 抽取失败静默降级,不影响 WebFetch 本身
+      } catch {
+        // 保持 text 为抽取前的原文
+      }
     }
     const max = args.max_chars ?? 20000;
     return text.length > max ? text.slice(0, max) + "\n…(已截断)" : text;

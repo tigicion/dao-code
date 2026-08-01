@@ -72,4 +72,56 @@ describe("WebFetch tool", () => {
     await fetchUrlTool.handler({ url: "https://flaky.example.com" }, ctx);
     expect(calls).toBe(2);
   });
+
+  it("不传 prompt → 不调用 extractFromPage,即使注入了也不触发", async () => {
+    let extractCalls = 0;
+    const extractFromPage = async () => {
+      extractCalls++;
+      return "抽取结果";
+    };
+    const out = await fetchUrlTool.handler(
+      { url: "https://noprompt.example.com" },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning("<p>整页内容</p>"), extractFromPage },
+    );
+    expect(extractCalls).toBe(0);
+    expect(out).toContain("整页内容");
+  });
+
+  it("传 prompt 且 extractFromPage 命中 → 返回抽取结果而非整页原文", async () => {
+    const extractFromPage = async (text: string, prompt: string) => `[抽取:${prompt}] ${text.length}字`;
+    const out = await fetchUrlTool.handler(
+      { url: "https://withprompt.example.com", prompt: "只要联系方式" },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning("<p>一大段无关内容</p>"), extractFromPage },
+    );
+    expect(out).toBe("[抽取:只要联系方式] 7字");
+  });
+
+  it("传 prompt 但 extractFromPage 未注入 → 静默返回整页原文", async () => {
+    const out = await fetchUrlTool.handler(
+      { url: "https://noextract.example.com", prompt: "只要联系方式" },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning("<p>整页内容</p>") },
+    );
+    expect(out).toContain("整页内容");
+  });
+
+  it("传 prompt 且 extractFromPage 抛错 → 静默返回整页原文,不中断", async () => {
+    const extractFromPage = async () => {
+      throw new Error("模型调用失败");
+    };
+    const out = await fetchUrlTool.handler(
+      { url: "https://extracterror.example.com", prompt: "只要联系方式" },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning("<p>整页内容</p>"), extractFromPage },
+    );
+    expect(out).toContain("整页内容");
+  });
+
+  it("抽取结果仍然套用 max_chars 截断", async () => {
+    const extractFromPage = async () => "a".repeat(500);
+    const out = await fetchUrlTool.handler(
+      { url: "https://extracttrunc.example.com", prompt: "全文", max_chars: 100 },
+      { workspaceRoot: "/tmp", fetchImpl: fetchReturning("<p>无所谓</p>"), extractFromPage },
+    );
+    expect(out).toContain("…(已截断)");
+    expect(out.length).toBeLessThan(160);
+  });
 });

@@ -35,6 +35,9 @@ export interface ToolContext {
   askChoice?: (question: string, options: string[], multi?: boolean) => Promise<string>;
   // 网络抓取(WebSearch/WebFetch 用);注入,默认全局 fetch。
   fetchImpl?: typeof fetch;
+  // WebFetch 智能提取(prompt 参数)用:按 prompt 从抓到的页面原文里提取相关内容;注入,便于测试打桩。
+  // 未注入(如子代理/测试环境)= WebFetch 静默退化为不带 prompt 的整页返回。
+  extractFromPage?: (text: string, prompt: string) => Promise<string>;
   // ---- 子代理系统(新:runAgent 统一接口) ----
   // 子代理派发(返回 AsyncGenerator,逐条 yield 消息)
   runAgent?: (params: {
