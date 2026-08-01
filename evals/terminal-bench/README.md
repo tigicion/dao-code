@@ -7,6 +7,24 @@
 `agent/dao_code_agent.py` 是 2026-07-08 用已废弃的原生 `terminal-bench` harness 跑的旧脚本,
 只留作历史记录(结果见 `runs/`),不再维护——现在统一用 `agent/harbor_dao_agent.py`。
 
+## 当前进度
+
+**DS-Pro 主实验(2026-07-13 ~ 2026-08-01)已收官:89 题中 70 题通过**——69 题用
+`deepseek-v4-pro`,另 1 题(`chess-best-move`,视觉题)按协议用 `kimi-k2.7-code` 覆盖模型,
+算同一轮内。16 题标记 `abandoned`(根因见 `task_overrides.json`/`evolution-log.md`),
+1 题(`extract-moves-from-video`,视觉题)低优先级待迭代。
+
+2026-08-01 另外用 `deepseek-v4-flash` 模型 ad hoc 复测了几道未通过题,其中
+`regex-chess`/`torch-tensor-parallelism` 2 题通过——**这 2 题不计入 DS-Pro 这轮的收官
+结果**,算下一轮 flash 模型实验的起点;该实验目前**暂缓**,尚未正式立项开跑。
+
+完整台账见 `jobs/TASK_STATUS.md`(本地生成,不进 git)、对外展示见 `results.html`、
+逐题失败归因见 `evolution-log.md`、人工标注(abandoned/低优先级)见 `task_overrides.json`。
+日常单题选题→排查→进化→更新结果表的完整流程见
+`.claude/skills/terminal-bench-iterate/SKILL.md`(配合
+`.claude/skills/terminal-bench-debug-evolve/SKILL.md` 的判断纪律)——本 README 只讲环境
+搭建和命令参考,不重复流程细节,避免和 skill 各记一份对不上。
+
 ## 为什么从源码交叉编译二进制,不用 npm 发布版
 
 自进化闭环要验证的是**未发布的候选改动**——等 npm 发版周期跑不起来,也测不到真正想测的东西。
@@ -48,15 +66,22 @@ source venv/bin/activate
 harbor run -d terminal-bench/terminal-bench-2-1 \
   --agent-import-path agent.harbor_dao_agent:DaoAgent \
   --ak provider=qianfan \           # 省略则默认 deepseek(向后兼容)
+  --ak model=deepseek-v4-pro \      # 显式写出,不依赖 provider 的默认模型;视觉题改 kimi-k2.6
   --env-file .env \
-  --agent-timeout-multiplier 4 \    # 900s 基线放宽到 3600s(约 1 小时),见下方"超时"一节
+  --agent-timeout-multiplier 1 \    # 恒为 1,不自行放大,见下方"超时"一节
   -i "<task-name>" [-i "<task-name>" ...] \  # 不给就是全量 89 题,真跑之前务必先用 -i 圈定范围
   -n 2 -y --jobs-dir jobs --job-name <名字>
 ```
 
-结果在 `jobs/<job-name>/`:每题一个目录,`verifier/reward.txt`(0/1)、`verifier/test-stdout.txt`
-(pytest 完整输出)、`trial.log`(DAO 的调用记录)、**`agent/dao_stdout.txt` + `agent/dao_snapshot/.dao/`**
-(DAO 自己的完整会话轨迹——含 reasoning_content、逐工具调用耗时/成败,复盘蒸馏步骤读这个)。
+这是最基础的命令参考;日常一题一题排查/迭代时用的目录结构、`job-name` 命名规则(不能复用)、
+`--force-build`(qemu 家族)、`--no-web`(`--eval` 模式下禁用联网)等具体规则,见上方
+「当前进度」提到的 `terminal-bench-iterate` skill,这里不重复。
+
+结果在 `jobs/<task-name>/<job-name>/`(2026-07-23 起按题分文件夹,一题一个顶层目录;此前
+批次是反过来的 `jobs/<job-name>/<task-name>/`,已归档到 `archive/pre-round-0723/`):
+`verifier/reward.txt`(0/1)、`verifier/test-stdout.txt`(pytest 完整输出)、`trial.log`
+(DAO 的调用记录)、**`agent/dao_stdout.txt` + `agent/dao_snapshot/.dao/`**(DAO 自己的完整
+会话轨迹——含 reasoning_content、逐工具调用耗时/成败,复盘蒸馏步骤读这个)。
 
 ## 并发与内存分桶
 
@@ -74,11 +99,12 @@ python3 agent/batch_by_memory.py task1 task2 task3 ...
 # 拼进对应的三条 harbor run 命令分别提交,而不是塞进同一条命令的同一个 -n。
 ```
 
-## 超时:已放宽到可配置,默认建议 4x(≈1 小时)
+## 超时:可配置,但真实评测口径恒为 1x
 
-`task_meta.json` 里每题的 `agent_timeout_sec` 大多是 900s(15 分钟),少数 1800/2400s。
-`--agent-timeout-multiplier 4` 把这个放宽到约 1 小时,给 DAO 更多空间把正在做的事做完,
-而不是被基准原始设定的紧时限打断。
+`task_meta.json` 里每题的 `agent_timeout_sec` 大多是 900s(15 分钟),少数 1800/2400s——这是
+官方评测口径的一部分。**`--agent-timeout-multiplier` 恒为 1,不自行放大**:早期迭代阶段
+用过 4x(放宽到约 1 小时)方便观察 DAO 有没有在正确方向上推进,但放大倍数下跑出的通过/失败
+不代表官方口径的结果,不能拿来当"这题修复是否生效"的证据,现在统一用 1x 跑真实复测。
 
 **之前的坑**:老版本把 DAO 输出重定向到容器内 `/tmp/`,一旦真的触发超时,harbor 会强制取消
 调用协程,`/tmp/` 里的内容从来没机会被下载出来,导致超时案例完全没有诊断信息(是卡住了还是
@@ -93,21 +119,29 @@ python3 agent/batch_by_memory.py task1 task2 task3 ...
 
 ```jsonc
 {
-  "held_out": [...],          // 固定 10 题,永不进 dev batch,只用于定期抽查泛化(防过拟合)
-  "dev_pool_order": [...],    // 剩余 79 题的固定顺序,按 dev_batch_size(15)顺序切片
-  "dev_batch_size": 15
+  "held_out": [...],          // 固定 10 题,按难度分层抽样得出(种子 20260713)
+  "dev_pool_order": [...],    // 剩余 79 题的固定顺序
+  "dev_batch_size": 15        // 原始设计的分批大小;现在不再按批次迭代,见下方"现状说明"
 }
 ```
 
 按难度分层抽样(种子 20260713,可复现),`held_out` 和 `dev_pool` 按当前 89 题的
-易:中:难 = 4:55:30 比例抽取。**`held_out` 里的题任何时候都不能被用来决定要不要采纳一个改动**——
-只用来定期抽查"改动是不是在拿 dev 题的具体细节过拟合"。
+易:中:难 = 4:55:30 比例抽取。
 
-## 基准驱动自进化(设计,尚未实现执行脚本)
+**现状说明(与最初设计的出入)**:最初设计是按 `dev_batch_size`(15 题)分批迭代、
+`held_out` 定期抽查防过拟合。实际跑起来后改成了「逐题迭代」——每次只挑一道未通过题排查
+到底,不再按批次推进(见 `terminal-bench-iterate` skill),`held_out` 也不再被跳过或单独
+定期抽查,89 题(含 `held_out`)统一按同一套流程迭代;`is_heldout` 字段还留在
+`results.json` 里,现在只是个信息标签,不代表"这题被隔离不测"。`held_out` 里的题依旧
+**不能被单独用来决定要不要采纳一个改动**这条原则本身没变。
+
+## 基准驱动自进化
 
 受 arXiv 2604.25850(Agentic Harness Engineering)启发,但按 DAO 的实际规模大幅缩水——
 论文用 GPT-5.4 xhigh + E2B + 96 并发跑 32 小时,这里没有那个预算,保留的是它的三层可观测性
-**结构**,不是它的算力规模。
+**结构**,不是它的算力规模。**已落地为日常流程**(不再是纯设计文档),具体的选题/排查/
+验证/更新台账步骤见 `terminal-bench-iterate` + `terminal-bench-debug-evolve` 两份 skill,
+这里只记设计层面的三层结构和防过拟合原则,避免和 skill 重复维护同一份细节两处。
 
 三层:
 1. **组件可观测**:DAO 的 harness 组件本来就是文件(`src/tools/*.ts`、系统提示词、
@@ -115,10 +149,11 @@ python3 agent/batch_by_memory.py task1 task2 task3 ...
    可以充当"middleware"那一层,但要慎用**:hooks 是最容易写成"对着某道具体题的字符串特判"
    的一层,过拟合风险最高,门槛应该比工具实现/记忆层的改动更高(见下)。
 2. **经验可观测**:每题的 `agent/dao_stdout.txt` + `agent/dao_snapshot/.dao/sessions/*/state.json`
-   (完整轨迹,含推理链)+ harbor 的 `verifier/test-stdout.txt`,喂给一个"debugger"子代理,
-   产出每题根因报告,再按**失败模式归类**(不是按单题)汇总。
-3. **决策可观测**:每次改动前写一份预测清单(根因、改在哪层、预计修哪些题、可能连带弄坏哪些题),
-   落一个 git commit,下一轮真实结果核对预测,不达预期就 revert。
+   (完整轨迹,含推理链)+ harbor 的 `verifier/test-stdout.txt`,人工/子代理逐题内省诊断,
+   产出根因判断,按**失败模式归类**(不是按单题)累计进 `evolution-log.md`。
+3. **决策可观测**:每次改动前有预测(根因、改在哪层、预计修哪些题、可能连带弄坏哪些题),
+   真实复测核对预测,不达预期就回退不提交;结果落 `task_overrides.json`/`jobs/TASK_STATUS.md`/
+   git commit。
 
 **防过拟合的具体门槛**(这是这次设计跟论文原版最大的不同,论文自己都说"regression blindness"
 是最大弱点):
@@ -127,10 +162,9 @@ python3 agent/batch_by_memory.py task1 task2 task3 ...
 - 系统提示词层面的改动单独最没用(论文消融实验实测 −2.3pp),优先在工具实现/长期记忆层找答案。
 - 每轮记录哪些题 fail→pass、哪些 pass→fail;某轮改坏的比改好的多,停下来人工看,不管改动
   自己怎么宣称"这次应该没问题"。
-- `held_out` 定期抽查(初期计划每 3~4 轮抽一次)。
 - 每轮改动落在独立分支/worktree,产出 diff + 预测清单当审阅材料,人工点头才合进 master。
-
-迭代节奏:初期用 dev batch 15 题左右一轮,快速迭代;规模和门槛后续可调。
+- 放弃/降优先级某题是决策点,不能自主判定,必须停下来等用户确认(见 `terminal-bench-debug-evolve`
+  的「红线」)。
 
 ## 安全
 

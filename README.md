@@ -54,7 +54,10 @@ A coding agent is only useful if you can actually run it.
 
 ### ✅ Verified
 
-On a SWE-bench-style benchmark drawn from recent real-world open-source bug fixes (dual-track fail2pass + pass2pass judging, with test files hidden from the agent to prevent reward-hacking): **13/14 solved reliably.** See [Testing & evaluation](#-testing--evaluation).
+- On a SWE-bench-style benchmark drawn from recent real-world open-source bug fixes (dual-track fail2pass + pass2pass judging, with test files hidden from the agent to prevent reward-hacking): **13/14 solved reliably.**
+- On **Terminal-Bench 2.1** (89 third-party agentic-coding tasks run via [Harbor](https://www.harborframework.com/), spanning sysadmin, security, data science, scientific computing, debugging, ML, and more): **70/89 (78.7%)** passed with `deepseek-v4-pro` at the benchmark's official 1× timeout. The interesting part isn't the score — it's that the iteration to get there was **evaluation-driven engineering**: reading real failure traces surfaced and fixed actual framework bugs, not prompt tuning. See below.
+
+See [Testing & evaluation](#-testing--evaluation).
 
 ---
 
@@ -269,6 +272,22 @@ EVAL_RUNS=1 node evals/run.mjs # smoke test
 ```
 
 > Evaluation makes real model calls and incurs cost; each task runs in a throwaway temp dir — set `DAO_AUTO_APPROVE=1` for unattended runs. See [`evals/README.md`](evals/README.md).
+
+### Terminal-Bench 2.1 — evaluation-driven engineering
+
+[Terminal-Bench](https://www.tbench.ai/) is a third-party benchmark of real terminal/coding tasks judged by hidden verifiers inside sandboxed containers, run here via [Harbor](https://www.harborframework.com/). 89 tasks (4 easy / 55 medium / 30 hard) span system administration, security, data science, scientific computing, debugging, ML, and more. Dao Code passes **70/89 (78.7%)** with `deepseek-v4-pro`, at the benchmark's official timeout (1×, never inflated to make a task easier).
+
+The score is downstream of a closed loop, not "read the log, patch the code": **diagnose → design → re-verify.**
+
+- **Diagnose** — don't stop at the surface symptom ("0 tool calls in 900s"); establish *why*: the model didn't know what to do, knew but wouldn't, or tried and failed on the merits. Each calls for a different fix, and a fix only qualifies if it explains **at least two tasks sharing the same root cause** — single-task quirks don't count, to keep from overfitting the suite.
+- **Design** — pick an intervention at the strength the diagnosis actually earned, escalating only as far as the evidence demands: a text nudge before a hard runtime gate, never straight to the heaviest tool.
+- **Re-verify** — a real re-run against the benchmark, staying skeptical of "it looks like it worked": a mechanism firing correctly is not the same as the task passing. The loop isn't closed until the actual reward and the causal story both check out.
+
+**Case in point — the `TodoWrite` gate.** Headless sessions kept reasoning for the full 15-minute budget without ever calling a tool. *Diagnose*: the system prompt already told the model, in the literal text it received (confirmed byte-for-byte in the transcript), to plan before acting — so the problem wasn't a missing instruction, it was that a soft text instruction carries no real weight with the model. *Design*: escalate from suggestion to enforcement — a runtime gate that hard-rejects a headless session's first tool-call batch unless it includes `TodoWrite`. *Re-verify*: a real re-run confirmed the gate does what it's supposed to (the model's first move is now `TodoWrite`) — but re-verification didn't stop there. On one task the gate fired correctly and reward was still 0, because the real blocker had moved to an unrelated memory-corruption bug in the model's own C code. Stopping at "the mechanism fired" would have logged a false win; the loop only closes once the reward and the causal chain agree.
+
+The same diagnose-design-re-verify discipline caught things a prompt tweak alone never would: a background snapshot loop so a forced timeout no longer destroys its own diagnostic evidence; a native-build fix for a `qemu`-family task that was actually being killed by the host (a Rosetta 2 gap), not the model; and an explicit switch to disable web access in eval mode after it let a model fetch a leaked reference solution instead of solving the task.
+
+The remaining failures are triaged into named root-cause categories (real engineering scope beyond the time budget, implementation bugs in an otherwise-correct approach, domain-insight gaps, spec/grader mismatches) rather than left as an unexplained score, and every environment modification that could affect comparability (e.g. a shortened password dictionary for one crypto task) is disclosed rather than folded silently into the pass rate. Full per-task results, the failure-mode journal, and the harness itself: [`evals/terminal-bench/`](evals/terminal-bench/README.md).
 
 ---
 
