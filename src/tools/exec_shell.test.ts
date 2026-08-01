@@ -287,6 +287,58 @@ describe("Bash tool", () => {
     });
   });
 
+  describe("headless 会话检测到运行时崩溃信号 → 重新武装 todoWriteRequired 硬拦截", () => {
+    it("stdout/stderr 命中崩溃特征(malloc corrupted)→ done 从 true 重置为 false", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "echo 'malloc(): corrupted top size' 1>&2" },
+        { ...ctx, headless: true, todoWriteRequired },
+      );
+      expect(todoWriteRequired.done).toBe(false);
+    });
+
+    it("退出码命中信号崩溃(139=SIGSEGV)→ done 重置为 false,即便没有匹配到文字特征", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "sh -c 'exit 139'" },
+        { ...ctx, headless: true, todoWriteRequired },
+      );
+      expect(todoWriteRequired.done).toBe(false);
+    });
+
+    it("退出码137(SIGKILL,常是外部超时/OOM)不算崩溃信号,不触发重置", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "sh -c 'exit 137'" },
+        { ...ctx, headless: true, todoWriteRequired },
+      );
+      expect(todoWriteRequired.done).toBe(true);
+    });
+
+    it("正常执行(无崩溃)不触发重置", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler({ command: "echo ok" }, { ...ctx, headless: true, todoWriteRequired });
+      expect(todoWriteRequired.done).toBe(true);
+    });
+
+    it("非 headless 会话即便命中崩溃特征也不触发(与 ctx.headless 覆盖面保持一致)", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "echo 'Segmentation fault (core dumped)' 1>&2" },
+        { ...ctx, todoWriteRequired }, // headless 未设置
+      );
+      expect(todoWriteRequired.done).toBe(true);
+    });
+
+    it("未注入 todoWriteRequired 时,命中崩溃特征也不报错、正常返回结果", async () => {
+      const out = await execShellTool.handler(
+        { command: "echo 'stack smashing detected' 1>&2" },
+        { ...ctx, headless: true },
+      );
+      expect(out).toContain("[exit");
+    });
+  });
+
   describe("数据库文件执行前自动备份", () => {
     it("命令引用了存在的 .db 主文件 → 执行前自动备份主文件和它的 WAL/SHM/journal 边车文件", async () => {
       const dir = mkdtempSync(path.join(tmpdir(), "exec-shell-test-"));

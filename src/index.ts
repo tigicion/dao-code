@@ -997,6 +997,7 @@ async function main() {
     readMeta: new Map<string, { mtime: number; size: number }>(),
     pendingUnverifiedWrites: new Set<string>(),
     missingDepStrikes: { count: 0 },
+    todoWriteRequired: argvPrompt ? { done: false } : undefined,
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
     // 只在真正交互式会话里提供——非交互场景不给这个函数,让 AskUserQuestion 工具退回 ctx.ask()(已有

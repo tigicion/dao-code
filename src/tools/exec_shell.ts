@@ -168,6 +168,34 @@ function matchesMissingDepSignature(output: string): boolean {
   return MISSING_DEP_SIGNATURES.some((re) => re.test(output));
 }
 
+// 运行时崩溃信号(检测 exec_shell 的 stdout+stderr/退出码,不针对任何具体题面写死)——真实撞见:
+// gpt2-codegolf 0801-hardgate 复测,headless"第一步必须用TodoWrite"硬拦截已生效(见
+// types.ts todoWriteRequired 字段),模型第一步确实建了计划,但计划全程只勾状态、内容一字
+// 未拆细,最终 gpt2.c 编译通过却运行时崩 malloc(): corrupted top size——崩溃这条新信息
+// 出现的那一刻,清单本该被更新(比如新增一项"排查内存越界"),但机制只管过"第一步",没管
+// "运行时冒出会改变计划的新信息时要不要回头改计划"这道缺口。这里补上:检测到崩溃特征后,
+// 复用同一个 todoWriteRequired 硬拦截 gate 重新武装(done=false),下一批工具调用如果不含
+// TodoWrite 会被 executeToolCalls 拒绝——不新增拦截逻辑,只是多一个"何时重新触发"的入口。
+const CRASH_SIGNATURES = [
+  /Segmentation fault/i,
+  /core dumped/i,
+  /\bSIG(SEGV|ABRT|ILL|FPE|BUS)\b/,
+  /malloc\(\):\s*(corrupted|invalid)/i,
+  /free\(\):\s*(invalid|double free)/i,
+  /double free or corruption/i,
+  /stack smashing detected/i,
+  /AddressSanitizer/,
+  /^Aborted(?:\s*\(core dumped\))?\s*$/m,
+];
+// 128+信号号:132=SIGILL,134=SIGABRT,135=SIGBUS,136=SIGFPE,139=SIGSEGV。不含137(SIGKILL)——
+// 常是外部超时/OOM killer/沙箱终止,不代表程序自身逻辑有 bug,不该触发"计划要不要改"的重估。
+const CRASH_EXIT_CODES = new Set([132, 134, 135, 136, 139]);
+
+function matchesCrashSignature(output: string, exitCode: number): boolean {
+  if (CRASH_EXIT_CODES.has(exitCode)) return true;
+  return CRASH_SIGNATURES.some((re) => re.test(output));
+}
+
 function runForeground(
   command: string,
   cwd: string,
@@ -422,6 +450,9 @@ export const execShellTool = defineTool({
     const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), ctx.signal, args.dangerouslyDisableSandbox, ctx.headless, ctx.foregroundRegistry);
     if (r.converted) return r.stdout; // Ctrl+B 转后台:干净返回,不走下面 exit code/运行时长的拼接
     if (ctx.missingDepStrikes && matchesMissingDepSignature(r.stdout + r.stderr)) ctx.missingDepStrikes.count += 1;
+    if (ctx.headless && ctx.todoWriteRequired && matchesCrashSignature(r.stdout + r.stderr, r.code)) {
+      ctx.todoWriteRequired.done = false; // 崩溃是会改变计划的新信息,重新武装"下一步先过TodoWrite"这道 gate
+    }
     const parts: string[] = [];
     if (dbBackupNotice) parts.push(dbBackupNotice);
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());

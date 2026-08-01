@@ -49,6 +49,21 @@ export interface ToolContext {
   // (而不是裸 number)是因为 ToolContext 按引用传递给同一 handler 的历次调用,裸 number
   // 无法跨调用累加。
   missingDepStrikes?: { count: number };
+  // headless 会话(ctx.headless)"第一步必须先用 TodoWrite 拆子步骤"的运行时硬拦截状态。
+  // 2026-07-31 的系统提示词文案版本(09d0725)只在开局提了这条要求,真实复测(gpt2-codegolf
+  // 0731-r3)确认:指令确实注入了,但模型全程 38 次工具调用 0 次 TodoWrite——文字层面的要求
+  // 说了不代表会照做,跟 missingDepStrikes 当初的落差同源。这里改成同一类"真拒绝,不是提醒"
+  // 机制:headless 会话第一批 tool_calls 里没有 TodoWrite 就整批拒绝执行,直到 TodoWrite
+  // 被调用过一次(done=true)才放行——只管"有没有迈出第一步",不追踪后续是否持续维护清单。
+  // 只在主会话注入(src/index.ts 构造根 ctx 时);子代理的 ToolContext 不设置这个字段,天然
+  // 不受影响(与 09d0725 的系统提示词文案覆盖面保持一致,子代理本来就不会拿到那段 headless
+  // 文案)。用对象包一层的原因同 missingDepStrikes:需要跨调用可变,裸 boolean 做不到。
+  // 2026-08-01 扩展:done=true 后不是永久放行——exec_shell.ts 检测到运行时崩溃信号(见
+  // matchesCrashSignature,segfault/SIGABRT/malloc corrupted 这类)会把它重新置回 false,
+  // 逼下一步先过一遍 TodoWrite 再继续。背景:对 187 个真实历史会话的普查显示,63% 的多次
+  // TodoWrite 调用只是原样重发勾状态,内容从不随执行过程中冒出的新信息演化——崩溃是最容易
+  // 判定、最该触发重新规划的具体信号之一,不是唯一场景,但是目前唯一已实现的重新武装入口。
+  todoWriteRequired?: { done: boolean };
   // 向用户提问(AskUserQuestion 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
   // 结构化选择(AskUserQuestion 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
