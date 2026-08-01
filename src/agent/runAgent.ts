@@ -229,11 +229,20 @@ export async function* runAgent(params: RunAgentParams): AsyncGenerator<ChatMess
     const parentMode = (gate as unknown as { getMode: () => PermissionMode }).getMode();
     // 解析子代理的 PermissionMode:
     // - plan -> "plan"
-    // - acceptEdits/default/auto/bypassPermissions -> 直接用
+    // - acceptEdits/default/auto/bypassPermissions -> 直接用,但父级已是 bypassPermissions(yolo)时例外(见下)
     // - normal/undefined -> 继承父级(父 acceptEdits 子也 acceptEdits)
+    //
+    // 例外(2026-08-01,真实撞见:torch-tensor-parallelism + video-processing 两次独立 terminal-bench
+    // trial):父级处于 bypassPermissions(headless --yolo --eval,没有真人可应答审批)时,子代理不能
+    // 被自己声明的 permissionMode 降级到一个需要人工"ask"应答的模式——VERIFY_AGENT/GENERAL_PURPOSE_AGENT
+    // 都硬编码 permissionMode:"acceptEdits"(只自动放行 Edit/Write,exec 仍落到 ask),导致 verify
+    // 子代理的 Bash 调用在 headless 场景下被系统性拒绝(execute.ts 的 ask 分支在无人应答时恒为拒绝),
+    // 派子代理做独立验证这条设计路径因此普遍失效。plan 不受此例外影响——它是有意的只读限制,
+    // 不是"依赖人工应答"这条链路的问题,该保留(EXPLORE_AGENT/PLAN_AGENT 的只读语义不该被 yolo 打破)。
     const agentPermMode: PermissionMode =
       rawPermMode === "plan" ? "plan"
       : rawPermMode === "normal" || rawPermMode === undefined ? parentMode
+      : parentMode === "bypassPermissions" ? "bypassPermissions"
       : rawPermMode;
     // getMessages 传子代理自己的转录(sub.messages),不是父级的--否则子代理跑 auto 模式时,
     // 分类器判定用的还是父级(甚至更上层)的对话,看不到子代理自己在做什么,"相关性"判断必然
