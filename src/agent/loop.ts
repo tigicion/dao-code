@@ -189,13 +189,12 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 真被接受的 provider 上仍是有意义的信号,不是因为它已被证实能挡住网关不校验的情况。
   const FORCED_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "Bash"]);
   // 空响应重试直接用的预算(2026-07-28 起不再先按会话默认重试一次,见下方 wasEmptyTruncation
-  // 分支的注释)。实测(347 个 trial 的 cache 记录)撞满上限的请求中位生成速率约 60.7 tok/s:
-  // 64000≈1054s、128000≈2109s。2026-07-30 基线预算(client.ts 的 DAO_MAX_OUTPUT_TOKENS 默认值)
-  // 从 32000 再上调到 64000 后,重试只保留一档 128000(不再分两档)——基线本身已经翻倍到
-  // 64000,不需要再叠一个中间档去垫"基线和重试档不能撞同一个数字"这件事,直接一步到位用
-  // 128000,仍空就收尾,不循环(同样的逻辑此前也验证过:两档设计里那个"中间档"从未真正
+  // 分支的注释)。2026-08-01 基线预算(client.ts 的 DAO_MAX_OUTPUT_TOKENS 默认值)从 64000
+  // 再上调到 128000 后,重试档同步翻倍到 256000,保持"重试档相对基线留出翻倍余量"这个比例
+  // 不塌缩——如果重试档和基线撞同一个数字,空响应重试就等于原地重发同样的预算,没有实际
+  // 意义。仍保持只有一档、不循环(同样的逻辑此前也验证过:两档设计里那个"中间档"从未真正
   // 兑现过价值,见下方 wasEmptyTruncation 分支注释)。
-  const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 128000;
+  const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 256000;
   let noProgress = 0;
   let nextAdviceAt = ADVISE_GAPS[0]!;
   // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
@@ -527,8 +526,8 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         // 7668/4329 token——远低于基线上限,不是"给多少用多少"。这说明"先按兵不动
         // 试一次默认预算"这个中间档从未兑现过(理论依据是"low档可能自然收敛在更短",但两次
         // 真实观测里都没发生),而"给更大空间"也没有让模型输出更啰嗦——直接铺开预算反而收敛
-        // 更快。故只保留一次重试,直接用 ESCALATED_MAX_TOKENS,不再分两档;2026-07-30 基线
-        // 预算本身再翻倍到 64000 后,重试档(128000)也只此一档,不再叠加第二档——基线已经
+        // 更快。故只保留一次重试,直接用 ESCALATED_MAX_TOKENS,不再分两档;2026-08-01 基线
+        // 预算本身再翻倍到 128000 后,重试档(256000)也只此一档,不再叠加第二档——基线已经
         // 够大,不需要"重试档=2×基线"之外再留一层"重试档的重试档"。
         if (wasEmptyTruncation) {
           const forced = tools.filter((tl) => FORCED_TOOLS.has(tl.function.name));

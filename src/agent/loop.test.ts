@@ -183,7 +183,7 @@ describe("runTurn", () => {
     expect(effortSeen[0]).toBe("max"); // 首次请求:默认档位,不受影响
     expect(effortSeen[1]).toBe("low"); // onEmptyTruncation 触发后的重试:物理压低
     expect(maxTokensSeen[0]).toBeUndefined(); // 首次请求:不设覆盖,走会话默认上限
-    expect(maxTokensSeen[1]).toBe(128000); // 重试:直接用加大后的预算,不再先按默认重试一次
+    expect(maxTokensSeen[1]).toBe(256000); // 重试:直接用加大后的预算,不再先按默认重试一次
   });
 
   it("预算耗尽重试:API 层强制工具调用(tool_choice=required),候选工具收敛为能产出/执行的那几个", async () => {
@@ -239,10 +239,10 @@ describe("runTurn", () => {
     expect(toolsSeen[2]).toContain("Skill"); // 也恢复完整工具集
   });
 
-  it("预算耗尽重试:直接用加大预算(128000)重试一次,成功则收尾(不再分两档)", async () => {
+  it("预算耗尽重试:直接用加大预算(256000)重试一次,成功则收尾(不再分两档)", async () => {
     // 2026-07-28 真实复测推翻了"先按默认预算重试、仍空再加大"的两档设计——重试直接用
-    // 加大后的预算。2026-07-30 基线预算本身翻倍到 64000 后,重试档也只保留一档 128000,
-    // 不再像此前(64000→128000)那样叠两层。
+    // 加大后的预算。2026-08-01 基线预算翻倍到 128000 后,重试档同步翻倍到 256000,
+    // 保持一档、不叠两层的设计不变。
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -268,10 +268,10 @@ describe("runTurn", () => {
     });
     expect(call).toBe(2); // 自然请求 + 唯一一次重试就成功
     expect(maxTokensSeen[0]).toBeUndefined(); // 自然请求:会话默认预算
-    expect(maxTokensSeen[1]).toBe(128000); // 重试:直接用加大预算
+    expect(maxTokensSeen[1]).toBe(256000); // 重试:直接用加大预算
   });
 
-  it("预算耗尽重试:128000 仍为空 → 结束本轮,不再有第二次机会(不循环)", async () => {
+  it("预算耗尽重试:256000 仍为空 → 结束本轮,不再有第二次机会(不循环)", async () => {
     const s = new Session("SYS", "deepseek-v4-pro");
     s.addUser("hi");
     let call = 0;
@@ -290,8 +290,8 @@ describe("runTurn", () => {
       executeToolCalls: async () => [],
       write: () => {},
     });
-    expect(call).toBe(2); // 自然请求 + 128000 重试,到此为止,不循环翻第二次
-    expect(maxTokensSeen[1]).toBe(128000);
+    expect(call).toBe(2); // 自然请求 + 256000 重试,到此为止,不循环翻第二次
+    expect(maxTokensSeen[1]).toBe(256000);
   });
 
   it("服务端不接受 tool_choice → 回退一次普通重试,不让整轮崩掉(火山方舟上是每次都会走到的主路径,非罕见兜底)", async () => {
