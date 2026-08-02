@@ -1018,6 +1018,50 @@ describe("runTurn", () => {
     expect(written.join("")).not.toContain("进度提醒");
   });
 
+  it("还有后台子代理在跑时,连续用 BashOutput/TaskOutput 做 checkpoint 式轮询不算卡住(regex-chess 真实撞见:合规轮询被连续29次误判'卡住')", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const pollTurn = (name: string) => () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "p", type: "function", function: { name, arguments: "{}" } }] })();
+    const turns = [
+      pollTurn("BashOutput"), pollTurn("TaskOutput"), pollTurn("TaskGet"), pollTurn("BashOutput"), pollTurn("BashOutput"),
+      () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
+    ];
+    let i = 0;
+    const written: string[] = [];
+    const ctxWithRunningTask = { ...ctx, taskManager: { running: () => [{ id: "t1" }] } as any };
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx: ctxWithRunningTask, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "p", content: "仍在运行" }],
+      write: (t) => written.push(t),
+      maxTurns: 10,
+      progressAdvice: true,
+    });
+    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("进度提醒"))).toBe(false);
+    expect(written.join("")).not.toContain("进度提醒");
+  });
+
+  it("轮询但后台其实什么都没在跑 → 仍然算卡住(不能靠反复调用 BashOutput/TaskOutput 刷新计数器绕过反空转检测)", async () => {
+    const s = new Session("SYS", "m");
+    s.addUser("go");
+    const pollTurn = () => turn([], { role: "assistant", content: null, tool_calls: [{ id: "p", type: "function", function: { name: "BashOutput", arguments: "{}" } }] })();
+    const turns = [
+      pollTurn, pollTurn, pollTurn, pollTurn, pollTurn,
+      () => turn([{ kind: "content", text: "done" }], { role: "assistant", content: "done" })(),
+    ];
+    let i = 0;
+    const ctxNoRunningTask = { ...ctx, taskManager: { running: () => [] } as any };
+    await runTurn({
+      session: s, config, registry: emptyReg(), ctx: ctxNoRunningTask, gate: stubGate,
+      streamChat: (() => turns[i++]!()) as any,
+      executeToolCalls: async () => [{ role: "tool", tool_call_id: "p", content: "无此进程" }],
+      write: () => {},
+      maxTurns: 10,
+      progressAdvice: true,
+    });
+    expect(s.messages.some((m) => m.role === "system" && String(m.content).includes("进度提醒"))).toBe(true);
+  });
+
   it("轮数提醒(接近 maxTurns)触发时同步 events.notice", async () => {
     // 同一处代码块里的另一条 advisory,同一个盲区——一并补上可见提示。
     const s = new Session("SYS", "m");

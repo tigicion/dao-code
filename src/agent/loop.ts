@@ -178,6 +178,14 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // (真实 trace 里模型面对"该动手了"的压力时也调用过 Skill(make-plan) 这类元工具,
   // 但那发生在撞上限、触发强制重试之前,不是对强制约束本身的观测规避)。
   const PROGRESS_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "Bash"]);
+  // 轮询类工具(查后台进度,本身不产出/不改动任何东西)默认不算"推进"——防的是模型靠反复
+  // 调用这类空转工具把"卡住"计数器刷零(同 TodoWrite 那个漏洞同源)。但如果此刻真的还有
+  // 后台进程/子代理在跑,且这一轮【只】调用了轮询类工具,这就是系统提示词教的正确动作
+  // (做完别的事后回来 BashOutput/TaskOutput 做 checkpoint 式检查),不该被判成"卡住"——
+  // 真实撞见:regex-chess 起了后台自对弈验证脚本后连续 29 次被"进度提醒"催,期间全部是
+  // 合规的 checkpoint 轮询,3600 秒预算被这套"轮询不算进度"和"没有阻塞等待原语"的组合
+  // 实打实吃掉一大块,最终撞上硬超时。
+  const POLL_TOOLS = new Set(["BashOutput", "TaskOutput", "TaskGet"]);
   // 预算耗尽后那一次强制重试里,允许模型选的工具。此刻的状态按定义就是"整个输出预算烧在推理上
   // 却没动手",缺的不是信息是动作;Bash 在功能上已经涵盖读文件/搜索(cat/grep/ls),所以排除
   // Read/Grep/Glob 并不剥夺查看能力,只是要求这个动作走一条同时也能产出东西的通道。
@@ -663,7 +671,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
     // L4.2/L4.3 进度评估:本轮有无"实质推进"(写文件/改文件/推进任务清单)。
     // 连续空转或临近上限 → 下一轮注入一次性 advisor 提醒,促其回看目标/收尾/求助,防长程漂移与空耗。
-    const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name));
+    // 合规的后台 checkpoint 轮询(这一轮全是 POLL_TOOLS,且确实还有后台工作在跑)同样算推进,
+    // 不细分是子代理还是 shell 后台——两者都走这同一套"等通知"叙事,模型没必要也不该区分。
+    const runningBackground = (processManager.runningCount() > 0) || ((deps.ctx.taskManager?.running().length ?? 0) > 0);
+    const isCheckpointPolling = toolCalls.length > 0 && toolCalls.every((tc) => POLL_TOOLS.has(tc.function.name)) && runningBackground;
+    const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name)) || isCheckpointPolling;
     if (progressed) { noProgress = 0; stuckAdviceCount = 0; nextAdviceAt = ADVISE_GAPS[0]!; } else { noProgress++; }
     // 提醒【追加】进对话(append-only,缓存安全),而非每轮拼到请求尾部又撤(那会反复废缓存)。
     const advisories: string[] = [];

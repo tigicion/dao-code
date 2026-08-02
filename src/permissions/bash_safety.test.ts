@@ -32,6 +32,18 @@ describe("isDangerousCommand", () => {
     expect(isDangerousCommand("> ~/.bashrc")).toBeTruthy();
   });
 
+  it("truncate 目标是 /tmp、/var/tmp 这类一次性草稿区不算危险(真实评测撞见:reshard-c4-data 截断自己刚创建的临时文件模拟损坏场景做防御性测试,被误伤)", () => {
+    expect(isDangerousCommand("truncate -s 100 /tmp/corr/part-000000")).toBeNull();
+    expect(isDangerousCommand("truncate -s 0 /tmp/scratch.bin")).toBeNull();
+    expect(isDangerousCommand("truncate -s 0 /var/tmp/scratch.bin")).toBeNull();
+    // 真正的系统/家目录目标依然要拦,不能因为加了 /tmp 排除就连带放过
+    expect(isDangerousCommand("truncate -s 0 /etc/passwd")).toBeTruthy();
+    expect(isDangerousCommand("truncate -s 0 ~/.bashrc")).toBeTruthy();
+    expect(isDangerousCommand("truncate -s 0 /var/log/syslog")).toBeTruthy(); // /var 非 /var/tmp,仍拦
+    // shred 不给 /tmp 豁免——它的存在意义就是不可恢复擦除,和 truncate 模拟损坏的合法用途不同
+    expect(isDangerousCommand("shred -u /tmp/secret.key")).toBeTruthy();
+  });
+
   it("flags chmod 000 / chgrp -R to root", () => {
     expect(isDangerousCommand("chmod 000 /usr/bin/ls")).toBeTruthy();
     expect(isDangerousCommand("chgrp -R staff /")).toBeTruthy();
@@ -115,6 +127,23 @@ describe("isDangerousCommand", () => {
     expect(isDangerousCommand("killall node")).toBeTruthy();
   });
 
+  it("重定向到 /dev/null 不算'覆盖系统/家目录文件'(真实评测撞见:cobol-modernization/dna-assembly/dna-insert/overfull-hbox 四道题独立命中)", () => {
+    // 裸 >/dev/null、bash_safety.test.ts:168 之前记录过它命中这条规则,是双保险生效的
+    // 已知缺口——现在两处判断共用同一份剥离逻辑,不应该再触发。
+    expect(isDangerousCommand("ls x >/dev/null")).toBeNull();
+    expect(isDangerousCommand("pdflatex file.tex >/dev/null 2>&1")).toBeNull();
+    expect(isDangerousCommand("command -v python3 >/dev/null 2>&1 && echo ok")).toBeNull();
+    expect(isDangerousCommand("cat missing.txt 2>/dev/null")).toBeNull();
+    expect(isDangerousCommand("ls x &>/dev/null")).toBeNull();
+    expect(isDangerousCommand("ls x >>/dev/null")).toBeNull();
+    // 真正写到 /etc /dev(非 null)/var 等系统目录的重定向仍然要拦,不能因为加了 /dev/null
+    // 排除就连带放过其它 /dev 家族路径。
+    expect(isDangerousCommand("echo x > /dev/sda")).toBeTruthy();
+    expect(isDangerousCommand(":> /etc/hosts")).toBeTruthy();
+    expect(isDangerousCommand("echo x > /var/spool/cron/root")).toBeTruthy();
+    expect(isDangerousCommand("> ~/.bashrc")).toBeTruthy();
+  });
+
   it("同一类文件名假阳性:chmod/chown/chgrp/truncate/find/git/kill/pkill 有复合条件部分兜底,但机制相同,一起修了不留隐患", () => {
     // 这几个平时需要额外的 flag/路径才会误触发,风险比上面那组低,但漏洞成因一样,
     // 一致性修完(不只挑高风险的修,遗留同构漏洞会在意料之外的组合下复发)。
@@ -163,9 +192,9 @@ describe("isReadOnlyShellCommand", () => {
     expect(isReadOnlyShellCommand("cat missing.txt 2>/dev/null")).toBe(true);
     expect(isReadOnlyShellCommand("ls x &>/dev/null")).toBe(true);
     expect(isReadOnlyShellCommand("cat a.txt 2>/tmp/err.log")).toBe(false); // 真实文件,不是 /dev/null
-    // 裸 >/dev/null(没有 fd 数字前缀)撞上 isDangerousCommand 里"重定向到 /dev 家族路径"的更保守规则,
-    // 双保险生效,继续拒绝——这是既有行为,不在本次修复范围内。
-    expect(isReadOnlyShellCommand("ls x >/dev/null")).toBe(false);
+    // 裸 >/dev/null(没有 fd 数字前缀)之前会撞上 isDangerousCommand 里"重定向到 /dev 家族路径"
+    // 的更保守规则、被双保险挡住——已修:该规则现在也会先摘掉 /dev/null 类重定向再判。
+    expect(isReadOnlyShellCommand("ls x >/dev/null")).toBe(true);
   });
   it("普通单条只读命令照常放行", () => {
     expect(isReadOnlyShellCommand("ls -la")).toBe(true);
