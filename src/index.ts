@@ -114,7 +114,7 @@ import { createToolAuditSink, type ToolAuditSink, summarizeToolTrace, formatTool
 import { createPermAuditSink, type PermAuditSink, summarizePermTrace, formatPermReport } from "./permissions/perm_audit.js";
 import { createSkillAuditSink, type SkillAuditSink, readAllSkillTraces, summarizeSkillTrace, formatSkillReport } from "./skills/skill_audit.js";
 import { createCheckpointer } from "./session/checkpoint.js";
-import { runRepl } from "./repl.js";
+import { runRepl, drainAndContinue } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
 import { runBuiltinCommand } from "./commands/builtin.js";
 import { buildWelcome } from "./tui/banner.js";
@@ -1134,6 +1134,16 @@ async function main() {
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
   ctx.taskManager = taskManager; // TaskCreate/get/list/update/stop 用;同一个实例,不是第二套系统
+  // 后台子代理/后台 shell 状态变化的事件驱动等待(供 drainAndContinue 用,见 repl.ts 里
+  // waitForBackgroundChange 的注释)。onChange 是单槽位回调,这里只在非 TTY 的一次性/管道
+  // 路径用——TTY 交互态走另一套 subscribeTasks 逻辑(见下方 register 分支),两者互斥,
+  // 同一次进程运行只会用到其中一个,不会互相覆盖。
+  const waitForBackgroundChange = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const onChange = () => resolve();
+      taskManager.onChange(onChange);
+      processManager.onChange(onChange);
+    });
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
   // handoff 审查只在 auto 模式触发;用 getter 每次读最新值,/mode 或长任务切换 mode 时自动同步
   Object.defineProperty(ctx, 'permissionMode', { get: () => getMode(), enumerable: true });
@@ -1530,9 +1540,22 @@ async function main() {
       // 交互式命令(如 7z 不带 -p、mysql 不带密码、ssh 需要密码)会卡住等待输入,永远不会返回。
       session.messages.push({ role: "system", content: "[headless 提醒] 当前为无人值守模式,不会有用户在终端输入。所有命令必须是非交互式的——用参数或管道传入所需输入(如 7z -p<密码>、echo <密码> | 7z x),不要让命令等待 stdin。交互式命令会永久卡住。" });
       if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
-      await runOneTurn(() =>
-        store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } }),
-      );
+      const argvCheckpoint = () =>
+        store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } });
+      await runOneTurn(argvCheckpoint);
+      // 一次性/eval 路径没有下一次真实用户输入来触发新回合——模型若以"结束本轮等后台通知"
+      // 收尾(工具描述/系统提示词教它这么做),不主动等就会直接往下走到 SessionEnd 退出整个
+      // 进程,后台进程虽然 detached 独立于 DAO 存活但已没人收它的结果,那句"自动通知"的
+      // 承诺永远兑现不了(真实撞见:terminal-bench flash 赛道 5 道题都是这个模式)。用和
+      // runRepl 同一套 drainAndContinue 排空/等待,直到确实没有后台工作在跑了才继续退出。
+      await drainAndContinue({
+        session,
+        write,
+        runTurn: () => runOneTurn(argvCheckpoint),
+        drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()],
+        runningBackgroundCount: () => taskManager.running().length + processManager.runningCount(),
+        waitForBackgroundChange,
+      });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(CC 对等:一次性运行也触发)
       await cleanupDbBackups(workspaceRoot); // 清理本次运行留下的 .dao-backup 安全网文件
       store.saveState({
@@ -2306,7 +2329,7 @@ async function main() {
       const persistRepl = () =>
         store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } });
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], getProvider: () => cfg.provider });
+      await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], runningBackgroundCount: () => taskManager.running().length + processManager.runningCount(), waitForBackgroundChange, getProvider: () => cfg.provider });
       persistRepl(); // 干净退出前再存一次(覆盖最后一轮是"纯文本收尾早退"、没触发过 onCheckpoint 的情形)
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await cleanupDbBackups(workspaceRoot); // 清理本次运行留下的 .dao-backup 安全网文件
