@@ -77,14 +77,14 @@ export const monitorTool = defineTool({
         };
 
         const onAbort = () => {
-          try { processManager.kill(procId); } catch { /* 进程可能已经退出 */ }
+          try { processManager.kill(procId).catch(() => {}); } catch { /* 进程可能已经退出 */ }
           finish(`监控已被取消:${args.description}`);
         };
         signal.addEventListener("abort", onAbort, { once: true });
 
         const timeoutTimer = timeoutMs !== undefined
           ? setTimeout(() => {
-            try { processManager.kill(procId); } catch { /* 进程可能已经退出 */ }
+            try { processManager.kill(procId).catch(() => {}); } catch { /* 进程可能已经退出 */ }
             finish(`监控超时(${timeoutMs}ms)已自动终止:${args.description}`);
           }, timeoutMs)
           : undefined;

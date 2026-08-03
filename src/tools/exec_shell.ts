@@ -12,6 +12,7 @@ import { hasSuspiciousUnicode } from "../permissions/sanitize.js";
 import { scrubbedEnv } from "./safe_env.js";
 import { sandboxSpawn } from "./sandbox.js";
 import { walkFiles } from "./walk.js";
+import { PKG_MGR_TIMEOUT_RE } from "./pkg_mgr_pattern.js";
 import type { ForegroundRegistry } from "../tui/foreground_registry.js";
 
 interface ForegroundResult {
@@ -26,9 +27,6 @@ interface ForegroundResult {
 }
 
 const OUT_CAP = 10 * 1024 * 1024; // 内存中累积输出上限,超出截断(防 OOM)
-// 包管理器命令的粗粒度识别:命令名前后是空白/分隔符/行首,不匹配文件名里带这几个词的情况
-// (跟 permissions/bash_safety.ts 里 cmdRe() 的边界判断同一个思路,避免 \b 的同形字/文件名假阳性)。
-const PKG_MGR_TIMEOUT_RE = /(?:^|[\s;&|])(apt-get|apt|dpkg|aptitude)(?=\s|$|;|&|\|)/;
 // python3 -c/python -c 内联脚本识别:一次性文本/日志分析动不动就现写 python 脚本,是观测到的
 // 真实反模式(session 20260719-194639-mal7 里翻 evolution-log.md 找从未通过的题目,连续 20 次
 // Bash 拼 grep/sed;分析自己的 session 日志又连续 10 次 python3 -c——而且事后核对,那 10 次里

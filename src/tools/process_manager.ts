@@ -1,8 +1,38 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, exec, type ChildProcess } from "node:child_process";
 import { openSync, closeSync, readSync, statSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
 import { scrubbedEnv } from "./safe_env.js";
 import { sandboxSpawn } from "./sandbox.js";
+import { PKG_MGR_TIMEOUT_RE } from "./pkg_mgr_pattern.js";
+
+const execAsync = promisify(exec);
+
+// 包管理器命令(apt-get/apt/dpkg/aptitude)被后台 KillShell 打断,和 exec_shell.ts 里前台
+// abort 打断是同一个根因:dpkg 事务被留在半途(interrupted 态),不自动恢复的话这个损坏会
+// 悄悄传染到本次会话之后所有包管理操作,甚至连累到 verifier 自己要装的东西(真实撞见:
+// pytorch-model-cli,模型后台起了两次 apt-get install gcc、KillShell 杀掉其中一个,dpkg
+// 锁没释放,验收阶段自己装 curl/uv 全部失败)。exec_shell.ts 的前台 abort 分支已经有这段
+// 恢复逻辑,但 KillShell 走的是完全独立的代码路径,原来没覆盖到。
+async function attemptDpkgRecovery(): Promise<{ ok: boolean; stderr: string }> {
+  const tryOnce = async (): Promise<{ ok: boolean; stderr: string }> => {
+    try {
+      await execAsync("dpkg --configure -a");
+      return { ok: true, stderr: "" };
+    } catch (e) {
+      const stderr = e && typeof e === "object" && "stderr" in e ? String((e as { stderr: unknown }).stderr) : String(e);
+      return { ok: false, stderr };
+    }
+  };
+  let result = await tryOnce();
+  if (!result.ok) {
+    // 刚被杀掉的包管理器进程可能还没来得及释放 dpkg 锁,恢复命令撞了个空;
+    // 等一小段时间再试一次,dpkg --configure -a 本身幂等安全,重试不会有副作用。
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    result = await tryOnce();
+  }
+  return result;
+}
 
 // 杀整个进程组(detached 下 child 是组长,-pid 杀它及其 shell 派生的所有孙进程,避免孤儿)。
 function killTree(child: ChildProcess, sig: NodeJS.Signals): void {
@@ -187,10 +217,20 @@ class ProcessManager {
     };
   }
 
-  kill(id: string): void {
+  // 返回值:非包管理器命令时 resolve undefined;包管理器命令时 resolve 一段恢复结果说明
+  // (成功/失败都有文案,供 KillShell 工具的返回值里附带告知模型)。未知 id 仍然是同步抛错——
+  // 不是 async function,throw 发生在返回 Promise 之前,调用方 expect(() => kill(...)).toThrow()
+  // 这类同步断言不受影响。
+  kill(id: string): Promise<string | undefined> {
     const p = this.procs.get(id);
     if (!p) throw new Error(`未知后台进程:${id}`);
     killTree(p.child, "SIGTERM");
+    if (!PKG_MGR_TIMEOUT_RE.test(p.command)) return Promise.resolve(undefined);
+    return attemptDpkgRecovery().then((fix) =>
+      fix.ok
+        ? "[自动恢复] 检测到后台包管理器命令被终止,已跑 `dpkg --configure -a` 修复 dpkg 状态,可以重试。"
+        : `[自动恢复失败] 检测到后台包管理器命令被终止,尝试 \`dpkg --configure -a\` 修复但仍失败(已重试1次)——继续前建议手动确认 dpkg 状态。${fix.stderr.trim() ? `\n[恢复命令输出]\n${fix.stderr.trim()}` : ""}`,
+    );
   }
 
   runningCount(): number {
