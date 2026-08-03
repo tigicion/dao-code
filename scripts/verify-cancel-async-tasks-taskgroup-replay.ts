@@ -111,6 +111,18 @@ function patchC(messages: ChatMessage[]): ChatMessage[] {
   return [{ ...sys, content: sys.content.replace(ANCHOR_C, ANCHOR_C + BULLET_C) }, ...messages.slice(1)];
 }
 
+// 轮3:用户指出候选A的措辞缺陷——"if you just told yourself X is better"是【事后反悔】型,
+// 前提是模型已经自己想到了更优方案;真实重放里大多数样本压根没让 TaskGroup 进入候选集,
+// 这种反悔条款自然不会触发。候选D改成【事前主动检查】型,放进 Engineering Restraint(比
+// 手写实现更早的决策点),不依赖模型是否碰巧想到。
+const ANCHOR_D = "- Don't add unrequested features, don't casually refactor, don't do \"while I'm here\" improvements. Fixing a bug doesn't need cleaning surrounding code; a simple feature doesn't need extra configurability.\n";
+const BULLET_D = "- Before implementing a non-trivial piece of behavior yourself — concurrency/cancellation, retry/backoff, caching, connection pooling, parsing a well-known format, and similar well-trodden patterns — actively check whether the standard library or an already-available tool already provides it, rather than defaulting straight to a hand-rolled version. This check has to be a deliberate step you take, not something you rely on occurring to you mid-implementation: by the time you're already writing your own version, you're unlikely to stop and reconsider.\n";
+function patchD(messages: ChatMessage[]): ChatMessage[] {
+  const sys = messages[0]!;
+  if (!sys.content.includes(ANCHOR_D)) throw new Error("候选D锚点没找到");
+  return [{ ...sys, content: sys.content.replace(ANCHOR_D, ANCHOR_D + BULLET_D) }, ...messages.slice(1)];
+}
+
 const n = Number(process.env.VERIFY_N) || 8;
-const candC = await runVariant("④候选C(点名TaskGroup适用场景)", patchC(baseMessages), n);
-console.log(`\n=== 汇总(轮2) ===\n④候选C: ${candC}/${n}`);
+const candD = await runVariant("⑤候选D(事前主动检查stdlib,放Engineering Restraint)", patchD(baseMessages), n);
+console.log(`\n=== 汇总(轮3) ===\n⑤候选D: ${candD}/${n}`);
