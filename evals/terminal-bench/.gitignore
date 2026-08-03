@@ -15,3 +15,11 @@ timeline.json
 timeline.md
 IMPROVEMENTS.md
 QUANT_SUMMARY.md
+jobs-flash-default/
+results-flash-default.json
+results-flash-default.html
+evolution-log-flash.md
+jobs-pro-default/
+results-pro-default.json
+results-pro-default.html
+evolution-log-pro-default.md
