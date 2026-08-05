@@ -16,8 +16,21 @@ import { apiToolsForMode } from "../tools/tools_for_mode.js";
 import { consumeStream, plainEvents, type TurnEvents } from "../tui/render.js";
 import { isContextLengthError, isRateLimitError } from "../client/client.js";
 import { looksFailed } from "../tools/execute.js";
+import { processManager } from "../tools/process_manager.js";
 import { assessTurn, initHealth, errSignature, defaultHealthConfig } from "./turn_health.js";
 import { SELF_CHALLENGE_NUDGE } from "./reflect_prompts.js";
+
+// L1.3(2026-07-29 改版):主模型持续过载/超时/网络异常,原地重试一次仍失败 → 不再抛裸
+// 异常崩会话,而是在 runTurn 顶层捕获这个哨兵类型、走优雅收尾(保留 session/todo 上下文、
+// 取消后台任务,交互场景停下汇报进展,headless 场景正常结束)。不用普通 Error 是因为普通
+// Error 会被 runAgent.ts 的兜底链/子代理错误处理当成"任务失败"处理,这里要的是"体面地
+// 停在这里",两者需要能被上层明确区分。
+class ModelUnavailableStop extends Error {
+  constructor(public readonly originalMessage: string) {
+    super(`模型请求持续失败(疑似过载/超时/网络问题),重试一次仍未恢复:${originalMessage}`);
+    this.name = "ModelUnavailableStop";
+  }
+}
 
 // 廉价稳定哈希(djb2):只用于"是否变化"的缓存归因指纹,不求抗碰撞。
 function cheapHash(s: string): string {
@@ -96,8 +109,6 @@ export interface TurnDeps {
   compact?: () => Promise<void>;
   // §4 轮内主动压缩:每个工具轮前若返回 true 则先 compact()——防长回合中途撞上限(粒度到工具轮)。
   shouldCompact?: () => boolean;
-  // L1.3 模型回退:主模型持续过载/异常时,本回合临时改用此模型跑完(如 flash)。省略=不回退。
-  fallbackModel?: string;
   // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒):默认关闭,--progress-advice 才开。
   // 和 reflect/selfChallenge(挑战者/纠偏者,LLM fork)是完全独立的机制,不依赖它们。
   progressAdvice?: boolean;
@@ -137,21 +148,61 @@ export interface TurnDeps {
 export async function runTurn(deps: TurnDeps): Promise<void> {
   const { session, signal } = deps;
   const events = deps.events ?? plainEvents(deps.write);
-  // 工具 ctx 透传取消信号(Bash 据此 SIGTERM);不改原 ctx 引用,按需补 signal + 当前模型名。
-  const toolCtx = { ...deps.ctx, sessionModel: session.model, ...(signal ? { signal } : {}) };
+  // 工具 ctx:直接在调用方长期持有的 deps.ctx 上原地补 signal + 当前模型名,不再 spread 出一份
+  // 临时副本。之前的 spread 曾导致工具用赋值方式写状态(如 EnterWorktree/ExitWorktree 的
+  // ctx.cwd=/ctx.activeWorktree=)只改到这份一次性副本上,回合结束就跟着丢弃——用户发下一条
+  // 消息、index.ts 再次调用 runTurn 时又会从没被污染过的原始 ctx 重新开始,worktree 状态悄悄
+  // 消失。signal 每回合都要按当前值覆盖(没有就删掉),否则上一回合的旧 signal(已经不会再被
+  // abort,但语义上已经过期)会残留到下一回合,被 Bash/fetch 等工具误当成"这一回合也可能被取消"。
+  const toolCtx = deps.ctx;
+  toolCtx.sessionModel = session.model;
+  if (signal) toolCtx.signal = signal;
+  else delete toolCtx.signal;
   // 边界保护参考:纯量化——主会话不限轮数(undefined→Infinity,靠 token 预算触发 compact),
   // 子代理传 200。DAO_MAX_TURNS 仍作硬上限覆盖(eval/自动化用)。无质化卡死检测。
   const maxTurns = deps.maxTurns ?? (Number(process.env.DAO_MAX_TURNS) || Infinity);
   // L4.2/L4.3 进度追踪 + advisor 提醒:长任务空转/临近上限时,把提醒【追加】进 session.messages(append-only)。
-  // 三档提醒的等待间隔:第1次卡住等5轮,第2次再等4轮,第3次起每次再等3轮——同一次卡住反复
+  // 三档提醒的等待间隔:第1次卡住等4轮,第2次再等3轮,第3次起每次再等2轮——同一次卡住反复
   // 提醒过还没缓解,说明情况比first look更糟,催的间隔应该收紧,不该一直按固定节奏干等。
   // DAO_ADVISE_GAPS 可覆盖(逗号分隔,如 "2,2,2"),测试/调参用;不设则用默认档位。
   const ADVISE_GAPS = (() => {
     const raw = process.env.DAO_ADVISE_GAPS;
     const parsed = raw ? raw.split(",").map(Number).filter((n) => Number.isFinite(n) && n > 0) : [];
-    return parsed.length ? parsed : [5, 4, 3];
+    return parsed.length ? parsed : [4, 3, 2];
   })();
-  const PROGRESS_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "TodoWrite"]);
+  // 判据要回答的是"这一轮有没有真的动工程",不是"工具名在不在白名单里"。两处修正(2026-07-27):
+  // 加 Bash——模型大量用 `cat > file <<EOF` 走 shell 落盘,真实 trace 里 43 次调用被判成 0 次
+  // 推进,而交付物其实写了两次、外加 6 个脚本;况且提醒文案要求的就是"写脚本算出来、跑命令查",
+  // 不把跑命令计入等于和自己的措辞打架。去 TodoWrite——纯记账的元动作什么也不产出,却能把
+  // "卡住"计数器清零——用一个不产出任何东西的元动作满足判据,是同一类漏洞的另一面
+  // (真实 trace 里模型面对"该动手了"的压力时也调用过 Skill(make-plan) 这类元工具,
+  // 但那发生在撞上限、触发强制重试之前,不是对强制约束本身的观测规避)。
+  const PROGRESS_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "Bash"]);
+  // 轮询类工具(查后台进度,本身不产出/不改动任何东西)默认不算"推进"——防的是模型靠反复
+  // 调用这类空转工具把"卡住"计数器刷零(同 TodoWrite 那个漏洞同源)。但如果此刻真的还有
+  // 后台进程/子代理在跑,且这一轮【只】调用了轮询类工具,这就是系统提示词教的正确动作
+  // (做完别的事后回来 BashOutput/TaskOutput 做 checkpoint 式检查),不该被判成"卡住"——
+  // 真实撞见:regex-chess 起了后台自对弈验证脚本后连续 29 次被"进度提醒"催,期间全部是
+  // 合规的 checkpoint 轮询,3600 秒预算被这套"轮询不算进度"和"没有阻塞等待原语"的组合
+  // 实打实吃掉一大块,最终撞上硬超时。
+  const POLL_TOOLS = new Set(["BashOutput", "TaskOutput", "TaskGet"]);
+  // 预算耗尽后那一次强制重试里,允许模型选的工具。此刻的状态按定义就是"整个输出预算烧在推理上
+  // 却没动手",缺的不是信息是动作;Bash 在功能上已经涵盖读文件/搜索(cat/grep/ls),所以排除
+  // Read/Grep/Glob 并不剥夺查看能力,只是要求这个动作走一条同时也能产出东西的通道。
+  // 局限(2026-07-27 真实重放确认,见下方 requestAssistant extra 里的说明):这道收窄在网关
+  // 不校验 tool_calls 是否落在本次请求 tools 数组内时不是硬墙——补测过"不强制但收窄"这一档,
+  // 5 个样本里 3 个模型仍吐出了不在这份名单里的 TodoWrite,根源是系统提示词的叙事文本
+  // (messages[0],不随某一次请求的 tools 数组收窄)明确写着"多步任务转成 TodoWrite 清单",
+  // 模型凭这段记忆调用,火山网关未拦截。当前留着这道收窄是因为它零成本、且在 tool_choice
+  // 真被接受的 provider 上仍是有意义的信号,不是因为它已被证实能挡住网关不校验的情况。
+  const FORCED_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "Bash"]);
+  // 空响应重试直接用的预算(2026-07-28 起不再先按会话默认重试一次,见下方 wasEmptyTruncation
+  // 分支的注释)。2026-08-01 基线预算(client.ts 的 DAO_MAX_OUTPUT_TOKENS 默认值)从 64000
+  // 再上调到 128000 后,重试档同步翻倍到 256000,保持"重试档相对基线留出翻倍余量"这个比例
+  // 不塌缩——如果重试档和基线撞同一个数字,空响应重试就等于原地重发同样的预算,没有实际
+  // 意义。仍保持只有一档、不循环(同样的逻辑此前也验证过:两档设计里那个"中间档"从未真正
+  // 兑现过价值,见下方 wasEmptyTruncation 分支注释)。
+  const ESCALATED_MAX_TOKENS = Number(process.env.DAO_EMPTY_RETRY_MAX_TOKENS) || 256000;
   let noProgress = 0;
   let nextAdviceAt = ADVISE_GAPS[0]!;
   // 同一次"卡住"期间已经提过几次醒(progressed 一旦为真就跟 noProgress 一起清零)。
@@ -169,16 +220,20 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
   // 不代表核心问题真的被解决了)。这个计数器不看"当前这次卡住连续了几次",看"这整个会话
   // 里已经卡住又被复位过几次",复位掩盖不了这个累计数字。
   let totalStuckEvents = 0;
+  // todo_write enforcement 历史(2026-07-28~07-31):曾是一条运行时阈值机制(8次工具调用或
+  // 5轮未调用TodoWrite就追加提醒),对交互式/headless一视同仁。2026-07-31改为按模式分流:
+  // 交互式完全不强制(信任模型自己判断要不要拆解);headless(无人盯着,没有中途纠偏的机会)
+  // 在系统提示词里从会话开始就直接要求先建计划,不再等到跑了几轮/几次工具调用才追加提醒——
+  // 见 system_prompt.ts 的 buildSessionGuidanceSection。阈值触发的运行时提醒机制已移除。
   // 反思层:确定性回合监控状态(跨本 runTurn 的各模型回合累积)。
   let health = initHealth();
   const healthCfg = defaultHealthConfig();
 
   // 一次"请求模型"的韧性封装:封装流式 + 反应式压缩重试 + 模型回退,失败才上抛(error withholding)。
   const reasoningEffort = deps.reasoningEffort ?? process.env.DAO_REASONING_EFFORT ?? "max";
-  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number, effortOverride?: string, maxTokensOverride?: number): Promise<AssistantMessage> => {
+  const requestAssistant = async (tools: ReturnType<typeof apiToolsForMode>, turn: number, effortOverride?: string, maxTokensOverride?: number, forceToolCall?: boolean): Promise<AssistantMessage> => {
     let ctxRetries = 0; // 本轮反应式压缩次数上限,防压不动时死循环
-    let usedFallback = false;
-    let hardRetries = 0; // 主模型+回退模型都遇到同类网络/超时错误后,退避重试整轮的次数上限
+    let genericRetried = false; // 过载/超时/网络类异常:原地重试一次的次数上限(不换模型)
     let rateLimitRetries = 0; // 限流后"等待重试"选了几次(非交互场景下也当退避上限用)
     const rateLimitMaxRetries = Number(process.env.DAO_RATE_LIMIT_MAX_RETRIES) || 5;
     for (;;) {
@@ -187,7 +242,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
       // 提醒/激活类内容一律【append 进 session.messages】(append-only 增长,缓存安全),而不是这里临时拼。
       const sent = session.messages;
       if (deps.auditId?.agent === "main") session.lastSentLength = sent.length; // 记已缓存前缀边界,供蒸馏对齐(只主会话)
-      const model = usedFallback && deps.fallbackModel ? deps.fallbackModel : session.model;
+      const model = session.model;
       // P1-47 缓存归因 + 缓存审计:先算原始内容,notePrefix 与审计共用。tail 恒为空(已无尾部临时注入)。
       const sysRaw = typeof session.messages[0]?.content === "string" ? (session.messages[0]!.content as string) : "";
       const toolsRaw = JSON.stringify(tools);
@@ -209,7 +264,17 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
           // effortOverride/maxTokensOverride:单次调用级别的临时覆盖(目前只用于 onEmptyTruncation
           // 重试,见下方),不影响 reasoningEffort/会话默认 maxTokens——那些是整个会话固定的档位,
           // 这里只压这一次请求。
-          extra: { reasoning_effort: effortOverride ?? reasoningEffort },
+          extra: {
+            reasoning_effort: effortOverride ?? reasoningEffort,
+            // 文字层那条"第一步必须是工具调用"管不住 reasoning 阶段(三次真实观测都精确
+            // 撞满同一个 max_tokens 上限,提示注入了但没改变行为),tool_choice 是 API 层
+            // 想要的硬约束,但【是否真被网关遵守因 provider 而异】——2026-07-27 直接探测
+            // 确认火山方舟(评测实际在用的 provider)对 tool_choice=required 一律 400,只认
+            // auto/none;同一请求打 DeepSeek 原生 API 则 200 通过。下方 catch 分支就是给这种
+            // 不支持的网关准备的,在火山上是每次都会走到的主路径,不是罕见兜底。只在那一次
+            // 重试上加,正常回合不受影响。
+            ...(forceToolCall ? { tool_choice: "required" } : {}),
+          },
           ...(maxTokensOverride ? { maxTokens: maxTokensOverride } : {}),
           onUsage: (u) => {
             session.addUsage(u, model); // B-2 按模型记账
@@ -249,42 +314,27 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         const msg = e instanceof Error ? e.message : String(e);
         const rateLimited = isRateLimitError(e);
         // 过载/5xx/超时/网络类:client.ts 自己的流式重试+非流式兜底已经耗尽才会到这里,
-        // 包成"连接…失败"/"非流式…均失败"这类文案。
-        const genericRecoverable = /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(msg);
+        // 包成"连接…失败"/"非流式…均失败"这类文案。跟限流互斥(限流走下面单独的分支)。
+        const genericRecoverable = !rateLimited && /5\d\d|overload|529|timeout|超时|连接.*失败|网络|非流式/i.test(msg);
 
-        // 交互场景(ctx.askChoice 存在):任何"看起来能恢复"的故障都不自动重试/自动换模型——
-        // 原样把错误报给用户 + 给出可选动作,由用户决定接下来怎么办。子代理(background)没有
-        // 交互能力,不问,直接走下面 headless 分支(同其余分支对 background 的一贯处理)。
-        if (!deps.background && (rateLimited || genericRecoverable) && deps.ctx.askChoice) {
+        // 限流:交互场景问用户(等待原地重试/切账号/中止),headless 自动退避重试——这部分
+        // 逻辑不受 2026-07-29 这次改动影响,配额/频率问题跟"模型请求本身有没有响应"是两类
+        // 不同的故障,解法也不同(换账号能救限流,换账号救不了网络/服务端异常)。
+        if (!deps.background && rateLimited && deps.ctx.askChoice) {
           events.notice(`\n[⚠ 请求失败] ${msg}\n`);
-          const canOfferFallback = !rateLimited && !!deps.fallbackModel && !usedFallback;
-          // 限流时菜单动态列出除当前账号外的全部账号(不猜"最合适的",账号数量不定时都摆出来,用户自己选)。
-          const accountOptions = rateLimited
-            ? (deps.listOtherAccounts?.() ?? []).map((a) => ({ label: `切到账号「${a.name}」重试`, name: a.name }))
-            : [];
+          const accountOptions = (deps.listOtherAccounts?.() ?? []).map((a) => ({ label: `切到账号「${a.name}」重试`, name: a.name }));
           const options = [
             "等待后用当前模型重试",
-            ...(canOfferFallback ? [`换成备用模型「${deps.fallbackModel}」试试(本回合)`] : []),
             ...accountOptions.map((o) => o.label),
-            rateLimited ? "中止本轮(稍后可用 /account 切换账号)" : "中止本轮",
+            "中止本轮(稍后可用 /account 切换账号)",
           ];
-          const choice = await deps.ctx.askChoice(
-            rateLimited
-              ? "当前账号触发限流(请求频率/配额超限)。接下来怎么办?"
-              : "请求持续失败(疑似过载/超时/网络问题)。接下来怎么办?",
-            options,
-          );
+          const choice = await deps.ctx.askChoice("当前账号触发限流(请求频率/配额超限)。接下来怎么办?", options);
           if (choice.startsWith("等待")) {
             rateLimitRetries++;
             const rateLimitBaseWaitMs = Number(process.env.DAO_RATE_LIMIT_WAIT_MS) || 5000;
             const waitMs = Math.min(rateLimitBaseWaitMs * rateLimitRetries, 30000);
-            events.notice(`\n[等待 ${Math.round(waitMs / 1000)}s 后重试(仍用当前模型,不降级)…]\n`);
+            events.notice(`\n[等待 ${Math.round(waitMs / 1000)}s 后重试(仍用当前模型)…]\n`);
             await new Promise((r) => setTimeout(r, waitMs));
-            continue;
-          }
-          if (canOfferFallback && choice.startsWith("换成备用模型")) {
-            usedFallback = true;
-            events.notice(`\n[已按你的选择临时切到 ${deps.fallbackModel}…]\n`);
             continue;
           }
           // 切账号是持久的(等同手动 /account),不是"仅本轮"——账号被限流之后没理由下一轮切回去。
@@ -299,46 +349,38 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
             // 原始限流错误一起交给用户,而不是悄悄回到等待/中止的选项让用户自己再猜一次发生了什么。
             events.notice(`\n[切换到账号「${matchedAccount.name}」失败(账号不存在或凭据解析失败),仍在原账号]\n`);
           }
-          throw new Error(
-            `已中止:${rateLimited ? "当前账号触发限流(请求频率/配额超限)。可运行 /account 切换到其它账号后重新发送消息。" : "已按你的选择中止本轮。"}\n原始错误:${msg}`,
-          );
+          throw new Error(`已中止:当前账号触发限流(请求频率/配额超限)。可运行 /account 切换到其它账号后重新发送消息。\n原始错误:${msg}`);
         }
-
-        // ---- 以下:非交互场景(headless/--goal/eval,无 ctx.askChoice)保留原有自动恢复 ----
-        // 没有人能回答问题,只能自动决定,是专门为无人值守长任务做的健壮性兜底。
-
-        // 限流:自动等待退避重试(不换模型),超过上限才放弃——不无限等待。
+        // 限流(headless/子代理,没人能回答问题):自动等待退避重试,超过上限才放弃——不无限等待。
         if (!deps.background && rateLimited) {
           if (rateLimitRetries < rateLimitMaxRetries) {
             rateLimitRetries++;
             const rateLimitBaseWaitMs = Number(process.env.DAO_RATE_LIMIT_WAIT_MS) || 5000;
             const waitMs = Math.min(rateLimitBaseWaitMs * rateLimitRetries, 30000);
-            events.notice(`\n[限流,等待 ${Math.round(waitMs / 1000)}s 后重试(不降级,第 ${rateLimitRetries}/${rateLimitMaxRetries} 次)…]\n`);
+            events.notice(`\n[限流,等待 ${Math.round(waitMs / 1000)}s 后重试(第 ${rateLimitRetries}/${rateLimitMaxRetries} 次)…]\n`);
             await new Promise((r) => setTimeout(r, waitMs));
             continue;
           }
           throw new Error(`已中止:当前账号触发限流(请求频率/配额超限)。可运行 /account 切换到其它账号后重新发送消息。\n原始错误:${msg}`);
         }
-        // L1.3 模型回退:过载/5xx/网络类异常 → 本回合临时换 fallback 模型再试一次。
-        if (!deps.background && deps.fallbackModel && !usedFallback && genericRecoverable) {
-          usedFallback = true;
-          events.notice(`\n[主模型异常,本回合临时回退 ${deps.fallbackModel}…]\n`);
-          continue;
+
+        // L1.3(2026-07-29 改版):过载/超时/网络类异常——不问、不换备用模型,主模型原地重试
+        // 一次;仍失败就不再往上抛裸异常崩掉整个 episode,交给 runTurn 顶层的 ModelUnavailableStop
+        // 处理做优雅收尾(保留上下文/代办清单、取消后台任务,交互场景停下汇报,headless 场景
+        // 正常结束)。旧版在这里先换备用模型、备用也失败再整轮硬重试最多 2 轮,链路长且每一
+        // 环节都可能引入"备用模型给出跟主模型不一致的判断"这类噪声;新版更简单也更诚实——
+        // 模型端持续故障时,继续套娃重试不会比停下来告诉用户更有价值。
+        if (!deps.background && genericRecoverable) {
+          if (!genericRetried) {
+            genericRetried = true;
+            events.notice(`\n[请求失败(疑似过载/超时/网络问题),重试一次…]\n`);
+            const genericRetryDelayMs = Number(process.env.DAO_HARD_RETRY_DELAY_MS) || 1000;
+            await new Promise((r) => setTimeout(r, genericRetryDelayMs));
+            continue;
+          }
+          throw new ModelUnavailableStop(msg);
         }
-        // 主模型+回退模型都遇到了同类网络/超时错误(真实撞见过 terminal-bench make-mips-interpreter:
-        // 模型试图单次 Write 写入千行级大文件,主模型先抛异常触发回退,回退模型随后也 120s 空闲
-        // 超时——此前这里直接上抛,整个 episode 崩溃退出,900s+ 预算和此前所有真实进展全部作废)。
-        // 退避后把 usedFallback 重置、给主模型再来一次机会,最多重试 2 次,任何一次成功都救回本轮。
-        const hardMaxRetries = 2;
-        if (!deps.background && hardRetries < hardMaxRetries && genericRecoverable) {
-          hardRetries++;
-          usedFallback = false;
-          events.notice(`\n[主备模型均异常,退避后整轮重试(第 ${hardRetries}/${hardMaxRetries} 次)…]\n`);
-          const hardRetryDelayMs = Number(process.env.DAO_HARD_RETRY_DELAY_MS) || 1000;
-          await new Promise((r) => setTimeout(r, hardRetryDelayMs * hardRetries));
-          continue;
-        }
-        throw e; // 恢复手段用尽:上抛(致命或网络彻底不通)
+        throw e; // 其它不可恢复错误(如子代理遇到的任何异常——子代理不重试/不回退,见 background 分支说明)原样上抛
       }
     }
   };
@@ -399,69 +441,155 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         session.messages.push({ role: "system", content: n });
       }
     }
+    let assistant: AssistantMessage;
+    let toolCalls: ToolCall[];
+    let hasContent: boolean;
     const tools = apiToolsForMode(deps.registry, session.mode, getLang());
-    emptyTruncation = false;
-    let assistant = await requestAssistant(tools, t);
-    let toolCalls = assistant.tool_calls ?? [];
-    let hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
-    // 用户中途取消(ESC)、且这一轮确实空手而归(无 content 无 tool_calls):client.ts 对
-    // "abort 时尚无产出"故意不抛错,优雅返回一个空 assistant 消息(见 client.ts isAbort 分支),
-    // 避免半截工具调用把历史搞崩。但这意味着下面的空响应重试逻辑会误把"被打断"当成
-    // "模型真答不出",在用户已经按了 ESC 之后又真的发一次网络请求(该请求同样立刻被 abort
-    // 返回空),白等一轮往返,还甩出两条"模型空响应/连续两次空响应"的误导性提示——这里直接
-    // 收尾。注意:只在真空手时提前退出;若这一轮已经有 content/tool_calls(答完/工具调用后
-    // 才 abort),必须继续走下面的正常入库 + 补齐取消态 tool 结果流程,不能跳过。
-    if (signal?.aborted && toolCalls.length === 0 && !hasContent) return;
-    // 空内容且无工具调用的回合(只有 reasoning、或被打断)不能直接入库——否则下一轮
-    // DeepSeek 会 400「content or tool_calls must be set」直接崩会话。但也不能悄悄当成
-    // "模型主动决定收尾了"就地结束:蒸馏过 iteration 4 两道题(large-scale-text-editing、
-    // winning-avg-corewars)发现,这种情况实际是模型陷入了长时间未收敛的推理(反复
-    // "wait,这不对…让我重新想想"那种),最后一轮没能收敛出结论或动作,返回了空响应——
-    // 不是真的没有更多要做的了。之前直接 return 会把"没说完"悄悄当成"说完了",且没有
-    // 任何可观测的痕迹,一次性/eval 场景下这类情况会被误判成模型"想清楚了但做错了"的
-    // 干净失败,掩盖了真实问题。改成重试一次(不入库这次的空响应,原样重发相同的
-    // session.messages);仍是空的才真正结束,但留一条可见提示,不再无声无息消失。
-    if (toolCalls.length === 0 && !hasContent) {
-      // reasoning 耗尽整个输出预算(client.ts 的 onEmptyTruncation)是空响应的一个具体子类:
-      // 原样重发大概率再次把预算耗在同一段思考上(真实撞见过 gpt2-codegolf/
-      // model-extraction-relu-logits 两题,均连续两轮如此、直接终止 session)。这种情况下
-      // 注入一条收敛提示再重试,而不是盲目原样重发。
-      const wasEmptyTruncation = emptyTruncation;
-      if (wasEmptyTruncation) {
-        events.notice("\n[思考耗尽输出预算,提示收敛后重试…]\n");
-        session.messages.push({
-          role: "system",
-          content: "[提示] 上一轮的思考过程用尽了输出预算,还没有给出最终回答或工具调用就被截断。" +
-            "这一轮的回复第一步必须是一次工具调用,不允许先输出任何推导性自由文本——" +
-            "如果是在反复心算/手工推导同一类计算(坐标偏移、字节位置、进制换算等)," +
-            "直接调用 Bash 或 Write 写一个一次性程序把它跑出来,不要在文字里重新推一遍。" +
-            "惯用的脚本语言(如 python)如果在这个环境里不可用,换一种环境里确实存在的" +
-            "语言/编译器(node、perl、awk,或任务本身已保证存在的编译器如 gcc/cc)写," +
-            "目标是自动化而不是固定某一种语言。",
-        });
-      } else {
-        events.notice("\n[模型返回空响应,重试一次…]\n");
-      }
+    try {
       emptyTruncation = false;
-      // reasoning 耗尽预算这一支,文字提示管不住模型在 reasoning 阶段重新完整推导一遍
-      // (317b130+上面这条结构性提示词复测仍然复现:提示确实注入了,但模型的 reasoning
-      // 本身不受"回复内容"层面的指令约束,重试请求同样把预算耗在心算上,再次空响应)。
-      // 单独调低 reasoning_effort 到"low"复测(regex-chess__wEqpsZA)也不够:探测脚本
-      // 证实"low"在正常场景下确实会让模型更早收敛(completion从16001降到8660),但对
-      // 已经陷入具体反复重算循环的这一次重试,completion两次都精确撞满同一个 max_tokens
-      // 上限——说明 reasoning_effort 只是"目标预算"的软提示,遇到强反模式会被压过去,
-      // 而 max_tokens 才是 API 唯一保真遵守的硬上限(三次真实观测:都精确停在这个值)。
-      // 因此在调低 effort 的同时,额外给这一次重试一个远小于会话默认(16000)的硬
-      // max_tokens——即便模型仍想继续同一条推导链,也会被更早、更便宜地截断,不再
-      // 白白烧掉整个预算;正常场景下(如探测脚本的对照组)"low"本就会自然收敛在这个
-      // 范围内,不会提前误伤真正需要空间收尾的回复。
-      assistant = await requestAssistant(tools, t, wasEmptyTruncation ? "low" : undefined, wasEmptyTruncation ? 6000 : undefined);
+      assistant = await requestAssistant(tools, t);
       toolCalls = assistant.tool_calls ?? [];
       hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+      // 用户中途取消(ESC)、且这一轮确实空手而归(无 content 无 tool_calls):client.ts 对
+      // "abort 时尚无产出"故意不抛错,优雅返回一个空 assistant 消息(见 client.ts isAbort 分支),
+      // 避免半截工具调用把历史搞崩。但这意味着下面的空响应重试逻辑会误把"被打断"当成
+      // "模型真答不出",在用户已经按了 ESC 之后又真的发一次网络请求(该请求同样立刻被 abort
+      // 返回空),白等一轮往返,还甩出两条"模型空响应/连续两次空响应"的误导性提示——这里直接
+      // 收尾。注意:只在真空手时提前退出;若这一轮已经有 content/tool_calls(答完/工具调用后
+      // 才 abort),必须继续走下面的正常入库 + 补齐取消态 tool 结果流程,不能跳过。
+      if (signal?.aborted && toolCalls.length === 0 && !hasContent) return;
+      // 空内容且无工具调用的回合(只有 reasoning、或被打断)不能直接入库——否则下一轮
+      // DeepSeek 会 400「content or tool_calls must be set」直接崩会话。但也不能悄悄当成
+      // "模型主动决定收尾了"就地结束:蒸馏过 iteration 4 两道题(large-scale-text-editing、
+      // winning-avg-corewars)发现,这种情况实际是模型陷入了长时间未收敛的推理(反复
+      // "wait,这不对…让我重新想想"那种),最后一轮没能收敛出结论或动作,返回了空响应——
+      // 不是真的没有更多要做的了。之前直接 return 会把"没说完"悄悄当成"说完了",且没有
+      // 任何可观测的痕迹,一次性/eval 场景下这类情况会被误判成模型"想清楚了但做错了"的
+      // 干净失败,掩盖了真实问题。改成重试一次(不入库这次的空响应,原样重发相同的
+      // session.messages);仍是空的才真正结束,但留一条可见提示,不再无声无息消失。
       if (toolCalls.length === 0 && !hasContent) {
-        events.notice("\n[连续两次空响应,结束本轮]\n");
+        // reasoning 耗尽整个输出预算(client.ts 的 onEmptyTruncation)是空响应的一个具体子类:
+        // 原样重发大概率再次把预算耗在同一段思考上(真实撞见过 gpt2-codegolf/
+        // model-extraction-relu-logits 两题,均连续两轮如此、直接终止 session)。这种情况下
+        // 注入一条收敛提示再重试,而不是盲目原样重发。
+        const wasEmptyTruncation = emptyTruncation;
+        if (wasEmptyTruncation) {
+          events.notice("\n[思考耗尽输出预算,提示收敛后重试…]\n");
+          session.messages.push({
+            role: "system",
+            content: "[提示] 上一轮的思考过程用尽了输出预算,还没有给出最终回答或工具调用就被截断。" +
+              "这一轮的回复第一步必须是一次工具调用,不允许先输出任何推导性自由文本——" +
+              "如果是在反复心算/手工推导同一类计算(坐标偏移、字节位置、进制换算等)," +
+              "直接调用 Bash 或 Write 写一个一次性程序把它跑出来,不要在文字里重新推一遍。" +
+              "惯用的脚本语言(如 python)如果在这个环境里不可用,换一种环境里确实存在的" +
+              "语言/编译器(node、perl、awk,或任务本身已保证存在的编译器如 gcc/cc)写," +
+              "目标是自动化而不是固定某一种语言。" +
+              "更根本的是收敛方式:不要试图在文字里把完整方案想清楚、验证过一切分支后再动手——" +
+              "先写一个局部正确、哪怕明知不完整/大概率有 bug 的版本落地,跑起来看真实结果," +
+              "再根据具体反馈小步修正,比继续在脑内推演更完整的方案更接近目标;每一步只解决" +
+              "当前卡住的这一个具体问题,不要在动手前就想着一次性覆盖所有情况。",
+          });
+        } else {
+          events.notice("\n[模型返回空响应,重试一次…]\n");
+        }
+        emptyTruncation = false;
+        // reasoning 耗尽预算这一支,文字提示管不住模型在 reasoning 阶段重新完整推导一遍
+        // (317b130+上面这条结构性提示词复测仍然复现:提示确实注入了,但模型的 reasoning
+        // 本身不受"回复内容"层面的指令约束,重试请求同样把预算耗在心算上,再次空响应)。
+        // 单独调低 reasoning_effort 到"low"复测(regex-chess__wEqpsZA)也不够:探测脚本
+        // 证实"low"在正常场景下确实会让模型更早收敛(completion从16001降到8660),但对
+        // 已经陷入具体反复重算循环的这一次重试,completion两次都精确撞满同一个 max_tokens
+        // 上限——说明 reasoning_effort 只是"目标预算"的软提示,遇到强反模式会被压过去。
+        //
+        // 2026-07-27 复盘推翻了当时基于这个观察做出的第三档(把重试预算压到 6000):
+        //  · 压预算是自我实现的失败——上面这段注释自己记录的探测值就是"low 档自然收敛在
+        //    8660",6000 比它还小,等于保证这次重试也被截断;
+        //  · 文字约束本身没有硬保证——同一份真实 trace 里,模型在撞上限之前(不是作为对
+        //    这条重试提示的反应)调用过 Skill(make-plan) 这类不产出任何东西的元工具,
+        //    说明"愿意先调用工具"和"调用的是能真正推进任务的工具"是两件事,文字管不了
+        //    第二件;
+        //  · 代价被量化了:难度受控的前后对比里,这条死法在本家族从 0% 涨到 48.7%,
+        //    这样收尾的 trial 平均只用掉 32.9% 预算就自杀,丢弃 67.1%。
+        // 现在改成:不再压预算,改用 API 层 tool_choice=required 硬性要求吐出工具调用,并把
+        // 可选工具收敛到能产出/能执行的那几个;第一档仍为空再加大预算强制一次。
+        //
+        // 2026-07-27 五组真实重放(同一决策点,只改请求参数)补充了两点原计划没预料到的现实,
+        // 都不需要改动这段逻辑本身(下面的 catch 兜底和这里的分层设计已经把两者都接住了),
+        // 但会改变"这条修复到底靠什么起效"的因果叙述,记录下来避免以后误判:
+        //  · tool_choice=required 在火山方舟(ARK,当前评测实际在用的 provider)被直接 400 拒绝
+        //    ——直接探测确认 auto/none 都是 200,required 和具名函数强制都是 400,与
+        //    parallel_tool_calls 无关,是网关的 API 面限制。同一个请求打 DeepSeek 原生 API
+        //    (api.deepseek.com)则 200 通过、真吐出工具调用——机制本身没问题,卡在网关这层。
+        //    也就是说在 ARK 上,下面的 forced 分支【每次都会走进 catch】,真正生效的其实是
+        //    "加大预算+退回原始全量工具集"这条兜底路径,不是 tool_choice 本身;这条兜底路径
+        //    单独真实测过命中率(小样本,n=3~5)比旧的 6000+无强制基线明显更高。
+        //  · 收窄工具集(forcedTools)在网关不校验 tool_calls 是否落在本次请求 tools 数组内时
+        //    不是硬约束:补测过"不强制但收窄"这一档,模型仍然吐出了不在当次 tools 数组里的
+        //    TodoWrite(5 个样本里 3 个)——根源是系统提示词的叙事文本(messages[0],不受
+        //    某一次请求 tools 数组收窄的约束)明确写着"多步任务转成 TodoWrite 清单",模型
+        //    凭这段记忆调用,网关未拦截。工具集收窄在这类网关上是软偏置,不是可信赖的防线。
+        // 2026-07-28 真实复测(write-compressor,两次独立trial)推翻了"先在默认预算重试一次,
+        // 仍空再加大"这个两档设计:两次真实数据里,第一档(维持默认预算)重试都【同样撞满】,
+        // 各自白白搭进去约200-280秒才轮到加大预算那一档;而加大预算那次,完成时只用了
+        // 7668/4329 token——远低于基线上限,不是"给多少用多少"。这说明"先按兵不动
+        // 试一次默认预算"这个中间档从未兑现过(理论依据是"low档可能自然收敛在更短",但两次
+        // 真实观测里都没发生),而"给更大空间"也没有让模型输出更啰嗦——直接铺开预算反而收敛
+        // 更快。故只保留一次重试,直接用 ESCALATED_MAX_TOKENS,不再分两档;2026-08-01 基线
+        // 预算本身再翻倍到 128000 后,重试档(256000)也只此一档,不再叠加第二档——基线已经
+        // 够大,不需要"重试档=2×基线"之外再留一层"重试档的重试档"。
+        if (wasEmptyTruncation) {
+          const forced = tools.filter((tl) => FORCED_TOOLS.has(tl.function.name));
+          const forcedTools = forced.length > 0 ? forced : tools;
+          // tool_choice 此前在 src/ 里零使用。被拒时必须退回普通重试——否则异常直接上抛、
+          // 整个会话崩掉,比修复前更糟(这条兜底在火山方舟上不是"以防万一",是每次真实评测
+          // 都会走到的主路径,见上方说明)。
+          let forcingUnsupported = false;
+          const attempt = async (maxTokensOverride?: number): Promise<AssistantMessage> => {
+            if (!forcingUnsupported) {
+              try {
+                return await requestAssistant(forcedTools, t, "low", maxTokensOverride, true);
+              } catch (e) {
+                if (signal?.aborted) throw e;
+                forcingUnsupported = true;
+                events.notice("\n[服务端不接受强制工具调用,回退成普通重试…]\n");
+              }
+            }
+            return await requestAssistant(tools, t, "low", maxTokensOverride);
+          };
+          assistant = await attempt(ESCALATED_MAX_TOKENS);
+          toolCalls = assistant.tool_calls ?? [];
+          hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+        } else {
+          assistant = await requestAssistant(tools, t);
+          toolCalls = assistant.tool_calls ?? [];
+          hasContent = typeof assistant.content === "string" && assistant.content.trim().length > 0;
+        }
+        if (toolCalls.length === 0 && !hasContent) {
+          events.notice(wasEmptyTruncation
+            ? "\n[强制工具调用+加大预算后仍是空响应,结束本轮]\n"
+            : "\n[连续两次空响应,结束本轮]\n");
+          return;
+        }
+      }
+    } catch (e) {
+      // 优雅收尾:保留 session.messages(已有上下文/对话历史不受影响)和 todoStore(TodoWrite
+      // 状态完全独立,这里不碰);取消后台子代理/后台 shell 进程(主会话退出后它们没有
+      // 存在意义,子代理自己遇到这个异常不会走到这里——见 requestAssistant 内 !deps.background
+      // 判据,子代理本就不重试、直接把原始异常上抛给它自己的调用方处理)。
+      if (e instanceof ModelUnavailableStop) {
+        if (!deps.background) {
+          deps.ctx.taskManager?.cancelAll();
+          processManager.reset();
+        }
+        const interactive = !deps.background && !!deps.ctx.askChoice;
+        const note = interactive
+          ? "[模型请求持续失败(疑似过载/超时/网络问题),重试一次仍未恢复。已停止本轮——已有的进展、对话上下文和任务清单都保留,可稍后重新发送消息继续,或用 /account 切换账号。]"
+          : "[模型请求持续失败(疑似过载/超时/网络问题),重试一次仍未恢复。本次运行到此结束,已保留的上下文和任务清单不受影响。]";
+        session.messages.push({ role: "assistant", content: note });
+        events.notice(`\n${note}\n`);
         return;
       }
+      throw e;
     }
     // 执行仍用原始 assistant/toolCalls(dispatch 报错信息不受影响);落库换成清洗过的版本。
     session.messages.push(sanitizeForHistory(assistant));
@@ -495,7 +623,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         byId.get(tc.id) ?? {
           role: "tool" as const,
           tool_call_id: tc.id,
-          content: `工具 ${tc.function.name} 在 plan 模式下不可用(只读+提方案)。如需修改请让用户切回 normal 模式。`,
+          content: `工具 ${tc.function.name} 在 plan 模式下不可用(只读+提方案)。方案设计好后用 ExitPlanMode 退出规划模式再改。`,
         },
       );
       for (const tc of toolCalls) {
@@ -534,7 +662,7 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
     // P2-11 编辑后诊断回灌:本轮改了文件 → 跑诊断命令,有报错就注入 [诊断],模型当轮自查自改。
     if (deps.diagnose) {
-      const wrote = toolCalls.some((tc) => ["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(tc.function.name));
+      const wrote = toolCalls.some((tc) => ["Write", "Edit", "NotebookEdit"].includes(tc.function.name));
       if (wrote && !signal?.aborted) {
         const d = await deps.diagnose();
         if (d) { session.messages.push({ role: "system", content: `[诊断:编辑后检查发现问题,请修复]\n${d}` }); events.notice("\n[已注入编辑后诊断]\n"); }
@@ -543,7 +671,11 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
 
     // L4.2/L4.3 进度评估:本轮有无"实质推进"(写文件/改文件/推进任务清单)。
     // 连续空转或临近上限 → 下一轮注入一次性 advisor 提醒,促其回看目标/收尾/求助,防长程漂移与空耗。
-    const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name));
+    // 合规的后台 checkpoint 轮询(这一轮全是 POLL_TOOLS,且确实还有后台工作在跑)同样算推进,
+    // 不细分是子代理还是 shell 后台——两者都走这同一套"等通知"叙事,模型没必要也不该区分。
+    const runningBackground = (processManager.runningCount() > 0) || ((deps.ctx.taskManager?.running().length ?? 0) > 0);
+    const isCheckpointPolling = toolCalls.length > 0 && toolCalls.every((tc) => POLL_TOOLS.has(tc.function.name)) && runningBackground;
+    const progressed = toolCalls.some((tc) => PROGRESS_TOOLS.has(tc.function.name)) || isCheckpointPolling;
     if (progressed) { noProgress = 0; stuckAdviceCount = 0; nextAdviceAt = ADVISE_GAPS[0]!; } else { noProgress++; }
     // 提醒【追加】进对话(append-only,缓存安全),而非每轮拼到请求尾部又撤(那会反复废缓存)。
     const advisories: string[] = [];
@@ -565,16 +697,16 @@ export async function runTurn(deps: TurnDeps): Promise<void> {
         : "用 AskUserQuestion 向用户求助";
       advisories.push(
         !escalate
-          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,请派 verify 子代理验证后收尾;如果确实卡住了,${stuckFallback},不要空转。`
+          ? `[进度提醒] 已连续 ${noProgress} 轮没有改动文件、也没有执行命令。如果你在反复用文字重新推导同一个不确定的点(某个数值/坐标/参数/配置该怎么定),现在就停下来,换成一个能给出确切答案的动作代替继续假设——写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证同一个问题;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地,让验证暴露剩下的问题。如果已经完成,先调用 VerifyDone 逐条对证据核实后再收尾(非琐碎改动另派 verify 子代理);如果确实卡住了,${stuckFallback},不要空转。`
           : stuckAdviceCount > 1
-            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件或推进任务清单,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,${stuckFallback}。`
-            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件或推进任务清单。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,${stuckFallback}。`,
+            ? `[进度提醒·第${stuckAdviceCount}次] 已连续 ${noProgress} 轮没有改动文件、也没有执行命令,前面提醒过 ${stuckAdviceCount - 1} 次仍没有推进——这通常意味着你还在原地用文字重新论证同一个问题。现在必须切换成具体动作:写脚本算出来、跑命令查、或读文档确认,拿到确定结果再往下走,不要继续在文字里循环论证;哪怕设计还没完全想清楚,也先写一个不完整的最小版本落地。如果确实卡住了,${stuckFallback}。`
+            : `[进度提醒·本会话第${totalStuckEvents}次卡住] 已连续 ${noProgress} 轮没有改动文件、也没有执行命令。本次会话此前已经出现过类似的"卡住"状态、中途靠零星的文件修改把计数器复位过——复位不代表核心问题真的解决了,如果你还在对同一个具体问题(某个字节/寄存器/配置的实际值)反复假设,现在必须写一个最小验证脚本或加一行调试打印直接拿到确定答案,不要满足于"又推进了一点"就继续用文字重新假设。如果确实卡住了,${stuckFallback}。`,
       );
       const label = stuckAdviceCount > 1 ? `·第${stuckAdviceCount}次` : escalate ? `·本会话第${totalStuckEvents}次卡住` : "";
       events.notice(`\n[进度提醒${label}:已连续 ${noProgress} 轮无实质推进]\n`);
     }
     if (Number.isFinite(maxTurns) && t === maxTurns - 5) { // 仅在跨入"最后 5 轮"那一刻提醒一次(不每轮刷)
-      advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时派 verify 子代理验证或向用户汇报现状)。`);
+      advisories.push(`[轮数提醒] 接近最大轮数(${t + 1}/${maxTurns}),请尽快收敛并收尾(必要时调用 VerifyDone 核实证据、或派 verify 子代理验证,再向用户汇报现状)。`);
       events.notice(`\n[轮数提醒:接近最大轮数 ${t + 1}/${maxTurns}]\n`);
     }
     // 反思层:确定性监控判定 → 卡住叫挑战者、长任务漂移叫纠偏者。检测(廉价纯函数)与应对(贵的 LLM)解耦:

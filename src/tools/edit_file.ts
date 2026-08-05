@@ -18,8 +18,10 @@ export const editFileTool = defineTool({
     "保留其真实缩进——DAO 已有的既定风格优先于你自己的排版偏好,别顺手改格式。" +
     "尤其注意标点:全角/半角、直引号/弯引号、连字符和 em dash(- vs — vs –)这些肉眼近似但字节不同," +
     "凭记忆复述容易写岔;找不到时若是这类差异,报错会指出具体是第几个字符、两边分别是什么,照着改就行,不用瞎猜。\n" +
-    "同一文件的并行 Edit 调用会自动排队,不会互相覆盖或撞坏;但同一文件要做多处改动时优先用 MultiEdit" +
-    "(一次性提交、原子——要么全成要么全不改),别连发多个 Edit,那样中途某一处失败会留下改了一半的文件。\n" +
+    "同一文件要做多处改动,连续多次调用即可——每次调用都基于文件此刻的最新内容做匹配,不需要一次性规划好全部改动," +
+    "也不用担心前一处改动会让后一处的 old_string 变得不唯一(按当时状态判断)。同一文件的并行 Edit 调用会自动排队," +
+    "不会互相覆盖或撞坏,但不是原子操作:调用序列中某一处失败时,前面已成功的改动已经落盘、不会被撤销——" +
+    "按报错提示修正这一处、重新调用即可,不用整体重来。\n" +
     "成功后返回一个 ```diff 代码块和改动首行行号,可以直接读出来确认改对了地方。",
   descriptionEn:
     "Performs exact string replacement in a workspace file. old_string must appear verbatim (including indentation/whitespace) exactly once — otherwise it errors " +
@@ -29,8 +31,10 @@ export const editFileTool = defineTool({
     "indentation — match the codebase's existing style rather than your own formatting preference. " +
     "Watch punctuation especially: full-width vs half-width, straight vs curly quotes, hyphen vs en/em dash (- vs – vs —) look alike but differ byte-for-byte " +
     "and are easy to get wrong from memory; if a not-found error is due to one of these, it'll point out which character and what's on each side — fix that instead of guessing.\n" +
-    "Concurrent Edit calls on the same file are automatically queued, not racing or corrupting each other; but for multiple changes to one file, prefer MultiEdit " +
-    "(single atomic commit — all-or-nothing) over several Edit calls, since a mid-sequence failure there would leave the file half-edited.\n" +
+    "For multiple changes to one file, just call Edit repeatedly — each call matches against the file's current on-disk content at that moment, so you don't need " +
+    "to plan every change up front, and an earlier edit won't make a later old_string non-unique (it's judged against the state at call time). Concurrent Edit calls " +
+    "on the same file automatically queue, never racing or corrupting each other — but this isn't atomic: if one call in a sequence fails, the earlier successful " +
+    "edits are already on disk and won't be rolled back — fix the failed one per its error message and call again, no need to start over.\n" +
     "On success returns a ```diff block and the first changed line number, so you can verify the edit landed in the right place.",
   capability: "write",
   approval: "required",
@@ -48,7 +52,7 @@ export const editFileTool = defineTool({
         throw new Error(`编辑前请先用 Read 读过它:${args.path}`);
       }
       const raw = await fs.readFile(abs, "utf8");
-      // 精确匹配优先;失败后尝试归一化匹配(对标 CC findActualString)。
+      // 精确匹配优先;失败后尝试归一化匹配。
       let oldString = args.old_string;
       let count = raw.split(oldString).length - 1;
       if (count === 0) {

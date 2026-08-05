@@ -22,7 +22,7 @@ export const taskStopTool = defineTool({
     "work, dispatch a fresh one via agent/TaskCreate.",
   capability: "exec",
   approval: "auto",
-  shouldDefer: true,
+  // 不再 defer,见 task_create.ts 顶部注释(2026-07-28)。
   schema: z.object({
     id: z.string().min(1).describe("任务 id"),
   }),

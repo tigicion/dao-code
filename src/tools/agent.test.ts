@@ -292,7 +292,7 @@ describe("agent tool", () => {
     const cleanup = vi.fn();
     const ctx = mkCtx({
       runAgent: fn,
-      createWorktree: () => ({ root: "/tmp/wt-1", branch: "agent/wt-1", cleanup, hasChanges: () => true }),
+      createWorktree: () => ({ root: "/tmp/wt-1", branch: "agent/wt-1", cleanup, hasChanges: () => true, hasUnpushedCommits: () => false }),
     });
     const out = await agentTool.handler({ task: "改个文件", isolate: true } as any, ctx);
     expect(out).toContain("改完了");
@@ -306,11 +306,26 @@ describe("agent tool", () => {
     const cleanup = vi.fn();
     const ctx = mkCtx({
       runAgent: fn,
-      createWorktree: () => ({ root: "/tmp/wt-2", branch: "agent/wt-2", cleanup, hasChanges: () => false }),
+      createWorktree: () => ({ root: "/tmp/wt-2", branch: "agent/wt-2", cleanup, hasChanges: () => false, hasUnpushedCommits: () => false }),
     });
     const out = await agentTool.handler({ task: "看一下", isolate: true } as any, ctx);
     expect(out).toBe("看了一下没改");
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("isolate:子代理在 worktree 里提交过、工作区干净但分支上有原分支没有的提交 → 不能自动清理,要保留", async () => {
+    // 真实撞见的同一类缺口:子代理如果自己在 worktree 里 commit 了(隔离改文件的正常用法之一),
+    // 工作区会变干净,hasChanges() 单独看不出来——旧逻辑会把这种情况误判成"无改动"直接删掉分支,
+    // 已提交的工作跟着 cleanup() 的 git branch -D 一起消失。
+    const { fn } = fakeRunAgent("改完了并且提交了");
+    const cleanup = vi.fn();
+    const ctx = mkCtx({
+      runAgent: fn,
+      createWorktree: () => ({ root: "/tmp/wt-3", branch: "agent/wt-3", cleanup, hasChanges: () => false, hasUnpushedCommits: () => true }),
+    });
+    const out = await agentTool.handler({ task: "改个文件并提交", isolate: true } as any, ctx);
+    expect(out).toContain("agent/wt-3");
+    expect(cleanup).not.toHaveBeenCalled();
   });
 
   // ---- handoff 安全审查接线测试 ----

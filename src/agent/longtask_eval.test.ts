@@ -40,20 +40,35 @@ describe("长任务韧性 eval", () => {
     expect(s.messages.at(-1)).toMatchObject({ role: "assistant", content: "done" }); // 任务继续完成
   });
 
-  it("模型回退:主模型 529 过载 → 本回合改用 fallback 跑完", async () => {
-    const streamChat = (o: StreamChatOptions) =>
-      o.model === "pro" ? boom("DeepSeek API error 529: overloaded") : gen({ role: "assistant", content: "ok" });
+  it("原地重试:主模型 529 过载一次 → 同一模型重试后跑完(2026-07-29 起不再切备用模型)", async () => {
+    let calls = 0;
+    const streamChat = () => {
+      calls++;
+      return calls === 1 ? boom("DeepSeek API error 529: overloaded") : gen({ role: "assistant", content: "ok" });
+    };
     const s = new Session("SYS", "pro"); s.addUser("go");
-    await runTurn(deps(s, { streamChat, fallbackModel: "flash" }));
+    await runTurn(deps(s, { streamChat }));
+    expect(calls).toBe(2); // 首次失败 + 原地重试一次成功,不换模型
     expect(s.messages.at(-1)).toMatchObject({ role: "assistant", content: "ok" });
   });
 
-  it("致命错误不被吞:400 bad request 直接上抛(不重试/不回退)", async () => {
+  it("过载持续两次(重试也失败)→ 不崩溃、优雅收尾,保留已有上下文", async () => {
+    let calls = 0;
+    const streamChat = () => { calls++; return boom("DeepSeek API error 529: overloaded"); };
+    const s = new Session("SYS", "pro"); s.addUser("go");
+    await runTurn(deps(s, { streamChat })); // 不再 throw,正常 resolve
+    expect(calls).toBe(2); // 首次 + 重试一次,不再继续
+    expect(s.messages[0]).toEqual({ role: "system", content: "SYS" });
+    expect(s.messages[1]).toEqual({ role: "user", content: "go" });
+    expect(s.messages.at(-1)!.role).toBe("assistant"); // 收尾消息,不是裸异常
+  });
+
+  it("致命错误不被吞:400 bad request 直接上抛(不重试)", async () => {
     let calls = 0;
     const streamChat = () => { calls++; return boom("DeepSeek API error 400: bad request"); };
     const s = new Session("SYS", "pro"); s.addUser("go");
-    await expect(runTurn(deps(s, { streamChat, fallbackModel: "flash" }))).rejects.toThrow(/400/);
-    expect(calls).toBe(1); // 致命:不在 loop 层重试/回退
+    await expect(runTurn(deps(s, { streamChat }))).rejects.toThrow(/400/);
+    expect(calls).toBe(1); // 致命:不在 loop 层重试
   });
 
   it("跨压缩:压缩保留 system 锚 + 任务清单(目标不漂移)", async () => {
@@ -81,17 +96,18 @@ describe("长任务韧性 eval", () => {
     expect(out.length).toBeGreaterThan(1); // 没崩,产出了可继续的消息序列
   });
 
-  it("综合:多轮任务穿过 注入故障(529→回退 + 上下文超限→压缩)后完成", async () => {
+  it("综合:多轮任务穿过注入故障(529→原地重试 + 上下文超限→压缩)后完成", async () => {
     let turn = 0, compacted = 0;
-    const streamChat = (o: StreamChatOptions) => {
+    let turn2Calls = 0;
+    const streamChat = (_o: StreamChatOptions) => {
       turn++;
       if (turn === 1) return gen(toolMsg("t1", "Read")); // 第1轮:正常调工具
-      if (turn === 2) return o.model === "pro" ? boom("DeepSeek API error 529") : gen(toolMsg("t2", "Write")); // 第2轮:529→回退
+      if (turn === 2) { turn2Calls++; return turn2Calls === 1 ? boom("DeepSeek API error 529") : gen(toolMsg("t2", "Write")); } // 第2轮:529→原地重试一次成功
       if (turn === 3) return compacted === 0 ? boom("maximum context length exceeded") : gen({ role: "assistant", content: "完成" }); // 第3轮:超限→压缩重试
       return gen({ role: "assistant", content: "完成" });
     };
     const s = new Session("SYS", "pro"); s.addUser("做个多步任务");
-    await runTurn(deps(s, { streamChat, fallbackModel: "flash", compact: async () => { compacted++; } }));
+    await runTurn(deps(s, { streamChat, compact: async () => { compacted++; } }));
     expect(compacted).toBe(1);
     expect(s.messages.at(-1)).toMatchObject({ role: "assistant", content: "完成" });
   });

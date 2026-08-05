@@ -12,6 +12,7 @@ import { hasSuspiciousUnicode } from "../permissions/sanitize.js";
 import { scrubbedEnv } from "./safe_env.js";
 import { sandboxSpawn } from "./sandbox.js";
 import { walkFiles } from "./walk.js";
+import { PKG_MGR_TIMEOUT_RE } from "./pkg_mgr_pattern.js";
 import type { ForegroundRegistry } from "../tui/foreground_registry.js";
 
 interface ForegroundResult {
@@ -26,9 +27,6 @@ interface ForegroundResult {
 }
 
 const OUT_CAP = 10 * 1024 * 1024; // 内存中累积输出上限,超出截断(防 OOM)
-// 包管理器命令的粗粒度识别:命令名前后是空白/分隔符/行首,不匹配文件名里带这几个词的情况
-// (跟 permissions/bash_safety.ts 里 cmdRe() 的边界判断同一个思路,避免 \b 的同形字/文件名假阳性)。
-const PKG_MGR_TIMEOUT_RE = /(?:^|[\s;&|])(apt-get|apt|dpkg|aptitude)(?=\s|$|;|&|\|)/;
 // python3 -c/python -c 内联脚本识别:一次性文本/日志分析动不动就现写 python 脚本,是观测到的
 // 真实反模式(session 20260719-194639-mal7 里翻 evolution-log.md 找从未通过的题目,连续 20 次
 // Bash 拼 grep/sed;分析自己的 session 日志又连续 10 次 python3 -c——而且事后核对,那 10 次里
@@ -137,6 +135,64 @@ export async function cleanupDbBackups(workspaceRoot: string): Promise<number> {
 // 进程内存活的连续计数(第 2 层兜底用),不跟着 ctx 走(ctx 每次调用都是新对象,存不住跨调用状态)。
 let pythonInlineStreak = 0;
 let pythonInlineNudged = false;
+
+// 跨语言"缺模块/库"报错特征(检测 exec_shell 的 stdout+stderr,不针对任何具体题面写死)。
+const MISSING_DEP_SIGNATURES = [
+  /Can't locate .+ in @INC/i, // Perl
+  /ModuleNotFoundError/i, // Python
+  /No module named ['"]/i, // Python
+  /Cannot find module ['"]/i, // Node
+  /error\[E0432\]/i, // Rust unresolved import
+  /can't find crate for/i, // Rust
+  /cannot find package/i, // Go
+  /cannot load such file/i, // Ruby
+  /fatal error: .+: No such file or directory/i, // C/C++ #include
+  /cannot find -l\w/i, // C/C++ 链接器缺库
+];
+
+// 包管理器真正安装动作(允许通过,不拦截——这正是候选希望看到的合理选择之一)。
+const INSTALL_CMD_RE = /\b(apt-get|apt|dpkg|aptitude|cpan|cpanm|pip3?|npm|yum|dnf|apk|cargo|gem)\s+(install|add)\b/i;
+// 命令引用了一个实际的源文件/可执行产物(而不是解释器的内联 -e/-c/-M 探测)——说明模型已经在
+// 编译/运行交付物本身,是另一种候选希望看到的合理选择(切到不依赖缺失库的实现)。
+const REFERENCES_SOURCE_FILE_RE = /\b[\w./-]+\.(pl|py|c|cc|cpp|rs|go|rb|java)\b|^\s*\.\//;
+
+function isMissingDepDiagnosticProbe(command: string): boolean {
+  if (INSTALL_CMD_RE.test(command)) return false;
+  if (REFERENCES_SOURCE_FILE_RE.test(command)) return false;
+  return true;
+}
+
+function matchesMissingDepSignature(output: string): boolean {
+  return MISSING_DEP_SIGNATURES.some((re) => re.test(output));
+}
+
+// 运行时崩溃信号(检测 exec_shell 的 stdout+stderr/退出码,不针对任何具体题面写死)——真实撞见:
+// gpt2-codegolf 0801-hardgate 复测,headless"第一步必须用TodoWrite"硬拦截已生效(见
+// types.ts todoWriteRequired 字段),模型第一步确实建了计划,但计划全程只勾状态、内容一字
+// 未拆细,最终 gpt2.c 编译通过却运行时崩 malloc(): corrupted top size——崩溃这条新信息
+// 出现的那一刻,清单本该被更新(比如新增一项"排查内存越界"),但机制只管过"第一步",没管
+// "运行时冒出会改变计划的新信息时要不要回头改计划"这道缺口。这里补上:检测到崩溃特征后,
+// 复用同一个 todoWriteRequired 硬拦截 gate 重新武装(done=false),下一批工具调用如果不含
+// TodoWrite 会被 executeToolCalls 拒绝——不新增拦截逻辑,只是多一个"何时重新触发"的入口。
+const CRASH_SIGNATURES = [
+  /Segmentation fault/i,
+  /core dumped/i,
+  /\bSIG(SEGV|ABRT|ILL|FPE|BUS)\b/,
+  /malloc\(\):\s*(corrupted|invalid)/i,
+  /free\(\):\s*(invalid|double free)/i,
+  /double free or corruption/i,
+  /stack smashing detected/i,
+  /AddressSanitizer/,
+  /^Aborted(?:\s*\(core dumped\))?\s*$/m,
+];
+// 128+信号号:132=SIGILL,134=SIGABRT,135=SIGBUS,136=SIGFPE,139=SIGSEGV。不含137(SIGKILL)——
+// 常是外部超时/OOM killer/沙箱终止,不代表程序自身逻辑有 bug,不该触发"计划要不要改"的重估。
+const CRASH_EXIT_CODES = new Set([132, 134, 135, 136, 139]);
+
+function matchesCrashSignature(output: string, exitCode: number): boolean {
+  if (CRASH_EXIT_CODES.has(exitCode)) return true;
+  return CRASH_SIGNATURES.some((re) => re.test(output));
+}
 
 function runForeground(
   command: string,
@@ -263,6 +319,9 @@ export const execShellTool = defineTool({
     "在 -c 里反复试错。\n" +
     "高风险命令(rm -rf /、curl|sh 直接执行远程脚本、提权、写裸盘设备等)即便审批规则整体放宽了,也会被强制要求" +
     "确认一次,绕不过去;命令里混了同形字符/零宽字符伪装成正常样子也会被拦下强制确认。\n" +
+    "连续 2 次撞见\"缺少某个模块/库\"的报错后,再来一次纯诊断性探测(查这个库到底在不在、叫什么名字,不是安装它" +
+    "也不是切到不依赖它的写法)会被拒绝执行——先在\"实际装上它\"或\"改用不依赖它的写法(比如参考实现本身用到的" +
+    "原生数据类型)\"之间做一个选择,选定后继续。安装命令和运行/编译实际源文件的命令不受影响。\n" +
     "选择命令参数时,思考怎么调用更能解决问题,而不是凭感觉传参数。工具的默认行为(不带额外参数)往往是其设计者" +
     "选择的最优策略;确认掌握了默认行为和参数含义后再决定是否加参数。\n" +
     "例:john hash.txt 不带参数会依次尝试 single -> wordlist -> incremental(按概率从高到低)," +
@@ -300,6 +359,9 @@ export const execShellTool = defineTool({
     "present; the goal is automating the repetitive part, not a specific language.\n" +
     "High-risk commands (rm -rf /, piping curl straight into a shell, privilege escalation, writing raw disk devices, etc.) force a confirmation even if approval rules " +
     "are otherwise relaxed - there's no way around it; commands disguised with homoglyph/zero-width characters are likewise forced to confirm.\n" +
+    "After hitting a \"missing module/library\" error twice in a row, another purely diagnostic probe (checking whether the library exists or what it's " +
+    "called, not installing it and not switching to an approach that doesn't need it) will be rejected — pick one: actually install it, or switch to a " +
+    "native-type implementation that doesn't depend on it, then proceed. Install commands and commands that run/compile an actual source file are unaffected.\n" +
     "When choosing command parameters, think about how to invoke the tool to best solve the problem, not just pass parameters by intuition. A tool's default behavior " +
     "(without extra parameters) is often the optimal strategy chosen by its designers; confirm you understand the default behavior and parameter meanings before adding any.\n" +
     "Example: john hash.txt with no parameters tries single -> wordlist -> incremental (in probability order from high to low), covering the widest space; " +
@@ -343,10 +405,25 @@ export const execShellTool = defineTool({
           `你刚才的命令等了 ${seconds} 秒--这段时间整个 dao 会话被完全阻塞,无法响应用户输入。`;
       }
     }
+    // 连续撞见"缺模块/库"报错达到阈值后,拒绝再来一次纯诊断性探测(见 types.ts
+    // missingDepStrikes 字段注释里的完整背景)。安装命令和"引用实际源文件/可执行产物"的命令
+    // 不拦截——那正是候选希望模型做出的两种合理选择,拦截只挡"换个角度继续确认这个库在不在"。
+    const MISSING_DEP_STRIKE_THRESHOLD = Number(process.env.DAO_MISSING_DEP_STRIKES) || 2;
+    if (
+      ctx.missingDepStrikes &&
+      ctx.missingDepStrikes.count >= MISSING_DEP_STRIKE_THRESHOLD &&
+      isMissingDepDiagnosticProbe(args.command)
+    ) {
+      return `[操作被拒绝] 你已经连续 ${ctx.missingDepStrikes.count} 次撞见"缺少某个模块/库"的报错,这次调用看起来仍然只是在换个角度确认这个库到底在不在——不会执行。` +
+        `现在必须做一个选择再继续:(a) 用包管理器实际安装它(apt-get install/pip install/cargo add 等),或 (b) 改用不依赖这个库的写法` +
+        `(比如参考/规范实现本身用到的原生数据类型)。选定后直接去做,不要再运行只是"检查一下"的命令。`;
+    }
     if (args.background) {
       // 后台命令一定会真正执行,备份放在这里(不像下面 foreground 分支,还有可能被
       // python-inline 小文件拦截提前返回、命令根本没跑,那种情况不该白白备份一次)。
       const dbBackupNotice = backupDbFilesBeforeExec(args.command, ctx.cwd ?? ctx.workspaceRoot);
+      ctx.pendingUnverifiedWrites?.clear(); // 真实发起了一次执行——不判定是否针对某个具体文件,任何一次执行都算已有反馈
+      if (ctx.missingDepStrikes && INSTALL_CMD_RE.test(args.command)) ctx.missingDepStrikes.count = 0; // 已经做出"装库"这个选择,这一轮的犹豫结束
       const id = processManager.start(args.command, (ctx.cwd ?? ctx.workspaceRoot));
       const started = `已在后台启动(id=${id})。进程完成后会自动通知你--做完别的事后可以用 BashOutput 看一眼进度趋势,发现异常用 KillShell 终止。不是循环轮询,是 checkpoint 式检查。`;
       return dbBackupNotice ? `${dbBackupNotice}\n${started}` : started;
@@ -366,8 +443,14 @@ export const execShellTool = defineTool({
     // 执行前自动备份命令里涉及的数据库文件(及其 WAL/SHM/journal 边车文件)——硬约束,
     // 不依赖模型记不记得先备份;备份本身不阻塞、不影响命令是否执行,只是多一份磁盘拷贝。
     const dbBackupNotice = backupDbFilesBeforeExec(args.command, ctx.cwd ?? ctx.workspaceRoot);
+    ctx.pendingUnverifiedWrites?.clear(); // 真实发起了一次执行(即便报错/中断)——不判定是否针对某个具体文件,任何一次执行都算已有反馈
+    if (ctx.missingDepStrikes && INSTALL_CMD_RE.test(args.command)) ctx.missingDepStrikes.count = 0; // 已经做出"装库"这个选择,这一轮的犹豫结束
     const r = await runForeground(args.command, (ctx.cwd ?? ctx.workspaceRoot), ctx.signal, args.dangerouslyDisableSandbox, ctx.headless, ctx.foregroundRegistry);
     if (r.converted) return r.stdout; // Ctrl+B 转后台:干净返回,不走下面 exit code/运行时长的拼接
+    if (ctx.missingDepStrikes && matchesMissingDepSignature(r.stdout + r.stderr)) ctx.missingDepStrikes.count += 1;
+    if (ctx.headless && ctx.todoWriteRequired && matchesCrashSignature(r.stdout + r.stderr, r.code)) {
+      ctx.todoWriteRequired.done = false; // 崩溃是会改变计划的新信息,重新武装"下一步先过TodoWrite"这道 gate
+    }
     const parts: string[] = [];
     if (dbBackupNotice) parts.push(dbBackupNotice);
     if (r.stdout.trim()) parts.push(r.stdout.trimEnd());

@@ -42,7 +42,7 @@ export const enterWorktreeTool = defineTool({
       return "创建 worktree 失败(当前目录不是 git 仓库,或 git worktree add 执行出错)。";
     }
     const previousCwd = ctx.cwd;
-    ctx.activeWorktree = { root: wt.root, branch: wt.branch, cleanup: wt.cleanup, hasChanges: wt.hasChanges, previousCwd };
+    ctx.activeWorktree = { root: wt.root, branch: wt.branch, cleanup: wt.cleanup, hasChanges: wt.hasChanges, hasUnpushedCommits: wt.hasUnpushedCommits, previousCwd };
     ctx.cwd = wt.root;
     return `已进入 worktree:${wt.root}(分支 ${wt.branch})。文件读写/Bash/verify 现在都在这个目录下进行;` +
       `项目身份(memory/MCP/LSP/skills)仍指向原项目。做完用 ExitWorktree 离开。`;

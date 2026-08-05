@@ -22,12 +22,48 @@ export interface ToolContext {
     branch: string;
     cleanup: () => void;
     hasChanges: () => boolean;
+    hasUnpushedCommits: () => boolean;
     previousCwd: string | undefined;
   };
   // 本会话已读文件的绝对路径集合(写工具据此判断"覆盖/编辑前是否已读");可选。
   readFiles?: Set<string>;
   // P2-23 读时元信息(mtime/size):写前复核,文件自上次读后被外部改动则拒绝(防覆盖并发改动)。
   readMeta?: Map<string, { mtime: number; size: number }>;
+  // 已写入但自那以后还没有任何 Bash/exec_shell 调用发生的路径集合(真实撞见:write-compressor
+  // 复测里模型写完 compress.rs 从未编译运行过,凭记忆判断"这版思路不对"就整篇重写,第二版又被
+  // 超时打断,整个 trial 没有任何可运行的交付物——system_prompt.ts 里"写完就跑,别推倒重来"
+  // 那条规则本身已经写得很直白,模型读过仍然违反了)。Write 工具据此判断"对同一路径的第二次
+  // 整篇重写,前面有没有真的跑过一次" ——参照 readFiles 的先例(覆盖前必须先 Read,没读拒绝),
+  // 这里是同一类"用具体状态硬拦,而不是只在文字里劝"的机制,只挡 Write→Write,不挡 Edit
+  // (那正是规则本身推荐的局部修正替代方案)。exec_shell 每次调用(无论成败,哪怕只是
+  // 报错)都清空整个集合——任何一次真实执行都算"已经有过反馈",不做"这次执行到底测的是不是
+  // 这个文件"的脆弱字符串匹配。
+  pendingUnverifiedWrites?: Set<string>;
+  // 连续撞见"缺模块/库"报错的次数(exec_shell 用):达到阈值后,下一次仍是纯诊断性探测
+  // (查这个库到底在不在/叫什么名字,不是安装它也不是切到不依赖它的写法)会被拒绝执行,
+  // 逼模型二选一并继续。真实撞见:write-compressor 复测里模型选 Perl 写压缩器,读过的参考
+  // 实现(decomp.c)其实只用定长 int/long,却因为 Math::BigInt 不存在,连续 3 轮换着法子
+  // (-Mbigint/查@INC/find系统目录)确认"这个库到底在不在",没有一次真正做出选择。重放验证
+  // 过纯文字提醒(哪怕精确注入在报错发生的那一轮)完全无效——两组推理原文近乎逐字重复;换成
+  // 真拒绝执行后,3/3 触发样本要么真的装库、要么真的切到原生实现,0 个绕过。用对象包一层
+  // (而不是裸 number)是因为 ToolContext 按引用传递给同一 handler 的历次调用,裸 number
+  // 无法跨调用累加。
+  missingDepStrikes?: { count: number };
+  // headless 会话(ctx.headless)"第一步必须先用 TodoWrite 拆子步骤"的运行时硬拦截状态。
+  // 2026-07-31 的系统提示词文案版本(09d0725)只在开局提了这条要求,真实复测(gpt2-codegolf
+  // 0731-r3)确认:指令确实注入了,但模型全程 38 次工具调用 0 次 TodoWrite——文字层面的要求
+  // 说了不代表会照做,跟 missingDepStrikes 当初的落差同源。这里改成同一类"真拒绝,不是提醒"
+  // 机制:headless 会话第一批 tool_calls 里没有 TodoWrite 就整批拒绝执行,直到 TodoWrite
+  // 被调用过一次(done=true)才放行——只管"有没有迈出第一步",不追踪后续是否持续维护清单。
+  // 只在主会话注入(src/index.ts 构造根 ctx 时);子代理的 ToolContext 不设置这个字段,天然
+  // 不受影响(与 09d0725 的系统提示词文案覆盖面保持一致,子代理本来就不会拿到那段 headless
+  // 文案)。用对象包一层的原因同 missingDepStrikes:需要跨调用可变,裸 boolean 做不到。
+  // 2026-08-01 扩展:done=true 后不是永久放行——exec_shell.ts 检测到运行时崩溃信号(见
+  // matchesCrashSignature,segfault/SIGABRT/malloc corrupted 这类)会把它重新置回 false,
+  // 逼下一步先过一遍 TodoWrite 再继续。背景:对 187 个真实历史会话的普查显示,63% 的多次
+  // TodoWrite 调用只是原样重发勾状态,内容从不随执行过程中冒出的新信息演化——崩溃是最容易
+  // 判定、最该触发重新规划的具体信号之一,不是唯一场景,但是目前唯一已实现的重新武装入口。
+  todoWriteRequired?: { done: boolean };
   // 向用户提问(AskUserQuestion 用);注入,便于测试。
   ask?: (question: string) => Promise<string>;
   // 结构化选择(AskUserQuestion 带 options 时用):单选 ↑↓/数字 选 + Enter;多选(multi)用 checkbox(空格/数字切换 + Enter 确认)。
@@ -76,7 +112,7 @@ export interface ToolContext {
   // lsp 工具用:按文件类型路由到对应 language server(懒启动/复用),未配置对应类型时返回 error。
   lsp?: LspManager;
   // 为隔离子代理创建 git worktree(改文件并行不冲突);非 git 仓库返回 null。
-  createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | null;
+  createWorktree?: (id: string) => { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean; hasUnpushedCommits: () => boolean } | null;
   // 完整任务管理器引用(TaskCreate/get/list/update/stop 用):同一个实例贯穿 launch/adopt/create/registerAsyncAgent/
   // registerAgentForeground,不是并行的第二套系统——agent 工具的后台/前台切换也走它。
   taskManager?: TaskManager;

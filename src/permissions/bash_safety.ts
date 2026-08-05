@@ -16,6 +16,19 @@ function cmdRe(name: string): RegExp {
   return new RegExp(`(^|\\s)${name}${CMD_END}`, "i");
 }
 
+// 丢弃到 /dev/null 的重定向(>/dev/null、2>/dev/null、&>/dev/null、>>/dev/null)和纯 fd 复制
+// (2>&1、>&2)本身不落盘、不影响任何真实文件,不该被当成"写危险目标"。isReadOnlyShellCommand
+// 早就用同一份逻辑摘掉过这类重定向,但 dangerSegment 的"重定向截断系统/家目录文件"规则
+// (下面 /dev/ 那条)一直是各判各的、没有摘——裸 `>/dev/null` 命令词边界前手动确认过是最常见
+// 的 shell 消音写法(比如 `pdflatex file.tex >/dev/null 2>&1`),真实评测里反复被这条规则
+// 误伤(cobol-modernization/dna-assembly/dna-insert/overfull-hbox 四道题独立撞见,overfull-hbox
+// 那次模型完全没能猜中真实原因,来回试错好几轮才误打误撞绕开)。两处判断共用同一个正则,
+// 避免再次出现"一处摘了一处没摘"的不一致。
+const DEV_NULL_REDIRECT = /\s*&?\d*>>?\s*(\/dev\/null\b|&\d+\b)/g;
+function stripDevNullRedirects(s: string): string {
+  return s.replace(DEV_NULL_REDIRECT, "");
+}
+
 function dangerSegment(s: string): string | null {
   // rm 递归 + 危险目标(根/家目录/通配)——相对路径如 node_modules 不触发
   if (cmdRe("rm").test(s) && /(^|\s)-\S*r/i.test(s)) {
@@ -36,10 +49,20 @@ function dangerSegment(s: string): string | null {
   if (cmdRe("chgrp").test(s) && /(^|\s)-\S*R/.test(s) && /\s(\/|~)(\s|\/|$)/i.test(s)) return "递归 chgrp 到根/家目录";
   // 覆盖系统配置
   if (/>\s*\/etc\//i.test(s)) return "覆盖 /etc 系统配置";
-  // :> /important 截断(把现有文件清空)——危险目标:根/家目录/etc/dev
-  if (/(^|\s):?\s*>\s*(\/(etc|dev|bin|usr|boot|lib|sbin|var)\/|~\/|\$home)/i.test(s)) return "重定向截断系统/家目录文件";
-  // truncate / shred 危险目标(不可逆清空/抹除)
-  if (cmdRe("truncate").test(s) && /\s(\/|~)(\S)/i.test(s)) return "truncate 截断文件(可能清空数据)";
+  // :> /important 截断(把现有文件清空)——危险目标:根/家目录/etc/dev。先摘掉 /dev/null 类
+  // 消音重定向再判——它们不写真实文件,不该被这条"写系统目录"规则命中。
+  if (/(^|\s):?\s*>\s*(\/(etc|dev|bin|usr|boot|lib|sbin|var)\/|~\/|\$home)/i.test(stripDevNullRedirects(s))) return "重定向截断系统/家目录文件";
+  // truncate 危险目标(不可逆清空)——但 /tmp、/var/tmp 是一次性草稿区,截断/模拟损坏自己刚
+  // 创建的临时文件不构成真实数据损失(真实撞见:reshard-c4-data 模型 truncate 自己的
+  // /tmp/corr/part-000000 模拟"损坏 bundle"这个防御性测试场景,被误判成危险操作静默拒绝)。
+  // 只排除 /tmp、/var/tmp 这两个公认的一次性目录,其它绝对路径目标(含相对更深的 /private/tmp
+  // 这类系统专属临时区、更别说 /etc 这类真实系统目录)仍然拦。
+  {
+    const truncateTarget = /\s((?:\/|~)\S*)/i.exec(s)?.[1];
+    if (cmdRe("truncate").test(s) && truncateTarget && !/^\/(?:var\/)?tmp\//i.test(truncateTarget)) {
+      return "truncate 截断文件(可能清空数据)";
+    }
+  }
   // shred 本身之前也是裸检查(无任何复合条件),风险最高——文件名叫 shred.py 光是 cat 一下就会误判
   if (cmdRe("shred").test(s)) return "shred 不可逆抹除文件";
   // find ... -delete / -exec rm:批量删除,易因路径/通配失误酿灾
@@ -105,7 +128,8 @@ export function isReadOnlyShellCommand(command: string): boolean {
   if (isDangerousCommand(s)) return false; // 双保险
   // 丢弃到 /dev/null 的重定向(2>/dev/null、>/dev/null、&>/dev/null、>>/dev/null)和纯 fd 复制
   // (2>&1、>&2,只是让 stderr/stdout 互相指向,不落盘)先摘掉再判——都不算"会写文件"。
-  const sansDevNull = s.replace(/\s*&?\d*>>?\s*(\/dev\/null\b|&\d+\b)/g, "");
+  // 复用 dangerSegment 那边同一份正则(DEV_NULL_REDIRECT),避免两处再次各判各的。
+  const sansDevNull = stripDevNullRedirects(s);
   if (/<|>|`/.test(sansDevNull)) return false; // 重定向/命令替换(反引号形式)
   if (/\$\(/.test(s)) return false; // 命令替换 $(...)
   if (/\|\|/.test(s)) return false; // 逻辑或,保持保守

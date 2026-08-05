@@ -115,6 +115,7 @@ describe("MODELS_BY_PROVIDER", () => {
       "kimi-k2.7-code",
       "minimax-m2.7",
       "minimax-m3",
+      "ark-code-latest",
     ]);
   });
 });

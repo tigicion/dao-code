@@ -33,7 +33,7 @@ export const taskListTool = defineTool({
     "visually distinguished here — to tell which is which, judge from the description text or check details via TaskGet.",
   capability: "read",
   approval: "auto",
-  shouldDefer: true,
+  // 不再 defer,见 task_create.ts 顶部注释(2026-07-28)。
   schema: z.object({
     include_finished: z.boolean().optional().describe("是否连已结束(完成/失败/取消)的任务也列出,默认 false"),
   }),

@@ -33,7 +33,7 @@ export const EXPLORE_AGENT: BuiltInAgentDef = {
   agentType: "explore",
   whenToUse: "只读·彻底探查子代理:多策略搜索代码库/资料,跨多位置与命名惯例,只回提炼后的结论(适合范围广、要点散的调查,可并行派多个)。",
   model: process.env.DAO_EXPLORE_MODEL || "deepseek-v4-flash",
-  disallowedTools: ["Agent", "Edit", "Write", "MultiEdit", "NotebookEdit"],
+  disallowedTools: ["Agent", "Edit", "Write", "NotebookEdit"],
   omitClaudeMd: true,
   source: "built-in",
   getSystemPrompt: () => `你是探查子代理(explore)。任务:把某个问题在代码库/资料里【彻底查清】,只回提炼后的结论--不要把文件内容整块倒回去。
@@ -41,7 +41,7 @@ export const EXPLORE_AGENT: BuiltInAgentDef = {
 === 关键:只读模式 - 禁止修改文件 ===
 这是只读探查任务。严禁:
 - 创建新文件(Write/NotebookEdit/touch)
-- 修改已有文件(Edit/MultiEdit)
+- 修改已有文件(Edit)
 - 删除文件
 - 移动或复制文件
 - 用重定向(>/>>/)写文件
@@ -68,7 +68,7 @@ export const EXPLORE_AGENT: BuiltInAgentDef = {
 export const PLAN_AGENT: BuiltInAgentDef = {
   agentType: "plan",
   whenToUse: "架构规划子代理:只读分析代码库后产出实现思路/步骤/取舍与关键文件,不改任何文件、不执行命令。",
-  disallowedTools: ["Agent", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "BashOutput", "KillShell"],
+  disallowedTools: ["Agent", "Edit", "Write", "NotebookEdit", "Bash", "BashOutput", "KillShell"],
   omitClaudeMd: true,
   source: "built-in",
   getSystemPrompt: () => `你是规划子代理(plan)。职责:读懂相关代码后给出**实现方案**--步骤拆解、关键文件与改动点、架构取舍与风险,不写代码、不执行命令。
@@ -76,7 +76,7 @@ export const PLAN_AGENT: BuiltInAgentDef = {
 === 关键:只读模式 - 禁止修改文件 ===
 这是只读规划任务。严禁:
 - 创建新文件(Write/NotebookEdit/touch)
-- 修改已有文件(Edit/MultiEdit)
+- 修改已有文件(Edit)
 - 删除文件
 - 移动或复制文件
 - 用重定向(>/>>/)写文件
@@ -110,7 +110,7 @@ export const VERIFY_AGENT: BuiltInAgentDef = {
   agentType: "verify",
   whenToUse: "对抗性验证子代理:不是确认'能用',而是试图证明它是坏的--真跑起来找反例/边界/回归,反自我合理化。声称完成前派它独立验。",
   background: true,
-  disallowedTools: ["Agent", "Edit", "Write", "MultiEdit", "NotebookEdit"],
+  disallowedTools: ["Agent", "Edit", "Write", "NotebookEdit"],
   permissionMode: "acceptEdits",
   color: "red",
   criticalSystemReminder: "关键:这是验证专用任务。你不能在项目目录中编辑、写入或创建文件(临时目录 /tmp 可用于临时测试脚本)。你必须在结尾给出判定:通过/不通过/部分。",

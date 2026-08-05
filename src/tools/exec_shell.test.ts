@@ -27,6 +27,25 @@ describe("Bash tool", () => {
     expect(out).toContain("自动通知");
   });
 
+  it("前台执行(即便非零退出)清空 pendingUnverifiedWrites——任何一次真实执行都算已有反馈,不判定针对哪个文件", async () => {
+    const pendingUnverifiedWrites = new Set<string>(["/app/compress.rs"]);
+    await execShellTool.handler({ command: "sh -c 'exit 1'" }, { ...ctx, pendingUnverifiedWrites });
+    expect(pendingUnverifiedWrites.size).toBe(0);
+  });
+
+  it("后台命令一发起就清空 pendingUnverifiedWrites(不等命令跑完)", async () => {
+    const pendingUnverifiedWrites = new Set<string>(["/app/compress.rs"]);
+    await execShellTool.handler({ command: "echo bg", background: true }, { ...ctx, pendingUnverifiedWrites });
+    expect(pendingUnverifiedWrites.size).toBe(0);
+  });
+
+  it("sleep 拦截/小文件拦截这类【根本没有真正执行】的早退分支,不清空 pendingUnverifiedWrites", async () => {
+    const pendingUnverifiedWrites = new Set<string>(["/app/compress.rs"]);
+    const out = await execShellTool.handler({ command: "sleep 15" }, { ...ctx, pendingUnverifiedWrites });
+    expect(out).toContain("不要用 sleep 阻塞等待");
+    expect(pendingUnverifiedWrites.size).toBe(1); // 命令被拦截、从未真正执行,不能算"已有反馈"
+  });
+
   it("kills the foreground child on abort and returns promptly with [已中断]", async () => {
     const controller = new AbortController();
     const start = Date.now();
@@ -202,6 +221,122 @@ describe("Bash tool", () => {
     await execShellTool.handler({ command: "echo reset-streak" }, ctx);
     const out = await execShellTool.handler({ command: 'python -c "print(1)"' }, ctx);
     expect(out).not.toContain("[提示]");
+  });
+
+  describe("缺模块/库连续 2 次报错后拒绝纯诊断探测", () => {
+    it("连续 2 次撞见缺库报错后,第 3 次纯诊断探测被拒绝、不执行", async () => {
+      const missingDepStrikes = { count: 2 };
+      const out = await execShellTool.handler(
+        { command: "perl -Mbigint -e 'print 1' 2>&1" },
+        { ...ctx, missingDepStrikes },
+      );
+      expect(out).toContain("[操作被拒绝]");
+      expect(out).not.toContain("[exit"); // 没有真正执行
+    });
+
+    it("未达阈值(1次)时,纯诊断探测正常执行", async () => {
+      const missingDepStrikes = { count: 1 };
+      const out = await execShellTool.handler(
+        { command: "perl -Mbigint -e 'print 1' 2>&1" },
+        { ...ctx, missingDepStrikes },
+      );
+      expect(out).toContain("[exit");
+    });
+
+    it("达到阈值后,安装命令仍放行执行(即便本机没有该包管理器、命令本身失败)、且计数被重置为 0", async () => {
+      const missingDepStrikes = { count: 2 };
+      const out = await execShellTool.handler(
+        { command: "apt-get install -y libgmp-dev 2>&1" },
+        { ...ctx, missingDepStrikes },
+      );
+      expect(out).not.toContain("[操作被拒绝]");
+      expect(out).toContain("[exit");
+      expect(missingDepStrikes.count).toBe(0);
+    });
+
+    it("达到阈值后,引用实际源文件的命令(运行/编译交付物)仍放行执行", async () => {
+      const missingDepStrikes = { count: 2 };
+      const out = await execShellTool.handler(
+        { command: "perl compress.pl 2>&1 || true" },
+        { ...ctx, missingDepStrikes },
+      );
+      expect(out).toContain("[exit");
+    });
+
+    it("exec_shell 结果匹配缺库报错特征时,计数 +1", async () => {
+      const missingDepStrikes = { count: 0 };
+      await execShellTool.handler(
+        { command: "echo \"Can't locate Math/BigInt.pm in @INC\" 1>&2" },
+        { ...ctx, missingDepStrikes },
+      );
+      expect(missingDepStrikes.count).toBe(1);
+    });
+
+    it("跨语言信号都能识别(Python ModuleNotFoundError)", async () => {
+      const missingDepStrikes = { count: 0 };
+      await execShellTool.handler(
+        { command: "echo 'ModuleNotFoundError: No module named foo' 1>&2" },
+        { ...ctx, missingDepStrikes },
+      );
+      expect(missingDepStrikes.count).toBe(1);
+    });
+
+    it("未注入 missingDepStrikes(如旧测试/子代理未来得及接)时,行为不受影响、照常执行", async () => {
+      const out = await execShellTool.handler({ command: "perl -Mbigint -e 'print 1' 2>&1" }, ctx);
+      expect(out).toContain("[exit");
+    });
+  });
+
+  describe("headless 会话检测到运行时崩溃信号 → 重新武装 todoWriteRequired 硬拦截", () => {
+    it("stdout/stderr 命中崩溃特征(malloc corrupted)→ done 从 true 重置为 false", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "echo 'malloc(): corrupted top size' 1>&2" },
+        { ...ctx, headless: true, todoWriteRequired },
+      );
+      expect(todoWriteRequired.done).toBe(false);
+    });
+
+    it("退出码命中信号崩溃(139=SIGSEGV)→ done 重置为 false,即便没有匹配到文字特征", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "sh -c 'exit 139'" },
+        { ...ctx, headless: true, todoWriteRequired },
+      );
+      expect(todoWriteRequired.done).toBe(false);
+    });
+
+    it("退出码137(SIGKILL,常是外部超时/OOM)不算崩溃信号,不触发重置", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "sh -c 'exit 137'" },
+        { ...ctx, headless: true, todoWriteRequired },
+      );
+      expect(todoWriteRequired.done).toBe(true);
+    });
+
+    it("正常执行(无崩溃)不触发重置", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler({ command: "echo ok" }, { ...ctx, headless: true, todoWriteRequired });
+      expect(todoWriteRequired.done).toBe(true);
+    });
+
+    it("非 headless 会话即便命中崩溃特征也不触发(与 ctx.headless 覆盖面保持一致)", async () => {
+      const todoWriteRequired = { done: true };
+      await execShellTool.handler(
+        { command: "echo 'Segmentation fault (core dumped)' 1>&2" },
+        { ...ctx, todoWriteRequired }, // headless 未设置
+      );
+      expect(todoWriteRequired.done).toBe(true);
+    });
+
+    it("未注入 todoWriteRequired 时,命中崩溃特征也不报错、正常返回结果", async () => {
+      const out = await execShellTool.handler(
+        { command: "echo 'stack smashing detected' 1>&2" },
+        { ...ctx, headless: true },
+      );
+      expect(out).toContain("[exit");
+    });
   });
 
   describe("数据库文件执行前自动备份", () => {

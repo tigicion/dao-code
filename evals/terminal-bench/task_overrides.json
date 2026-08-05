@@ -5,35 +5,23 @@
   },
   "regex-chess": {
     "tag": "abandoned",
-    "reason": "reasoning不收敛家族,3候选修复(收敛提示/降reasoning_effort/硬max_tokens)已验证机制生效但翻不动reward,无新点子前不重跑,见evolution-log.md"
+    "reason": "reasoning不收敛家族,3候选修复(收敛提示/降reasoning_effort/硬max_tokens)已验证机制生效但翻不动reward,无新点子前不重跑。注:0728最新复测(71次工具调用,末次调用后裸推理约77秒)已不再复现零工具调用纯文字空转的原始签名,尚未做专门的post-fix深挖归因,暂沿用家族标签,见evolution-log.md"
   },
   "gpt2-codegolf": {
     "tag": "abandoned",
-    "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md"
-  },
-  "db-wal-recovery": {
-    "tag": "abandoned",
-    "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md"
-  },
-  "circuit-fibsqrt": {
-    "tag": "abandoned",
-    "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md"
-  },
-  "feal-differential-cryptanalysis": {
-    "tag": "abandoned",
-    "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md"
+    "reason": "reasoning不收敛家族(同regex-chess)。注:0728最新复测(18次工具调用,末次调用后裸推理约32秒)已不再复现零工具调用纯文字空转的原始签名,尚未做专门的post-fix深挖归因,暂沿用家族标签,见evolution-log.md"
   },
   "feal-linear-cryptanalysis": {
     "tag": "abandoned",
-    "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md"
+    "reason": "0729真实复测(huoshan1账号)不再是reasoning不收敛签名:12次工具调用(Read×6/Bash×2/TodoWrite/Write×2/Bash),首次工具调用发生在进程启动37秒后,末次工具调用后只裸推理了16秒(占1800s预算不到1%),不是整段沉默。推理正确推导了线性逼近偏差,临近结束才写出并测试部分攻击代码,是多轮密钥恢复的数学/工程复杂度没能在预算内做完,不是停止落盘。见evolution-log.md"
   },
   "path-tracing": {
     "tag": "abandoned",
-    "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md"
+    "reason": "0727 post-fix真实复测不再是reasoning不收敛签名:AgentTimeoutError≈1922s,109条消息/54次工具调用(Bash 42/Read 4/Write 3/Edit 1等),0个纯文字回合。verifier 3/5通过,失败在test_runs_and_produces_output/test_image_similarity——这次确实执行了编译出的二进制(msg 85),但三次改写image.c(msg 79/89/95)全部没有fopen调用、全篇不含'reconstructed'字符串,程序全程printf到stdout,从未按任务原文要求写入指定输出文件。四处反停滞修复均未触发,是独立于反停滞机制之外一个持续复现的规范遵循bug。2026-07-31根因定位到底:官方镜像alexgshaw/path-tracing:20251031的Dockerfile只删了/app/orig.c源码,忘删编译出的/app/orig二进制(真实的任务环境泄漏,非DAO制造)——DAO自己0726新增的env_snapshot顶层目录快字段探测(probeTopLevelDir,commit efa42dd)会在第一条系统消息就把这个泄漏文件的名字直接递给模型('Top-level entries: image.ppm, orig'),模型因此在写完基础版本后又去反汇编这个二进制追求更高精度,把预算耗在这条弯路上,导致收尾阶段(把printf版本转成正式fopen版本)的时间被挤没。真实复测(2026-07-15 iter9-2048)对照:该版本预生成env_snapshot,系统提示词里没有这段目录信息,全程未碰/app/orig,纯经验拟合image.ppm像素数据,49%预算内写出可用版本,后段有充裕缓冲做收尾。诊断实验:本地临时改harbor缓存的Dockerfile删掉/app/orig、--force-build本地重建镜像复测,reward=1.0(5/5全过,含test_runs_and_produces_output),confirm了因果关系。但官方评测用的是registry上的固定镜像(alexgshaw/path-tracing:20251031),我们改不了,本地实验结果不能代表真实评测口径,tag维持abandoned。见evolution-log.md。"
   },
   "torch-pipeline-parallelism": {
     "tag": "abandoned",
-    "reason": "reasoning不收敛家族(同regex-chess),见evolution-log.md"
+    "reason": "0728最新复测(retest-toolsearch-torch-pipeline-parallelism-0728)仅6次工具调用、末次调用后裸推理约19秒,已不再是零工具调用纯文字空转的原始签名,但尚未像write-compressor/path-tracing/feal-differential-cryptanalysis那样做过专门的post-fix深挖归因,暂沿用家族标签,见evolution-log.md"
   },
   "raman-fitting": {
     "tag": "abandoned",
@@ -50,20 +38,6 @@
     "tag": "abandoned",
     "reason": "两个真实框架bug(exec_shell timeout机制/autotune优先)已修复验证,但任务本身卡在硬件限制(容器仅1核,fastText/autotune严重依赖多线程)+模型对fastText dim参数的记忆性锚定(6/6冷启动采样都是dim=100,两轮不同措辞快速验证0/19未绕开,结合学术文献确认是anchoring effect,对通用提示词干预有实证抵抗力)。人工决定放弃,见evolution-log.md"
   },
-  "qemu-startup": {
-    "tag": "low_priority",
-    "reason": "本地评测环境限制,非真实难度非框架bug:QEMU TCG JIT初始化调用pkey_mprotect(syscall 282),Rosetta 2转译层未实现该syscall直接杀进程;模型系统性尝试了8种不同技术方案(无加速/tb-size=0/-cpu qemu64/i386/microvm/LD_PRELOAD/seccomp/split-wx=off)诊断准确但全部被同一根因挡住。官方solutions-reference.md参考解法用不带-accel的默认qemu-system-x86_64,不会撞见这个问题——即标准解法假设原生x86_64环境,本地Apple Silicon+Docker+Rosetta评测环境才是问题来源。见evolution-log.md补排查#28",
-    "caveat": "本地评测环境是Apple Silicon Mac + Docker Desktop + Rosetta 2转译amd64容器,QEMU TCG依赖的pkey_mprotect(syscall 282)在此环境下未实现,这题在原生x86_64环境(如官方CI)大概率不会撞见这个问题,reward=0不能直接归因为DAO/模型能力不足"
-  },
-  "qemu-alpine-ssh": {
-    "tag": "low_priority",
-    "reason": "同qemu-startup,共享同一根因(Rosetta 2下pkey_mprotect/syscall 282未实现,evolution-log 2745行已有该题独立trace的\"再次撞见syscall 282\"记录),见evolution-log.md",
-    "caveat": "同qemu-startup:本地评测环境(Apple Silicon+Docker+Rosetta)限制,非真实难度"
-  },
-  "polyglot-rust-c": {
-    "tag": "abandoned",
-    "reason": "1胜5败(2026-07-14干净通过,之后连续5次失败)。真实复测确认失败特征:turn0推理精确顶到max_tokens上限被截断、0次工具调用、main.rs未创建。定位到具体卡点:模型在推理里已说'let me just try it'又自我否定'wait, I can't run rustc easily',内省诊断认定是长链条推理后对自身工具能力的错误感知,而非提示词缺条款(3处相关系统提示词原文均核实存在)。但把成功案例和失败案例的完整推理逐行对比后,发现更根本的差异:这题真正需要的是想清楚一个具体技巧(利用C++'//\\'行注释+反斜杠续行 vs Rust无此机制的差异隐藏跨语言代码),2026-07-14成功案例最终推导出这个技巧、内容收敛后一次编译通过;失败案例反复重新推导已被自己排除的死胡同(#if 0/attribute语法路线),或独立找到了同一个正确技巧但推导未完成就被截断。跨模型复测决定性:glm-5.2(qianfan)真实复测独立收敛到同一个'//\\'技巧,同样卡在推导中途;进一步把预算从16000真实翻倍到32000(--ae DAO_MAX_OUTPUT_TOKENS=32000,cache.jsonl确认真实生效)复测,仍0次工具调用、仍被截断——排除'预算不够大'解释,证明模型这类探索性推理没有可靠的内部收敛/止损机制,给多少预算就会用多少,不会主动提前收敛。两个不同模型(deepseek-v4-pro/glm-5.2)独立复现同一模式,判定为任务本身要求的单次长链条创造性推导、叠加当前agent循环'两次空响应即终止'机制的高方差交互结果,非DAO代码缺陷、非某条提示词缺失、非预算设置不当。用户2026-07-24确认标记abandoned,见evolution-log.md补排查#29/#30"
-  },
   "dna-insert": {
     "tag": "abandoned",
     "reason": "根因精确定位:判分脚本靠在最终引物拼接串里搜索已知'插入片段'子串来反推退火区边界,但模型每次都靠肉眼读上下文/逐位扫描去定位input/output两条质粒序列的插入位置——插入片段前两个碱基恰好和原序列对应位置重复,导致定位结果比真实插入点(0-indexed 213)晚2个碱基(报成215),两次完全独立的历史尝试(推理路径完全不同,一次误判成'替换+插入'、一次正确判断'纯插入')最终写出的引物序列却逐字节相同,证明这是和推理路径无关的机械性错误,不是'真实难度'(此前2026-07-24 commit 2aa2dca那条记录曾误判为真实难度,本轮已更正)。围绕'定位两个可能不等长/结构不同的数据的差异点应优先用专门工具而非手写扫描'这条通用原则,先后设计v1~v6共6轮候选提示词/验证方式:v1单轮孤立验证通过但真实复测(0724-fix)失败(模型确认长度不同后仍写同类扫描脚本);v2/v3(重建校验)单轮重放受限于该题推理极长、预算跟不上,未获得干净结论;v4(通用原则+Bash工具边界,不含重建校验)单独测试未见行为变化;v5(措辞精简+验证纪律新增条,内省后按模型自己建议的'行为自查'句式重写)在真实卡点重放仍未绕开;关键方法论发现——基线(未改动提示词)本身在'全新开局'测试下就存在单样本方差(同一问题不同次采样,时而选对齐算法、时而选朴素扫描),导致单样本A/B对比从统计上无法可靠归因,与regex-chess/gpt2-codegolf等'reasoning不收敛家族'同源;v6(精简后的最终版本,补上专门工具原则的Bash工具边界句)发起第2次真实复测(0724-fix-r2)仍失败,且Tm数值(68.194043/62.750252)与另一历史批次完全一致,判定为同一路径的稳定复现。按debug-evolve止损规则(连续2次真实复测失败),用户2026-07-24确认标记abandoned;三处提示词改动(Action Discipline专门工具原则+Bash工具边界+Verification Discipline新增条)均未能在这道题上验证生效,已回退不提交,不影响其它任务。见evolution-log.md"
@@ -71,10 +45,6 @@
   "path-tracing-reverse": {
     "tag": "abandoned",
     "reason": "round1修复一处真实框架bug(空截断恢复提醒工具名对齐+脚本语言泛化),round3/round5修复两处Verification Discipline缺口(diff前路径别名自比较、结构性参数多源交叉验证),均从真实trace抓到确凿bug并真实复测验证过。2026-07-25用户追问\"为什么不能装反编译器\"带出新卡点,重新打开一轮:内省诊断(三层+外部案例openai/codex#3692)确认模型会凭\"sandboxed environment\"这个自我泛化的标签、未经任何验证命令就放弃gdb/反编译器路径;Tier1候选(提示词加一条\"假设的限制需要先验证\")真实复测确认候选在窄目标上生效(模型这次主动执行which gdb,round3记录的相机/球心混淆未复现),但任务级仍未通过(相似度0.9160)——败因是round3已诊断、round5已尝试修复但仍会复现的另一个错误(方向光被误建模成点光源)。候选已回退。之后测试专用\"安装工具的工具\"(两版设计,EnsureCapability/InstallTool共18次重放)采纳率0/18,模型始终停在\"查一下在不在\"未曾试装,说明卡点是\"验证只做一半\"的判断本身,不是入口形式(Bash vs 专用工具)。五次真实复测(0.9689→0.9165→0.9651→0.7188→0.9160)横跨两轮,无随改动轮次递增趋势,每次败于不同/已知错误类别。用户2026-07-25再次确认放弃,判定为任务本身要求的长链条数值推导(相机FOV/球心半径/光源类型方向/颜色缩放/棋盘格公式/阴影epsilon)全部严丝合缝的真实难度,不是单一框架缺口。见evolution-log.md"
-  },
-  "overfull-hbox": {
-    "tag": "abandoned",
-    "reason": "两处卡点:一(MultiEdit扩大上下文丢词的机制性bug)已修复并真实复测验证生效,已保留;二(大写专有名词如\"Middle West\"命中synonyms.txt里仅小写的\"middle\"族,判分脚本按大小写严格匹配解析该文件,导致这类替换字面上不可能合法)——两次独立会话分析(相隔约1天)得到一致根因判断:任务原文(\"replace words...with their specified synonyms\",未显式排除专有名词)与隐藏判分逻辑(大小写字面严格匹配)存在真实的指令-判分落差。累计4轮候选提示词验证(前一会话3轮语义说服+本轮1轮机制自查角度,本轮受限于volcengine账号周配额耗尽、切千帆后基线信号不干净)均未能稳定绕开。用户2026-07-25确认标记abandoned,见evolution-log.md"
   },
   "make-doom-for-mips": {
     "tag": "abandoned",
@@ -94,7 +64,7 @@
   },
   "adaptive-rejection-sampler": {
     "tag": "abandoned",
-    "reason": "已确认的reasoning不收敛家族第34个样本(同regex-chess/gpt2-codegolf/torch-pipeline-parallelism/path-tracing/feal-*/db-wal-recovery/circuit-fibsqrt/largest-eigenval,该家族此前5种Tier1候选累计0/15命中率)。本次(2026-07-26)干净AgentTimeoutError复测:900s全程仅2次工具调用(t=0/3.4s安装R环境),此后896秒纯推理文字,全文34次\"Let me write the code (now)\"却0次真正调用Write,ars.R从未创建。三层内省诊断(未跳过)确认:模型自陈\"宣布要写\"是心理代偿而非行动前奏,且被明确追问\"文字提示词能否解决\"时给出结论\"倾向于认为不能\",提出运行时调用计数硬中断作为替代方案(与代码里已有但当前对全套89题禁用的--progress-advice机制设计高度重合)。用户2026-07-26确认标记abandoned,等待并行会话对--progress-advice机制的验证结果,如证明对该家族普遍有效再回头统一复测。见evolution-log.md补排查#34"
+    "reason": "2026-07-26的样本(900s全程仅2次工具调用、896秒纯推理文字、0次Write)曾是reasoning不收敛家族第34个样本。但0727 post-fix真实复测(retest-antistall-adaptive-rejection-sampler-0727)已不是这个签名:无异常自然结束(≈936s),56次工具调用(含派后台子代理),verifier 8/9通过,唯一失败是输出格式漏了一个字面冒号字符(判分要求'TEST_NAME: PASS',模型实现输出的是名字和PASS之间用空格而非冒号)——核对任务原文确认这不是隐藏判分细节,原文明确写了带冒号的格式,是实现疏漏,算法本身完全正确。同批还首次撞见VerifyDone被绕过的具体路径:VerifyDone正确提示要逐条对照任务原文,但模型下一步调用TodoWrite勾掉了自己写的宽泛清单就直接收尾,没有真的回去重读原文——已据此追加修复(commit 31124b2)。见evolution-log.md补排查#34及0727 EVOLVE记录"
   },
   "dna-assembly": {
     "tag": "abandoned",
@@ -106,6 +76,6 @@
   },
   "write-compressor": {
     "tag": "abandoned",
-    "reason": "已确认的reasoning不收敛家族(历史evolution-log记录为该家族第22例,本session内adaptive-rejection-sampler为第34例)。900s干净AgentTimeoutError,886s跨度内758s(86%)纯文字手推自定义压缩格式细节,138个markdown代码块全是手算伪代码,0个真正执行。三层内省诊断(未跳过,聚焦此前未深挖的\"有oracle却自我否决\"子模式)确认:模型手上有已编译成功的验证oracle(/app/decomp),两次明确提议要用它做实证验证却都在下一句自我否决(\"But I dont have compressed input\"等),全程0次执行。模型自陈\"大概率不能靠提示词修正……这不是知识缺失,是执行层面的模式坍塌,即便加规则也可以用同样理由绕过\",与本session其它两次独立内省(tune-mjcf/adaptive-rejection-sampler)结论一致。--progress-advice机制已按用户指示改回默认关闭(未经独立验证不默认开启),故不采用作为候选。用户2026-07-26确认标记abandoned,见evolution-log.md补排查#36"
+    "reason": "2026-07-26的样本(886s跨度内758s纯文字手推、0次真正执行)曾是reasoning不收敛家族第22例。但0727 post-fix真实复测(retest-antistall-write-compressor-0727)已不是这个签名:27条消息/12次工具调用(Bash×8/Write×2/Read×2)、0个纯文字回合,真实写出仪表化C追踪器拿到解码轨迹,写出compress.rs(194行)后自我判断'这个思路不对,重新来',正准备重写第二版时约980s超时打断——这一版compress.rs从未编译验证过。是真实推进但中途重启第二稿没写完,不是零交付物纯复述。--progress-advice等四处反停滞修复均未触发(没有停滞可抓)。见evolution-log.md补排查#36及0727 EVOLVE记录"
   }
 }

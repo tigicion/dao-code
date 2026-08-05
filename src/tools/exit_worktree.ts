@@ -1,14 +1,5 @@
 import { z } from "zod";
-import { execFileSync } from "node:child_process";
 import { defineTool } from "./types.js";
-
-function changesSummary(root: string): string {
-  try {
-    return execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" }).trim();
-  } catch {
-    return "";
-  }
-}
 
 export const exitWorktreeTool = defineTool({
   name: "ExitWorktree",
@@ -32,9 +23,17 @@ export const exitWorktreeTool = defineTool({
     if (!wt) return "当前不在 worktree 会话里,无需退出。";
 
     if (args.action === "remove") {
-      const changes = changesSummary(wt.root);
-      if (changes && !args.discard_changes) {
-        return `该 worktree 有未提交的改动,直接删除会丢失:\n${changes}\n\n` +
+      // 两种都要查:未提交改动(hasChanges)只覆盖"改了但没 commit"的情况;worktree 里已经
+      // commit 过、工作区变干净后 hasChanges 会误判成"无改动"——那些提交仍然只活在这个即将
+      // 被删的分支上,得靠 hasUnpushedCommits 单独兜底,否则已提交的工作会被 cleanup() 的
+      // git branch -D 无声丢弃。
+      const uncommitted = wt.hasChanges();
+      const uncommittedOnBranch = wt.hasUnpushedCommits();
+      if ((uncommitted || uncommittedOnBranch) && !args.discard_changes) {
+        const parts: string[] = [];
+        if (uncommitted) parts.push("有未提交的改动");
+        if (uncommittedOnBranch) parts.push("有已提交但不在原分支上的提交");
+        return `该 worktree ${parts.join("、")},直接删除会丢失。\n` +
           `确认要丢弃就带上 discard_changes:true 重新调用;想保留就用 action:'keep'。`;
       }
       wt.cleanup();

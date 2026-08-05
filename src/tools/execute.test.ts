@@ -315,6 +315,63 @@ describe("executeToolCalls + PreToolUse hook", () => {
   });
 });
 
+describe("headless 会话:第一步必须先用 TodoWrite(硬拦截,不是提醒)", () => {
+  function regWithTodoWrite() {
+    const r = reg(); // 已含 Read(auto)/Write(required)
+    r.register(
+      defineTool({
+        name: "TodoWrite", description: "", capability: "plan", approval: "auto",
+        schema: z.object({}), handler: async () => "TODO_OK",
+      }),
+    );
+    return r;
+  }
+
+  it("headless + 首批无 TodoWrite → 整批拒绝执行,一个都不派发", async () => {
+    const { gate } = gateWith(true);
+    const hctx = { ...ctx, headless: true, todoWriteRequired: { done: false } };
+    const out = await executeToolCalls([call("a", "Read")], regWithTodoWrite(), hctx, gate);
+    expect(out[0]!.content).toContain("[操作被拒绝]");
+    expect(out[0]!.content).toContain("TodoWrite");
+    expect(hctx.todoWriteRequired.done).toBe(false); // 仍未满足,状态不变
+  });
+
+  it("headless + 首批含 TodoWrite(与其它工具混发)→ 全部放行执行", async () => {
+    const { gate } = gateWith(true);
+    const hctx = { ...ctx, headless: true, todoWriteRequired: { done: false } };
+    const out = await executeToolCalls(
+      [call("a", "TodoWrite"), call("b", "Read")],
+      regWithTodoWrite(),
+      hctx,
+      gate,
+    );
+    expect(out.find((m) => m.tool_call_id === "a")!.content).toBe("TODO_OK");
+    expect(out.find((m) => m.tool_call_id === "b")!.content).toBe("READ");
+    expect(hctx.todoWriteRequired.done).toBe(true);
+  });
+
+  it("TodoWrite 已调用过(done=true)→ 后续轮次不再拦截", async () => {
+    const { gate } = gateWith(true);
+    const hctx = { ...ctx, headless: true, todoWriteRequired: { done: true } };
+    const out = await executeToolCalls([call("a", "Read")], regWithTodoWrite(), hctx, gate);
+    expect(out[0]!.content).toBe("READ");
+  });
+
+  it("非 headless(ctx.headless 为空,如交互式/子代理场景)→ 不受影响,即便 todoWriteRequired 存在", async () => {
+    const { gate } = gateWith(true);
+    const ictx = { ...ctx, todoWriteRequired: { done: false } }; // headless 未设置
+    const out = await executeToolCalls([call("a", "Read")], regWithTodoWrite(), ictx, gate);
+    expect(out[0]!.content).toBe("READ");
+  });
+
+  it("headless=true 但 ctx.todoWriteRequired 未注入 → 优雅跳过,不报错", async () => {
+    const { gate } = gateWith(true);
+    const hctx = { ...ctx, headless: true }; // 未注入 todoWriteRequired
+    const out = await executeToolCalls([call("a", "Read")], regWithTodoWrite(), hctx, gate);
+    expect(out[0]!.content).toBe("READ");
+  });
+});
+
 describe("describeCall", () => {
   it("Bash → $ 命令(保留真实换行,不是字面 \\n)", () => {
     const out = describeCall("Bash", JSON.stringify({ command: "cat > f << EOF\nhi\nEOF" }));

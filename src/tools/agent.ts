@@ -235,7 +235,7 @@ export const agentTool = defineTool({
       const agentId = randomAgentId();
       const shouldRunAsync = !!args.background || !!agentDef.background;
 
-      let worktree: { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean } | undefined;
+      let worktree: { root: string; branch: string; cleanup: () => void; hasChanges: () => boolean; hasUnpushedCommits: () => boolean } | undefined;
       // isolation: worktree 和 remote 都创建 git worktree(隔离的工作副本)。
       // remote 的终极形态是 headless 子进程(独立进程隔离),但当前阶段与 worktree 等价。
       if ((isolate || isRemote) && ctx.createWorktree) {
@@ -436,9 +436,12 @@ export const agentTool = defineTool({
 });
 
 // P2-48 清理策略(参考):isolate 有改动 → 保留分支供 review/merge;无改动 → 自动删,不留垃圾 worktree。
-function finishWithWorktree(text: string, worktree?: { branch: string; cleanup: () => void; hasChanges: () => boolean }): string {
+// 两种都算"有改动":hasChanges(未提交)和 hasUnpushedCommits(子代理自己在 worktree 里commit
+// 过、工作区已经变干净,hasChanges 单独看不出来)——只查前者会把"已提交"误判成"无改动",
+// 直接 cleanup() 把刚提交的工作连着分支一起删掉。
+function finishWithWorktree(text: string, worktree?: { branch: string; cleanup: () => void; hasChanges: () => boolean; hasUnpushedCommits: () => boolean }): string {
   if (!worktree) return text;
-  if (worktree.hasChanges()) return `${text}\n[隔离:改动在分支 ${worktree.branch}(已保留,可 review/merge)]`;
+  if (worktree.hasChanges() || worktree.hasUnpushedCommits()) return `${text}\n[隔离:改动在分支 ${worktree.branch}(已保留,可 review/merge)]`;
   worktree.cleanup();
   return text;
 }

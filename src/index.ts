@@ -22,7 +22,6 @@ import { readFileTool } from "./tools/read_file.js";
 import { listDirTool } from "./tools/list_dir.js";
 import { writeFileTool } from "./tools/write_file.js";
 import { editFileTool } from "./tools/edit_file.js";
-import { multiEditTool } from "./tools/multi_edit.js";
 import { notebookEditTool } from "./tools/notebook_edit.js";
 import { installSkills } from "./skills/install.js";
 import { scheduleAdd, scheduleList, scheduleRemove } from "./schedule.js";
@@ -32,6 +31,7 @@ import { loadPlugins, installPlugin, removePlugin, pluginsRoot, pluginComponentD
 import { loadProjectInstructions } from "./project_doc.js";
 import { gatherEnvSnapshotData, formatEnvSnapshot, probeTopLevelDir, probeMemory, formatFastEnvFields, wrapDelayedEnvNotice } from "./env_snapshot.js";
 import { execShellTool, cleanupDbBackups } from "./tools/exec_shell.js";
+import { verifyDoneTool } from "./tools/verify.js";
 import { execShellPollTool } from "./tools/exec_shell_poll.js";
 import { execShellKillTool } from "./tools/exec_shell_kill.js";
 import { grepFilesTool } from "./tools/grep_files.js";
@@ -115,7 +115,7 @@ import { createToolAuditSink, type ToolAuditSink, summarizeToolTrace, formatTool
 import { createPermAuditSink, type PermAuditSink, summarizePermTrace, formatPermReport } from "./permissions/perm_audit.js";
 import { createSkillAuditSink, type SkillAuditSink, readAllSkillTraces, summarizeSkillTrace, formatSkillReport } from "./skills/skill_audit.js";
 import { createCheckpointer } from "./session/checkpoint.js";
-import { runRepl } from "./repl.js";
+import { runRepl, drainAndContinue } from "./repl.js";
 import { dispatchCommand } from "./commands/commands.js";
 import { runBuiltinCommand } from "./commands/builtin.js";
 import { buildWelcome } from "./tui/banner.js";
@@ -262,21 +262,38 @@ async function main() {
   // 这是另一套独立机制(不依赖 --reflect-memory),之前一直无条件跑(仅一次性 headless 因
   // argvPrompt 而被跳过),交互态/非 TTY 多轮管道下每轮都在算 + 命中阈值就 fork 一次 LLM 调用。
   const reflectChallengerFlag = rawArgs.includes("--reflect-challenger");
-  // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-hooks --no-project-instructions。
-  // 每个子开关也可单独使用。--no-skills 的隔离范围覆盖整个"磁盘/插件自定义"通道:
-  // 技能本体 + 自定义子代理定义(.dao/agents)+ 自定义 slash 命令(.dao/commands)——三者都是同一类
+  // --eval:评测模式糖,等价于同时 --no-memory --no-skills --no-mcp --no-project-instructions --no-web。
+  // 每个子开关也可单独使用。--no-skills 的隔离范围覆盖"磁盘/插件自定义"通道:
+  // 磁盘/插件技能 + 自定义子代理定义(.dao/agents)+ 自定义 slash 命令(.dao/commands)——三者都是同一类
   // 用户/项目/插件自带的、会改变模型行为的注入源,不隔离会让评测结果混入本机个性化配置的影响。
+  // DAO 自带的内置技能(BUNDLED_SKILLS)和 hooks 不受 --eval 影响:它们是 DAO 本身能力的一部分,
+  // 不是"本机个性化配置",评测时应该像真实使用一样可用;仍可用 --no-skills/--no-hooks 单独关闭。
+  // --no-web 关 WebSearch/WebFetch(和 MCP 同属"外部、不受控的信息源"):terminal-bench
+  // polyglot-rust-c 真实撞见过模型联网搜到并抓取了该题带 canary GUID 的官方 solve.sh 全文
+  // (2026-07-30 真实复测)——这类基准任务的参考答案已被公开镜像到 GitHub,评测时开着网络工具
+  // 就是给模型一条查答案的路,而不是在测真实解题能力,污染的是 reward 本身,不是某道具体题的
+  // 结果。这两个工具会连公网抓取任意内容,污染风险和 MCP server 是同一类,理应和 MCP 一起归入
+  // "评测保持纯净"的默认关闭范围。
   const evalFlag = rawArgs.includes("--eval");
-  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)默认关闭,--progress-advice 才开。
+  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)【默认开启】,--no-progress-advice 才关。
   // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
-  const progressAdviceFlag = rawArgs.includes("--progress-advice");
+  // 2026-07-19 的 f939ddf 曾把它改成需要显式 --progress-advice 才开,而真实评测从未传过这个参数,
+  // 等于在所有无人值守长任务里静默失去了这道保险(真实案例:一道题的历史通过 trace 里提醒在第 5 轮
+  // 触发、触发后模型立刻收敛写完,回归后同一题再没通过过)。默认打开才符合这个机制的用途——它保护的
+  // 恰恰是没人盯着的场景。同时判据已修正为"改动文件或执行命令"(见 loop.ts 的 PROGRESS_TOOLS),
+  // 误触发率比当初关掉它的时候低得多。
+  const progressAdviceFlag = !rawArgs.includes("--no-progress-advice");
   const noMemory = evalFlag || rawArgs.includes("--no-memory");
+  // 只管磁盘/插件技能 + 自定义子代理/命令,不管内置技能(见下面 noBuiltinSkills)。
   const noSkills = evalFlag || rawArgs.includes("--no-skills");
+  // 内置技能单独一个开关,--eval 不隐含它,只有显式 --no-skills 才关。
+  const noBuiltinSkills = rawArgs.includes("--no-skills");
   const noMcp = evalFlag || rawArgs.includes("--no-mcp");
-  const noHooks = evalFlag || rawArgs.includes("--no-hooks");
+  const noHooks = rawArgs.includes("--no-hooks");
   // 项目/用户级自定义指令(DAO.md,CLAUDE.md 的 DAO 对应物)。之前一直无条件加载并注入系统提示词,
   // --eval 完全没覆盖到——同样是"用户自定义、会改变模型行为"的影响源,单独给一个子开关。
   const noProjectInstructions = evalFlag || rawArgs.includes("--no-project-instructions");
+  const noWeb = evalFlag || rawArgs.includes("--no-web");
   const verbose = rawArgs.includes("--verbose") || rawArgs.includes("--debug");
   // headless 临时 key:--api-key <key> + --provider <deepseek|volcengine|qianfan|...>
   const apiKeyIdx = rawArgs.indexOf("--api-key");
@@ -284,7 +301,7 @@ async function main() {
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
-  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions"]);
+  const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--no-progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions", "--no-web"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
@@ -438,9 +455,9 @@ async function main() {
   let keySource = resolved.source;
   const cfg = { apiKey: resolved.key, baseUrl: resolved.baseUrl, model: resolved.model, provider: resolved.provider };
 
-  // ---- 目录信任(P2-37):紧接 key 之后,作为首次 onboarding 的第二步(对标 CC 单一连贯流程)----
+  // ---- 目录信任(P2-37):紧接 key 之后,作为首次 onboarding 的第二步 ----
   // 未信任目录【不加载】其项目级 settings/hooks,防恶意仓库自动执行。必须在加载任何项目级配置之前决定。
-  // 对标 CC 信任对话:交互终端进入未信任文件夹时直接问,y→信任整个文件夹并当场加载(无需重启);
+  // 信任对话:交互终端进入未信任文件夹时直接问,y→信任整个文件夹并当场加载(无需重启);
   // 否则继续不信任(只用用户级)。headless(-p 一次性)与非 TTY 不弹问,默认不信任(自动化不卡交互、安全默认)。
   // trustProject 已在首启分支前求值;首启(firstRun)时 onboarding 已问过信任,这里不再用 readline 重复问。
   if (!trustProject) {
@@ -536,14 +553,18 @@ async function main() {
 
   const registry = new ToolRegistry();
   for (const t of [
-    readFileTool, listDirTool, writeFileTool, editFileTool, multiEditTool, notebookEditTool,
+    readFileTool, listDirTool, writeFileTool, editFileTool, notebookEditTool,
     execShellTool, execShellPollTool, execShellKillTool,
-    grepFilesTool, fileSearchTool, askUserTool, fetchUrlTool, webSearchTool, todoWriteTool, memoryWriteTool, memoryReadTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
+    grepFilesTool, fileSearchTool, askUserTool,
+    // --no-web / --eval 跳过(见上方 noWeb 定义处说明):不注册就是全流程(含子代理,子代理复用
+    // 同一个 registry)都拿不到这两个工具,不是"注册了但不给用"这种更容易被绕过的软限制。
+    ...(noWeb ? [] : [fetchUrlTool, webSearchTool]),
+    todoWriteTool, memoryWriteTool, memoryReadTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
     taskCreateTool, taskListTool, taskGetTool, taskOutputTool, taskUpdateTool, taskStopTool, notifyUserTool,
     enterPlanModeTool, exitPlanModeTool,
     enterWorktreeTool, exitWorktreeTool,
     monitorTool,
-    configTool, sendMessageTool,
+    configTool, sendMessageTool, verifyDoneTool,
     cronCreateTool, cronDeleteTool, cronListTool,
   ]) {
     registry.register(t);
@@ -570,8 +591,17 @@ async function main() {
   // 由 runTurn 在工具轮边界(loop.ts 的 drainMcpNotices)统一消费,保证时机安全。
   const mcpChangeQueue: string[] = [];
   mcp.onServerChange = (notice) => mcpChangeQueue.push(notice);
-  // MCP 工具默认隐藏(见 registry.isMcpVisible);只有连了至少一个 server 才值得注册 ToolSearch 去找它们。
-  if (mcp.connectedCount > 0 || registry.countMcpTools() > 0) registry.register(toolSearchTool);
+  // MCP 工具默认隐藏(见 registry.isMcpVisible)。ToolSearch 无条件注册——它不只是发现 MCP 工具的
+  // 入口,也是激活上面 22 个内置 shouldDefer 工具(TaskOutput/TaskCreate/Monitor 等)的唯一入口,
+  // 这些内置工具跟连不连 MCP 无关、任何模式下都无条件注册。此前按"连了 MCP 才注册 ToolSearch"
+  // 门这个条件,导致 --eval/--no-mcp 场景下(评测环境从不连 MCP)这些内置工具永久不可达——而
+  // system_prompt.ts 明确写着"调用前必须先用 ToolSearch 搜该工具名"、Agent 工具描述明确指导
+  // "用 TaskOutput 做 checkpoint 式进度检查",这两条指导在这些场景里根本执行不了(真实撞见:
+  // torch-pipeline-parallelism 复测,模型派了后台 verify 子代理后想用 TaskOutput 查进度,发现
+  // 工具不可见,以为自己没有 ToolSearch,放弃等待提前收尾,子代理真实验证结果永久丢失)。
+  // ToolSearch 本身只读、无副作用,不引入外部状态,无条件注册不违背"--eval 保持纯净"的本意
+  // (那条注释针对的是外部 MCP server 连接,不是内置工具能不能被发现)。
+  registry.register(toolSearchTool);
 
   // LSP:不接入任何语言的二进制,纯协议客户端;server 命令完全来自用户配置(同 MCP 的配置文件模式)。
   // 没配置任何 server 就不注册 lsp 工具(没意义,只会让模型看见一个必然报错的工具)。
@@ -701,9 +731,9 @@ async function main() {
   // 禁用集(~/.dao/skills-disabled.json):被禁用的技能(内置或磁盘)都不注入上下文(省 token),/skills 可开关。
   const disabledPath = path.join(os.homedir(), ".dao", "skills-disabled.json");
   const disabledSet = new Set<string>((() => { try { return JSON.parse(readFileSync(disabledPath, "utf8")); } catch { return []; } })());
-  // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关(对标 CC disableBundledSkills)。
-  // --no-skills / --eval 时也清空(不注入内置技能描述)。
-  const coreBundled = noSkills ? [] : BUNDLED_SKILLS
+  // 内置技能:默认开、描述常驻上下文(可自动触发)。同名磁盘/插件技能覆盖之;也可在 /skills 关。
+  // 只有显式 --no-skills 才清空;--eval 不隐含关闭内置技能(见 noBuiltinSkills 定义处的说明)。
+  const coreBundled = noBuiltinSkills ? [] : BUNDLED_SKILLS
     .filter((b) => b.core && !diskNames.has(b.name) && !disabledSet.has(b.name))
     .map((b) => ({ name: b.name, description: b.description, body: b.body, dir: "", slug: b.name, ...(b.modelInvokable === false ? { modelInvokable: false } : {}), ...(b.userInvocable === false ? { userInvocable: false } : {}) } as import("./skills/skills.js").Skill));
   const pluginsDir = pluginsRoot();
@@ -991,6 +1021,9 @@ async function main() {
     foregroundRegistry: createForegroundRegistry(),
     readFiles: new Set<string>(),
     readMeta: new Map<string, { mtime: number; size: number }>(),
+    pendingUnverifiedWrites: new Set<string>(),
+    missingDepStrikes: { count: 0 },
+    todoWriteRequired: argvPrompt ? { done: false } : undefined,
     ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
     // 只在真正交互式会话里提供——非交互场景不给这个函数,让 AskUserQuestion 工具退回 ctx.ask()(已有
@@ -1090,7 +1123,7 @@ async function main() {
   ctx.adaptSkill = makeSkillAdapter({ daoTools, catalog: toolCatalog, callFlash, homeDir: os.homedir() });
 
   // 生命周期钩子(.dao/hooks.json + 用户级):工具前/后、用户提交、会话起止。
-  // --no-hooks / --eval 跳过(评测场景不需要用户自定义的自动执行面)。
+  // 只有显式 --no-hooks 才跳过;--eval 不再隐含关闭 hooks(hooks 视为 DAO 正常能力的一部分)。
   const hooks = noHooks ? [] : loadHooks([
     { path: path.join(os.homedir(), ".dao", "hooks.json") },
     ...pluginComp.hookFiles.map((h) => ({ path: h.file, pluginRoot: h.root })), // B-5 插件 hooks(pluginRoot=插件根,兼容 CC 的 hooks/ 子目录布局)
@@ -1128,6 +1161,16 @@ async function main() {
   // 后台任务管理器:异步子代理 + 通知队列(主循环不阻塞)。
   const taskManager = createTaskManager();
   ctx.taskManager = taskManager; // TaskCreate/get/list/update/stop 用;同一个实例,不是第二套系统
+  // 后台子代理/后台 shell 状态变化的事件驱动等待(供 drainAndContinue 用,见 repl.ts 里
+  // waitForBackgroundChange 的注释)。onChange 是单槽位回调,这里只在非 TTY 的一次性/管道
+  // 路径用——TTY 交互态走另一套 subscribeTasks 逻辑(见下方 register 分支),两者互斥,
+  // 同一次进程运行只会用到其中一个,不会互相覆盖。
+  const waitForBackgroundChange = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const onChange = () => resolve();
+      taskManager.onChange(onChange);
+      processManager.onChange(onChange);
+    });
   ctx.sendToTask = (id: string, message: string) => taskManager.send(id, message);
   // handoff 审查只在 auto 模式触发;用 getter 每次读最新值,/mode 或长任务切换 mode 时自动同步
   Object.defineProperty(ctx, 'permissionMode', { get: () => getMode(), enumerable: true });
@@ -1240,8 +1283,6 @@ async function main() {
   const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || 1_000_000;
   // Q1 当前上下文 token:优先用主模型上次真实 prompt_tokens(准,尤其中文),无则回退 chars/3 估算。
   const contextTokens = () => session.lastPromptTokens ?? estimateTokens(session.messages);
-  // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。
-  const FALLBACK_MODEL = process.env.DAO_FALLBACK_MODEL === "off" ? undefined : (process.env.DAO_FALLBACK_MODEL || "deepseek-v4-flash");
   // P2-11 编辑后诊断命令(如 "tsc --noEmit"):设了才在写/改文件后跑、把报错回灌模型。
   // 显式 DAO_DIAGNOSTICS_CMD 优先;否则 DAO_DIAGNOSTICS=1 时按项目自动探测(tsc/eslint)。默认不跑。
   const DIAG_CMD = process.env.DAO_DIAGNOSTICS_CMD?.trim()
@@ -1254,7 +1295,7 @@ async function main() {
   // 【成本实测/勿误信】命中虽真,但 pro 的 miss 价(3￥/1M)与输出价(6￥/1M)均是 flash 的 3 倍,
   // 64–74% 命中折扣压不过那部分 miss+输出 → pro 摘要其实比"冷发 flash"贵约 63%(整会话 ~+12%)。
   // 默认仍用主模型【是为摘要质量/长任务续接更稳】,不是为省钱;想省钱用 DAO_SUMMARY_MODEL=…flash 切回。
-  // 对标 CC:先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
+  // 先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
   const COMPACT_INSTRUCTION = `现在把【以上整段对话】压缩成一份详尽的中文摘要,重点保留用户的明确请求和你已做的动作,确保技术细节、代码模式、架构决策不丢,以便不丢上下文地继续工作。
 
 注意:对话开头可能有【早期对话摘要】或【当前任务清单】这类系统消息——它们会被原样保留,请【不要重复摘要它们】,只摘要其后的真实对话内容。
@@ -1356,10 +1397,9 @@ async function main() {
       write,
       compact: runCompaction, // L2.2 反应式压缩
       shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
-      fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
-      progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
+      progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
       interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
@@ -1527,9 +1567,22 @@ async function main() {
       // 交互式命令(如 7z 不带 -p、mysql 不带密码、ssh 需要密码)会卡住等待输入,永远不会返回。
       session.messages.push({ role: "system", content: "[headless 提醒] 当前为无人值守模式,不会有用户在终端输入。所有命令必须是非交互式的——用参数或管道传入所需输入(如 7z -p<密码>、echo <密码> | 7z x),不要让命令等待 stdin。交互式命令会永久卡住。" });
       if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
-      await runOneTurn(() =>
-        store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } }),
-      );
+      const argvCheckpoint = () =>
+        store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } });
+      await runOneTurn(argvCheckpoint);
+      // 一次性/eval 路径没有下一次真实用户输入来触发新回合——模型若以"结束本轮等后台通知"
+      // 收尾(工具描述/系统提示词教它这么做),不主动等就会直接往下走到 SessionEnd 退出整个
+      // 进程,后台进程虽然 detached 独立于 DAO 存活但已没人收它的结果,那句"自动通知"的
+      // 承诺永远兑现不了(真实撞见:terminal-bench flash 赛道 5 道题都是这个模式)。用和
+      // runRepl 同一套 drainAndContinue 排空/等待,直到确实没有后台工作在跑了才继续退出。
+      await drainAndContinue({
+        session,
+        write,
+        runTurn: () => runOneTurn(argvCheckpoint),
+        drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()],
+        runningBackgroundCount: () => taskManager.running().length + processManager.runningCount(),
+        waitForBackgroundChange,
+      });
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(CC 对等:一次性运行也触发)
       await cleanupDbBackups(workspaceRoot); // 清理本次运行留下的 .dao-backup 安全网文件
       store.saveState({
@@ -1641,10 +1694,9 @@ async function main() {
             write: () => {},
             compact: inkCompact, // L2.2 反应式压缩
             shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
-            fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
-            diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
+                  diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
-            progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认关闭,--progress-advice 才开
+            progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
             interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
@@ -1654,7 +1706,7 @@ async function main() {
             listOtherAccounts: () => listAccounts().filter((a) => !a.active).map((a) => ({ name: a.name })), // 限流菜单用
             switchAccountAndWait,
             events: logEvents(events, store), // 渲染的同时写日志
-            // 主会话不限轮数(对标 CC main session):靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
+            // 主会话不限轮数:靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
             onCheckpoint: persist, // 每个工具轮落一次盘,回合中途异常上抛也不连带丢掉此前已成功的步骤
           }));
@@ -2304,7 +2356,7 @@ async function main() {
       const persistRepl = () =>
         store.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, messages: session.messages, usage: { ...session.usage } });
       await injectSessionStart(); // SessionStart 注入(首回合前)
-      await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], getProvider: () => cfg.provider });
+      await runRepl({ session, readLine, runTurn: () => runOneTurn(persistRepl), write, compact: runCompaction, gateUserPrompt, drainNotifications: () => [...taskManager.drainNotifications(), ...processManager.drainNotifications()], runningBackgroundCount: () => taskManager.running().length + processManager.runningCount(), waitForBackgroundChange, getProvider: () => cfg.provider });
       persistRepl(); // 干净退出前再存一次(覆盖最后一轮是"纯文本收尾早退"、没触发过 onCheckpoint 的情形)
       await runHooks(hooks, "SessionEnd", { cwd: workspaceRoot }); // 会话结束钩子(与 TTY 分支对齐)
       await cleanupDbBackups(workspaceRoot); // 清理本次运行留下的 .dao-backup 安全网文件

@@ -47,6 +47,39 @@ describe("Write tool", () => {
     expect(await fs.readFile(abs, "utf8")).toBe("new");
   });
 
+  it("第二次整篇重写同一路径、中间没有任何 exec_shell 调用 → 拒绝(真实撞见:write-compressor 复测里模型写完 compress.rs 从未编译运行过就整篇重写)", async () => {
+    const abs = path.join(root, "compress.rs");
+    await fs.writeFile(abs, "old", "utf8");
+    const pendingUnverifiedWrites = new Set<string>();
+    // 第一次"写入"(模拟已经写过一版):readFiles 满足覆盖前置条件,同时把它标记为待验证。
+    await writeFileTool.handler({ path: "compress.rs", content: "v1" }, { workspaceRoot: root, readFiles: new Set([abs]), pendingUnverifiedWrites });
+    expect(pendingUnverifiedWrites.has(abs)).toBe(true);
+    // 第二次整篇重写,中间没有任何 exec_shell 调用清空过这个集合 → 拒绝。
+    await expect(
+      writeFileTool.handler({ path: "compress.rs", content: "v2 rewritten from scratch" }, { workspaceRoot: root, readFiles: new Set([abs]), pendingUnverifiedWrites }),
+    ).rejects.toThrow(/拒绝写入.*compress\.rs.*没有执行过任何命令/s);
+    // 拒绝时不应该真的把内容改成 v2。
+    expect(await fs.readFile(abs, "utf8")).toBe("v1");
+  });
+
+  it("第二次整篇重写同一路径、中间有过 exec_shell 调用(集合被清空) → 允许", async () => {
+    const abs = path.join(root, "compress.rs");
+    await fs.writeFile(abs, "old", "utf8");
+    const pendingUnverifiedWrites = new Set<string>();
+    await writeFileTool.handler({ path: "compress.rs", content: "v1" }, { workspaceRoot: root, readFiles: new Set([abs]), pendingUnverifiedWrites });
+    pendingUnverifiedWrites.clear(); // 模拟中间发生过一次 exec_shell 调用
+    await writeFileTool.handler({ path: "compress.rs", content: "v2 rewritten after running v1" }, { workspaceRoot: root, readFiles: new Set([abs]), pendingUnverifiedWrites });
+    expect(await fs.readFile(abs, "utf8")).toBe("v2 rewritten after running v1");
+  });
+
+  it("不传 pendingUnverifiedWrites(如测试桩/未接入场景)时不受此限制,行为保持不变", async () => {
+    const abs = path.join(root, "compress.rs");
+    await fs.writeFile(abs, "old", "utf8");
+    await writeFileTool.handler({ path: "compress.rs", content: "v1" }, { workspaceRoot: root, readFiles: new Set([abs]) });
+    await writeFileTool.handler({ path: "compress.rs", content: "v2" }, { workspaceRoot: root, readFiles: new Set([abs]) });
+    expect(await fs.readFile(abs, "utf8")).toBe("v2");
+  });
+
   it("工作区外路径:直接解析并写入(放行交给权限系统,工具不再硬拦)", async () => {
     const extName = `../${path.basename(root)}-ext.txt`; // 唯一的区外新文件
     const out = await writeFileTool.handler(

@@ -67,4 +67,19 @@ describe("ExitWorktree", () => {
     expect(existsSync(wtRoot)).toBe(false);
     expect(ctx.cwd).toBeUndefined();
   });
+
+  it("action=remove:worktree 里已提交、工作区干净(git status 看不出改动),但有原分支没有的提交 → 仍要拒绝", async () => {
+    // 这是本轮要补的缺口:旧实现只查 git status --porcelain,提交完的东西看起来"干净",
+    // 会被当成"无改动"直接放行删除——已提交的工作就这么无声丢了。
+    const ctx = makeCtx();
+    await enterWorktreeTool.handler({}, ctx);
+    const wtRoot = ctx.cwd!;
+    writeFileSync(path.join(wtRoot, "b.txt"), "new");
+    git(["add", "."], wtRoot);
+    git(["commit", "-m", "work done in worktree"], wtRoot);
+    const out = await exitWorktreeTool.handler({ action: "remove" }, ctx);
+    expect(out).toContain("discard_changes");
+    expect(existsSync(wtRoot)).toBe(true); // 没被删
+    expect(ctx.activeWorktree).toBeDefined(); // 仍在 worktree 会话里
+  });
 });

@@ -24,7 +24,13 @@ export const taskCreateTool = defineTool({
     "or it'll hang showing running forever.",
   capability: "plan",
   approval: "auto",
-  shouldDefer: true,
+  // 曾是 shouldDefer(需 ToolSearch 激活),2026-07-28 撤销:task_* 全家跟 agent(background:true)
+  // 是同一套背景任务系统的两端,而管理"另一种后台机制"(exec_shell 的 background:true)的
+  // BashOutput/KillShell 从未被 defer 过——同一角色的工具一半常驻一半要现查,不一致;更关键的是
+  // ToolSearch 此前在 --eval/--no-mcp 场景下不注册(见 index.ts),导致这整个家族在评测环境里
+  // 永久不可达,而 Agent 工具自己的说明文字明确指导"用 TaskOutput 做 checkpoint 式进度检查"——
+  // 真实撞见过(torch-pipeline-parallelism 复测)模型派完后台 verify 子代理后想查进度,发现工具
+  // 不可见、以为没有 ToolSearch,直接放弃等待提前收尾,子代理结果永久丢失。
   schema: z.object({
     description: z.string().min(1).describe("任务描述(简明扼要,会展示给用户)"),
   }),

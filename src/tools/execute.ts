@@ -16,7 +16,7 @@ export function describeCall(name: string, argsJson: string): string {
   switch (name) {
     case "Bash": return `$ ${s(a.command) || name}`;
     case "Write": return en ? `Write ${s(a.path)}` : `写入 ${s(a.path)}`;
-    case "Edit": case "MultiEdit": return en ? `Edit ${s(a.path)}` : `编辑 ${s(a.path)}`;
+    case "Edit": return en ? `Edit ${s(a.path)}` : `编辑 ${s(a.path)}`;
     case "NotebookEdit": return en ? `Edit notebook ${s(a.path)}` : `编辑笔记本 ${s(a.path)}`;
     case "WebFetch": return en ? `Fetch ${s(a.url)}` : `抓取 ${s(a.url)}`;
     case "WebSearch": return en ? `Search ${s(a.query)}` : `搜索 ${s(a.query)}`;
@@ -102,13 +102,29 @@ export async function executeToolCalls(
   ctx: ToolContext,
   gate: ApprovalGate,
 ): Promise<ToolMessage[]> {
+  const results = new Map<string, ToolMessage>();
+
+  // -1. headless 会话"第一步必须先用 TodoWrite"硬拦截(ctx.todoWriteRequired 字段背景见
+  // types.ts):这一批里含 TodoWrite → 标记完成,本批其余调用照常放行;不含 → 整批拒绝执行,
+  // 一条都不派发。只检查"第一步",done 置为 true 后本会话不再检查。
+  if (ctx.headless && ctx.todoWriteRequired && !ctx.todoWriteRequired.done) {
+    if (toolCalls.some((tc) => tc.function.name === "TodoWrite")) {
+      ctx.todoWriteRequired.done = true;
+    } else {
+      const reason = "[操作被拒绝] 这是无人值守的 headless 会话,运行时要求第一步必须先调用 " +
+        "TodoWrite 把任务拆成具体子步骤——本次调用未执行,请先建计划再继续。";
+      for (const tc of toolCalls) results.set(tc.id, rejectMsg(tc, reason));
+    }
+  }
+  const runnable = toolCalls.filter((tc) => !results.has(tc.id));
+
   // 0. PreToolUse 钩子:每工具只跑一次,缓存结果(裁决阶段 block/permissionDecision 与派发阶段
   //    updatedInput/additionalContext 共用同一次执行,绝不重复跑 hook 命令)。
   // 安全不变量:hook 的 updatedInput 改写后的【最终入参】是裁决与派发的唯一真相——
   // 先 apply 再 gate.decide/敏感检测,杜绝"按原参放行、按改写参(可能 rm -rf)执行"的绕过。
   const preHooks = new Map<string, PreHookOutcome>();
   const effArgs = new Map<string, string>(); // tc.id → updatedInput apply 后的最终入参
-  for (const tc of toolCalls) {
+  for (const tc of runnable) {
     const outcome = ctx.preToolHook ? await ctx.preToolHook(tc.function.name, tc.function.arguments) : undefined;
     if (outcome) preHooks.set(tc.id, outcome);
     effArgs.set(tc.id, applyUpdatedInput(tc.function.arguments, outcome));
@@ -117,9 +133,8 @@ export async function executeToolCalls(
   // 1. 逐次裁决:产出"待运行"集合与即时拒绝消息。
   // async for-of:Bash 的 Bash 工具需 AST 解析(精确子命令提取 + too-complex fail-closed)。
   const gatedRequests: ApprovalRequest[] = [];
-  const results = new Map<string, ToolMessage>();
   const toRun = new Set<string>();
-  for (const tc of toolCalls) {
+  for (const tc of runnable) {
     const tool = registry.get(tc.function.name);
     const args = effArgs.get(tc.id)!; // 最终入参(已 apply updatedInput);裁决一律基于它
     let decision = tool ? await gate.decideAsync(tc.function.name, args, tool) : "allow";
@@ -168,8 +183,9 @@ export async function executeToolCalls(
   }
 
   // S3.3 审计:记录写/执行/网络类工具的最终裁决(放行/拒绝)到 .dao/audit.log。
+  // 只覆盖 runnable(headless TodoWrite 硬拦截拒绝的调用从未进入权限裁决,不在这里记)。
   const auditIso = new Date().toISOString();
-  for (const tc of toolCalls) {
+  for (const tc of runnable) {
     const cap = registry.get(tc.function.name)?.capability;
     if (cap === "write" || cap === "exec" || cap === "network") {
       auditDecision(ctx.workspaceRoot, auditIso, {
