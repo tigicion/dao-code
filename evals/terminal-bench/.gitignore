@@ -2,6 +2,7 @@ agent/bin*/
 jobs/
 archive/
 runs/
+diagnostic-experiments/
 *.log
 venv/
 .env
