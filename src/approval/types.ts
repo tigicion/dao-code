@@ -7,8 +7,12 @@ export interface ApprovalRequest {
   capability: Capability;
   summary: string; // 给用户看的摘要(人类可读,命令含真实换行)
   argsJson?: string; // 原始参数(用于"允许并记住"生成规则)
-  sensitive?: boolean; // 触及敏感目标(.ssh/.git/凭据…):审批只给 是/否,不提供"始终允许"
+  sensitive?: boolean; // 触及敏感目标(.ssh/.git/凭据…)或危险命令:auto 模式跳过分类器直接走人工。
+  // 当 autoSensitiveAllow 子开关未开启时,审批界面据此提供"开启敏感操作整体放行"选项。
+  dangerous?: boolean; // 极端危险命令(rm -rf /、提权等):子开关开启后仍要确认,不提供"整体放行"选项。
   noPersist?: boolean; // 记不成有用规则(复合/一次性命令):也不提供"始终允许"(参考——不为永不再匹配的命令存规则)
+  /** gate 在 auto 模式 + sensitive + 非 dangerous + 子开关未开时置位:审批界面显示"整体放行"开启选项。 */
+  offerSensitiveAllow?: boolean;
 }
 
 export type ApprovalDecision = "once" | "session" | "always" | "deny";

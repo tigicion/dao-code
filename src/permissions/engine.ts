@@ -47,6 +47,14 @@ export function isDangerousCall(toolName: string, argsJson: string): boolean {
   catch { return false; }
 }
 
+// auto 模式子开关:敏感操作整体放行(autoSensitiveAllow)。开启后,除极端危险命令
+// (isDangerousCommand 命中:rm -rf /、dd 写设备、mkfs、提权等)外的所有敏感调用
+// (.ssh/.git/凭据读写等)直接放行,不再弹审批。仅 auto 模式生效。
+function autoSensitiveBlessed(p: DecideParams): boolean {
+  return p.mode === "auto" && p.rules.autoSensitiveAllow === true
+    && !isDangerousCall(p.toolName, p.argsJson);
+}
+
 // S3.1 must-confirm:触及敏感目标的写/执行,或危险 shell 命令。配合 gate auto 路径:
 // 此类调用跳过分类器、直接走人工——除非显式 allow 规则 opt-in,或落在下面 yolo 例外里。
 function mustConfirm(p: DecideParams): boolean {
@@ -111,7 +119,12 @@ export async function decideAsync(p: DecideParams): Promise<Decision> {
   const ruleDec = await evaluateWithAst(p.rules, id);
 
   if (ruleDec === "deny") return "deny";
-  if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) return "ask";
+  // auto 模式子开关(autoSensitiveAllow)开启时,非极端危险的敏感调用【直接放行】
+  // (deny 已查;ask 规则/allow 规则在下方,子开关语义是"敏感操作一律通过")。
+  if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) {
+    if (autoSensitiveBlessed(p)) return "allow";
+    return "ask";
+  }
   if (p.mode === "bypassPermissions") return "allow";
   if (ruleDec === "ask") return "ask";
   if (ruleDec === "allow") return "allow";
@@ -162,7 +175,12 @@ function decideBase(p: DecideParams): Decision {
   if (ruleDec === "deny") return "deny";
   // S3.1 敏感目标写/执行 + 危险 shell 命令:除 plan(只读、下方一律 deny 更严)外的任何模式(含 yolo)
   // 都要确认,除非显式 allow 规则 opt-in。放在 bypassPermissions 之前 → yolo 也不能绕过(参考 bypass-immune)。
-  if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) return "ask";
+  // auto 模式子开关(autoSensitiveAllow)开启时,非极端危险的敏感调用【直接放行】:
+  // 用户已明确"敏感操作整体放行",deny 规则仍优先(上面已查),此处不再弹审批。
+  if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) {
+    if (autoSensitiveBlessed(p)) return "allow";
+    return "ask";
+  }
   // bypassPermissions(yolo):deny + must-confirm 之外一律放行(用户已 --yolo 启动,自担其余风险)。
   if (p.mode === "bypassPermissions") return "allow";
   if (ruleDec === "ask") return "ask";

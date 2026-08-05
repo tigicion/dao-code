@@ -745,7 +745,8 @@ export function App(deps: AppDeps) {
         return;
       }
       const reqAp = approval.requests[apIdx];
-      const noAlways = !!reqAp?.sensitive || !!reqAp?.noPersist; // 敏感 / 记不成规则 → 不接受"始终允许"
+      // 记不成规则 → 不接受"始终允许";敏感操作 auto 模式未开子开关时,[a] 表示"开启整体放行"。
+      const noAlways = !!reqAp?.noPersist;
       const d: ApprovalDecision | null =
         ch === "y" ? "once" : ch === "a" ? (noAlways ? null : "always") : ch === "n" ? "deny" : null;
       if (d) {
@@ -1090,10 +1091,12 @@ export function App(deps: AppDeps) {
             {t("ui.approval.title", approval.requests.length > 1 ? ` (${apIdx + 1}/${approval.requests.length})` : "")}
           </Text>
           <Text color={c("ink")}>{(approval.requests[apIdx]?.summary ?? "").slice(0, 600).replace(/^/gm, "  ")}</Text>
-          {approval.requests[apIdx]?.sensitive ? (
-            <Text color={c("dim")}>{t("ui.approval.sensitive")}</Text>
-          ) : approval.requests[apIdx]?.noPersist ? (
+          {approval.requests[apIdx]?.noPersist ? (
             <Text color={c("dim")}>{t("ui.approval.noPersist")}</Text>
+          ) : approval.requests[apIdx]?.offerSensitiveAllow ? (
+            <Text color={c("dim")}>{t("ui.approval.sensitiveOffer")}</Text>
+          ) : approval.requests[apIdx]?.sensitive ? (
+            <Text color={c("dim")}>{t("ui.approval.sensitive")}</Text>
           ) : (
             <Text color={c("dim")}>{t("ui.approval.normal")}</Text>
           )}

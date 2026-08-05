@@ -189,6 +189,42 @@ describe("isSensitiveCall", () => {
   });
 });
 
+describe("autoSensitiveAllow 子模式(敏感操作整体放行,仅 auto 生效)", () => {
+  const sensitiveDecide = (mode: "auto" | "default", sub: boolean, toolName: string, argsJson: string) =>
+    decide({ toolName, argsJson, capability: "write", mode, rules: { ...emptyPermissions(), autoSensitiveAllow: sub } });
+
+  it("auto + 开启:敏感写操作直接放行(不再 ask)", () => {
+    expect(sensitiveDecide("auto", true, "Write", '{"path":".ssh/config"}')).toBe("allow");
+  });
+  it("auto + 开启:敏感读命令(cat 凭据)直接放行", () => {
+    expect(sensitiveDecide("auto", true, "Bash", '{"command":"cat ~/.aws/credentials"}')).toBe("allow");
+  });
+  it("auto + 未开启:敏感操作仍 ask", () => {
+    expect(sensitiveDecide("auto", false, "Write", '{"path":".ssh/config"}')).toBe("ask");
+  });
+  it("default 模式:即使开启也不生效(敏感操作仍 ask)", () => {
+    expect(sensitiveDecide("default", true, "Write", '{"path":".ssh/config"}')).toBe("ask");
+  });
+  it("auto + 开启 + 极端危险命令(rm -rf /):仍 ask(不被整体放行覆盖)", () => {
+    expect(sensitiveDecide("auto", true, "Bash", '{"command":"rm -rf /"}')).toBe("ask");
+  });
+  it("auto + 开启 + 极端危险命令(sudo 提权):仍 ask", () => {
+    expect(sensitiveDecide("auto", true, "Bash", '{"command":"sudo rm -rf /tmp/x"}')).toBe("ask");
+  });
+  it("auto + 开启 + deny 规则:仍 deny(deny 最高优先)", () => {
+    const rules = { ...emptyPermissions(), autoSensitiveAllow: true, deny: ["Bash(rm:*)"] };
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"rm -rf /tmp/x"}', capability: "exec", mode: "auto", rules })).toBe("deny");
+  });
+  it("auto + 开启:decideAsync(AST 路径)同样放行", async () => {
+    const rules = { ...emptyPermissions(), autoSensitiveAllow: true };
+    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"cat ~/.aws/credentials"}', capability: "exec", mode: "auto", rules })).toBe("allow");
+  });
+  it("auto + 开启 + 极端危险:decideAsync 仍 ask", async () => {
+    const rules = { ...emptyPermissions(), autoSensitiveAllow: true };
+    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"rm -rf /"}', capability: "exec", mode: "auto", rules })).toBe("ask");
+  });
+});
+
 describe("decide - auto 模式 dangerousPatterns 降级", () => {
   it("auto 模式:Bash(python:*) allow 规则降级为 ask(交分类器)", () => {
     const rules = { ...emptyPermissions(), allow: ["Bash(python:*)"] };

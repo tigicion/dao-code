@@ -24,18 +24,23 @@ function makeGate(opts: {
 }) {
   const remembered: string[] = [];
   const sessionAllow: string[] = [];
+  const enabledSensitiveAllow: boolean[] = [];
+  // 真实环境 addSessionAllow 会把规则并入本会话 allow 集合——测试桩要模拟这一点,
+  // 否则"始终允许"后 gate.decide 查不到规则,验证不了整体加白真的生效。
+  const rules: PermissionsConfig = opts.rules ?? emptyPermissions();
   const prompt = async (reqs: ApprovalRequest[]) =>
     new Map(reqs.map((r) => [r.id, opts.decisions?.[r.id] ?? "deny"]));
   const gate = new PermissionGate(
     () => opts.mode ?? "default",
-    () => opts.rules ?? emptyPermissions(),
+    () => rules,
     prompt,
     async (rule) => { remembered.push(rule); },
-    (rule) => { sessionAllow.push(rule); },
+    (rule) => { sessionAllow.push(rule); rules.allow.push(rule); },
     opts.classify,
     opts.getMessages,
+    async () => { enabledSensitiveAllow.push(true); rules.autoSensitiveAllow = true; },
   );
-  return { gate, remembered, sessionAllow };
+  return { gate, remembered, sessionAllow, enabledSensitiveAllow };
 }
 
 const execWithCheck = defineTool({
@@ -95,6 +100,61 @@ describe("PermissionGate.decide", () => {
     ]);
     expect(remembered).toEqual(["Bash(npm run:*)"]);
     expect(sessionAllow).toEqual(["Bash(npm run:*)"]);
+  });
+  it("auto 模式:sensitive 请求标记 offerSensitiveAllow(供审批界面提供'开启整体放行')", async () => {
+    const { gate } = makeGate({ mode: "auto", classify: async () => true, decisions: { s: "deny" } });
+    let seen: ApprovalRequest | undefined;
+    const gate2 = new PermissionGate(
+      () => "auto", () => emptyPermissions(),
+      async (reqs) => { seen = reqs[0]; return new Map(); },
+      async () => {}, () => {},
+      async () => true, () => [],
+      async () => {},
+    );
+    await gate2.requestBatch([
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.aws/credentials"}', sensitive: true },
+    ]);
+    expect(seen?.offerSensitiveAllow).toBe(true); // auto + sensitive + 未开启 → 可提供开启选项
+  });
+  it("auto 模式:极端危险请求(dangerous)不提供开启选项", async () => {
+    let seen: ApprovalRequest | undefined;
+    const gate = new PermissionGate(
+      () => "auto", () => emptyPermissions(),
+      async (reqs) => { seen = reqs[0]; return new Map(); },
+      async () => {}, () => {},
+      async () => true, () => [],
+      async () => {},
+    );
+    await gate.requestBatch([
+      { id: "d", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true, dangerous: true },
+    ]);
+    expect(seen?.offerSensitiveAllow).toBeUndefined(); // 极端危险:子开关开了也仍确认,不提供开启
+  });
+  it("auto 模式:敏感请求选'开启整体放行'([a])→ 持久化子开关,本次放行,不记规则", async () => {
+    const { gate, remembered, sessionAllow, enabledSensitiveAllow } = makeGate({ mode: "auto", classify: async () => false, decisions: { s: "always" } });
+    const out = await gate.requestBatch([
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.aws/credentials"}', sensitive: true },
+    ]);
+    expect(enabledSensitiveAllow).toEqual([true]); // 子开关被开启
+    expect(remembered).toEqual([]); // 不记规则(子开关替代规则加白)
+    expect(sessionAllow).toEqual([]);
+    expect(out.get("s")).toBe(true); // 本次放行
+  });
+  it("auto 模式:子开关已开启时,sensitive 请求不再 offer(engine 已直接放行,gate 收不到)", async () => {
+    let seen: ApprovalRequest[] | undefined;
+    const gate = new PermissionGate(
+      () => "auto",
+      () => ({ ...emptyPermissions(), autoSensitiveAllow: true }),
+      async (reqs) => { seen = reqs; return new Map(); },
+      async () => {}, () => {}, async () => true, () => [],
+      async () => {},
+    );
+    // 子开关已开:敏感 + 非危险的调用在 engine.decide 里被 autoSensitiveBlessed 短路为 allow,
+    // 根本不会进 requestBatch;这里验证即使进来,offer 也不再置位(防御性)。
+    await gate.requestBatch([
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.aws/credentials"}', sensitive: true },
+    ]);
+    expect(seen?.[0]?.offerSensitiveAllow).toBeUndefined();
   });
   it("yolo(bypass):工具自检 ask 升级也放行(deny 之外全过)", () => {
     const { gate } = makeGate({ mode: "bypassPermissions", rules: { ...emptyPermissions(), allow: ["Bash"] } });

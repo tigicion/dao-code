@@ -35,4 +35,30 @@ describe("makeApprovalPrompt", () => {
     expect(askCalled).toBe(false);
     expect(decisions.size).toBe(0);
   });
+
+  it("敏感请求带 offerSensitiveAllow:提示'开启整体放行',[a] 返回 always", async () => {
+    let promptText = "";
+    const ask = async (p: string) => { promptText = p; return "a"; };
+    const prompt = makeApprovalPrompt(ask, true);
+    const decisions = await prompt([{ ...req("s"), sensitive: true, offerSensitiveAllow: true }]);
+    expect(decisions.get("s")).toBe("always");
+    expect(promptText).toContain("[a]开启敏感操作整体放行");
+  });
+
+  it("敏感请求无 offer(子开关已开/极端危险):只给 [y]/[n]", async () => {
+    let promptText = "";
+    const ask = async (p: string) => { promptText = p; return "y"; };
+    const prompt = makeApprovalPrompt(ask, true);
+    await prompt([{ ...req("s"), sensitive: true }]); // 极端危险场景:子开关已开,只 y/n
+    expect(promptText).toContain("[y]是(仅本次) [n]否");
+    expect(promptText).not.toContain("[a]");
+  });
+
+  it("非敏感请求:普通文案'同类不再问'", async () => {
+    let promptText = "";
+    const ask = async (p: string) => { promptText = p; return "y"; };
+    const prompt = makeApprovalPrompt(ask, true);
+    await prompt([req("n")]);
+    expect(promptText).toContain("[a]始终允许(记住,同类不再问)");
+  });
 });

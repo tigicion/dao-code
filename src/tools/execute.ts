@@ -156,13 +156,16 @@ export async function executeToolCalls(
       results.set(tc.id, rejectMsg(tc, reason)); ctx.permAudit?.decided(tc.function.name, cap0, "deny", "rule");
     }
     else {
-      // sensitive=true 既抑制"始终允许",又让 auto 模式跳过分类器直接走人工(敏感目标/危险命令)。
+      // sensitive=true 标记敏感目标/危险命令:auto 模式跳过分类器直接走人工;
+      // dangerous=true 标记极端危险命令(rm -rf /、提权等)——子开关开启后仍要确认,
+      // 审批界面据此不提供"开启敏感操作整体放行"选项。
       const sensitive = isSensitiveCall(tc.function.name, args) || isDangerousCall(tc.function.name, args);
+      const dangerous = isDangerousCall(tc.function.name, args);
       gatedRequests.push({
         id: tc.id, toolName: tc.function.name, capability: tool!.capability,
         summary: describeCall(tc.function.name, args), argsJson: args,
-        sensitive,
-        noPersist: !sensitive && rememberRule(tc.function.name, args) === null, // 记不成规则 → 不提供"始终允许"
+        sensitive, dangerous,
+        noPersist: rememberRule(tc.function.name, args) === null, // 记不成规则 → 才不提供"始终允许"
       });
     }
   }

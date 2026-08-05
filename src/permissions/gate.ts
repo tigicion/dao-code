@@ -26,6 +26,8 @@ export class PermissionGate implements ApprovalGate {
     // 时会传入 sub.messages——之前这里没有这个参数,子代理的调用永远用根 session.messages
     // 判定,分类器看不到子代理自己在做什么(复盘 session 20260721-215548-uq75)。
     private getMessages: () => ChatMessage[] = () => [],
+    // 用户开启"敏感操作整体放行"子开关(autoSensitiveAllow)时持久化到 settings.local.json
+    private onEnableSensitiveAllow: () => Promise<void> = async () => {},
   ) {}
 
   // 上一次 requestBatch 里,每个请求 id 最终是被分类器自动放行的,还是真弹窗问了人--
@@ -98,6 +100,7 @@ export class PermissionGate implements ApprovalGate {
       this.addSessionAllow,
       this.classify,
       getMessages ?? this.getMessages,
+      this.onEnableSensitiveAllow,
     );
   }
 
@@ -147,8 +150,14 @@ export class PermissionGate implements ApprovalGate {
       const needHuman: ApprovalRequest[] = [];
       // 熔断检查:连续/总 deny 超限时跳过分类器,全部转人工。
       const tripped = this.isTripped();
+      const subEnabled = this.getRules().autoSensitiveAllow === true;
       for (const r of requests) {
-        if (r.sensitive || tripped) { needHuman.push(r); continue; } // 敏感/危险 或已熔断:绝不交分类器
+        if (r.sensitive || tripped) {
+          // 子开关未开 + 非极端危险:标记"可开启整体放行",审批界面据此提供选项;
+          // 极端危险命令(dangerous)即使子开关开启也仍要确认,不提供开启选项。
+          needHuman.push(subEnabled || r.dangerous ? r : { ...r, offerSensitiveAllow: true });
+          continue;
+        } // 敏感/危险 或已熔断:绝不交分类器
         let allow = false;
         try { allow = await this.classify(r.toolName, r.argsJson ?? "", this.getMessages()); }
         catch { allow = false; } // 分类器评估失败 -> 不自动放行,转人工(不是拒绝)
@@ -168,7 +177,15 @@ export class PermissionGate implements ApprovalGate {
     const decisions = await this.prompt(toAsk);
     for (const r of toAsk) {
       const d = decisions.get(r.id) ?? "deny";
+      // 用户选了"开启敏感操作整体放行"且尚未开启:持久化子开关,本次也放行。
+      if (d === "always" && r.offerSensitiveAllow && this.getRules().autoSensitiveAllow !== true) {
+        await this.onEnableSensitiveAllow();
+        this.lastSources.set(r.id, "human");
+        out.set(r.id, true);
+        continue;
+      }
       if ((d === "always" || d === "session") && r.argsJson !== undefined) {
+        // 普通操作加白:记规则(同类不再问)。
         const rule = rememberRule(r.toolName, r.argsJson);
         if (rule) {
           this.addSessionAllow(rule);

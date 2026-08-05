@@ -151,7 +151,8 @@ export const zh: Record<string, string> = {
   "ui.live.interrupt": "esc 打断",
   // 审批模态
   "ui.approval.title": "需要批准{0}:",
-  "ui.approval.sensitive": "敏感操作(.ssh/.git/凭据等) · [y]是(仅本次) [n]否",
+  "ui.approval.sensitiveOffer": "敏感操作(.ssh/.git/凭据等) · [y]是(仅本次) [a]开启敏感操作整体放行(除极端危险外不再询问) [n]否",
+  "ui.approval.sensitive": "敏感操作(极端危险) · [y]是(仅本次) [n]否",
   "ui.approval.noPersist": "此命令记不成通用规则 · [y]是(仅本次) [n]否",
   "ui.approval.normal": "[y]是(允许一次) [a]始终允许(记住,同类不再问) [n]否",
   // 会话选择器

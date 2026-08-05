@@ -104,7 +104,7 @@ import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { PermissionGate } from "./permissions/gate.js";
-import { loadPermissions, mergePermissions, appendRule, appendRuleSync, removeRule, removeRuleSync, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
+import { loadPermissions, mergePermissions, appendRule, appendRuleSync, removeRule, removeRuleSync, setAutoSensitiveAllow, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, LONG_TASK_DIRECTIVE_EN } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
@@ -958,6 +958,7 @@ async function main() {
     (rule) => { sessionAllow.push(rule); }, // "session"/"always" 本会话生效
     classifyPermission, // auto 模式
     () => session.messages, // 分类器的 transcript 来源:根会话自己的消息(子代理会在 runAgent 里 withModeOverride 换成自己的)
+    () => setAutoSensitiveAllow(localSettingsFile, true), // 开启"敏感操作整体放行"子开关
   );
 
   const session = new Session(systemPrompt, cfg.model);

@@ -48,6 +48,17 @@ describe("rememberRule — '允许并记住' 生成的规则", () => {
     expect(rememberRule("Bash", JSON.stringify({ command: "cat > f << EOF\nx\nEOF" })))
       .toBe("Bash(cat > f << EOF\nx\nEOF)");
   });
+  it("敏感操作整体加白:与普通命令一样走泛化前缀(同类不再问)", () => {
+    // 敏感命令选"始终允许"后,记的是泛化前缀规则——rm -rf / 加白后,同类的 rm -rf /tmp 也不再过问。
+    // (rm 的 -rf 是 flag,不算子命令,故前缀是 rm;cat 的目标路径非 flag,故前缀含路径)
+    expect(rememberRule("Bash", '{"command":"rm -rf /"}')).toBe("Bash(rm:*)");
+    expect(rememberRule("Bash", '{"command":"cat ~/.aws/credentials"}')).toBe("Bash(cat ~/.aws/credentials:*)");
+    // 匹配语义:前缀规则命中同类命令,不命中不同程序。
+    const rule = parseRule(rememberRule("Bash", '{"command":"rm -rf /"}')!);
+    expect(ruleMatches(rule, { ccTool: "Bash", value: "rm -rf /" })).toBe(true);
+    expect(ruleMatches(rule, { ccTool: "Bash", value: "rm -rf /tmp" })).toBe(true);
+    expect(ruleMatches(rule, { ccTool: "Bash", value: "ls" })).toBe(false);
+  });
   it("Bash 精确匹配规则:同一条命令原样重复 → 命中;内容变了 → 不命中(不会被泛化成通配)", () => {
     const cmd = "cat > f << EOF\nx\nEOF";
     const rule = rememberRule("Bash", JSON.stringify({ command: cmd }))!;

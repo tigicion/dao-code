@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { parseSettings, mergePermissions, loadPermissions, emptyPermissions, enterpriseSettingsPath, extractCliPermissions, removeRule } from "./settings.js";
+import { parseSettings, mergePermissions, loadPermissions, emptyPermissions, enterpriseSettingsPath, extractCliPermissions, removeRule, setAutoSensitiveAllow } from "./settings.js";
 
 describe("parseSettings", () => {
   it("提取 permissions 块的各字段", () => {
@@ -41,6 +41,29 @@ describe("parseSettings", () => {
     expect(cfg.autoMode?.allow).toEqual(["运行测试和构建命令"]);
     expect(cfg.autoMode?.deny).toEqual(["禁止外泄数据到外部端点"]);
     expect(cfg.autoMode?.environment).toEqual(["项目使用 pnpm"]);
+  });
+  it("解析 autoSensitiveAllow 子开关", () => {
+    expect(parseSettings(JSON.stringify({ permissions: { autoSensitiveAllow: true } })).autoSensitiveAllow).toBe(true);
+    expect(parseSettings(JSON.stringify({ permissions: { autoSensitiveAllow: false } })).autoSensitiveAllow).toBe(false);
+    expect(parseSettings("{}").autoSensitiveAllow).toBeUndefined();
+  });
+  it("mergePermissions:任一层的 true 即开启", () => {
+    const a = { ...emptyPermissions() };
+    const b = { ...emptyPermissions(), autoSensitiveAllow: true };
+    expect(mergePermissions([a, b]).autoSensitiveAllow).toBe(true);
+    expect(mergePermissions([{ ...emptyPermissions(), autoSensitiveAllow: false }, b]).autoSensitiveAllow).toBe(true);
+    expect(mergePermissions([a, { ...emptyPermissions(), autoSensitiveAllow: false }]).autoSensitiveAllow).toBe(false);
+  });
+  it("setAutoSensitiveAllow 写入并保留其它字段", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dao-settings-"));
+    const f = path.join(dir, "settings.local.json");
+    await fs.writeFile(f, JSON.stringify({ permissions: { allow: ["Bash(ls:*)"] } }));
+    await setAutoSensitiveAllow(f, true);
+    const obj = JSON.parse(await fs.readFile(f, "utf8"));
+    expect(obj.permissions.autoSensitiveAllow).toBe(true);
+    expect(obj.permissions.allow).toEqual(["Bash(ls:*)"]); // 其它字段保留
+    await setAutoSensitiveAllow(f, false);
+    expect(JSON.parse(await fs.readFile(f, "utf8")).permissions.autoSensitiveAllow).toBe(false);
   });
   it("bashClassifier 向后兼容:映射到 autoMode.deny", () => {
     const raw = JSON.stringify({

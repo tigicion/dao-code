@@ -151,7 +151,8 @@ export const en: Record<string, string> = {
   "ui.live.interrupt": "esc to interrupt",
   // Approval modal
   "ui.approval.title": "Approval needed{0}:",
-  "ui.approval.sensitive": "Sensitive operation (.ssh/.git/credentials…) · [y]yes (once) [n]no",
+  "ui.approval.sensitiveOffer": "Sensitive operation (.ssh/.git/credentials…) · [y]yes (once) [a]enable sensitive-mode (don't ask for sensitive ops except extreme-danger ones) [n]no",
+  "ui.approval.sensitive": "Sensitive operation (extreme-danger) · [y]yes (once) [n]no",
   "ui.approval.noPersist": "This command can't be saved as a general rule · [y]yes (once) [n]no",
   "ui.approval.normal": "[y]yes (once) [a]always (remember, don't ask for similar) [n]no",
   // Session picker
