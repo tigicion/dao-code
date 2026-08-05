@@ -32,6 +32,7 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
 // 接口返回 UnsupportedModel 的串(如 doubao-seed-code,无 2.0 后缀的旧版)不收录,
 // 每条都用真实 key 打过 /chat/completions 拿到 200 才收进来(2026-07-17)。
 // qianfan 额外支持 glm-5.2/glm-5.1/kimi-k2.6/ernie-5.1(均为用户明确要求)。
+// ark-code-latest 为火山方舟控制台可选的编码套餐模型别名(用户明确要求,2026-08-05)。
 export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
   deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
   volcengine: [
@@ -45,6 +46,7 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
     "kimi-k2.7-code",
     "minimax-m2.7",
     "minimax-m3",
+    "ark-code-latest",
   ],
   qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "ernie-5.1"],
   anthropic: [DEFAULTS.anthropic.model],

@@ -66,7 +66,7 @@ describe("dispatchCommand", () => {
     expect(s.model).toBe("glm-5.1");
   });
 
-  it("/model 无参在 volcengine 下按完整 10 档循环回到 pro", () => {
+  it("/model 无参在 volcengine 下按完整 11 档循环回到 pro", () => {
     const s = sess(); // 初始 deepseek-v4-pro
     const order = [
       "deepseek-v4-flash",
@@ -78,6 +78,7 @@ describe("dispatchCommand", () => {
       "kimi-k2.7-code",
       "minimax-m2.7",
       "minimax-m3",
+      "ark-code-latest",
       "deepseek-v4-pro",
     ];
     for (const expected of order) {
