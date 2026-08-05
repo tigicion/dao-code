@@ -16,6 +16,14 @@ function cmdRe(name: string): RegExp {
   return new RegExp(`(^|\\s)${name}${CMD_END}`, "i");
 }
 
+// 把 `cd <dir>` 的目录参数遮蔽成占位符,避免目录名撞上危险命令词被判成"调用该命令"。
+// 真实撞见:`cd eval && source venv/bin/activate` 里 eval 是目录名,cmdRe("eval") 却把它
+// 当成 eval 动态执行,审批误弹"极端危险"。cd 的目标永远只是路径,不可能是被执行的命令。
+const CD_ARG = /(^|\s)cd\s+([^\s;&|]+)/gi;
+function maskCdArgs(s: string): string {
+  return s.replace(CD_ARG, (m, pre: string) => `${pre}cd __DIR__`);
+}
+
 // 丢弃到 /dev/null 的重定向(>/dev/null、2>/dev/null、&>/dev/null、>>/dev/null)和纯 fd 复制
 // (2>&1、>&2)本身不落盘、不影响任何真实文件,不该被当成"写危险目标"。isReadOnlyShellCommand
 // 早就用同一份逻辑摘掉过这类重定向,但 dangerSegment 的"重定向截断系统/家目录文件"规则
@@ -29,7 +37,10 @@ function stripDevNullRedirects(s: string): string {
   return s.replace(DEV_NULL_REDIRECT, "");
 }
 
-function dangerSegment(s: string): string | null {
+function dangerSegment(seg: string): string | null {
+  // 先遮蔽 `cd <dir>` 的目录参数:目录名撞上危险命令词(eval/sudo/rm 等)只是路径,不是调用该命令。
+  // 真实撞见:`cd eval && ...` 把 eval 目录误判成 eval 动态执行,审批误弹"极端危险"。
+  const s = maskCdArgs(seg);
   // rm 递归 + 危险目标(根/家目录/通配)——相对路径如 node_modules 不触发
   if (cmdRe("rm").test(s) && /(^|\s)-\S*r/i.test(s)) {
     if (/\s(\/|~|\$home)(\s|\/|$)/i.test(s) || /\s\/\*(\s|$)/.test(s) || /(^|\s)\*(\s|$)/.test(s) || /\s~\//i.test(s)) return "rm 递归删除根/家目录/通配,可能毁坏系统";

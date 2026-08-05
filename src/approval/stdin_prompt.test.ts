@@ -45,11 +45,21 @@ describe("makeApprovalPrompt", () => {
     expect(promptText).toContain("[a]开启敏感操作整体放行");
   });
 
-  it("敏感请求无 offer(子开关已开/极端危险):只给 [y]/[n]", async () => {
+  it("敏感请求无 offer 且非危险:给 [a] 始终允许(同类不再问)", async () => {
     let promptText = "";
-    const ask = async (p: string) => { promptText = p; return "y"; };
+    const ask = async (p: string) => { promptText = p; return "a"; };
     const prompt = makeApprovalPrompt(ask, true);
-    await prompt([{ ...req("s"), sensitive: true }]); // 极端危险场景:子开关已开,只 y/n
+    const decisions = await prompt([{ ...req("s"), sensitive: true }]);
+    expect(decisions.get("s")).toBe("always");
+    expect(promptText).toContain("[a]始终允许(同类不再问)");
+  });
+
+  it("极端危险请求(dangerous):只给 [y]/[n],不提供始终允许", async () => {
+    let promptText = "";
+    const ask = async (p: string) => { promptText = p; return "a"; };
+    const prompt = makeApprovalPrompt(ask, true);
+    const decisions = await prompt([{ ...req("d"), sensitive: true, dangerous: true }]);
+    expect(decisions.get("d")).toBe("deny"); // [a] 无效 → 按拒绝处理
     expect(promptText).toContain("[y]是(仅本次) [n]否");
     expect(promptText).not.toContain("[a]");
   });

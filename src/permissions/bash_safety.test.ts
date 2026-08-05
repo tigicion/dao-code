@@ -17,6 +17,19 @@ describe("isDangerousCommand", () => {
     expect(isDangerousCommand("echo hi > /etc/hosts")).toBeTruthy();
   });
 
+  it("cd 的目录参数撞上危险命令词只是路径,不是调用该命令(真实撞见:cd eval 被误判成 eval 动态执行)", () => {
+    expect(isDangerousCommand("cd eval && source venv/bin/activate && pytest")).toBeNull();
+    expect(isDangerousCommand("cd eval && ls")).toBeNull();
+    expect(isDangerousCommand("cd sudo && ls")).toBeNull();
+    expect(isDangerousCommand("cd rm && ls")).toBeNull();
+    // 真正的 eval 动态执行依然要拦
+    expect(isDangerousCommand("eval \"$(cat x)\"")).toBe("eval 动态执行");
+    expect(isDangerousCommand("x=1; eval $x")).toBe("eval 动态执行");
+    // cd 后跟真实危险命令(拆段后)依然要拦
+    expect(isDangerousCommand("cd /tmp && rm -rf /")).toBeTruthy();
+    expect(isDangerousCommand("cd / && rm -rf *")).toBeTruthy();
+  });
+
   it("flags git history/working-tree destruction", () => {
     expect(isDangerousCommand("git push --force origin main")).toBeTruthy();
     expect(isDangerousCommand("git push -f origin main")).toBeTruthy();

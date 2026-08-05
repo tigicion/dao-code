@@ -39,25 +39,15 @@ export interface ToolContext {
   // 报错)都清空整个集合——任何一次真实执行都算"已经有过反馈",不做"这次执行到底测的是不是
   // 这个文件"的脆弱字符串匹配。
   pendingUnverifiedWrites?: Set<string>;
-  // 连续撞见"缺模块/库"报错的次数(exec_shell 用):达到阈值后,下一次仍是纯诊断性探测
-  // (查这个库到底在不在/叫什么名字,不是安装它也不是切到不依赖它的写法)会被拒绝执行,
-  // 逼模型二选一并继续。真实撞见:write-compressor 复测里模型选 Perl 写压缩器,读过的参考
-  // 实现(decomp.c)其实只用定长 int/long,却因为 Math::BigInt 不存在,连续 3 轮换着法子
-  // (-Mbigint/查@INC/find系统目录)确认"这个库到底在不在",没有一次真正做出选择。重放验证
-  // 过纯文字提醒(哪怕精确注入在报错发生的那一轮)完全无效——两组推理原文近乎逐字重复;换成
-  // 真拒绝执行后,3/3 触发样本要么真的装库、要么真的切到原生实现,0 个绕过。用对象包一层
-  // (而不是裸 number)是因为 ToolContext 按引用传递给同一 handler 的历次调用,裸 number
-  // 无法跨调用累加。
-  missingDepStrikes?: { count: number };
   // headless 会话(ctx.headless)"第一步必须先用 TodoWrite 拆子步骤"的运行时硬拦截状态。
   // 2026-07-31 的系统提示词文案版本(09d0725)只在开局提了这条要求,真实复测(gpt2-codegolf
   // 0731-r3)确认:指令确实注入了,但模型全程 38 次工具调用 0 次 TodoWrite——文字层面的要求
-  // 说了不代表会照做,跟 missingDepStrikes 当初的落差同源。这里改成同一类"真拒绝,不是提醒"
-  // 机制:headless 会话第一批 tool_calls 里没有 TodoWrite 就整批拒绝执行,直到 TodoWrite
-  // 被调用过一次(done=true)才放行——只管"有没有迈出第一步",不追踪后续是否持续维护清单。
+  // 说了不代表会照做。这里用"真拒绝,不是提醒"机制:headless 会话第一批 tool_calls
+  // 里没有 TodoWrite 就整批拒绝执行,直到 TodoWrite 被调用过一次(done=true)才放行——
+  // 只管"有没有迈出第一步",不追踪后续是否持续维护清单。
   // 只在主会话注入(src/index.ts 构造根 ctx 时);子代理的 ToolContext 不设置这个字段,天然
   // 不受影响(与 09d0725 的系统提示词文案覆盖面保持一致,子代理本来就不会拿到那段 headless
-  // 文案)。用对象包一层的原因同 missingDepStrikes:需要跨调用可变,裸 boolean 做不到。
+  // 文案)。用对象包一层是为了跨调用可变,裸 boolean 做不到。
   // 2026-08-01 扩展:done=true 后不是永久放行——exec_shell.ts 检测到运行时崩溃信号(见
   // matchesCrashSignature,segfault/SIGABRT/malloc corrupted 这类)会把它重新置回 false,
   // 逼下一步先过一遍 TodoWrite 再继续。背景:对 187 个真实历史会话的普查显示,63% 的多次

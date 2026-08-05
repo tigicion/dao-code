@@ -745,8 +745,8 @@ export function App(deps: AppDeps) {
         return;
       }
       const reqAp = approval.requests[apIdx];
-      // 记不成规则 → 不接受"始终允许";敏感操作 auto 模式未开子开关时,[a] 表示"开启整体放行"。
-      const noAlways = !!reqAp?.noPersist;
+      // 记不成规则 → 不接受"始终允许";极端危险命令(dangerous)也不提供 [a](子开关开了也仍确认)。
+      const noAlways = !!reqAp?.noPersist || !!reqAp?.dangerous;
       const d: ApprovalDecision | null =
         ch === "y" ? "once" : ch === "a" ? (noAlways ? null : "always") : ch === "n" ? "deny" : null;
       if (d) {
@@ -1096,7 +1096,7 @@ export function App(deps: AppDeps) {
           ) : approval.requests[apIdx]?.offerSensitiveAllow ? (
             <Text color={c("dim")}>{t("ui.approval.sensitiveOffer")}</Text>
           ) : approval.requests[apIdx]?.sensitive ? (
-            <Text color={c("dim")}>{t("ui.approval.sensitive")}</Text>
+            <Text color={c("dim")}>{approval.requests[apIdx]?.dangerous ? t("ui.approval.sensitive") : t("ui.approval.sensitivePlain")}</Text>
           ) : (
             <Text color={c("dim")}>{t("ui.approval.normal")}</Text>
           )}
