@@ -142,7 +142,7 @@ npm install && npm run build && npm link   # 之后可全局 dao
 |---|---|
 | `/init` | 扫描本仓库生成 `DAO.md`(项目概览/约定,供以后会话自动加载) |
 | `/model [id]` | 切换模型(不带参数在 `deepseek-v4-pro` / `deepseek-v4-flash` 间切换) |
-| `/mode [x]` | 权限模式 `default` / `acceptEdits` / `auto`(智能审批)/ `plan`(亦 **Shift+Tab** 循环) |
+| `/mode [x]` | 权限模式 `default` / `auto`(智能审批)/ `yolo`(亦 **Shift+Tab** 循环) |
 | `/plan` | 快捷切换 plan(只读+提方案)/ normal |
 | `/goal <目标>` | 长任务自主模式(自动批准 + 连续推进,大任务自动分阶段) |
 | `/cost` | 查看 token 用量与缓存命中率 |
@@ -212,10 +212,10 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 
 ## 🧩 扩展系统
 
-- **权限控制**:规则三态 `allow / ask / deny`,语法 `Tool(specifier)`——`Bash(npm run test:*)`(命令前缀)、`Edit(src/**)`/`Read(//etc/**)`(gitignore 式路径 glob)、`WebFetch(domain:example.com)`、裸工具名、`mcp__server__tool`。优先级 **deny > ask > allow > 模式/能力默认**(deny 是硬黑名单,YOLO 下也拦)。
+- **权限控制**:规则三态 `allow / ask / deny`,语法 `Tool(specifier)`——`Bash(npm run test:*)`(命令前缀)、`Edit(src/**)`/`Read(//etc/**)`(gitignore 式路径 glob)、`WebFetch(domain:example.com)`、裸工具名、`mcp__server__tool`。优先级 **deny > 危险命令 > bypass > 敏感目标 > ask > allow > 模式/能力默认**(deny 是硬黑名单,YOLO 下也拦;`rm -rf /` 这类危险命令任何模式都强制确认)。
   - **分层**(低→高优先级):`~/.dao/settings.json`(用户)< `.dao/settings.json`(项目,入库)< `.dao/settings.local.json`(本地,不入库)< **CLI**(`--allow`/`--deny`/`--add-dir`/`--permission-mode`)< **企业托管策略**(`/etc/dao/managed-settings.json` 等,不可被下层覆盖)。
   - **复合命令逐段检查**:`cd /tmp && rm -rf x` 会按 `&&`/`||`/`;`/`|` 拆开,任一子命令命中 deny 即整条拦截(杜绝绕过)。
-  - **权限模式**(`/mode <x>` 或 **Shift+Tab** 循环;状态栏显示):`default`(按需审批)/ `acceptEdits`(自动批准文件编辑)/ `auto`(AI 分类器智能审批:只读与工作区内编辑自动放行、拿不准转人工)/ `plan`(只读规划);`bypassPermissions`(=YOLO)仅 `dao --yolo` 启动时开。
+  - **权限模式**(`/mode <x>` 或 **Shift+Tab** 循环;状态栏显示):`default`(按需审批)/ `auto`(AI 分类器智能审批:只读与工作区内编辑自动放行,敏感目标与拿不准的调用交分类器——私钥如 `~/.ssh/id_rsa` 会被分类器 BLOCK、拿不准转人工)/ `bypassPermissions`(=YOLO,免审批,仅 deny 与危险命令仍拦;可 `/mode yolo` 或 `/yolo` 会话内切换)。`plan`(只读规划,写/exec 一律 deny)也是权限模式,但不参与 `/mode` 切换——用 `/plan`、`settings.defaultMode` 或 `--permission-mode plan` 进入。
   - **审批四档**:`[y]` 本次 / `[s]` 本会话 / `[a]` 记住(写 allow 规则到 `.dao/settings.local.json`)/ `[n]` 拒绝。
   - `additionalDirectories`:预授权的工作区外目录,读取不弹窗。
   - 引擎:`src/permissions/`(rules / identity / settings / engine / gate),含端到端测试。

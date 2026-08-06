@@ -5,7 +5,7 @@ import { emptyPermissions } from "./settings.js";
 const base = { rules: emptyPermissions() };
 const rm = '{"command":"rm -rf /"}';
 
-describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默认", () => {
+describe("decide — 优先级:deny > 危险命令 > bypass > 敏感目标 > ask > allow > 模式/能力默认", () => {
   it("deny 规则永远拦截(即使 bypassPermissions)", () => {
     const rules = { ...emptyPermissions(), deny: ["Bash(rm:*)"] };
     expect(decide({ toolName: "Bash", argsJson: rm, capability: "exec", mode: "bypassPermissions", rules })).toBe("deny");
@@ -25,8 +25,8 @@ describe("decide — CC 优先级:deny > bypass > ask > allow > 模式/能力默
 });
 
 describe("decide — CC 1g:安全敏感目标", () => {
-  it("bypass(yolo)下 SECRET_TARGET(真实泄密风险)仍 ask,即便只是写也一样(S3.1 bypass-immune,参考)", () => {
-    expect(decide({ toolName: "Write", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("ask");
+  it("bypass(yolo)= 全信任:SECRET_TARGET 也放行(用户已显式选择全信任,自担泄密风险)", () => {
+    expect(decide({ toolName: "Write", argsJson: '{"path":"../.ssh/authorized_keys"}', capability: "write", mode: "bypassPermissions", ...base })).toBe("allow");
   });
   it("bypass(yolo)下 WRITE_ONLY_SENSITIVE_TARGET(/etc、.git、shell启动脚本)不再 bypass-immune——用户已经显式yolo,读写都放行", () => {
     // 真实撞见的案例:nginx-request-logging 这类 sysadmin 任务要写 /etc/nginx/nginx.conf,
@@ -45,20 +45,22 @@ describe("decide — CC 1g:安全敏感目标", () => {
     expect(decide({ toolName: "Bash", argsJson: '{"command":"echo x > ~/.bashrc"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
     expect(decide({ toolName: "Bash", argsJson: '{"command":"echo x > /etc/postfix/main.cf"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
   });
-  it("非 yolo 模式下 WRITE_ONLY_SENSITIVE_TARGET 依然要确认,行为不变——放宽只针对显式 --yolo", () => {
+  it("非 yolo 模式下 WRITE_ONLY_SENSITIVE_TARGET 依然要确认,行为不变——放宽只针对 yolo", () => {
     expect(decide({ toolName: "Write", argsJson: '{"path":"/etc/hosts"}', capability: "write", mode: "default", ...base })).toBe("ask");
-    expect(decide({ toolName: "Edit", argsJson: '{"path":".git/config"}', capability: "write", mode: "acceptEdits", ...base })).toBe("ask");
+    expect(decide({ toolName: "Edit", argsJson: '{"path":".git/config"}', capability: "write", mode: "default", ...base })).toBe("ask");
     expect(decide({ toolName: "Bash", argsJson: '{"command":"cat /etc/postfix/main.cf > /tmp/x"}', capability: "exec", mode: "auto", ...base })).toBe("ask");
   });
-  it("凭据/密钥类(SECRET_TARGET)读也泄漏,不管读写、不管走哪个工具,一律确认", () => {
-    expect(decide({ toolName: "Bash", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
-    expect(decide({ toolName: "Bash", argsJson: '{"command":"cat /etc/shadow"}', capability: "exec", mode: "bypassPermissions", ...base })).toBe("ask");
+  it("凭据/密钥类(SECRET_TARGET)读也泄漏:非 yolo 模式(含 auto)不论读写、不论走哪个工具一律确认", () => {
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "default", ...base })).toBe("ask");
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "auto", ...base })).toBe("ask");
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"cat /etc/shadow"}', capability: "exec", mode: "default", ...base })).toBe("ask");
     // Read 之前完全没被 mustConfirm 覆盖过(capability=read 从不满足旧条件)——这是新补的一致性:
     // 不管拿 Read 还是 Bash 的 cat 读私钥,结果都是内容进模型上下文,不该只挡后者。
-    expect(decide({ toolName: "Read", argsJson: '{"path":"~/.ssh/id_rsa"}', capability: "read", mode: "bypassPermissions", ...base })).toBe("ask");
+    expect(decide({ toolName: "Read", argsJson: '{"path":"~/.ssh/id_rsa"}', capability: "read", mode: "default", ...base })).toBe("ask");
+    // auto 模式下敏感目标产生的 ask 不能被白名单(Read 在 AUTO_ALLOWLIST)或工作区编辑路径放行
+    expect(decide({ toolName: "Read", argsJson: '{"path":"~/.ssh/id_rsa"}', capability: "read", mode: "auto", ...base })).toBe("ask");
   });
-  it("acceptEdits / auto 下编辑敏感路径仍 ask(不自动放行)", () => {
-    expect(decide({ toolName: "Edit", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "acceptEdits", ...base })).toBe("ask");
+  it("auto 下编辑敏感路径仍 ask(不自动放行)", () => {
     expect(decide({ toolName: "Edit", argsJson: '{"path":"a/.ssh/id_rsa"}', capability: "write", mode: "auto", ...base })).toBe("ask");
   });
   it("显式 allow 规则可 opt-in 放行敏感目标", () => {
@@ -72,7 +74,7 @@ describe("decide — CC 1g:安全敏感目标", () => {
 });
 
 describe("decide — auto 模式快速路径(分类器之前)", () => {
-  it("② 工作区内文件编辑(acceptEdits 会放行)→ 直接 allow,不走分类器", () => {
+  it("② 工作区内文件编辑(Edit/Write)→ 直接 allow,不走分类器", () => {
     expect(decide({ toolName: "Edit", argsJson: '{"path":"src/app.ts"}', capability: "write", mode: "auto", ...base })).toBe("allow");
     expect(decide({ toolName: "Write", argsJson: '{"path":"src/new.ts"}', capability: "write", mode: "auto", ...base })).toBe("allow");
   });
@@ -107,25 +109,16 @@ describe("decide — auto 模式快速路径(分类器之前)", () => {
     expect(sh("cat ~/.ssh/id_rsa")).toBe("ask"); // cat 虽只读,但敏感目标 → mustConfirm 拦
     expect(sh("npm test")).toBe("ask"); // 非白名单程序 → 交分类器
   });
-  it("只读快速路径不再局限于 auto:default/acceptEdits 下纯只读命令也直接 allow,不用弹审批", () => {
-    const ro = (mode: "default" | "acceptEdits") => decide({ toolName: "Bash", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode, ...base });
-    expect(ro("default")).toBe("allow");
-    expect(ro("acceptEdits")).toBe("allow");
-    const roPipe = (mode: "default" | "acceptEdits") => decide({ toolName: "Bash", argsJson: '{"command":"find src -name \'*.ts\' | wc -l"}', capability: "exec", mode, ...base });
-    expect(roPipe("default")).toBe("allow");
-    expect(roPipe("acceptEdits")).toBe("allow");
+  it("只读快速路径不再局限于 auto:default 下纯只读命令也直接 allow,不用弹审批", () => {
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "default", ...base })).toBe("allow");
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"find src -name \'*.ts\' | wc -l"}', capability: "exec", mode: "default", ...base })).toBe("allow");
   });
-  it("但 default/acceptEdits 下非只读命令仍要询问(没有全面放开 Bash)", () => {
+  it("但 default 下非只读命令仍要询问(没有全面放开 Bash)", () => {
     expect(decide({ toolName: "Bash", argsJson: '{"command":"npm install"}', capability: "exec", mode: "default", ...base })).toBe("ask");
-    expect(decide({ toolName: "Bash", argsJson: rm, capability: "exec", mode: "acceptEdits", ...base })).toBe("ask");
+    expect(decide({ toolName: "Bash", argsJson: rm, capability: "exec", mode: "default", ...base })).toBe("ask");
   });
   it("default 下只读命令碰到敏感目标(SECRET_TARGET)依然要确认——快速放行不绕过凭据保护", () => {
     expect(decide({ toolName: "Bash", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "default", ...base })).toBe("ask");
-  });
-  it("plan 模式不享受这条快速路径:Bash 一律 deny,即便命令本身只读——plan 跳过了 mustConfirm," +
-    "若在这里放行会让 cat ~/.ssh/id_rsa 绕过凭据检查,保持原有'exec 一律拦'更安全", () => {
-    expect(decide({ toolName: "Bash", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
-    expect(decide({ toolName: "Bash", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
   });
   it("显式 ask 规则命中时,即便命令只读也要问——用户显式规则优先于自动只读快速路径", () => {
     const rules = { ...emptyPermissions(), ask: ["Bash(ls:*)"] };
@@ -140,15 +133,16 @@ describe("decide — 模式默认(无规则命中)", () => {
     expect(decide({ toolName: "Bash", argsJson: rm, capability: "exec", mode: "default", ...base })).toBe("ask");
     expect(decide({ toolName: "Write", argsJson: '{"path":"a"}', capability: "write", mode: "default", ...base })).toBe("ask");
   });
-  it("acceptEdits:文件编辑自动放行,exec 仍询问", () => {
-    expect(decide({ toolName: "Edit", argsJson: '{"path":"a"}', capability: "write", mode: "acceptEdits", ...base })).toBe("allow");
-    expect(decide({ toolName: "Write", argsJson: '{"path":"a"}', capability: "write", mode: "acceptEdits", ...base })).toBe("allow");
-    expect(decide({ toolName: "Bash", argsJson: rm, capability: "exec", mode: "acceptEdits", ...base })).toBe("ask");
+  it("auto:工作区内文件编辑自动放行,危险命令仍询问", () => {
+    expect(decide({ toolName: "Edit", argsJson: '{"path":"a"}', capability: "write", mode: "auto", ...base })).toBe("allow");
+    expect(decide({ toolName: "Write", argsJson: '{"path":"a"}', capability: "write", mode: "auto", ...base })).toBe("allow");
+    expect(decide({ toolName: "Bash", argsJson: rm, capability: "exec", mode: "auto", ...base })).toBe("ask");
   });
-  it("plan:有副作用的(write/exec/network)拦截,read 放行", () => {
+  it("plan:有副作用的(write/exec/network)一律 deny,read 放行(危险命令也不弹人工)", () => {
     expect(decide({ toolName: "Bash", argsJson: rm, capability: "exec", mode: "plan", ...base })).toBe("deny");
     expect(decide({ toolName: "Write", argsJson: '{"path":"a"}', capability: "write", mode: "plan", ...base })).toBe("deny");
     expect(decide({ toolName: "Read", argsJson: '{"path":"a"}', capability: "read", mode: "plan", ...base })).toBe("allow");
+    expect(decide({ toolName: "Bash", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
   });
   it("无 CC 对应的工具(plan 能力,如 memory/todo)默认放行", () => {
     expect(decide({ toolName: "MemoryWrite", argsJson: "{}", capability: "plan", mode: "default", ...base })).toBe("allow");
@@ -156,16 +150,12 @@ describe("decide — 模式默认(无规则命中)", () => {
 });
 
 describe("decideAsync(AST 路径,Bash 真实运行时走这条)— 只读快速路径同样生效", () => {
-  it("default/acceptEdits 下纯只读命令直接 allow", async () => {
+  it("default 下纯只读命令直接 allow", async () => {
     expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"find src -name \'*.ts\' | wc -l"}', capability: "exec", mode: "default", ...base })).toBe("allow");
-    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"git log --oneline -5"}', capability: "exec", mode: "acceptEdits", ...base })).toBe("allow");
+    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"git log --oneline -5"}', capability: "exec", mode: "default", ...base })).toBe("allow");
   });
   it("非只读命令依然 ask", async () => {
     expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"npm install"}', capability: "exec", mode: "default", ...base })).toBe("ask");
-  });
-  it("plan 模式不享受快速路径,敏感目标不被绕过", async () => {
-    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"ls /tmp"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
-    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "plan", ...base })).toBe("deny");
   });
   it("default 下敏感目标(SECRET_TARGET)只读也要确认", async () => {
     expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', capability: "exec", mode: "default", ...base })).toBe("ask");
@@ -186,42 +176,6 @@ describe("isSensitiveCall", () => {
   it("仅 .dao/config.json 敏感;编辑 ~/.dao/skills 下的技能文件不算敏感", () => {
     expect(isSensitiveCall("Write", '{"path":"/Users/x/.dao/config.json"}')).toBe(true);
     expect(isSensitiveCall("Write", '{"path":"/Users/x/.dao/skills/foo/SKILL.md"}')).toBe(false);
-  });
-});
-
-describe("autoSensitiveAllow 子模式(敏感操作整体放行,仅 auto 生效)", () => {
-  const sensitiveDecide = (mode: "auto" | "default", sub: boolean, toolName: string, argsJson: string) =>
-    decide({ toolName, argsJson, capability: "write", mode, rules: { ...emptyPermissions(), autoSensitiveAllow: sub } });
-
-  it("auto + 开启:敏感写操作直接放行(不再 ask)", () => {
-    expect(sensitiveDecide("auto", true, "Write", '{"path":".ssh/config"}')).toBe("allow");
-  });
-  it("auto + 开启:敏感读命令(cat 凭据)直接放行", () => {
-    expect(sensitiveDecide("auto", true, "Bash", '{"command":"cat ~/.aws/credentials"}')).toBe("allow");
-  });
-  it("auto + 未开启:敏感操作仍 ask", () => {
-    expect(sensitiveDecide("auto", false, "Write", '{"path":".ssh/config"}')).toBe("ask");
-  });
-  it("default 模式:即使开启也不生效(敏感操作仍 ask)", () => {
-    expect(sensitiveDecide("default", true, "Write", '{"path":".ssh/config"}')).toBe("ask");
-  });
-  it("auto + 开启 + 极端危险命令(rm -rf /):仍 ask(不被整体放行覆盖)", () => {
-    expect(sensitiveDecide("auto", true, "Bash", '{"command":"rm -rf /"}')).toBe("ask");
-  });
-  it("auto + 开启 + 极端危险命令(sudo 提权):仍 ask", () => {
-    expect(sensitiveDecide("auto", true, "Bash", '{"command":"sudo rm -rf /tmp/x"}')).toBe("ask");
-  });
-  it("auto + 开启 + deny 规则:仍 deny(deny 最高优先)", () => {
-    const rules = { ...emptyPermissions(), autoSensitiveAllow: true, deny: ["Bash(rm:*)"] };
-    expect(decide({ toolName: "Bash", argsJson: '{"command":"rm -rf /tmp/x"}', capability: "exec", mode: "auto", rules })).toBe("deny");
-  });
-  it("auto + 开启:decideAsync(AST 路径)同样放行", async () => {
-    const rules = { ...emptyPermissions(), autoSensitiveAllow: true };
-    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"cat ~/.aws/credentials"}', capability: "exec", mode: "auto", rules })).toBe("allow");
-  });
-  it("auto + 开启 + 极端危险:decideAsync 仍 ask", async () => {
-    const rules = { ...emptyPermissions(), autoSensitiveAllow: true };
-    expect(await decideAsync({ toolName: "Bash", argsJson: '{"command":"rm -rf /"}', capability: "exec", mode: "auto", rules })).toBe("ask");
   });
 });
 

@@ -466,12 +466,12 @@ describe("runAgent 子代理权限门(auto 模式分类器上下文)", () => {
   });
 
   // 真实撞见(2026-08-01,torch-tensor-parallelism + video-processing 两次独立 terminal-bench trial):
-  // headless(--yolo --eval,无人可应答审批)会话派 verify/general-purpose 子代理时,子代理的
-  // Bash 调用被"用户拒绝执行该工具"拒掉——根因是 VERIFY_AGENT/GENERAL_PURPOSE_AGENT 都硬编码了
-  // permissionMode:"acceptEdits",而 acceptEdits 只自动放行 Edit/Write,exec 仍会落到 ask,
-  // ask 在无人应答的 headless 场景下恒等于拒绝。父级会话本身是 bypassPermissions(yolo)时,
-  // 子代理不该被自己声明的 permissionMode 降级到一个"必须有人应答"的模式——没有人能应答。
-  it("父级 gate 处于 bypassPermissions(yolo)时,子代理即便声明 permissionMode=acceptEdits,exec 类调用也不会被降级到需要人工应答的 ask", async () => {
+  // headless(--yolo --eval,无人可应答审批)会话派 verify/general-purpose 子代理时,子代理的综合
+  // Bash 调用被"用户拒绝执行该工具"拒掉——根因是 VERIFY_AGENT/GENERAL_PURPOSE_AGENT 都声明了
+  // permissionMode:"auto",而 auto 下敏感目标/危险命令仍会落到 ask,ask 在无人应答的 headless
+  // 场景下恒等于拒绝。父级会话本身是 bypassPermissions(yolo)时,子代理不该被自己声明的权限模式
+  // 降级到一个"必须有人应答"的模式——没有人能应答。
+  it("父级 gate 处于 bypassPermissions(yolo)时,子代理即便声明 permissionMode=auto,exec 类调用也不会被降级到需要人工应答的 ask", async () => {
     let promptCalled = false;
     const parentGate = new PermissionGate(
       () => "bypassPermissions",
@@ -485,7 +485,7 @@ describe("runAgent 子代理权限门(auto 模式分类器上下文)", () => {
     let decision: string | undefined;
     const params = baseParams({
       gate: parentGate,
-      agentDef: { agentType: "verify", whenToUse: "", source: "built-in", permissionMode: "acceptEdits", getSystemPrompt: () => "" } as BuiltInAgentDef,
+      agentDef: { agentType: "verify", whenToUse: "", source: "built-in", permissionMode: "auto", getSystemPrompt: () => "" } as BuiltInAgentDef,
       runTurn: async (deps) => {
         decision = deps.gate.decide("Bash", '{"command":"python3 script.py"}', { capability: "exec" } as Tool);
         deps.session.messages.push({ role: "assistant", content: "done" });
@@ -496,7 +496,7 @@ describe("runAgent 子代理权限门(auto 模式分类器上下文)", () => {
     expect(promptCalled).toBe(false);
   });
 
-  it("父级 gate 处于普通交互模式(如 default,人在场能应答)时,子代理声明的 permissionMode=acceptEdits 照常生效(不受上面 yolo 特判影响)", async () => {
+  it("父级 gate 处于普通交互模式(如 default)时,子代理声明的 permissionMode=auto 照常生效(不受上面 yolo 特判影响)", async () => {
     const parentGate = new PermissionGate(
       () => "default",
       () => emptyPermissions(),
@@ -509,7 +509,7 @@ describe("runAgent 子代理权限门(auto 模式分类器上下文)", () => {
     let decision: string | undefined;
     const params = baseParams({
       gate: parentGate,
-      agentDef: { agentType: "verify", whenToUse: "", source: "built-in", permissionMode: "acceptEdits", getSystemPrompt: () => "" } as BuiltInAgentDef,
+      agentDef: { agentType: "verify", whenToUse: "", source: "built-in", permissionMode: "auto", getSystemPrompt: () => "" } as BuiltInAgentDef,
       runTurn: async (deps) => {
         decision = deps.gate.decide("Bash", '{"command":"python3 script.py"}', { capability: "exec" } as Tool);
         deps.session.messages.push({ role: "assistant", content: "done" });

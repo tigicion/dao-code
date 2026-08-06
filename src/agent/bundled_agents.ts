@@ -6,7 +6,7 @@ export const GENERAL_PURPOSE_AGENT: BuiltInAgentDef = {
   whenToUse: "通用子代理:自包含地完成一件被交代清楚的子任务,用同样的工具自主跑完、只回提炼后的结论。省略 agent_type 时默认用它。",
   tools: undefined,
   memory: "project",
-  permissionMode: "acceptEdits",
+  permissionMode: "auto",
   source: "built-in",
   getSystemPrompt: () => `你是通用子代理(general-purpose)。你被派来独立完成一件子任务--你没有主对话的上下文,任务描述即你拥有的全部背景。
 
@@ -111,7 +111,7 @@ export const VERIFY_AGENT: BuiltInAgentDef = {
   whenToUse: "对抗性验证子代理:不是确认'能用',而是试图证明它是坏的--真跑起来找反例/边界/回归,反自我合理化。声称完成前派它独立验。",
   background: true,
   disallowedTools: ["Agent", "Edit", "Write", "NotebookEdit"],
-  permissionMode: "acceptEdits",
+  permissionMode: "auto",
   color: "red",
   criticalSystemReminder: "关键:这是验证专用任务。你不能在项目目录中编辑、写入或创建文件(临时目录 /tmp 可用于临时测试脚本)。你必须在结尾给出判定:通过/不通过/部分。",
   source: "built-in",

@@ -47,34 +47,20 @@ export function isDangerousCall(toolName: string, argsJson: string): boolean {
   catch { return false; }
 }
 
-// auto 模式子开关:敏感操作整体放行(autoSensitiveAllow)。开启后,除极端危险命令
-// (isDangerousCommand 命中:rm -rf /、dd 写设备、mkfs、提权等)外的所有敏感调用
-// (.ssh/.git/凭据读写等)直接放行,不再弹审批。仅 auto 模式生效。
-function autoSensitiveBlessed(p: DecideParams): boolean {
-  return p.mode === "auto" && p.rules.autoSensitiveAllow === true
-    && !isDangerousCall(p.toolName, p.argsJson);
-}
-
-// S3.1 must-confirm:触及敏感目标的写/执行,或危险 shell 命令。配合 gate auto 路径:
-// 此类调用跳过分类器、直接走人工——除非显式 allow 规则 opt-in,或落在下面 yolo 例外里。
-function mustConfirm(p: DecideParams): boolean {
+// S3.1 敏感目标(裁决第 4 层,bypass 之后):凭据/密钥类读也泄漏,不管 capability、不管是不是
+// 纯读命令一律确认——真实的数据泄露/凭据失窃风险。只写才危险的目标(/etc、.git、shell 启动脚本)
+// 本身不是秘密,危险的只是"被意外改写"这个动作:写/执行且非只读命令时确认,纯读放行。
+// 在 bypass(第 3 层)之后检查 → yolo 下不拦(用户已显式选择全信任,自担其余风险)。
+// 危险 shell 命令不在此列——它在第 2 层(bypass 之前)独立检查,任何模式(含 yolo)都确认。
+function isSensitiveTargetCall(p: DecideParams): boolean {
   const id = toCcIdentity(p.toolName, p.argsJson);
-  if (!id?.value) return isDangerousCall(p.toolName, p.argsJson);
-  // 凭据/密钥类:读也泄漏,不管 capability、不管是不是纯读命令、也不管模式(含 yolo)一律
-  // 强制确认——这类是真实的数据泄露/凭据失窃风险,yolo 也不该绕过。
+  if (!id?.value) return false;
   if (SECRET_TARGET.test(id.value)) return true;
-  // 只写才危险的目标(/etc、.git、shell 启动脚本):yolo(bypassPermissions)下不再 bypass-immune——
-  // 用户已经显式 --yolo 表示要完全自动化,这类目标本身不是秘密(泄不泄漏无所谓),危险的只是
-  // "被意外改写"这个动作,而 yolo 的语义就是"我已经决定不要为动作类风险弹确认了"。真实撞见的
-  // 案例:sysadmin 类任务(配置 nginx、mailman、postfix 这些)大量需要写 /etc/ 下的文件,
-  // headless+yolo 场景下没有人能应答确认,S3.1 的 bypass-immune 设计让这整类任务结构性地
-  // 做不完——跟 SECRET_TARGET(真实泄密风险)不是同一个风险等级,不该用同一条免疫规则。
-  // 非 yolo 模式(default/acceptEdits/auto)下这类目标依然要确认,行为不变。
-  if (p.mode !== "bypassPermissions" && (p.capability === "write" || p.capability === "exec") && WRITE_ONLY_SENSITIVE_TARGET.test(id.value)) {
+  if ((p.capability === "write" || p.capability === "exec") && WRITE_ONLY_SENSITIVE_TARGET.test(id.value)) {
     const isReadOnlyExec = p.toolName === "Bash" && isReadOnlyShellCommand(extractCommand(p.argsJson));
-    if (!isReadOnlyExec) return true;
+    return !isReadOnlyExec;
   }
-  return isDangerousCall(p.toolName, p.argsJson);
+  return false;
 }
 
 // auto 模式安全白名单(参考 SAFE_YOLO_ALLOWLISTED_TOOLS):只读/搜索/任务管理/计划类工具
@@ -89,18 +75,20 @@ const AUTO_ALLOWLIST = new Set([
   "CronList",
 ]);
 
-// 单次工具调用的权限裁决,1:1 复刻 CC 优先级:
-//   deny 规则 > bypassPermissions(yolo:deny 之外全过)> 安全敏感目标确认 > ask 规则 > allow 规则 > 模式/能力默认。
-// deny 是硬黑名单,任何模式(含 bypass)都拦截。
+// 单次工具调用的权限裁决,优先级:
+//   deny 规则 > 危险 shell 命令 > bypassPermissions(yolo)> 敏感目标 > ask 规则 > allow 规则 > 只读 shell > 模式/能力默认。
+// deny 是硬黑名单,任何模式(含 yolo)都拦截;危险 shell 命令任何模式(含 yolo)都要确认;
+// 敏感目标:default 强制确认,auto 交分类器(AI 判定,不再强制人工),yolo/plan 不拦。
 // 同步版本:用 legacy splitBashCommands 拆分 Bash 命令。
 export function decide(p: DecideParams): Decision {
   const d = decideBase(p);
   // auto 模式:把"需确认"的调用尽量在 AI 分类器之前快速放行(参考 快速路径②③)。
   if (d === "ask" && p.mode === "auto") {
+    // 敏感目标/危险命令产生的 ask 不能被白名单或工作区编辑路径绕过——auto 下 Read ~/.ssh/id_rsa
+    // 这类调用必须过分类器(gate 里敏感请求也交分类器,分类器对私钥读取会 BLOCK 转人工)。
+    if (isDangerousCall(p.toolName, p.argsJson) || isSensitiveTargetCall(p)) return "ask";
     if (AUTO_ALLOWLIST.has(p.toolName)) return "allow"; // ③ 安全白名单(只读类工具)
-    // ③' 只读 shell 命令的快速放行已经并进 decideBase 本身(不分模式),这里到达时 d 已经不可能
-    // 是因为"只读"而 ask——若走到这,要么是显式 ask 规则命中,要么是非只读命令,都不该在这再放行。
-    if (!isDangerousAutoAllow(p) && decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow"; // ② acceptEdits 会放行(工作区内编辑)
+    if (autoEditAllow(p)) return "allow"; // ② 工作区内编辑(Edit/Write)自动放行
     return "ask"; // ④ 交分类器
   }
   return d;
@@ -118,33 +106,36 @@ export async function decideAsync(p: DecideParams): Promise<Decision> {
   const { evaluateWithAst } = await import("./rules.js");
   const ruleDec = await evaluateWithAst(p.rules, id);
 
+  // 1. deny 规则:硬黑名单,任何模式(含 yolo)都拦截。
   if (ruleDec === "deny") return "deny";
-  // auto 模式子开关(autoSensitiveAllow)开启时,非极端危险的敏感调用【直接放行】
-  // (deny 已查;ask 规则/allow 规则在下方,子开关语义是"敏感操作一律通过")。
-  if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) {
-    if (autoSensitiveBlessed(p)) return "allow";
-    return "ask";
-  }
+  // 2. 危险 shell 命令:除 plan(只读,第 8 层一律 deny 更严)外任何模式(含 yolo)强制确认
+  //    (除非显式 allow 规则 opt-in)。
+  if (ruleDec !== "allow" && p.mode !== "plan" && isDangerousCall(p.toolName, p.argsJson)) return "ask";
+  // 3. bypassPermissions(yolo):deny + 危险命令之外一律放行。
   if (p.mode === "bypassPermissions") return "allow";
+  // 4. 敏感目标:default/auto 都返回 ask(default 强制人工;auto 交分类器——decide() 的 auto
+  //    分支确认不被白名单绕过,gate 里敏感请求也交分类器而非人工);yolo(第 3 层已放行)/
+  //    plan(第 8 层 deny 副作用)不拦。注意 Read 等非副作用工具也在这里拦:
+  //    否则 auto 下 Read ~/.ssh/id_rsa 会从第 8 层直接 allow,绕过分类器。
+  if (ruleDec !== "allow" && p.mode !== "plan" && isSensitiveTargetCall(p)) return "ask";
+  // 5. ask 规则
   if (ruleDec === "ask") return "ask";
+  // 6. allow 规则
   if (ruleDec === "allow") return "allow";
 
-  // 只读 shell 命令:不分模式一律快速放行(同 decideBase 的逻辑,这里 toolName 恒为 Bash,
-  // 已在函数顶部 return decide(p) 分流掉了非 Bash 的情况)。不含 plan,理由同 decideBase。
-  if (p.mode !== "plan" && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
+  // 7. 只读 shell 命令:不分模式一律快速放行,免一次审批(同 decideBase 的逻辑,这里 toolName 恒为
+  //    Bash,已在函数顶部 return decide(p) 分流掉了非 Bash 的情况)。plan 除外(exec 一律 deny);
+  //    敏感目标除外——auto 下 cat ~/.ssh/id_rsa 不能被只读快速路径放行,必须交分类器。
+  if (p.mode !== "plan" && isReadOnlyShellCommand(extractCommand(p.argsJson)) && !isSensitiveTargetCall(p)) return "allow";
 
-  // 无规则命中 → 模式 + 能力默认
+  // 8. 无规则命中 → 模式 + 能力默认
   const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";
   if (p.mode === "plan") return sideEffecting ? "deny" : "allow";
-  if (p.mode === "acceptEdits" && id && (id.ccTool === "Edit" || id.ccTool === "Write")) return "allow";
-
-  // auto 模式快速路径(同 decide 中的逻辑)
   if (p.mode === "auto" && sideEffecting) {
-    if (AUTO_ALLOWLIST.has(p.toolName)) return "allow";
-    if (decideBase({ ...p, mode: "acceptEdits" }) === "allow") return "allow";
+    if (AUTO_ALLOWLIST.has(p.toolName) && !isSensitiveTargetCall(p)) return "allow";
+    if (autoEditAllow(p)) return "allow";
     return "ask";
   }
-
   return sideEffecting ? "ask" : "allow";
 }
 
@@ -157,7 +148,6 @@ export function matchesIfClause(ifPattern: string, toolName: string, argsJson: s
 }
 
 // 判断 auto 模式下的 Bash 调用是否被 dangerousPatterns 降级(危险 allow 规则命中)。
-// 用于阻止 decide 的 acceptEdits 重判路径绕过降级。
 function isDangerousAutoAllow(p: DecideParams): boolean {
   if (p.toolName !== "Bash") return false;
   const id = toCcIdentity(p.toolName, p.argsJson);
@@ -168,22 +158,35 @@ function isDangerousAutoAllow(p: DecideParams): boolean {
   });
 }
 
+// auto 模式快速路径②:工作区内文件编辑(Edit/Write)自动放行——原 acceptEdits 模式删除后,
+// 把"文件编辑放行"语义直接内联进 auto 路径(等价于旧的 acceptEdits 重判)。
+// 敏感目标/危险命令、显式 ask 规则除外——这些仍要确认。
+function autoEditAllow(p: DecideParams): boolean {
+  const id = toCcIdentity(p.toolName, p.argsJson);
+  if (!id || (id.ccTool !== "Edit" && id.ccTool !== "Write")) return false;
+  if (isDangerousCall(p.toolName, p.argsJson) || isSensitiveTargetCall(p)) return false;
+  if (evaluate(p.rules, id) === "ask") return false;
+  return true;
+}
+
 function decideBase(p: DecideParams): Decision {
   const id = toCcIdentity(p.toolName, p.argsJson);
   const ruleDec = id ? evaluate(p.rules, id) : null;
 
+  // 1. deny 规则:硬黑名单,任何模式(含 yolo)都拦截。
   if (ruleDec === "deny") return "deny";
-  // S3.1 敏感目标写/执行 + 危险 shell 命令:除 plan(只读、下方一律 deny 更严)外的任何模式(含 yolo)
-  // 都要确认,除非显式 allow 规则 opt-in。放在 bypassPermissions 之前 → yolo 也不能绕过(参考 bypass-immune)。
-  // auto 模式子开关(autoSensitiveAllow)开启时,非极端危险的敏感调用【直接放行】:
-  // 用户已明确"敏感操作整体放行",deny 规则仍优先(上面已查),此处不再弹审批。
-  if (ruleDec !== "allow" && p.mode !== "plan" && mustConfirm(p)) {
-    if (autoSensitiveBlessed(p)) return "allow";
-    return "ask";
-  }
-  // bypassPermissions(yolo):deny + must-confirm 之外一律放行(用户已 --yolo 启动,自担其余风险)。
+  // 2. 危险 shell 命令(rm -rf /、curl|sh、提权…):除 plan(只读,第 8 层一律 deny 更严)外
+  //    任何模式(含 yolo)都要确认,除非显式 allow 规则 opt-in(ruleDec === "allow" 时跳过)。
+  if (ruleDec !== "allow" && p.mode !== "plan" && isDangerousCall(p.toolName, p.argsJson)) return "ask";
+  // 3. bypassPermissions(yolo):deny + 危险命令之外一律放行(用户已主动开启,自担其余风险)。
   if (p.mode === "bypassPermissions") return "allow";
+  // 4. 敏感目标(凭据/只写敏感):default/auto 都返回 ask(default 强制人工;auto 交分类器,
+  //    decide() 的 auto 分支确认不被白名单绕过);yolo(第 3 层已放行)/plan(第 8 层 deny)不拦。
+  //    Read 等非副作用工具也在这里拦——否则 auto 下 Read ~/.ssh/id_rsa 从第 8 层直接 allow。
+  if (ruleDec !== "allow" && p.mode !== "plan" && isSensitiveTargetCall(p)) return "ask";
+  // 5. ask 规则
   if (ruleDec === "ask") return "ask";
+  // 6. allow 规则
   if (ruleDec === "allow") {
     // auto 模式:危险的 Bash allow 规则(如 Bash(python:*))降级为 ask,交分类器判断。
     // 参考 CC stripDangerousPermissionsForAutoMode + isDangerousBashPermission。
@@ -200,16 +203,20 @@ function decideBase(p: DecideParams): Decision {
     return "allow";
   }
 
-  // 只读 shell 命令(ls/cat/git status/find 不带 -delete…):不分模式一律快速放行,免一次审批——
-  // Bash 的 capability 标了 "exec" 不代表这次调用真有副作用,没道理因为工具本身的分类就问。
-  // 已过上面的 mustConfirm(SECRET_TARGET/危险命令双保险 fail-closed),这里再判一次纯读安全即可。
-  // 不含 plan:plan 模式跳过了 mustConfirm(见上面 `p.mode !== "plan"` 那个条件),SECRET_TARGET
-  // 检查没跑过,这里如果也放行会让 `cat ~/.ssh/id_rsa` 绕过凭据保护——保持 plan 原有"exec 一律 deny"。
-  if (p.mode !== "plan" && p.toolName === "Bash" && isReadOnlyShellCommand(extractCommand(p.argsJson))) return "allow";
+  // 7. 只读 shell 命令(ls/cat/git status/find 不带 -delete…):不分模式一律快速放行,免一次审批——
+  //    Bash 的 capability 标了 "exec" 不代表这次调用真有副作用,没道理因为工具本身的分类就问。
+  //    plan 除外(只读规划,exec 一律 deny);敏感目标除外:auto 下 cat ~/.ssh/id_rsa 不能被
+  //    只读快速路径放行,必须交分类器。
+  if (p.mode !== "plan" && p.toolName === "Bash" && isReadOnlyShellCommand(extractCommand(p.argsJson)) && !isSensitiveTargetCall(p)) return "allow";
 
-  // 无规则命中 → 模式 + 能力默认
+  // 8. 无规则命中 → 模式 + 能力默认
   const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";
   if (p.mode === "plan") return sideEffecting ? "deny" : "allow";
-  if (p.mode === "acceptEdits" && id && (id.ccTool === "Edit" || id.ccTool === "Write")) return "allow";
+  if (p.mode === "auto" && sideEffecting) {
+    // 敏感目标不享受白名单快速放行(白名单里 Read 会放掉 ~/.ssh/id_rsa)——须交分类器。
+    if (AUTO_ALLOWLIST.has(p.toolName) && !isSensitiveTargetCall(p)) return "allow";
+    if (autoEditAllow(p)) return "allow";
+    return "ask";
+  }
   return sideEffecting ? "ask" : "allow";
 }

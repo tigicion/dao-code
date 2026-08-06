@@ -33,9 +33,9 @@ export interface BaseAgentDef {
   tools?: string[];
   disallowedTools?: string[];
   model?: string;
-  // 子代理权限模式:可设 PermissionMode(default/acceptEdits/plan/bypassPermissions/auto)
-  // 或旧的 Mode(normal/plan)。normal = 继承父级模式;plan = 只读。
-  // 参考:CC 默认 acceptEdits(子代理编辑不弹审批),dao 默认 normal(继承父级)。
+  // 子代理权限模式:可设 PermissionMode(default/auto/bypassPermissions)
+  // 或旧的 Mode(normal/plan)。normal = 继承父级模式;plan = Session 只读(工具移除,非权限模式)。
+  // 参考:CC 默认 acceptEdits(子代理编辑不弹审批),dao 内置子代理用 auto(AI 判定,后台无人也自答)。
   permissionMode?: Mode | PermissionMode;
   maxTurns?: number;
   // reasoning effort(参考 effort):控制子代理思考强度。"max"/"high"/"medium"/"low"。

@@ -26,8 +26,6 @@ export class PermissionGate implements ApprovalGate {
     // 时会传入 sub.messages——之前这里没有这个参数,子代理的调用永远用根 session.messages
     // 判定,分类器看不到子代理自己在做什么(复盘 session 20260721-215548-uq75)。
     private getMessages: () => ChatMessage[] = () => [],
-    // 用户开启"敏感操作整体放行"子开关(autoSensitiveAllow)时持久化到 settings.local.json
-    private onEnableSensitiveAllow: () => Promise<void> = async () => {},
   ) {}
 
   // 上一次 requestBatch 里,每个请求 id 最终是被分类器自动放行的,还是真弹窗问了人--
@@ -100,7 +98,6 @@ export class PermissionGate implements ApprovalGate {
       this.addSessionAllow,
       this.classify,
       getMessages ?? this.getMessages,
-      this.onEnableSensitiveAllow,
     );
   }
 
@@ -142,22 +139,22 @@ export class PermissionGate implements ApprovalGate {
   async requestBatch(requests: ApprovalRequest[]): Promise<Map<string, boolean>> {
     this.lastSources = new Map(); // 只反映这一批,不跨批累积
     const out = new Map<string, boolean>();
-    // auto 模式:AI 分类器只负责【把确信安全的自动放行】;其余(判定需谨慎 / 评估失败 / 敏感目标)
+    // auto 模式:AI 分类器只负责【把确信安全的自动放行】;其余(判定需谨慎 / 评估失败)
     // 一律【转人工审批】,而不是直接拒绝--auto = "安全的自动过,拿不准的问你",绝不替你拒。
+    // 危险命令强制人工(任何模式);敏感目标也交分类器(分类器对私钥读取会 BLOCK)。
     // (只读类工具 / 只读 shell / 工作区内编辑已在 engine.decide 短路为 allow,根本不会到这。)
     let toAsk = requests;
     if (this.getMode() === "auto" && this.classify) {
       const needHuman: ApprovalRequest[] = [];
       // 熔断检查:连续/总 deny 超限时跳过分类器,全部转人工。
       const tripped = this.isTripped();
-      const subEnabled = this.getRules().autoSensitiveAllow === true;
       for (const r of requests) {
-        if (r.sensitive || tripped) {
-          // 子开关未开 + 非极端危险:标记"可开启整体放行",审批界面据此提供选项;
-          // 极端危险命令(dangerous)即使子开关开启也仍要确认,不提供开启选项。
-          needHuman.push(subEnabled || r.dangerous ? r : { ...r, offerSensitiveAllow: true });
-          continue;
-        } // 敏感/危险 或已熔断:绝不交分类器
+        // 危险命令(rm -rf /、提权等):任何模式强制人工,绝不交分类器。
+        if (r.dangerous) { needHuman.push(r); continue; }
+        // 已熔断:回退人工。
+        if (tripped) { needHuman.push(r); continue; }
+        // 敏感目标(非危险)在 auto 下也交分类器,不再强制人工——分类器 prompt 自带
+        // "读写私钥/凭据 → BLOCK、项目内 .env → 继续"的判定;拿不准仍会转人工。
         let allow = false;
         try { allow = await this.classify(r.toolName, r.argsJson ?? "", this.getMessages()); }
         catch { allow = false; } // 分类器评估失败 -> 不自动放行,转人工(不是拒绝)
@@ -177,13 +174,6 @@ export class PermissionGate implements ApprovalGate {
     const decisions = await this.prompt(toAsk);
     for (const r of toAsk) {
       const d = decisions.get(r.id) ?? "deny";
-      // 用户选了"开启敏感操作整体放行"且尚未开启:持久化子开关,本次也放行。
-      if (d === "always" && r.offerSensitiveAllow && this.getRules().autoSensitiveAllow !== true) {
-        await this.onEnableSensitiveAllow();
-        this.lastSources.set(r.id, "human");
-        out.set(r.id, true);
-        continue;
-      }
       if ((d === "always" || d === "session") && r.argsJson !== undefined) {
         // 普通操作加白:记规则(同类不再问)。
         const rule = rememberRule(r.toolName, r.argsJson);

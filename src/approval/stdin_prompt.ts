@@ -13,13 +13,11 @@ export function makeApprovalPrompt(ask: (prompt: string) => Promise<string>, isI
         out.set(req.id, "deny");
         continue;
       }
-      const hint = req.offerSensitiveAllow
-        ? "[y]是(仅本次) [a]开启敏感操作整体放行(除极端危险外不再询问) [n]否"
-        : req.sensitive
-          ? (req.dangerous
-            ? "[y]是(仅本次) [n]否" // 极端危险:子开关开了也仍确认,不提供始终允许
-            : "[y]是(仅本次) [a]始终允许(同类不再问) [n]否")
-          : "[y]是(允许一次) [a]始终允许(记住,同类不再问) [n]否";
+      const hint = req.sensitive
+        ? (req.dangerous
+          ? "[y]是(仅本次) [n]否" // 极端危险:不提供始终允许
+          : "[y]是(仅本次) [a]始终允许(同类不再问) [n]否")
+        : "[y]是(允许一次) [a]始终允许(记住,同类不再问) [n]否";
       const ans = (await ask(`\n需要批准:${req.summary}\n  ${hint} > `))
         .trim()
         .toLowerCase();

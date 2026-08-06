@@ -1085,14 +1085,14 @@ describe("App", () => {
   it("i18n:权限模式提示 + 模式标签跟随 locale(Shift+Tab)", async () => {
     setLang("en");
     const { lastFrame, stdin } = render(
-      <App {...makeDeps({ cycleMode: () => "acceptEdits" })} />,
+      <App {...makeDeps({ cycleMode: () => "auto" })} />,
     );
     await delay();
     stdin.write("\x1b[Z"); // Shift+Tab(backtab)→ 循环权限模式
     await delay();
     const f = lastFrame()!;
     expect(f).toContain("permission mode →");
-    expect(f).toContain("Auto-accept edits");
+    expect(f).toContain("Smart decision");
     expect(f).not.toContain("权限模式");
   });
 

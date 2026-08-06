@@ -45,7 +45,7 @@ export function parseHandoffClassifierResponse(text: string): ClassifyResult {
  */
 export async function classifyHandoffIfNeeded(opts: {
   agentMessages: ChatMessage[];
-  permissionMode: string;  // 审批模式(auto/default/acceptEdits/bypassPermissions)
+  permissionMode: string;  // 审批模式(auto/default/bypassPermissions)
   abortSignal: AbortSignal;
   subagentType: string;
   totalToolUseCount: number;

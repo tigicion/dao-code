@@ -1,10 +1,12 @@
 import { promises as fs, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname as pathDirname } from "node:path";
 
-// 权限模式(1:1 复刻 CC):default 按需弹审批;acceptEdits 自动批准文件编辑;
-// plan 只读规划(拦写/执行);bypassPermissions 全部放行(=YOLO)。
-export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "auto";
-const MODES = new Set<PermissionMode>(["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
+// 权限模式:default 按需弹审批;auto 交给 AI 分类器(确信安全的自动放行,拿不准的转人工,
+// 敏感目标也交分类器判定——不再强制人工);bypassPermissions 全部放行(=YOLO);plan 只读规划
+// (写/exec/network 一律 deny),不在 /mode 切换与 Shift+Tab 循环里,经 settings.defaultMode /
+// --permission-mode / /plan 进入。
+export type PermissionMode = "default" | "auto" | "bypassPermissions" | "plan";
+const MODES = new Set<PermissionMode>(["default", "auto", "bypassPermissions", "plan"]);
 
 import type { AutoModeRules } from "./classifier.js";
 
@@ -18,10 +20,6 @@ export interface PermissionsConfig {
   bashClassifier?: string[];
   /** auto 模式分类器的用户自定义规则(allow/deny/environment)。 */
   autoMode?: AutoModeRules;
-  /** auto 模式子开关:敏感操作整体放行。开启后 auto 模式下,除极端危险命令
-   *  (isDangerousCommand 命中:rm -rf /、dd 写设备、mkfs、提权等)外,所有敏感操作
-   *  (.ssh/.git/凭据等)直接放行,不再弹审批。仅 auto 模式生效。 */
-  autoSensitiveAllow?: boolean;
 }
 
 export function emptyPermissions(): PermissionsConfig {
@@ -57,8 +55,6 @@ export function parseSettings(raw: string): PermissionsConfig {
     if (aEnv.length) autoMode.environment = aEnv;
     if (Object.keys(autoMode).length > 0) cfg.autoMode = autoMode;
   }
-  // auto 模式子开关:敏感操作整体放行。
-  if (typeof p.autoSensitiveAllow === "boolean") cfg.autoSensitiveAllow = p.autoSensitiveAllow;
   // bashClassifier 向后兼容:映射到 autoMode.deny。
   if (cfg.bashClassifier) {
     cfg.autoMode ??= {};
@@ -130,8 +126,6 @@ export function mergePermissions(tiers: PermissionsConfig[]): PermissionsConfig 
     if (amDeny.length) out.autoMode.deny = uniq(amDeny);
     if (amEnv.length) out.autoMode.environment = uniq(amEnv);
   }
-  // autoSensitiveAllow:任一层的 true 即开启(布尔开关,取并集)。
-  out.autoSensitiveAllow = tiers.some((t) => t.autoSensitiveAllow === true);
   return out;
 }
 
@@ -152,21 +146,6 @@ export async function appendRule(
   const list: string[] = Array.isArray(obj.permissions[kind]) ? obj.permissions[kind] : [];
   if (!list.includes(rule)) list.push(rule);
   obj.permissions[kind] = list;
-  await fsp.mkdir(path.dirname(file), { recursive: true });
-  await fsp.writeFile(file, JSON.stringify(obj, null, 2), "utf8");
-}
-
-// 设置 permissions.autoSensitiveAllow(布尔子开关:auto 模式敏感操作整体放行)。
-// 文件不存在则新建;保留文件里的其它字段。
-export async function setAutoSensitiveAllow(file: string, enabled: boolean): Promise<void> {
-  const { promises: fsp } = await import("node:fs");
-  const path = await import("node:path");
-  let obj: any = {};
-  const raw = await fsp.readFile(file, "utf8").catch(() => null);
-  if (raw !== null) { try { obj = JSON.parse(raw); } catch { obj = {}; } }
-  if (typeof obj !== "object" || obj === null) obj = {};
-  obj.permissions ??= {};
-  obj.permissions.autoSensitiveAllow = enabled;
   await fsp.mkdir(path.dirname(file), { recursive: true });
   await fsp.writeFile(file, JSON.stringify(obj, null, 2), "utf8");
 }

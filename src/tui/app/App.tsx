@@ -20,7 +20,7 @@ import { classifyPath, isImagePath, detectImageFormat } from "../../tools/paths.
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 // 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
-const MODE_KEYS = new Set(["default", "acceptEdits", "auto", "plan", "bypassPermissions"]);
+const MODE_KEYS = new Set(["default", "auto", "plan", "bypassPermissions"]);
 const modeLabel = (m: string): string => (MODE_KEYS.has(m) ? t("mode." + m) : m);
 const MAX_LIVE_LINES = 12; // 流式动态区尾部行数的【上限】;实际取 liveCap(按屏高自适应)。完成后整段进 <Static>,故不丢内容。
 const TOOL_OUT_CAP = 8; // 工具结果 ⎿ 子块默认最多显示几行(ctrl+o / --verbose 全显)
@@ -862,7 +862,7 @@ export function App(deps: AppDeps) {
       exitArmedTimer.current = setTimeout(() => setExitArmed(false), 2000);
       return;
     }
-    // Shift+Tab:循环权限模式(default→auto→plan),随时可用。acceptEdits/bypass 不在循环里。
+    // Shift+Tab:循环权限模式(default→auto→yolo),随时可用。
     if (key.tab && key.shift && deps.cycleMode) {
       const m = deps.cycleMode();
       setStatus(deps.getStatus());
@@ -1093,8 +1093,6 @@ export function App(deps: AppDeps) {
           <Text color={c("ink")}>{(approval.requests[apIdx]?.summary ?? "").slice(0, 600).replace(/^/gm, "  ")}</Text>
           {approval.requests[apIdx]?.noPersist ? (
             <Text color={c("dim")}>{t("ui.approval.noPersist")}</Text>
-          ) : approval.requests[apIdx]?.offerSensitiveAllow ? (
-            <Text color={c("dim")}>{t("ui.approval.sensitiveOffer")}</Text>
           ) : approval.requests[apIdx]?.sensitive ? (
             <Text color={c("dim")}>{approval.requests[apIdx]?.dangerous ? t("ui.approval.sensitive") : t("ui.approval.sensitivePlain")}</Text>
           ) : (
@@ -1497,7 +1495,6 @@ function StatusBar({
         {status.yolo ? <Text color={c("vermilion")}>※ YOLO · </Text> : ""}
         {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}
         {status.mode === "plan" ? <Text color={c("gold")}>{t("ui.status.planMode")}</Text> : ""}
-        {status.permMode === "acceptEdits" ? <Text color={c("jade")}>{t("ui.status.acceptEdits")}</Text> : ""}
         {status.permMode === "auto" ? <Text color={c("jade")}>{t("ui.status.auto")}</Text> : ""}
         {bgShells && bgShells > 0 ? <Text color={c("gold")}>⎈ {bgShells} shell{bgShells > 1 ? "s" : ""} · </Text> : ""}
         {status.accountName ? <Text color={c("jade")}>{status.accountName}/</Text> : null}

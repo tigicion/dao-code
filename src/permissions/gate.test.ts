@@ -24,7 +24,6 @@ function makeGate(opts: {
 }) {
   const remembered: string[] = [];
   const sessionAllow: string[] = [];
-  const enabledSensitiveAllow: boolean[] = [];
   // 真实环境 addSessionAllow 会把规则并入本会话 allow 集合——测试桩要模拟这一点,
   // 否则"始终允许"后 gate.decide 查不到规则,验证不了整体加白真的生效。
   const rules: PermissionsConfig = opts.rules ?? emptyPermissions();
@@ -38,9 +37,8 @@ function makeGate(opts: {
     (rule) => { sessionAllow.push(rule); rules.allow.push(rule); },
     opts.classify,
     opts.getMessages,
-    async () => { enabledSensitiveAllow.push(true); rules.autoSensitiveAllow = true; },
   );
-  return { gate, remembered, sessionAllow, enabledSensitiveAllow };
+  return { gate, remembered, sessionAllow };
 }
 
 const execWithCheck = defineTool({
@@ -84,13 +82,29 @@ describe("PermissionGate.decide", () => {
     expect(asked).toBe(1); // 评估失败也转人工
     expect(out.get("e")).toBe(true);
   });
-  it("auto 模式:sensitive 请求跳过分类器,直接走人工(S3.1)", async () => {
+  it("auto 模式:敏感(非危险)请求也交分类器,不再强制人工", async () => {
+    let classifyCalled = 0;
+    const { gate } = makeGate({ mode: "auto", classify: async () => { classifyCalled++; return true; } });
+    const out = await gate.requestBatch([
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.aws/credentials"}', sensitive: true },
+    ]);
+    expect(classifyCalled).toBe(1); // 敏感目标交给 AI 分类器判定
+    expect(out.get("s")).toBe(true); // 分类器放行
+  });
+  it("auto 模式:分类器没放行敏感请求 → 转人工(不是自动拒绝)", async () => {
+    const { gate } = makeGate({ mode: "auto", classify: async () => false, decisions: { s: "once" } });
+    const out = await gate.requestBatch([
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.ssh/id_rsa"}', sensitive: true },
+    ]);
+    expect(out.get("s")).toBe(true); // 分类器 BLOCK → 人工允许
+  });
+  it("auto 模式:危险命令(dangerous)跳过分类器,直接走人工(S3.1)", async () => {
     let classifyCalled = 0;
     const { gate } = makeGate({ mode: "auto", classify: async () => { classifyCalled++; return true; }, decisions: { s: "deny" } });
     const out = await gate.requestBatch([
-      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true, dangerous: true },
     ]);
-    expect(classifyCalled).toBe(0); // 分类器没被调用(敏感/危险不交 AI 自动放行)
+    expect(classifyCalled).toBe(0); // 危险命令不交 AI 自动放行
     expect(out.get("s")).toBe(false); // 由人工裁决(此处 deny)
   });
   it("auto 模式:人工选'始终允许'会记规则(分类器未放行后)", async () => {
@@ -100,61 +114,6 @@ describe("PermissionGate.decide", () => {
     ]);
     expect(remembered).toEqual(["Bash(npm run:*)"]);
     expect(sessionAllow).toEqual(["Bash(npm run:*)"]);
-  });
-  it("auto 模式:sensitive 请求标记 offerSensitiveAllow(供审批界面提供'开启整体放行')", async () => {
-    const { gate } = makeGate({ mode: "auto", classify: async () => true, decisions: { s: "deny" } });
-    let seen: ApprovalRequest | undefined;
-    const gate2 = new PermissionGate(
-      () => "auto", () => emptyPermissions(),
-      async (reqs) => { seen = reqs[0]; return new Map(); },
-      async () => {}, () => {},
-      async () => true, () => [],
-      async () => {},
-    );
-    await gate2.requestBatch([
-      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.aws/credentials"}', sensitive: true },
-    ]);
-    expect(seen?.offerSensitiveAllow).toBe(true); // auto + sensitive + 未开启 → 可提供开启选项
-  });
-  it("auto 模式:极端危险请求(dangerous)不提供开启选项", async () => {
-    let seen: ApprovalRequest | undefined;
-    const gate = new PermissionGate(
-      () => "auto", () => emptyPermissions(),
-      async (reqs) => { seen = reqs[0]; return new Map(); },
-      async () => {}, () => {},
-      async () => true, () => [],
-      async () => {},
-    );
-    await gate.requestBatch([
-      { id: "d", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true, dangerous: true },
-    ]);
-    expect(seen?.offerSensitiveAllow).toBeUndefined(); // 极端危险:子开关开了也仍确认,不提供开启
-  });
-  it("auto 模式:敏感请求选'开启整体放行'([a])→ 持久化子开关,本次放行,不记规则", async () => {
-    const { gate, remembered, sessionAllow, enabledSensitiveAllow } = makeGate({ mode: "auto", classify: async () => false, decisions: { s: "always" } });
-    const out = await gate.requestBatch([
-      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.aws/credentials"}', sensitive: true },
-    ]);
-    expect(enabledSensitiveAllow).toEqual([true]); // 子开关被开启
-    expect(remembered).toEqual([]); // 不记规则(子开关替代规则加白)
-    expect(sessionAllow).toEqual([]);
-    expect(out.get("s")).toBe(true); // 本次放行
-  });
-  it("auto 模式:子开关已开启时,sensitive 请求不再 offer(engine 已直接放行,gate 收不到)", async () => {
-    let seen: ApprovalRequest[] | undefined;
-    const gate = new PermissionGate(
-      () => "auto",
-      () => ({ ...emptyPermissions(), autoSensitiveAllow: true }),
-      async (reqs) => { seen = reqs; return new Map(); },
-      async () => {}, () => {}, async () => true, () => [],
-      async () => {},
-    );
-    // 子开关已开:敏感 + 非危险的调用在 engine.decide 里被 autoSensitiveBlessed 短路为 allow,
-    // 根本不会进 requestBatch;这里验证即使进来,offer 也不再置位(防御性)。
-    await gate.requestBatch([
-      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"cat ~/.aws/credentials"}', sensitive: true },
-    ]);
-    expect(seen?.[0]?.offerSensitiveAllow).toBeUndefined();
   });
   it("yolo(bypass):工具自检 ask 升级也放行(deny 之外全过)", () => {
     const { gate } = makeGate({ mode: "bypassPermissions", rules: { ...emptyPermissions(), allow: ["Bash"] } });
@@ -179,22 +138,29 @@ describe("PermissionGate.withModeOverride", () => {
     schema: z.object({}), handler: async () => "",
   });
 
-  it("父级 default -> 子代理 acceptEdits:write 从 ask 变 allow", () => {
+  it("父级 default -> 子代理 auto:write 从 ask 变 allow(工作区编辑 auto 放行)", () => {
     const { gate } = makeGate({ mode: "default" });
     expect(gate.decide("Write", '{"path":"a.ts"}', writeTool)).toBe("ask");
-    const subGate = gate.withModeOverride("acceptEdits");
+    const subGate = gate.withModeOverride("auto");
     expect(subGate.decide("Write", '{"path":"a.ts"}', writeTool)).toBe("allow");
   });
 
-  it("父级 default -> 子代理 plan:write 从 ask 变 deny", () => {
+  it("父级 default -> 子代理 bypassPermissions(yolo):write 从 ask 变 allow", () => {
+    const { gate } = makeGate({ mode: "default" });
+    const subGate = gate.withModeOverride("bypassPermissions");
+    expect(subGate.decide("Write", '{"path":"a.ts"}', writeTool)).toBe("allow");
+  });
+
+  it("父级 default -> 子代理 plan:write 从 ask 变 deny(只读规划)", () => {
     const { gate } = makeGate({ mode: "default" });
     const subGate = gate.withModeOverride("plan");
     expect(subGate.decide("Write", '{"path":"a.ts"}', writeTool)).toBe("deny");
+    expect(subGate.decide("Read", '{"path":"a.ts"}', readTool)).toBe("allow");
   });
 
-  it("父级 acceptEdits -> 子代理 plan:read 仍 allow", () => {
-    const { gate } = makeGate({ mode: "acceptEdits" });
-    const subGate = gate.withModeOverride("plan");
+  it("父级 default -> 子代理 auto:read 仍 allow", () => {
+    const { gate } = makeGate({ mode: "default" });
+    const subGate = gate.withModeOverride("auto");
     expect(subGate.decide("Read", '{"path":"a.ts"}', readTool)).toBe("allow");
   });
 
@@ -313,14 +279,14 @@ describe("PermissionGate.lastApprovalSource", () => {
     expect(gate.lastApprovalSource("needsHuman")).toBe("human");
   });
 
-  it("敏感请求跳过分类器直接转人工 → 记 human", async () => {
+  it("危险命令跳过分类器直接转人工 → 记 human", async () => {
     const { gate } = makeGate({
       mode: "auto",
       classify: async () => true,
       decisions: { s: "once" },
     });
     await gate.requestBatch([
-      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true },
+      { id: "s", toolName: "Bash", capability: "exec", summary: "", argsJson: '{"command":"rm -rf /"}', sensitive: true, dangerous: true },
     ]);
     expect(gate.lastApprovalSource("s")).toBe("human");
   });

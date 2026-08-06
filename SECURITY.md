@@ -24,9 +24,9 @@ dao 是一个会**读写文件、执行 shell 命令**的终端 agent,安全是�
 ## dao 的安全模型(便于评估风险面)
 
 dao 默认开启的防护:
-- **权限门**:写/执行/网络类工具默认需审批;5 种模式 `default / acceptEdits / auto / plan / bypassPermissions(yolo)`。
-- **敏感目标 bypass-immune**:`.ssh / .aws / .git / 凭据 / shell rc / /etc / .dao/config.json` 等的写/执行,**任何模式(含 yolo)都强制确认**。
-- **危险命令拦截**:`rm -rf /`、fork bomb、`curl|sh`、提权、写裸盘等命中黑名单 → 强制人工(`auto` 下不可被分类器放行)。
+- **权限门**:写/执行/网络类工具默认需审批;4 种模式 `default / auto / bypassPermissions(yolo)/ plan`(plan 只读规划不进 `/mode` 切换)。
+- **敏感目标**:`.ssh / .aws / .git / 凭据 / shell rc / /etc / .dao/config.json` 等的读写,default/auto 强制确认(auto 交分类器,私钥会被 BLOCK);yolo 下放行(全信任,自担风险)。
+- **危险命令拦截**:`rm -rf /`、fork bomb、`curl|sh`、提权、写裸盘等命中黑名单 → **任何模式(含 yolo)都强制人工确认**(`auto` 下亦不可被分类器放行)。
 - **Unicode 消毒**:命令/路径里的同形字、零宽、null 字节 → 视为可疑、走审批。
 - **秘密扫描**:API key/私钥等不写进持久记忆、不入蒸馏。
 - **子进程 env 脱敏**:`spawn` 的命令拿不到 `DEEPSEEK_API_KEY` 等敏感环境变量。

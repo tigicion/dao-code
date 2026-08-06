@@ -104,7 +104,7 @@ import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
 import { PermissionGate } from "./permissions/gate.js";
-import { loadPermissions, mergePermissions, appendRule, appendRuleSync, removeRule, removeRuleSync, setAutoSensitiveAllow, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
+import { loadPermissions, mergePermissions, appendRule, appendRuleSync, removeRule, removeRuleSync, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, LONG_TASK_DIRECTIVE_EN } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
 import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
@@ -888,10 +888,11 @@ async function main() {
   // 本会话临时追加的 allow 规则("session"/"always" 决定产生);always 另持久化到 local。
   const sessionAllow: string[] = [];
   const getRules = () => ({ ...loadedPerms, allow: [...loadedPerms.allow, ...sessionAllow] });
-  // 运行时模式覆盖(/mode acceptEdits 等);null = 用 settings 的 defaultMode。
+  // 运行时模式覆盖(/mode auto 等);null = 用 settings 的 defaultMode。
   // --goal/--task/--coordinator 启动:用 auto(AI 判定自动批准)推进自主流程,而非 yolo 全开。
   let permModeOverride: PermissionMode | null = taskFlag && !yolo ? "auto" : null;
-  // 有效权限模式:plan 会话模式 > YOLO(=bypass)> 运行时覆盖 > settings 默认 > default。
+  // 有效权限模式:plan 会话 > YOLO(=bypass)> 运行时覆盖 > settings 默认 > default。
+  // plan 只读规划不在 /mode 切换里,但 settings.defaultMode/--permission-mode//plan 可进入。
   const getMode = (): PermissionMode =>
     session.mode === "plan"
       ? "plan"
@@ -958,7 +959,6 @@ async function main() {
     (rule) => { sessionAllow.push(rule); }, // "session"/"always" 本会话生效
     classifyPermission, // auto 模式
     () => session.messages, // 分类器的 transcript 来源:根会话自己的消息(子代理会在 runAgent 里 withModeOverride 换成自己的)
-    () => setAutoSensitiveAllow(localSettingsFile, true), // 开启"敏感操作整体放行"子开关
   );
 
   const session = new Session(systemPrompt, cfg.model);
@@ -981,7 +981,7 @@ async function main() {
     );
   }
   // settings/CLI/企业策略指定的初始模式:plan→会话只读规划;bypassPermissions→等价 YOLO。
-  // default/acceptEdits 由 getMode 读 loadedPerms.defaultMode 处理,无需在此设置。
+  // default/auto 由 getMode 读 loadedPerms.defaultMode 处理,无需在此设置。
   if (loadedPerms.defaultMode === "plan") session.mode = "plan";
   else if (loadedPerms.defaultMode === "bypassPermissions") yolo = true;
   // WebFetch 智能提取(prompt 参数)用模型:DeepSeek 系 provider 默认 flash 档,其余(anthropic/openai
@@ -2118,24 +2118,38 @@ async function main() {
             return { handled: true, output: `账户 · 当前来源 ${keySource}\n${list}\n(Ink 下直接 /account 弹选择器;/account add <key> [provider] [name] 添加 · /account <名> 切换 · /account rm <名> 删除)` };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
-            // yolo 只能启动时开(`dao --yolo`);会话内只允许【关闭】,不允许开启。
-            if (!yolo) return { handled: true, output: "※ yolo(免审批)只能启动时开启:`dao --yolo`。会话内想自动批准请用 /mode auto(AI 判定,deny/敏感仍拦)。" };
-            yolo = false;
-            return { handled: true, output: "免审批已关闭:恢复审批门。" };
+            // 三种模式互切后,/yolo 是 yolo 的快捷开关(可开可关,与 /mode yolo 等价)。
+            if (yolo) {
+              yolo = false;
+              permModeOverride = null;
+              return { handled: true, output: "免审批已关闭:恢复审批门。" };
+            }
+            session.mode = "normal";
+            yolo = true;
+            permModeOverride = null;
+            return { handled: true, output: "⚡ yolo:免审批已开启(deny 规则仍拦)。慎用。" };
           }
           if (name === "mode") {
             const arg = line.trim().split(/\s+/)[1];
             if (!arg) {
-              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|acceptEdits|auto|plan>(yolo 只能 \`dao --yolo\` 启动时开)` };
+              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|auto|yolo>(plan 只读规划用 /plan 或 settings.defaultMode 进入,不在切换里)` };
             }
-            if (arg === "plan") { session.mode = "plan"; permModeOverride = null; return { handled: true, output: "◇ 已切到 plan(只读规划,拦写/执行)" }; }
-            if (arg === "bypassPermissions") return { handled: true, output: "※ yolo(bypassPermissions)只能 `dao --yolo` 启动时开启,不能会话内切换。会话内可用 /mode auto。" };
-            if (arg === "default" || arg === "acceptEdits" || arg === "auto") {
+            if (arg === "plan") {
+              return { handled: true, output: "plan 是只读规划权限模式,不经 /mode 切换——用 /plan(会话只读)或 settings.defaultMode = \"plan\"/`--permission-mode plan` 进入。" };
+            }
+            if (arg === "yolo" || arg === "bypass" || arg === "bypassPermissions") {
+              session.mode = "normal";
+              yolo = true;
+              permModeOverride = null;
+              return { handled: true, output: "⚡ yolo:免审批已开启(deny 规则仍拦)。慎用。" };
+            }
+            if (arg === "default" || arg === "auto") {
               if (session.mode === "plan") session.mode = "normal";
+              yolo = false;
               permModeOverride = arg as PermissionMode;
-              return { handled: true, output: arg === "acceptEdits" ? "✎ acceptEdits:自动批准文件编辑,其余照常审批" : arg === "auto" ? "⊙ auto:只读命令/工作区内编辑自动放行;其余交 AI 分类器,确信安全的自动过、拿不准的转人工审批(不会替你拒绝);deny 规则/敏感目标仍按规则拦。" : "权限模式已设为 default(按需审批)" };
+              return { handled: true, output: arg === "auto" ? "⊙ auto:只读命令/工作区内编辑自动放行;其余(含敏感目标)交 AI 分类器,确信安全的自动过、拿不准的转人工审批(不会替你拒绝);deny 规则/危险命令仍拦。" : "权限模式已设为 default(按需审批)" };
             }
-            return { handled: true, output: `未知模式:${arg}(可选 default/acceptEdits/auto/plan)` };
+            return { handled: true, output: `未知模式:${arg}(可选 default/auto/yolo)` };
           }
           if (name === "goal" || name === "task") { // task 为旧别名
             const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
@@ -2262,17 +2276,15 @@ async function main() {
           sessionId: store.id,
         }),
         cycleMode: () => {
-          // yolo(bypassPermissions)不在 Shift+Tab 循环里——只能 `dao --yolo` 启动时开启。
-          // 若当前正处于 yolo,Shift+Tab 退出到 default(可降权,不可在循环中升到 yolo)。
-          // acceptEdits(自动接受编辑)不在循环里——仍可用 /mode acceptEdits 显式进入,但不参与 Shift+Tab 轮换。
-          const order: PermissionMode[] = ["default", "auto", "plan"];
+          // 切换循环只含 default/auto/yolo(用户要求三种互切);plan 只读规划不在循环里——
+          // 当前若在 plan(经 /plan/settings 进入),Shift+Tab 视为从头进 default 并退出 plan。
+          const order: PermissionMode[] = ["default", "auto", "bypassPermissions"];
           const cur = getMode();
-          // 当前若在 acceptEdits(经 /mode 进入,不在循环里),Shift+Tab 视为从头进 default 的下一个。
           const idx = order.indexOf(cur);
-          const next = cur === "bypassPermissions" ? "default" : order[(idx + 1) % order.length]!;
-          yolo = false; // 循环永不进入 yolo
-          session.mode = next === "plan" ? "plan" : "normal";
-          permModeOverride = next;
+          const next = order[(idx + 1) % order.length]!;
+          yolo = next === "bypassPermissions";
+          session.mode = "normal";
+          permModeOverride = next === "bypassPermissions" ? null : next;
           return next;
         },
         register: ({ approvalPrompt, askUser, askChoice }) => {

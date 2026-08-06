@@ -5,7 +5,7 @@ import { z } from "zod";
 import { defineTool } from "./types.js";
 import type { PermissionMode } from "../permissions/settings.js";
 
-const VALID_MODES = new Set(["default", "acceptEdits", "plan", "bypassPermissions", "auto"]);
+const VALID_MODES = new Set(["default", "auto", "bypassPermissions", "plan"]);
 
 // 参考 Config 工具:读写运行时配置项。支持全局(~/.dao/settings.json)和项目级(.dao/settings.json)。
 // 目前支持 setting: permissions.defaultMode, theme。后续可扩展。
@@ -13,12 +13,12 @@ export const configTool = defineTool({
   name: "Config",
   description:
     "读取或设置 dao 配置项。不传 value 时返回当前值;传 value 时写入。" +
-    "支持 setting: 'permissions.defaultMode'(权限模式:default/acceptEdits/plan/bypassPermissions/auto)、" +
+    "支持 setting: 'permissions.defaultMode'(权限模式:default/auto/bypassPermissions/plan,plan 只读规划不经 /mode 切换)、" +
     "'theme'(终端主题:light/dark)。" +
     "配置来源优先级:企业策略 > 用户级(~/.dao/settings.json)> 项目级(.dao/settings.json)。",
   descriptionEn:
     "Read or set dao configuration. Omit value to read current; include value to write. " +
-    "Supports: 'permissions.defaultMode' (default/acceptEdits/plan/bypassPermissions/auto), 'theme' (light/dark). " +
+    "Supports: 'permissions.defaultMode' (default/auto/bypassPermissions/plan; plan is read-only, not in /mode cycle), 'theme' (light/dark). " +
     "Config source priority: enterprise > user (~/.dao/settings.json) > project (.dao/settings.json).",
   capability: "plan",
   approval: "auto",

@@ -31,12 +31,14 @@ interface Tool {
 `approval` 字段是每个工具**手写声明的静态标签**,不参与实际放行判断,只供 UI/文档参考。真正的运行时裁决在 `src/permissions/engine.ts` 的 `decide`/`decideBase`:
 
 - `sideEffecting = capability ∈ {write, exec, network}`(read/plan 视为非副作用)。
-- `plan` 模式:sideEffecting → deny;否则 allow。
-- `acceptEdits` 模式:Edit/Write 类型直接 allow。
-- 其余模式:sideEffecting → ask(需人工/分类器审批);否则 allow。
-- 命中敏感目标(SSH key、`.git`、`/etc` 等)的写/执行,或危险 shell 命令,无论何种模式一律强制 `ask`(`mustConfirm`,yolo 也不能绕过)。
+- 裁决优先级:`deny` 规则 > 危险 shell 命令(任何模式强制 `ask`,plan 除外由第 8 层 deny)> `bypassPermissions`(yolo)> 敏感目标(default/auto 都 `ask`)> `ask` 规则 > `allow` 规则 > 只读 shell 命令快速放行 > 模式/能力默认。
+- `default` 模式:sideEffecting → ask(需人工审批);否则 allow。
+- `auto` 模式:sideEffecting → 白名单/工作区内编辑放行,其余(含敏感目标)交 AI 分类器(安全自动过、拿不准转人工;私钥读取会被分类器 BLOCK);否则 allow。
+- `bypassPermissions`(yolo):除 deny 与危险命令外一律 allow。
+- `plan` 模式(只读规划,不进 `/mode` 切换):write/exec/network 一律 deny,read/plan 工具 allow。
+- 敏感目标(SSH key、`.git`、`/etc`、凭据等):default/auto 一律 `ask`(auto 的 ask 交分类器而非强制人工);yolo 下放行(全信任)。
 - `rules.ts` 里的规则表(deny/ask/allow)优先级高于以上默认值,deny 规则任何模式都拦截。
-- `auto` 模式下有 `AUTO_ALLOWLIST`(`read_file`/`grep_files`/`file_search`/`list_dir`/`todo_write`/`ask_user`/`memory_read`/`skill`/`verify_done`/`echo`/`web_search`/`fetch_url`)+ 只读 shell 命令识别,免过 AI 分类器直接放行。
+- `auto` 模式下有 `AUTO_ALLOWLIST`(`read_file`/`grep_files`/`file_search`/`list_dir`/`todo_write`/`ask_user`/`memory_read`/`skill`/`verify_done`/`echo`/`web_search`/`fetch_url`)+ 只读 shell 命令识别,免过 AI 分类器直接放行;但敏感目标产生的 ask 不被白名单/只读快速路径绕过。
 - `PermissionGate.decide`(`src/permissions/gate.ts`)在 engine 判定之后,再让工具自身的 `checkPermissions` 做"只能收紧"的二次自检。
 
 ## `tools_for_mode.ts` 按模式裁剪

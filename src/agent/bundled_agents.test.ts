@@ -46,8 +46,8 @@ describe("VERIFY_AGENT", () => {
   it("disallowedTools 含 agent/edit/write", () => {
     expect(VERIFY_AGENT.disallowedTools).toContain("Agent");
   });
-  it("permissionMode = acceptEdits(参考:子代理编辑不弹审批)", () => {
-    expect(VERIFY_AGENT.permissionMode).toBe("acceptEdits");
+  it("permissionMode = auto(子代理写操作走 AI 分类器,后台无人也能自答)", () => {
+    expect(VERIFY_AGENT.permissionMode).toBe("auto");
   });
 });
 
@@ -58,7 +58,7 @@ describe("GENERAL_PURPOSE_AGENT", () => {
   it("tools = undefined(全部)", () => {
     expect(GENERAL_PURPOSE_AGENT.tools).toBeUndefined();
   });
-  it("permissionMode = acceptEdits(参考:子代理编辑不弹审批)", () => {
-    expect(GENERAL_PURPOSE_AGENT.permissionMode).toBe("acceptEdits");
+  it("permissionMode = auto(子代理写操作走 AI 分类器,后台无人也能自答)", () => {
+    expect(GENERAL_PURPOSE_AGENT.permissionMode).toBe("auto");
   });
 });
