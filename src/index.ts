@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import { pathToFileURL } from "node:url";
 import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/profiles_store.js";
-import { DEFAULTS, MODELS_BY_PROVIDER, resolveContextWindow, type Provider, type ResolvedCredential } from "./config/profiles.js";
+import { DEFAULTS, MODELS_BY_PROVIDER, isProvider, resolveContextWindow, type Provider, type ResolvedCredential } from "./config/profiles.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
 import { validateCredential } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
@@ -282,7 +282,7 @@ async function main() {
   const cliApiKey = apiKeyIdx >= 0 ? rawArgs[apiKeyIdx + 1] : undefined;
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
-  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
+  const cliProvider = isProvider(cliProviderRaw) ? cliProviderRaw : undefined;
   const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);
@@ -1196,10 +1196,10 @@ async function main() {
     return true;
   };
 
-  // L2.1:上下文窗口按【当前主模型】真实窗口解析(resolveContextWindow),避免给小窗口模型(如 MiniMax-M2.7
-  // 的 204,800)套用 1M 默认导致压缩永不触发。DAO_CONTEXT_WINDOW 显式设置仍最高优先;未登记模型回退 1M。
-  // 真正的安全网是反应式压缩(见 loop.ts compact 钩子):即便此值偏大,撞上下文超限也会自动压缩重试。
-  const CONTEXT_WINDOW = Number(process.env.DAO_CONTEXT_WINDOW) || resolveContextWindow(session.model);
+  // Resolve the limit from the active model on every use so model and account switches take effect immediately.
+  // An explicit DAO_CONTEXT_WINDOW value still takes precedence over the model registry.
+  const contextWindowOverride = Number(process.env.DAO_CONTEXT_WINDOW);
+  const currentContextWindow = () => contextWindowOverride || resolveContextWindow(session.model);
   // Q1 当前上下文 token:优先用主模型上次真实 prompt_tokens(准,尤其中文),无则回退 chars/3 估算。
   const contextTokens = () => session.lastPromptTokens ?? estimateTokens(session.messages);
   // L1.3:主模型持续过载/异常时本回合回退的模型;DAO_FALLBACK_MODEL=off 关闭。
@@ -1317,7 +1317,7 @@ async function main() {
       executeToolCalls,
       write,
       compact: runCompaction, // L2.2 反应式压缩
-      shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
+      shouldCompact: () => contextTokens() >= currentContextWindow() * 0.85, // Proactive in-turn compaction.
       fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
@@ -1330,11 +1330,11 @@ async function main() {
     }));
     // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
     if (!argvPrompt) {
-      const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
+      const compactionImminent = contextTokens() >= currentContextWindow() * 0.85;
       if (compactionImminent || REFLECT_SYNC) await maybeReflect({ compactionImminent });
       else void maybeReflect({ compactionImminent });
     }
-    if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
+    if (contextTokens() >= currentContextWindow() * 0.85) {
       write("\n[接近上限,自动压缩…]\n");
       await runCompaction();
     }
@@ -1599,7 +1599,7 @@ async function main() {
             executeToolCalls,
             write: () => {},
             compact: inkCompact, // L2.2 反应式压缩
-            shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
+            shouldCompact: () => contextTokens() >= currentContextWindow() * 0.85, // Proactive in-turn compaction.
             fallbackModel: FALLBACK_MODEL, // L1.3 模型回退
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
@@ -1618,11 +1618,11 @@ async function main() {
           store.append({ t: "turn_end" });
           // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。
           {
-            const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
+            const compactionImminent = contextTokens() >= currentContextWindow() * 0.85;
             if (compactionImminent || REFLECT_SYNC) await maybeReflect({ compactionImminent });
             else void maybeReflect({ compactionImminent });
           }
-          if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
+          if (contextTokens() >= currentContextWindow() * 0.85) {
             const before = session.messages.length;
             events.notice("[接近上限,自动压缩…]");
             await inkCompact();
@@ -1673,6 +1673,7 @@ async function main() {
             return { handled: true, output: `${head}\n${rows.join("\n")}\n${foot}` };
           }
           if (name === "context") {
+            const CONTEXT_WINDOW = currentContextWindow();
             const used = contextTokens();
             const pct = Math.round((used / CONTEXT_WINDOW) * 100);
             const sys = estimateTokens(session.messages.slice(0, 1));
@@ -1948,7 +1949,7 @@ async function main() {
             return { handled: true, output: `思考强度已设为 ${arg}(下一回合生效)` };
           }
           if (name === "status") {
-            const pct = Math.round((contextTokens() / CONTEXT_WINDOW) * 100);
+            const pct = Math.round((contextTokens() / currentContextWindow()) * 100);
             const flags = [yolo ? "免审批" : "", longTask ? "长任务" : ""].filter(Boolean).join("/") || "—";
             return { handled: true, output: `状态:模型 ${session.model} · 模式 ${getMode()} · 开关 ${flags} · 上下文 ${pct}% · 思考 ${process.env.DAO_REASONING_EFFORT || "max"}${obsLabel() ? ` · ${obsLabel()}` : ""}\n${session.usageSummary()}` };
           }
@@ -2162,7 +2163,7 @@ async function main() {
           yolo,
           longTask,
           branch: gitBranch,
-          contextPct: (contextTokens() / CONTEXT_WINDOW) * 100,
+          contextPct: (contextTokens() / currentContextWindow()) * 100,
           version: VERSION,
           sessionId: store.id,
         }),

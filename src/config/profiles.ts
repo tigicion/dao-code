@@ -30,6 +30,10 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
 };
 
+export function isProvider(value: string | undefined): value is Provider {
+  return value !== undefined && Object.hasOwn(DEFAULTS, value);
+}
+
 // 每个 provider 已知可用的模型串(/model 命令用来做校验+循环);deepseek 只有 pro/flash 两档,
 // volcengine coding plan 额外支持 doubao/glm/kimi/minimax 系列——控制台列出但实测 coding plan
 // 接口返回 UnsupportedModel 的串(如 doubao-seed-code,无 2.0 后缀的旧版)不收录,
@@ -73,9 +77,9 @@ export function supportsVision(model: string): boolean {
   return VISION_MODELS.has(model);
 }
 
-// 各模型真实上下文窗口(token):按模型粒度解析,替代"一刀切 1M 默认"。窗口 <1M 的模型若沿用 1M,
-// 反应式压缩永不主动触发,撞真实上限处才崩(见 index.ts CONTEXT_WINDOW)。表中没有的模型回退 1M 默认,
-// 保持既有 provider 行为不变。依据(2026-07-23 核实官方文档):
+// Model-specific context windows replace the flat 1M runtime default. Unregistered models retain the existing
+// 1M fallback, while smaller registered windows trigger proactive compaction before the provider rejects a request.
+// Values verified against the provider documentation on 2026-07-23:
 // - MiniMax-M3   = 1,000,000
 // - MiniMax-M2.7 =   204,800
 export const DEFAULT_CONTEXT_WINDOW = 1_000_000;

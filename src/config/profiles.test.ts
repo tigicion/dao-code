@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { migrateConfig, resolveActive, DEFAULTS, MODELS_BY_PROVIDER, supportsVision, resolveContextWindow } from "./profiles.js";
+import { migrateConfig, resolveActive, DEFAULTS, MODELS_BY_PROVIDER, supportsVision, resolveContextWindow, isProvider } from "./profiles.js";
 
 describe("migrateConfig", () => {
   it("wraps a legacy { apiKey } config into a default deepseek profile", () => {
@@ -128,6 +128,14 @@ describe("DEFAULTS.minimax", () => {
       baseUrl: "https://api.minimax.io/v1",
       model: "MiniMax-M3",
     });
+  });
+});
+
+describe("isProvider", () => {
+  it("accepts MiniMax for headless provider selection", () => {
+    expect(isProvider("minimax")).toBe(true);
+    expect(isProvider("unknown")).toBe(false);
+    expect(isProvider(undefined)).toBe(false);
   });
 });
 
