@@ -2,7 +2,7 @@
 // 多 key 切换 = 切 profile;多 provider = profile 带不同 provider;未来订阅 = 另一种凭证类型。
 // 不引入"用户(user)"概念——DAO 是本地 CLI,DeepSeek 无账号体系,user 等于给不存在的登录服务器建模。
 
-export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine" | "qianfan";
+export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine" | "qianfan" | "minimax";
 
 export interface Profile {
   provider: Provider;
@@ -23,9 +23,16 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   deepseek: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro" },
   volcengine: { baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", model: "deepseek-v4-pro" },
   qianfan: { baseUrl: "https://qianfan.baidubce.com/v2/tokenplan/personal", model: "deepseek-v4-pro" },
+  // MiniMax direct access uses the official global OpenAI-compatible endpoint by default.
+  // Set a profile baseUrl to https://api.minimaxi.com/v1 for the CN endpoint.
+  minimax: { baseUrl: "https://api.minimax.io/v1", model: "MiniMax-M3" },
   anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-4-8" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
 };
+
+export function isProvider(value: string | undefined): value is Provider {
+  return value !== undefined && Object.hasOwn(DEFAULTS, value);
+}
 
 // 每个 provider 已知可用的模型串(/model 命令用来做校验+循环);deepseek 只有 pro/flash 两档,
 // volcengine coding plan 额外支持 doubao/glm/kimi/minimax 系列——控制台列出但实测 coding plan
@@ -47,6 +54,8 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
     "minimax-m3",
   ],
   qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "ernie-5.1"],
+  // Direct MiniMax access preserves the official case-sensitive model IDs instead of the lowercase aliases above.
+  minimax: ["MiniMax-M3", "MiniMax-M2.7"],
   anthropic: [DEFAULTS.anthropic.model],
   openai: [DEFAULTS.openai.model],
 };
@@ -57,13 +66,31 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
 // - glm-5.2/glm-5.1: 智谱文档标注"输入模态:文本",不支持
 // - ernie-5.1: 千帆模型列表只在"文本生成"分类,不支持
 // - deepseek-v4-pro/flash: 千帆模型列表只在"文本生成"分类,不支持
+// - MiniMax-M3: official input modalities include images and video; MiniMax-M2.7 is text-only.
 export const VISION_MODELS = new Set<string>([
   "kimi-k2.6",
+  "MiniMax-M3",
 ]);
 
 /** 当前 model 是否支持图片输入。不在 VISION_MODELS 中的模型一律视为不支持。 */
 export function supportsVision(model: string): boolean {
   return VISION_MODELS.has(model);
+}
+
+// Model-specific context windows replace the flat 1M runtime default. Unregistered models retain the existing
+// 1M fallback, while smaller registered windows trigger proactive compaction before the provider rejects a request.
+// Values verified against the provider documentation on 2026-07-23:
+// - MiniMax-M3   = 1,000,000
+// - MiniMax-M2.7 =   204,800
+export const DEFAULT_CONTEXT_WINDOW = 1_000_000;
+export const CONTEXT_WINDOW_BY_MODEL: Record<string, number> = {
+  "MiniMax-M3": 1_000_000,
+  "MiniMax-M2.7": 204_800,
+};
+
+/** Resolves the model context window in tokens and falls back to the existing 1M default. */
+export function resolveContextWindow(model: string): number {
+  return CONTEXT_WINDOW_BY_MODEL[model] ?? DEFAULT_CONTEXT_WINDOW;
 }
 
 function isV2(raw: unknown): raw is ProfilesConfig {

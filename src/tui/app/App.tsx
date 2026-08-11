@@ -608,6 +608,7 @@ export function App(deps: AppDeps) {
       { provider: "deepseek", label: t("ui.account.providerLabel.deepseek") },
       { provider: "qianfan", label: t("ui.account.providerLabel.qianfan") },
       { provider: "volcengine", label: t("ui.account.providerLabel.volcengine") },
+      { provider: "minimax", label: t("ui.account.providerLabel.minimax") },
     ],
     idx: 0,
     resolve,
