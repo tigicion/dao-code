@@ -117,7 +117,7 @@ describe("MODELS_BY_PROVIDER", () => {
       "minimax-m3",
     ]);
   });
-  it("minimax 直连保留官方大小写 ID(MiniMax-M3/MiniMax-M2.7)", () => {
+  it("keeps the official MiniMax-M3 and MiniMax-M2.7 model IDs for direct access", () => {
     expect(MODELS_BY_PROVIDER.minimax).toEqual(["MiniMax-M3", "MiniMax-M2.7"]);
   });
 });

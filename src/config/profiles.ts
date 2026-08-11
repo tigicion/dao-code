@@ -23,8 +23,8 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   deepseek: { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro" },
   volcengine: { baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", model: "deepseek-v4-pro" },
   qianfan: { baseUrl: "https://qianfan.baidubce.com/v2/tokenplan/personal", model: "deepseek-v4-pro" },
-  // MiniMax 直连:官方 OpenAI 兼容端点,全球站默认;国内站用 https://api.minimaxi.com/v1
-  // (建 profile 时改 baseUrl)。默认模型用官方 ID MiniMax-M3。
+  // MiniMax direct access uses the official global OpenAI-compatible endpoint by default.
+  // Set a profile baseUrl to https://api.minimaxi.com/v1 for the CN endpoint.
   minimax: { baseUrl: "https://api.minimax.io/v1", model: "MiniMax-M3" },
   anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-4-8" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
@@ -54,7 +54,7 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
     "minimax-m3",
   ],
   qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "ernie-5.1"],
-  // minimax 直连保留官方大小写 ID(MiniMax-M3/MiniMax-M2.7),而非上方那份列表里的小写别名。
+  // Direct MiniMax access preserves the official case-sensitive model IDs instead of the lowercase aliases above.
   minimax: ["MiniMax-M3", "MiniMax-M2.7"],
   anthropic: [DEFAULTS.anthropic.model],
   openai: [DEFAULTS.openai.model],
@@ -66,7 +66,7 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
 // - glm-5.2/glm-5.1: 智谱文档标注"输入模态:文本",不支持
 // - ernie-5.1: 千帆模型列表只在"文本生成"分类,不支持
 // - deepseek-v4-pro/flash: 千帆模型列表只在"文本生成"分类,不支持
-// - MiniMax-M3: MiniMax 官方文档标注输入模态含图片与视频,支持;MiniMax-M2.7 仅文本,不支持
+// - MiniMax-M3: official input modalities include images and video; MiniMax-M2.7 is text-only.
 export const VISION_MODELS = new Set<string>([
   "kimi-k2.6",
   "MiniMax-M3",
@@ -88,7 +88,7 @@ export const CONTEXT_WINDOW_BY_MODEL: Record<string, number> = {
   "MiniMax-M2.7": 204_800,
 };
 
-/** 解析某 model 的上下文窗口(token);未登记的模型回退到 1M 默认。 */
+/** Resolves the model context window in tokens and falls back to the existing 1M default. */
 export function resolveContextWindow(model: string): number {
   return CONTEXT_WINDOW_BY_MODEL[model] ?? DEFAULT_CONTEXT_WINDOW;
 }
