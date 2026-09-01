@@ -38,7 +38,7 @@ describe("人民币计费", () => {
     expect(def.inputMiss).toBeCloseTo(1.25 * 6.8, 5);
   });
 
-  it("MiniMax 官方模型 ID 与小写别名使用当前美元价格", () => {
+  it("uses current USD prices for official MiniMax model IDs and lowercase aliases", () => {
     const m3 = { inputHit: 0.84, inputMiss: 4.2, output: 16.8 };
     const m27 = { inputHit: 0.42, inputMiss: 2.1, output: 8.4 };
 
