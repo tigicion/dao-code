@@ -37,11 +37,17 @@ export function createCheckpointer(workspaceRoot: string): Checkpointer {
     if (!existsSync(path.join(daoDir, ".gitignore"))) writeFileSync(path.join(daoDir, ".gitignore"), "*\n");
   } catch {}
   const gitDir = path.join(daoDir, "shadow.git");
+  // 硬超时:execFileSync 真同步阻塞 Node 主线程(不是等网络那种可被 ESC/Ctrl-C 打断的 await)——
+  // 超大工作区(实测撞见:108GB、一堆未被 EXCLUDES 覆盖的 .rar/.exe/.xp3/.mpg 大文件目录)下
+  // `git add -A` 首次快照要给每个文件算哈希,能卡到 6 分钟+ 完全无响应。超时后 execFileSync
+  // 抛错,走既有 catch 分支优雅降级(不打快照),不再无限期冻结整个回合。
+  const HARD_TIMEOUT_MS = Number(process.env.DAO_CHECKPOINT_TIMEOUT_MS) || 10000;
   const run = (args: string[], opts: { gitOnly?: boolean } = {}) =>
     execFileSync("git", ["--git-dir", gitDir, ...args], {
       cwd: workspaceRoot,
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf8",
+      timeout: HARD_TIMEOUT_MS,
     });
   try {
     if (!existsSync(gitDir)) {
@@ -75,6 +81,7 @@ export function createCheckpointer(workspaceRoot: string): Checkpointer {
         if (Date.now() - t0 > MAX_MS) tooSlow = true; // 太慢 → 后续跳过
         return sha;
       } catch {
+        tooSlow = true; // 失败(含硬超时被杀)大概率下次还是慢/还会卡,后续跳过而不是每回合重试
         return null;
       }
     },
