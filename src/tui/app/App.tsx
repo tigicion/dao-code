@@ -6,7 +6,7 @@ import path from "node:path";
 import { renderMarkdown } from "../markdown.js";
 import { semHex } from "../theme.js";
 import { Welcome } from "../Welcome.js";
-import { t, tips } from "../../i18n/i18n.js";
+import { t, tips, setLang, getLang, switchLang, type Lang } from "../../i18n/i18n.js";
 import { daoVerb, DAO_VERBS } from "../spinner_words.js";
 import { clampLines, parseTodoResult } from "./format.js";
 import type { TurnEvents } from "../render.js";
@@ -35,7 +35,7 @@ const COMMAND_META: ReadonlyArray<string> = [
   "review", "security-review", "hooks", "agents", "files", "memory", "permissions", "resume",
   "rewind", "branch", "rename", "export", "copy", "btw", "Config", "effort", "status", "plugin",
   "account", "simplify", "remember", "debug-session", "skillify", "batch",
-  "loop", "theme", "bypass", "goal", "dod", "restore", "clear", "compact", "cost", "session",
+  "loop", "theme", "lang", "bypass", "goal", "dod", "restore", "clear", "compact", "cost", "session",
   "audit", "help", "exit",
 ];
 const SLASH_COMMANDS = COMMAND_META;
@@ -211,7 +211,10 @@ export function App(deps: AppDeps) {
   const [skillPick, setSkillPick] = useState<{ items: { name: string; on: boolean; source: string; detail: string }[]; idx: number; showBundled: boolean } | null>(null);
   const [modelPick, setModelPick] = useState<{ items: { model: string; active: boolean }[]; idx: number } | null>(null);
   // 添加账户流程里的 provider 选择器(↑↓选/⏎确认/Esc取消),resolve(null) 表示取消。
-  const [providerPick, setProviderPick] = useState<{ items: { provider: Provider; label: string }[]; idx: number; resolve: (p: Provider | null) => void } | null>(null);
+  // "custom" 是自定义网关(OpenAI 兼容,如京东 llm-gw)分支——不新增 Provider 枚举值,落盘仍用 deepseek 请求路径。
+  const [providerPick, setProviderPick] = useState<{ items: { provider: Provider | "custom"; label: string }[]; idx: number; resolve: (p: Provider | "custom" | null) => void } | null>(null);
+  // 自定义网关:填完 baseUrl+token 后拉 /models 列表让用户 ↑↓ 选 model(resolve(null)=取消)。
+  const [gwModelPick, setGwModelPick] = useState<{ items: string[]; idx: number; resolve: (m: string | null) => void } | null>(null);
   const CHOICE_DONE = t("ui.choice.done"); // 多选专用:回车在此行提交;在正常项上回车=勾选
   const CHOICE_FILL = t("ui.choice.fill");
   const CHOICE_DISCUSS = t("ui.choice.discuss");
@@ -423,6 +426,21 @@ export function App(deps: AppDeps) {
         pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.themeSwitched", next === "light" ? t("ui.theme.light") : t("ui.theme.dark")) });
         return;
       }
+      // /lang [zh|en]:无参切换,带参校验;立即生效(整个 TUI 文案走 t(),后续渲染即换语言)+持久化。
+      if (name === "lang") {
+        const arg0 = text.split(/\s+/)[1]?.toLowerCase();
+        const raw = arg0 === "zh" || arg0 === "en" ? arg0 : arg0 ? "" : (getLang() === "zh" ? "en" : "zh");
+        if (raw !== "zh" && raw !== "en") {
+          pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.langInvalid", text.split(/\s+/)[1] ?? "") });
+          return;
+        }
+        const next: Lang = raw;
+        setLang(next);
+        void switchLang(next);
+        // 切换后的确认提示用【新语言】渲染,本身就是生效演示。
+        pushItem({ id: nextId(), kind: "notice", text: next === "zh" ? "已切换语言:中文(/lang 再切回;已保存,重启后仍生效)" : "Language switched: English (/lang to toggle back; saved, persists after restart)" });
+        return;
+      }
       if (name === "loop") {
         const parts = full.trim().split(/\s+/);
         const arg = parts[1];
@@ -603,26 +621,57 @@ export function App(deps: AppDeps) {
   // 单行输入(复用 ask 覆盖层):粘贴 key / 起名都走它;回车提交,空 = 取消。
   const askLine = (q: string) => new Promise<string>((resolve) => setAsk({ question: q, resolve }));
   const reasonText = (r?: string) => (r === "invalid" ? t("ui.reason.invalid") : r === "unreachable" ? t("ui.reason.unreachable") : r === "http" ? t("ui.reason.http") : t("ui.reason.unknown"));
-  const askProvider = () => new Promise<Provider | null>((resolve) => setProviderPick({
+  const askProvider = () => new Promise<Provider | "custom" | null>((resolve) => setProviderPick({
     items: [
       { provider: "deepseek", label: t("ui.account.providerLabel.deepseek") },
       { provider: "qianfan", label: t("ui.account.providerLabel.qianfan") },
       { provider: "volcengine", label: t("ui.account.providerLabel.volcengine") },
+      { provider: "custom", label: t("ui.account.providerLabel.custom") },
     ],
     idx: 0,
     resolve,
   }));
-  // 添加账户:先弹选择器选 provider(deepseek/千帆 token plan/火山 coding plan,↑↓选,不是打字)→
-  // 再粘贴对应 key(提示会报出选中的 provider,不再写死 DeepSeek)→ 起名 → 校验 → 持久化 → 激活。
+  // 自定义网关拉取的模型列表选择器(↑↓选/⏎确认/Esc取消)。列表为空时调用方不会调它(走手动输入)。
+  const askGatewayModel = (items: string[]) => new Promise<string | null>((resolve) => setGwModelPick({ items, idx: 0, resolve }));
+  // 添加账户:先弹选择器选 provider(deepseek/千帆/火山/自定义网关,↑↓选)→ 分流:
+  //  · 内置 provider:粘贴 key → 起名 → 校验(打 /models)→ 持久化 → 激活。
+  //  · 自定义网关(OpenAI 兼容):输入 baseUrl → 粘贴 token → 拉 /models 选 model(拉不到则手打)→
+  //    起名 → 按选中 model 探针校验(避开京东网关 4012 未授权)→ 落盘(provider 记 deepseek 复用请求路径)。
   // 空账户列表兜底与选择器"➕"共用同一实现。
   const runAddAccount = async () => {
     const provider = await askProvider();
     if (!provider) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+    if (provider === "custom") { await runAddCustomGateway(); return; }
     const key = (await askLine(t("ui.account.pastePrompt", t(`ui.account.providerLabel.${provider}`)))).trim();
     if (!key) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
     const name = (await askLine(t("ui.account.namePrompt"))).trim();
     pushItem({ id: nextId(), kind: "notice", text: t("ui.account.validating") });
     const r = await deps.addAccount?.(key, name || undefined, provider);
+    pushItem({ id: nextId(), kind: "notice", text: r?.ok ? t("ui.account.added", r.name ?? "") : t("ui.account.addFailed", reasonText(r?.reason)) });
+    setStatus(deps.getStatus());
+  };
+  // 自定义网关引导(OpenAI 兼容,如京东 llm-gw):baseUrl → token → 选/输 model → 起名 → 校验落盘。
+  const runAddCustomGateway = async () => {
+    const baseUrl = (await askLine(t("ui.account.baseUrlPrompt"))).trim();
+    if (!baseUrl) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+    const key = (await askLine(t("ui.account.pastePrompt", t("ui.account.providerLabel.custom")))).trim();
+    if (!key) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+    // 拉网关模型列表(失败/空 → 回退手动输入 model 名)。
+    pushItem({ id: nextId(), kind: "notice", text: t("ui.account.fetchingModels") });
+    const models = (await deps.fetchGatewayModels?.(baseUrl, key)) ?? [];
+    let model: string;
+    if (models.length) {
+      const picked = await askGatewayModel(models);
+      if (!picked) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+      model = picked;
+    } else {
+      model = (await askLine(t("ui.account.modelPrompt"))).trim();
+      if (!model) { pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.cancelled") }); return; }
+    }
+    const name = (await askLine(t("ui.account.namePrompt"))).trim();
+    pushItem({ id: nextId(), kind: "notice", text: t("ui.account.validating") });
+    // provider 传 deepseek:自定义网关复用 OpenAI 兼容请求路径,不新增 Provider 枚举值。
+    const r = await deps.addAccount?.(key, name || undefined, "deepseek", baseUrl, model);
     pushItem({ id: nextId(), kind: "notice", text: r?.ok ? t("ui.account.added", r.name ?? "") : t("ui.account.addFailed", reasonText(r?.reason)) });
     setStatus(deps.getStatus());
   };
@@ -719,6 +768,20 @@ export function App(deps: AppDeps) {
         const chosen = items[i]!.provider;
         providerPick.resolve(chosen);
         setProviderPick(null);
+        return;
+      }
+      return;
+    }
+    if (gwModelPick) {
+      const items = gwModelPick.items, n = items.length;
+      if (key.escape) { gwModelPick.resolve(null); setGwModelPick(null); return; }
+      if (key.upArrow) { setGwModelPick((p) => p && { ...p, idx: Math.max(0, p.idx - 1) }); return; }
+      if (key.downArrow) { setGwModelPick((p) => p && { ...p, idx: Math.min(n - 1, p.idx + 1) }); return; }
+      if (key.return || (ch && /[1-9]/.test(ch))) {
+        const i = ch && /[1-9]/.test(ch) ? Number(ch) - 1 : gwModelPick.idx;
+        if (i < 0 || i >= n) return;
+        gwModelPick.resolve(items[i]!);
+        setGwModelPick(null);
         return;
       }
       return;
@@ -862,7 +925,7 @@ export function App(deps: AppDeps) {
       exitArmedTimer.current = setTimeout(() => setExitArmed(false), 2000);
       return;
     }
-    // Shift+Tab:循环权限模式(default→auto→yolo),随时可用。
+    // Shift+Tab:循环权限模式(智能判定→全权放行,两档互切),随时可用。
     if (key.tab && key.shift && deps.cycleMode) {
       const m = deps.cycleMode();
       setStatus(deps.getStatus());
@@ -1211,6 +1274,22 @@ export function App(deps: AppDeps) {
         );
       })()}
 
+      {gwModelPick && (() => {
+        return (
+          <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor={c("jade")} paddingX={1}>
+            <Text color={c("jade")}>{t("ui.account.gatewayModelTitle")}</Text>
+            {gwModelPick.items.map((m, i) => {
+              const focused = i === gwModelPick.idx;
+              return (
+                <Text key={i} color={focused ? c("jade") : c("ink")}>
+                  {focused ? "❯ " : "  "}{i < 9 ? `${i + 1}. ` : "   "}{m}
+                </Text>
+              );
+            })}
+          </Box>
+        );
+      })()}
+
       {choice && (() => {
         const nOpt = choice.options.length;
         const extras = choice.multi ? [CHOICE_DONE, CHOICE_FILL, CHOICE_DISCUSS] : [CHOICE_FILL, CHOICE_DISCUSS];
@@ -1274,7 +1353,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && !providerPick && (
+      {!approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && !providerPick && !gwModelPick && (
         <Box flexDirection="column" marginTop={1}>
           {/* 输入行加圆角边框,交互时清晰可辨(活跃=青玉,运行中=暗);补全/提示行在框外。 */}
           <Box borderStyle="round" borderColor={busy ? c("dim") : c("jade")} paddingX={1}>
@@ -1327,7 +1406,7 @@ export function App(deps: AppDeps) {
         </Box>
       )}
 
-      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && !providerPick ? (
+      {modeHint && !approval && !ask && !choice && !resumePick && !accountPick && !skillPick && !modelPick && !providerPick && !gwModelPick ? (
         <Text color={c("jade")}>{"  "}{t("ui.modeHint")} {modeHint}</Text>
       ) : null}
       {bgRunning > 0 ? <Text color={c("gold")}>{t("ui.bgRunning", bgRunning)}</Text> : null}
@@ -1358,10 +1437,16 @@ const hl = (line: string, lang: string): string => {
 
 function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string; expanded?: boolean }) {
   if (item.kind === "user") {
+    // 整行贯通底色 + 左侧 jade 竖条:让用户输入一眼与 AI 回复区分开。width 100% 使深色底铺满整行。
+    const lines = item.text.split("\n");
     return (
-      <Box marginTop={1}>
-        <Text color={c("jade")}>› </Text>
-        <Text color={c("ink")}>{item.text}</Text>
+      <Box flexDirection="column" marginTop={1} width="100%">
+        {lines.map((ln, i) => (
+          <Box key={i} width="100%" backgroundColor={c("panel")}>
+            <Text color={c("jade")}>▎ </Text>
+            <Text color={c("ink")}>{ln || " "}</Text>
+          </Box>
+        ))}
       </Box>
     );
   }
@@ -1492,7 +1577,7 @@ function StatusBar({
       <Text color={c("dim")}>
         {/* 耗时只在上方 live 行显示一次,这里不再重复 */}
         {status.longTask ? <Text color={c("gold")}>{t("ui.status.longTask")}</Text> : ""}
-        {status.yolo ? <Text color={c("vermilion")}>※ YOLO · </Text> : ""}
+        {status.yolo ? <Text color={c("vermilion")}>{t("ui.status.yolo")} </Text> : ""}
         {/* 模式只在非默认时标出:normal 是默认态,展示它只会让人困惑 */}
         {status.mode === "plan" ? <Text color={c("gold")}>{t("ui.status.planMode")}</Text> : ""}
         {status.permMode === "auto" ? <Text color={c("jade")}>{t("ui.status.auto")}</Text> : ""}

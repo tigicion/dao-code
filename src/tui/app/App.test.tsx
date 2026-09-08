@@ -265,6 +265,73 @@ describe("App", () => {
     expect(seenProvider).toBe("volcengine");
   });
 
+  it("/account 添加账户:选自定义网关 → baseUrl → token → 拉列表选 model → 起名,参数透传给 addAccount", async () => {
+    let seen: { key?: string; name?: string; provider?: string; baseUrl?: string; model?: string } = {};
+    let fetchedWith: { baseUrl?: string; key?: string } = {};
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listAccounts: () => [],
+        fetchGatewayModels: async (baseUrl, key) => { fetchedWith = { baseUrl, key }; return ["GLM-5.3-joybuilder", "DeepSeek-V4-Pro-joybuilder"]; },
+        addAccount: async (key, name, provider, baseUrl, model) => { seen = { key, name, provider, baseUrl, model }; return { ok: true, name: name ?? "default" }; },
+      })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // 无账户,直接进添加
+    await delay();
+    expect(lastFrame()!).toContain("自定义网关"); // 选择器列出自定义网关项
+    stdin.write("4"); // 数字键选第 4 项:自定义网关
+    await delay();
+    for (const ch of "http://llm-gw.jd.local/v1") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // baseUrl
+    await delay();
+    for (const ch of "gw-token") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // token → 触发拉列表
+    await delay();
+    expect(fetchedWith).toEqual({ baseUrl: "http://llm-gw.jd.local/v1", key: "gw-token" });
+    expect(lastFrame()!).toContain("GLM-5.3-joybuilder"); // 模型列表选择器
+    stdin.write("1"); // 选第 1 个模型
+    await delay();
+    stdin.write("\r"); // 起名(留空用默认)
+    await delay();
+    expect(seen).toEqual({ key: "gw-token", name: undefined, provider: "deepseek", baseUrl: "http://llm-gw.jd.local/v1", model: "GLM-5.3-joybuilder" });
+  });
+
+  it("/account 自定义网关:拉不到模型列表 → 回退手动输入 model 名", async () => {
+    let seenModel: string | undefined;
+    const { lastFrame, stdin } = render(
+      <App {...makeDeps({
+        listAccounts: () => [],
+        fetchGatewayModels: async () => [], // 网关无 /models
+        addAccount: async (key, name, provider, baseUrl, model) => { seenModel = model; return { ok: true, name: name ?? "default" }; },
+      })} />,
+    );
+    for (const ch of "/account") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay();
+    stdin.write("4"); // 自定义网关
+    await delay();
+    for (const ch of "http://gw/v1") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // baseUrl
+    await delay();
+    for (const ch of "tok") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // token → 拉列表返回空 → 手动输入提示
+    await delay();
+    expect(lastFrame()!).toContain("输入模型名");
+    for (const ch of "my-model") stdin.write(ch);
+    await delay();
+    stdin.write("\r"); // model
+    await delay();
+    stdin.write("\r"); // 起名
+    await delay();
+    expect(seenModel).toBe("my-model");
+  });
+
   it("/account 添加账户:provider 选择器按 Esc → 取消,不调用 addAccount", async () => {
     let called = false;
     const { lastFrame, stdin } = render(
@@ -764,6 +831,45 @@ describe("App", () => {
     expect(lastFrame()).toContain("已切换主题");
   });
 
+  it("/lang 无参切换语言,后续渲染跟随新语言(App 内拦截)", async () => {
+    const { lastFrame, stdin } = render(<App {...makeDeps()} />);
+    for (const ch of "/lang") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay(60);
+    // zh → en:确认提示是英文;状态栏(Input/Output/Cache hit)与面板描述已跟随新语言
+    expect(lastFrame()).toContain("Language switched");
+    expect(lastFrame()).toContain("Cache hit");
+    stdin.write("/lang"); // 精确过滤面板,直接看到 /lang 条目
+    await delay();
+    expect(lastFrame()).toContain("Switch UI language zh/en");
+    for (const ch of "\b\b\b\b\b") stdin.write(ch); // 清空输入
+    await delay();
+    for (const ch of "/lang") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay(60);
+    // en → zh:切回中文,提示与状态栏恢复中文
+    expect(lastFrame()).toContain("已切换语言");
+    expect(lastFrame()).toContain("缓存命中");
+  });
+
+  it("/lang 带参 /lang zh 切到中文;非法参数报错不改语言", async () => {
+    setLang("en");
+    const { lastFrame, stdin } = render(<App {...makeDeps()} />);
+    for (const ch of "/lang zh") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay(60);
+    expect(lastFrame()).toContain("已切换语言");
+    for (const ch of "/lang fr") stdin.write(ch);
+    await delay();
+    stdin.write("\r");
+    await delay(60);
+    expect(lastFrame()).toContain("zh / en");
+    expect(lastFrame()).toContain("缓存命中"); // 仍是中文,未被非法参数改掉
+  });
+
   it("@文件补全:Tab 补全第一个匹配", async () => {
     let submitted = "";
     const { stdin } = render(
@@ -982,6 +1088,7 @@ describe("App", () => {
       />,
     );
     expect(lastFrame()).toContain("长任务");
+    expect(lastFrame()).toContain("全权放行"); // yolo 状态栏文案(中文名)
   });
 
   it("后台任务通知 → 自动作为新回合处理(注入结果)", async () => {

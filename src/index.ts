@@ -9,7 +9,7 @@ import { loadProfiles, saveProfiles, setActive, removeProfile } from "./config/p
 import { DEFAULTS, MODELS_BY_PROVIDER, type Provider, type ResolvedCredential } from "./config/profiles.js";
 import { resolveExtractModel } from "./tools/fetch_extract.js";
 import { resolveCredential, persistKey } from "./config/credential.js";
-import { validateCredential } from "./config/validate_key.js";
+import { validateCredential, fetchModels } from "./config/validate_key.js";
 import { runtimeKeychain, noopKeychain, keychainAvailable, keychainDelete } from "./config/keychain.js";
 import { migrateLegacyDir } from "./config/migrate_dirs.js";
 import { streamChat as streamChatRaw } from "./client/client.js";
@@ -275,14 +275,19 @@ async function main() {
   // 结果。这两个工具会连公网抓取任意内容,污染风险和 MCP server 是同一类,理应和 MCP 一起归入
   // "评测保持纯净"的默认关闭范围。
   const evalFlag = rawArgs.includes("--eval");
-  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)【默认开启】,--no-progress-advice 才关。
+  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒)【仅 headless 默认开启】,
+  // --no-progress-advice 显式关;交互式会话(TTY 且非一次性调用)默认不启用——有人盯着,
+  // 卡没卡用户自己看得见,提醒只会打断正常工作流。它保护的是无人值守场景(headless/eval/长任务)。
   // 和上面 reflectChallengerFlag 是两套独立机制(这个是纯本地计数器,不 fork LLM 调用),互不影响。
   // 2026-07-19 的 f939ddf 曾把它改成需要显式 --progress-advice 才开,而真实评测从未传过这个参数,
   // 等于在所有无人值守长任务里静默失去了这道保险(真实案例:一道题的历史通过 trace 里提醒在第 5 轮
-  // 触发、触发后模型立刻收敛写完,回归后同一题再没通过过)。默认打开才符合这个机制的用途——它保护的
-  // 恰恰是没人盯着的场景。同时判据已修正为"改动文件或执行命令"(见 loop.ts 的 PROGRESS_TOOLS),
-  // 误触发率比当初关掉它的时候低得多。
-  const progressAdviceFlag = !rawArgs.includes("--no-progress-advice");
+  // 触发、触发后模型立刻收敛写完,回归后同一题再没通过过)。同时判据已修正为"改动文件或执行命令"
+  // (见 loop.ts 的 PROGRESS_TOOLS),误触发率比当初关掉它的时候低得多。
+  // 交互式会话(TTY 且非一次性 prompt)默认不开进度提醒——有人盯着,卡没卡用户看得见,
+  // 提醒只会打断正常工作流。argvPrompt 在下面才解析,这里用等价判定:TTY 且无位置参数
+  // (rawArgs 去掉 flag 后非空 = 有 prompt = headless 一次性)。
+  const hasPositionalPrompt = rawArgs.some((a) => !a.startsWith("-"));
+  const progressAdviceFlag = !rawArgs.includes("--no-progress-advice") && !(process.stdin.isTTY === true && !hasPositionalPrompt);
   const noMemory = evalFlag || rawArgs.includes("--no-memory");
   // 只管磁盘/插件技能 + 自定义子代理/命令,不管内置技能(见下面 noBuiltinSkills)。
   const noSkills = evalFlag || rawArgs.includes("--no-skills");
@@ -532,11 +537,13 @@ async function main() {
     for (let i = 2; ; i++) if (!profilesCfg.profiles[`account-${i}`]) return `account-${i}`;
   };
   // 添加:一账户一 key,同名已存在直接拒绝(想换 key 先 /account rm 再新建)→ 校验 → 持久化(钥匙串优先)→ 激活并即时生效。
-  const addAccount = async (key: string, name?: string, provider: Provider = "deepseek"): Promise<{ ok: boolean; name?: string; reason?: string }> => {
+  // baseUrl/model 可选:自定义网关(OpenAI 兼容,如京东 llm-gw)传入实际值,不传则回退 provider 默认。
+  const addAccount = async (key: string, name?: string, provider: Provider = "deepseek", baseUrl?: string, model?: string): Promise<{ ok: boolean; name?: string; reason?: string }> => {
     const targetName = name?.trim() || nextAccountName();
     if (profilesCfg.profiles[targetName]) return { ok: false, reason: `账户已存在:${targetName}(先 /account rm ${targetName} 再新建)` };
-    const meta = { provider, ...DEFAULTS[provider] };
-    const v = await validateCredential({ baseUrl: meta.baseUrl, key, provider: meta.provider });
+    const meta = { provider, baseUrl: baseUrl?.trim() || DEFAULTS[provider].baseUrl, model: model?.trim() || DEFAULTS[provider].model };
+    // 自定义 model(自定义网关选完模型)→ 按该 model 探针,确认这个 token 对它有授权(京东网关未授权返回 4012)。
+    const v = await validateCredential({ baseUrl: meta.baseUrl, key, provider: meta.provider, ...(model?.trim() ? { model: meta.model } : {}) });
     if (!v.ok) return { ok: false, reason: v.reason };
     const { cfg: nc } = await persistKey(profilesCfg, targetName, meta, key, kc, { preferKeychain: keychainAvailable() });
     profilesCfg = { ...nc, onboardingComplete: true };
@@ -891,14 +898,17 @@ async function main() {
   // 运行时模式覆盖(/mode auto 等);null = 用 settings 的 defaultMode。
   // --goal/--task/--coordinator 启动:用 auto(AI 判定自动批准)推进自主流程,而非 yolo 全开。
   let permModeOverride: PermissionMode | null = taskFlag && !yolo ? "auto" : null;
-  // 有效权限模式:plan 会话 > YOLO(=bypass)> 运行时覆盖 > settings 默认 > default。
+  // 有效权限模式:plan 会话 > YOLO(=bypass)> 运行时覆盖 > settings 默认 > auto(智能判定)。
   // plan 只读规划不在 /mode 切换里,但 settings.defaultMode/--permission-mode//plan 可进入。
+  // 链尾回退从 default 改为 auto(2026-08):开箱即智能判定,只读/安全操作自动过、
+  // 拿不准的转人工——比「每个写操作都弹窗」的 default 对新用户更顺手;显式配置了
+  // settings.defaultMode 的用户不受影响。
   const getMode = (): PermissionMode =>
     session.mode === "plan"
       ? "plan"
       : yolo
         ? "bypassPermissions"
-        : permModeOverride ?? loadedPerms.defaultMode ?? "default";
+        : permModeOverride ?? loadedPerms.defaultMode ?? "auto";
 
   // auto 模式分类器:结合近期对话(用户意图 + 历史工具调用)judge 本次调用是否安全可自动批准。
   // 只回 allow/deny;出错→拒绝(fail-closed)。快速路径(白名单/工作区内编辑)已在 engine.decide 里短路,不到这里。
@@ -909,46 +919,70 @@ async function main() {
   // 子代理走 withModeOverride 时会传自己的 sub.messages,这里必须原样透传,否则子代理的调用
   // 又会被根会话的转录判定,分类器看不到子代理自己在做什么(复盘 session 20260721-215548-uq75)。
   const classifyPermission = async (toolName: string, argsJson: string, recentMessages: ChatMessage[]): Promise<boolean> => {
-    const classifierModel = process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash";
     const rules: AutoModeRules | undefined = loadedPerms.autoMode;
+    // 分类器模型不可用(模型名不存在/未授权/账号没配)时先回退主模型再试一次——主模型是
+    // 用户实际在用的、必然配好的;回退成功则本会话后续分类器调用都用它,只有两段都失败
+    // 才落到 gate.ts 的 fail-closed(转人工)。回退发生时提示一次,用户知道怎么改默认值。
+    let classifierModel = process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash";
+    let modelNotice = "";
     const onUsage = (u: any) => {
       session.addUsage(u, classifierModel);
       cacheSink.record({ agent: "classifier", depth: 0, turn: 0, model: classifierModel, usage: u, sys: "", tools: "", tail: "" });
     };
+    try {
+      return await classifyWithModel(classifierModel);
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      const msg = e instanceof Error ? e.message : String(e);
+      // 模型不存在/未授权类:404(京东网关)、400 带 Model 不存在(千帆 4010/DeepSeek)、
+      // 4012 未授权(京东)。其它错误(网络/限流/上下文)不回退——那类错换模型也没用,
+      // 直接走 fail-closed 与既有语义一致。
+      const modelUnavailable = status === 404 || (status === 400 && /model|模型/i.test(msg)) || /Model Not Exist|does not exist|Unknown model|UnsupportedModel|模型不存在|未授权该模型|4010|4012/i.test(msg);
+      if (!modelUnavailable) throw e;
+      const fallback = session.model;
+      if (fallback === classifierModel) throw e;
+      modelNotice = `\n[智能判定] 分类器模型 ${classifierModel} 不可用(${msg.slice(0, 120)}),已回退用主模型 ${fallback} 判定;想固定指定请设 DAO_CLASSIFIER_MODEL\n`;
+      classifierModel = fallback;
+      return await classifyWithModel(classifierModel);
+    } finally {
+      if (modelNotice) process.stdout.write(modelNotice);
+    }
+    // 两阶段裁决(参数化模型):Stage1 快判 allow 即放行;拿不准升 Stage2 完整推理。
+    async function classifyWithModel(m: string): Promise<boolean> {
+      // Stage 1(fast):共享 system prompt + transcript,加 STAGE1_SUFFIX。
+      const gen1 = streamChat({
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        model: m,
+        messages: buildClassifierMessages(toolName, argsJson, recentMessages, rules, "zh", STAGE1_SUFFIX),
+        maxTokens: 64,
+        extra: { thinking: { type: "disabled" }, temperature: 0, stop: ["</block>"] },
+        onUsage,
+      });
+      let out1 = "";
+      let r1 = await gen1.next();
+      while (!r1.done) { if (r1.value.kind === "content") out1 += r1.value.text; r1 = await gen1.next(); }
+      const block1 = parseXmlBlock(out1);
+      if (block1 === false) return true;  // <block>no</block> -> 允许(快路径)
+      // block1 === true(应阻止)或 null(不可解析)-> 升级 Stage 2 做完整推理,减少 false positive。
 
-    // Stage 1(fast):共享 system prompt + transcript,加 STAGE1_SUFFIX。
-    const gen1 = streamChat({
-      baseUrl: cfg.baseUrl,
-      apiKey: cfg.apiKey,
-      model: classifierModel,
-      messages: buildClassifierMessages(toolName, argsJson, recentMessages, rules, "zh", STAGE1_SUFFIX),
-      maxTokens: 64,
-      extra: { thinking: { type: "disabled" }, temperature: 0, stop: ["</block>"] },
-      onUsage,
-    });
-    let out1 = "";
-    let r1 = await gen1.next();
-    while (!r1.done) { if (r1.value.kind === "content") out1 += r1.value.text; r1 = await gen1.next(); }
-    const block1 = parseXmlBlock(out1);
-    if (block1 === false) return true;  // <block>no</block> -> 允许(快路径)
-    // block1 === true(应阻止)或 null(不可解析)-> 升级 Stage 2 做完整推理,减少 false positive。
-
-    // Stage 2(thinking):共享 system prompt + transcript,加 STAGE2_SUFFIX。
-    const gen2 = streamChat({
-      baseUrl: cfg.baseUrl,
-      apiKey: cfg.apiKey,
-      model: classifierModel,
-      messages: buildClassifierMessages(toolName, argsJson, recentMessages, rules, "zh", STAGE2_SUFFIX),
-      maxTokens: 4096,
-      extra: { temperature: 0 },
-      onUsage,
-    });
-    let out2 = "";
-    let r2 = await gen2.next();
-    while (!r2.done) { if (r2.value.kind === "content") out2 += r2.value.text; r2 = await gen2.next(); }
-    const block2 = parseXmlBlock(out2);
-    if (block2 === false) return true;  // <block>no</block> -> 允许(复核通过)
-    return false;  // <block>yes</block> 或不可解析 -> 转人工
+      // Stage 2(thinking):共享 system prompt + transcript,加 STAGE2_SUFFIX。
+      const gen2 = streamChat({
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        model: m,
+        messages: buildClassifierMessages(toolName, argsJson, recentMessages, rules, "zh", STAGE2_SUFFIX),
+        maxTokens: 4096,
+        extra: { temperature: 0 },
+        onUsage,
+      });
+      let out2 = "";
+      let r2 = await gen2.next();
+      while (!r2.done) { if (r2.value.kind === "content") out2 += r2.value.text; r2 = await gen2.next(); }
+      const block2 = parseXmlBlock(out2);
+      if (block2 === false) return true;  // <block>no</block> -> 允许(复核通过)
+      return false;  // <block>yes</block> 或不可解析 -> 转人工
+    }
   };
 
   const gate: ApprovalGate = new PermissionGate(
@@ -1177,6 +1211,7 @@ async function main() {
 
   // auto 模式 handoff 安全审查分类器:子代理结束后审查整段转录。
   // 用 flash 模型(同 classifyPermission),构建 handoff 专用 messages -> 调 streamChat -> 解析 XML。
+  // 模型不可用时同样回退主模型并提示一次(与 classifyPermission 同一套判据)。
   ctx.handoffClassifyFn = async (transcript: string): Promise<ClassifyResult> => {
     // transcript 是 buildClassifierTranscript 产出的 JSONL;构建完整 messages
     // buildHandoffClassifierMessages 需要 ChatMessage[],但 classifyHandoffIfNeeded 已经传了 transcript
@@ -1185,21 +1220,37 @@ async function main() {
       { role: "system" as const, content: "你是 auto 模式的子代理安全审查器:子代理执行完毕后,审查其整段执行转录,判断是否有违反安全策略的操作。应标记(返回 block):不可逆破坏(rm -rf、drop table、force push 覆盖)、读写凭据(.ssh/.aws/.env/credentials)、工作区外写入、与任务无关的危险操作、向外部端点发送敏感数据。不标记(返回 allow):与用户意图一致的可逆操作、工作区内正常编辑、只读操作。拿不准就标记(fail-safe)。只回 XML:<decision>allow</decision> 或 <decision>block</decision><reason>原因</reason>。" },
       { role: "user" as const, content: `执行转录:\n${transcript}\n\n审查这段子代理的执行,有违反安全策略的操作吗?` },
     ];
-    const gen = streamChat({
-      baseUrl: cfg.baseUrl,
-      apiKey: cfg.apiKey,
-      model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash",
-      messages,
-      extra: { thinking: { type: "disabled" }, temperature: 0 },
-      onUsage: (u) => {
-        session.addUsage(u, process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash");
-        cacheSink.record({ agent: "classifier", depth: 0, turn: 0, model: process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash", usage: u, sys: "", tools: "", tail: "" });
-      },
-    });
-    let out = "";
-    let r = await gen.next();
-    while (!r.done) { if (r.value.kind === "content") out += r.value.text; r = await gen.next(); }
-    return parseHandoffClassifierResponse(out);
+    let handoffModel = process.env.DAO_CLASSIFIER_MODEL || "deepseek-v4-flash";
+    const runOnce = (m: string) => {
+      const gen = streamChat({
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        model: m,
+        messages,
+        extra: { thinking: { type: "disabled" }, temperature: 0 },
+        onUsage: (u) => {
+          session.addUsage(u, m);
+          cacheSink.record({ agent: "classifier", depth: 0, turn: 0, model: m, usage: u, sys: "", tools: "", tail: "" });
+        },
+      });
+      let out = "";
+      return (async () => {
+        let r = await gen.next();
+        while (!r.done) { if (r.value.kind === "content") out += r.value.text; r = await gen.next(); }
+        return parseHandoffClassifierResponse(out);
+      })();
+    };
+    try {
+      return await runOnce(handoffModel);
+    } catch (e) {
+      const status = (e as { status?: number }).status;
+      const msg = e instanceof Error ? e.message : String(e);
+      const modelUnavailable = status === 404 || (status === 400 && /model|模型/i.test(msg)) || /Model Not Exist|does not exist|Unknown model|UnsupportedModel|模型不存在|未授权该模型|4010|4012/i.test(msg);
+      if (!modelUnavailable || session.model === handoffModel) throw e;
+      process.stdout.write(`\n[智能判定] 安全审查模型 ${handoffModel} 不可用(${msg.slice(0, 120)}),已回退用主模型 ${session.model};想固定指定请设 DAO_CLASSIFIER_MODEL\n`);
+      handoffModel = session.model;
+      return await runOnce(handoffModel);
+    }
   };
 
   // ---- 子代理引擎装配(对齐 CC:runAgent 统一入口)----
@@ -1399,7 +1450,7 @@ async function main() {
       shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
-      progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
+      progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);仅 headless 默认开,交互式默认关;--no-progress-advice 显式关
       interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
       longTask,
       drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
@@ -1696,7 +1747,7 @@ async function main() {
             shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
                   diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
-            progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);默认开启,--no-progress-advice 才关
+            progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);仅 headless 默认开,交互式默认关;--no-progress-advice 显式关
             interactive: interactiveSession, // 进度提醒里"卡住了用 AskUserQuestion"这条只在真交互态才建议
             longTask,
             drainAdvisories: () => pendingReflectAdvisories.splice(0), // 反思器+(暂留)reply 的 advisory
@@ -2118,38 +2169,38 @@ async function main() {
             return { handled: true, output: `账户 · 当前来源 ${keySource}\n${list}\n(Ink 下直接 /account 弹选择器;/account add <key> [provider] [name] 添加 · /account <名> 切换 · /account rm <名> 删除)` };
           }
           if (name === "bypass" || name === "yolo") { // /yolo 保留为别名
-            // 三种模式互切后,/yolo 是 yolo 的快捷开关(可开可关,与 /mode yolo 等价)。
+            // /yolo 是全权放行的快捷开关(可开可关,与 /mode 全权放行 等价)。
             if (yolo) {
               yolo = false;
               permModeOverride = null;
-              return { handled: true, output: "免审批已关闭:恢复审批门。" };
+              return { handled: true, output: "全权放行已关闭:恢复智能判定审批。" };
             }
             session.mode = "normal";
             yolo = true;
             permModeOverride = null;
-            return { handled: true, output: "⚡ yolo:免审批已开启(deny 规则仍拦)。慎用。" };
+            return { handled: true, output: "⚡ 全权放行:免审批已开启(权限全交出去,deny 规则与危险命令仍拦)。慎用。" };
           }
           if (name === "mode") {
             const arg = line.trim().split(/\s+/)[1];
             if (!arg) {
-              return { handled: true, output: `当前权限模式:${getMode()}。用法:/mode <default|auto|yolo>(plan 只读规划用 /plan 或 settings.defaultMode 进入,不在切换里)` };
+              return { handled: true, output: `当前权限模式:${getMode() === "bypassPermissions" ? "全权放行" : getMode() === "auto" ? "智能判定" : getMode()}。用法:/mode <auto|全权放行>(两档互切;default 仍可用 /mode default 显式指定;plan 只读规划用 /plan 进入)` };
             }
             if (arg === "plan") {
               return { handled: true, output: "plan 是只读规划权限模式,不经 /mode 切换——用 /plan(会话只读)或 settings.defaultMode = \"plan\"/`--permission-mode plan` 进入。" };
             }
-            if (arg === "yolo" || arg === "bypass" || arg === "bypassPermissions") {
+            if (arg === "yolo" || arg === "bypass" || arg === "bypassPermissions" || arg === "全权放行") {
               session.mode = "normal";
               yolo = true;
               permModeOverride = null;
-              return { handled: true, output: "⚡ yolo:免审批已开启(deny 规则仍拦)。慎用。" };
+              return { handled: true, output: "⚡ 全权放行:免审批已开启(权限全交出去,deny 规则与危险命令仍拦)。慎用。" };
             }
             if (arg === "default" || arg === "auto") {
               if (session.mode === "plan") session.mode = "normal";
               yolo = false;
               permModeOverride = arg as PermissionMode;
-              return { handled: true, output: arg === "auto" ? "⊙ auto:只读命令/工作区内编辑自动放行;其余(含敏感目标)交 AI 分类器,确信安全的自动过、拿不准的转人工审批(不会替你拒绝);deny 规则/危险命令仍拦。" : "权限模式已设为 default(按需审批)" };
+              return { handled: true, output: arg === "auto" ? "⊙ 智能判定:只读命令/工作区内编辑自动放行;其余(含敏感目标)交 AI 分类器,确信安全的自动过、拿不准的转人工审批(不会替你拒绝);deny 规则/危险命令仍拦。" : "权限模式已设为 default(写/执行前询问)" };
             }
-            return { handled: true, output: `未知模式:${arg}(可选 default/auto/yolo)` };
+            return { handled: true, output: `未知模式:${arg}(可选 auto / 全权放行 / default)` };
           }
           if (name === "goal" || name === "task") { // task 为旧别名
             const arg = line.trim().slice(1).split(/\s+/).slice(1).join(" ").trim();
@@ -2276,12 +2327,13 @@ async function main() {
           sessionId: store.id,
         }),
         cycleMode: () => {
-          // 切换循环只含 default/auto/yolo(用户要求三种互切);plan 只读规划不在循环里——
-          // 当前若在 plan(经 /plan/settings 进入),Shift+Tab 视为从头进 default 并退出 plan。
-          const order: PermissionMode[] = ["default", "auto", "bypassPermissions"];
+          // 切换循环只含 auto(智能判定)/bypassPermissions(全权放行)两档互切(用户要求);
+          // default 仍可 /mode default 显式进入;plan 只读规划不在循环里——当前若在 plan
+          // (经 /plan/settings 进入),Shift+Tab 视为进 auto 并退出 plan。
+          const order: PermissionMode[] = ["auto", "bypassPermissions"];
           const cur = getMode();
           const idx = order.indexOf(cur);
-          const next = order[(idx + 1) % order.length]!;
+          const next = order[idx === -1 ? 0 : (idx + 1) % order.length]!;
           yolo = next === "bypassPermissions";
           session.mode = "normal";
           permModeOverride = next === "bypassPermissions" ? null : next;
@@ -2311,6 +2363,7 @@ async function main() {
         switchAccount: (n) => { switchAccount(n); },
         removeAccount,
         addAccount,
+        fetchGatewayModels: (baseUrl, key) => fetchModels(baseUrl, key),
         listSkills,
         setSkillEnabled,
         batchSkills,
