@@ -88,7 +88,8 @@ export interface AppDeps {
   listAccounts?: () => { name: string; active: boolean; detail: string }[];
   switchAccount?: (name: string) => void; // 切换激活账户(异步解析+生效,下一回合读 cfg)
   removeAccount?: (name: string) => void; // 删除账户(连带清钥匙串)
-  addAccount?: (key: string, name?: string, provider?: Provider) => Promise<{ ok: boolean; name?: string; reason?: string }>; // 校验+持久化+激活
+  addAccount?: (key: string, name?: string, provider?: Provider, baseUrl?: string, model?: string) => Promise<{ ok: boolean; name?: string; reason?: string }>; // 校验+持久化+激活(baseUrl/model 供自定义网关)
+  fetchGatewayModels?: (baseUrl: string, key: string) => Promise<string[]>; // 拉自定义网关 /models 列表(失败返回 [],引导据此回退手动输入)
   // 技能(skill)交互:/skills 无参弹选择器(逐个开关 + 批量内置/第三方)。省略则退回文本命令。
   listSkills?: () => { name: string; on: boolean; source: string; detail: string }[];
   setSkillEnabled?: (name: string, on: boolean) => void; // 开/关单个技能(写禁用集,重启生效)

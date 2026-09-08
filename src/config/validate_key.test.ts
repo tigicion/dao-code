@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateCredential } from "./validate_key.js";
+import { validateCredential, fetchModels } from "./validate_key.js";
 
 const cred = { baseUrl: "https://api.deepseek.com", key: "sk-x" };
 
@@ -95,5 +95,58 @@ describe("validateCredential · qianfan probe", () => {
   it("reports unreachable when the qianfan probe throws", async () => {
     const fakeFetch = async () => { throw new Error("ENOTFOUND"); };
     expect(await validateCredential(qf, fakeFetch as unknown as typeof fetch)).toEqual({ ok: false, reason: "unreachable" });
+  });
+});
+
+describe("validateCredential · custom gateway model probe", () => {
+  const gw = { baseUrl: "http://llm-gw.jd.local/v1", key: "gw-x", provider: "deepseek" as const, model: "GLM-5.3-joybuilder" };
+
+  it("probes chat/completions with the chosen model when model is given (avoids 4012)", async () => {
+    let seenUrl = ""; let seenMethod = ""; let seenBody = "";
+    const fakeFetch = async (url: string, init?: { method?: string; body?: string }) => {
+      seenUrl = url; seenMethod = init?.method ?? "GET"; seenBody = init?.body ?? "";
+      return { ok: true, status: 200 } as Response;
+    };
+    const r = await validateCredential(gw, fakeFetch as unknown as typeof fetch);
+    expect(r.ok).toBe(true);
+    expect(seenUrl).toBe("http://llm-gw.jd.local/v1/chat/completions");
+    expect(seenMethod).toBe("POST");
+    expect(JSON.parse(seenBody).model).toBe("GLM-5.3-joybuilder"); // 用选中 model 探针,而非写死 flash
+  });
+
+  it("reports http (not ok) when the model is unauthorized", async () => {
+    const fakeFetch = async () => ({ ok: false, status: 400 } as Response); // 京东网关 4012 走 HTTP 400
+    expect(await validateCredential(gw, fakeFetch as unknown as typeof fetch)).toEqual({ ok: false, reason: "http", status: 400 });
+  });
+});
+
+describe("fetchModels", () => {
+  const baseUrl = "http://llm-gw.jd.local/v1";
+
+  it("GET /models with Bearer, returns data[].id list", async () => {
+    let seenUrl = ""; let seenAuth = "";
+    const fakeFetch = async (url: string, init?: { headers?: Record<string, string> }) => {
+      seenUrl = url; seenAuth = init?.headers?.Authorization ?? "";
+      return { ok: true, status: 200, json: async () => ({ data: [{ id: "GLM-5.3-joybuilder" }, { id: "DeepSeek-V4-Pro-joybuilder" }] }) } as unknown as Response;
+    };
+    const ids = await fetchModels(baseUrl, "gw-x", fakeFetch as unknown as typeof fetch);
+    expect(ids).toEqual(["GLM-5.3-joybuilder", "DeepSeek-V4-Pro-joybuilder"]);
+    expect(seenUrl).toBe("http://llm-gw.jd.local/v1/models");
+    expect(seenAuth).toBe("Bearer gw-x");
+  });
+
+  it("returns [] on non-ok (gateway without /models)", async () => {
+    const fakeFetch = async () => ({ ok: false, status: 404 } as Response);
+    expect(await fetchModels(baseUrl, "gw-x", fakeFetch as unknown as typeof fetch)).toEqual([]);
+  });
+
+  it("returns [] when the request throws", async () => {
+    const fakeFetch = async () => { throw new Error("ENOTFOUND"); };
+    expect(await fetchModels(baseUrl, "gw-x", fakeFetch as unknown as typeof fetch)).toEqual([]);
+  });
+
+  it("filters out non-string / empty ids", async () => {
+    const fakeFetch = async () => ({ ok: true, status: 200, json: async () => ({ data: [{ id: "ok" }, { id: 42 }, { id: "" }, {}] }) } as unknown as Response);
+    expect(await fetchModels(baseUrl, "gw-x", fakeFetch as unknown as typeof fetch)).toEqual(["ok"]);
   });
 });

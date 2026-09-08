@@ -1,7 +1,7 @@
 import type { Capabilities } from "./capabilities.js";
 import type { Background } from "./background.js";
 
-export type Semantic = "ink" | "jade" | "vermilion" | "dim" | "gold";
+export type Semantic = "ink" | "jade" | "vermilion" | "dim" | "gold" | "panel";
 
 type RGB = [number, number, number];
 interface ColorSpec { rgb: RGB; ansi256: number; ansi16: string } // ansi16:SGR 数字串如 "36"
@@ -15,6 +15,7 @@ const PALETTES: Record<Background, Record<Semantic, ColorSpec>> = {
     vermilion: { rgb: [200, 68, 60],   ansi256: 167, ansi16: "31" },
     dim:       { rgb: [128, 132, 140], ansi256: 245, ansi16: "90" },
     gold:      { rgb: [201, 168, 106], ansi256: 179, ansi16: "33" },
+    panel:     { rgb: [48, 54, 64],    ansi256: 237, ansi16: "100" }, // 用户输入回显的整行底色(比背景略亮的灰蓝,ink 正文在其上清晰)
   },
   light: {
     ink:       { rgb: [40, 44, 52],    ansi256: 238, ansi16: "30" },
@@ -22,6 +23,7 @@ const PALETTES: Record<Background, Record<Semantic, ColorSpec>> = {
     vermilion: { rgb: [178, 48, 42],   ansi256: 160, ansi16: "31" },
     dim:       { rgb: [120, 126, 134], ansi256: 244, ansi16: "90" },
     gold:      { rgb: [150, 118, 46],  ansi256: 136, ansi16: "33" },
+    panel:     { rgb: [226, 229, 234], ansi256: 254, ansi16: "47" }, // 浅底:比白略深的灰,ink 深字在其上清晰
   },
 };
 
