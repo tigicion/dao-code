@@ -1,0 +1,34 @@
+src/tui/app/App.test.tsx
+  s_149194f91cde9e::t_615f5f002b1340 268-334
+src/index.ts
+  s_149194f91cde9e::t_5cd03804dc7a82 12
+  s_149194f91cde9e::t_32969f5f47125b 540-541,544-546
+  s_149194f91cde9e::t_8eabaecd3be778 2366
+src/i18n/messages/en.ts
+  s_149194f91cde9e::t_676ffc83941cf5 170-174
+src/tui/app/App.tsx
+  s_149194f91cde9e::t_fed5d90a5052f0 624,629,634-639,644,653-674
+  s_149194f91cde9e::t_5164c240e25773 1277-1285
+  s_149194f91cde9e::t_e57b6dc731aa68 214-217
+  s_149194f91cde9e::t_310ff04ea794a0 1356,1409
+  s_149194f91cde9e::t_523859c280a0da 775-784
+  s_149194f91cde9e::t_81547b802483b3 1440-1441,1443-1449
+src/i18n/messages/zh.ts
+  s_149194f91cde9e::t_cfede5ae2dfd8c 170-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "a59ac23b75126ffad6b9f8b421312253eced69c1",
+  "prompts": {},
+  "sessions": {
+    "s_149194f91cde9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a5a9ff94-f152-4665-b6fc-1e6fcd9ce66b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
