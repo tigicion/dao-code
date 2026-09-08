@@ -1,6 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { dispatchCommand } from "./commands.js";
 import { Session } from "../session/session.js";
+import { setLang, getLang } from "../i18n/i18n.js";
+
+// /lang 测试会写 ~/.dao/settings.json(真实持久化路径,测试环境属可接受副作用);
+// 用例内显式 setLang 起点,避免依赖文件残留状态。
+afterEach(() => setLang("zh"));
 
 function sess() {
   return new Session("SYS", "deepseek-v4-pro");
@@ -142,6 +147,33 @@ describe("dispatchCommand", () => {
     const r = dispatchCommand("/compact", sess());
     expect(r.handled).toBe(true);
     expect(r.compact).toBe(true);
+  });
+
+  it("/lang 带参切换语言并生效", async () => {
+    setLang("en");
+    const r = dispatchCommand("/lang zh", sess());
+    expect(r.handled).toBe(true);
+    expect(r.output).toContain("中文");
+    await vi.waitFor(() => expect(getLang()).toBe("zh")); // switchLang 异步持久化,语言先行生效
+    const r2 = dispatchCommand("/lang en", sess());
+    expect(r2.output).toContain("English");
+    await vi.waitFor(() => expect(getLang()).toBe("en"));
+  });
+
+  it("/lang 无参在 zh/en 间切换", async () => {
+    setLang("zh");
+    dispatchCommand("/lang", sess());
+    await vi.waitFor(() => expect(getLang()).toBe("en"));
+    dispatchCommand("/lang", sess());
+    await vi.waitFor(() => expect(getLang()).toBe("zh"));
+  });
+
+  it("/lang 非法参数报错且不改动语言", () => {
+    setLang("zh");
+    const r = dispatchCommand("/lang fr", sess());
+    expect(r.handled).toBe(true);
+    expect(r.output).toContain("zh / en");
+    expect(getLang()).toBe("zh");
   });
 
   it("unknown command is handled with a hint", () => {

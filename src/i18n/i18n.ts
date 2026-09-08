@@ -31,6 +31,14 @@ let current: Lang = "en";
 export function setLang(l: Lang): void { current = l; }
 export function getLang(): Lang { return current; }
 
+// /lang 运行时切换:立即生效(改模块级 current)+ 持久化到 ~/.dao/settings.json(下次启动沿用)。
+// DAO_LANG 环境变量优先级高于 settings.lang,设了 DAO_LANG 的用户切换后仍会被环境变量压回——
+// 提示里说清楚(见 writeUserLang 调用处),避免"切了没生效"的困惑。
+export async function switchLang(l: Lang): Promise<void> {
+  setLang(l);
+  await writeUserLang(l);
+}
+
 // 查当前语言字典;缺 key → 返回 key 本身;{0}{1}… 位置插值。
 export function t(key: string, ...args: (string | number)[]): string {
   const raw = DICTS[current][key] ?? key;

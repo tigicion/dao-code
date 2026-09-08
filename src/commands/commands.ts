@@ -2,6 +2,7 @@ import type { Session } from "../session/session.js";
 import type { Provider } from "../config/profiles.js";
 import { MODELS_BY_PROVIDER } from "../config/profiles.js";
 import { todoStore } from "../tools/todo_store.js";
+import { switchLang, getLang, type Lang } from "../i18n/i18n.js";
 
 export interface CommandResult {
   handled: boolean;
@@ -57,10 +58,20 @@ export function dispatchCommand(input: string, session: Session, provider: Provi
     //   token 趋势、哪个会话/模型最贵)未做;数据已在各会话 cache.jsonl 里,可加个 `dao usage` 脚本聚合,非核心。
     case "cost":
       return { handled: true, output: session.usageSummary() };
+    case "lang": {
+      // /lang [zh|en]:无参在 zh/en 间切换;带参校验后切换。立即生效并持久化到 settings.json。
+      const raw = arg === "zh" || arg === "en" ? arg : (arg ? "" : getLang() === "zh" ? "en" : "zh");
+      if (raw !== "zh" && raw !== "en") {
+        return { handled: true, output: `✗ 无效语言「${arg}」,可选:zh / en` };
+      }
+      const next: Lang = raw;
+      void switchLang(next);
+      return { handled: true, output: next === "zh" ? "已切换语言:中文(已保存,重启后仍生效)" : "Language switched: English (saved, persists after restart)" };
+    }
     case "help":
       return {
         handled: true,
-        output: "/init 生成 DAO.md · /context 上下文占用 · /tasks 后台任务 · /mcp MCP 服务器 · /diff 未提交变更 · /doctor 自检 · /review 审查改动 · /security-review 安全审查 · /hooks 钩子 · /agents 子代理类型 · /files 已读文件 · /memory 审核记忆(/memory delete <名> 删除) · /permissions 权限规则 · /resume <id> 载入会话 · /rewind <n> 回退对话 · /branch 分支会话 · /rename 命名会话 · /export 导出对话 · /copy 复制末条回答 · /btw 随手备注 · /account 管理账户(增/删/切换,无参弹选择器;/account add <key> [provider] [name]) · /config 配置 · /effort 思考强度 · /status 状态 · /session 会话信息(含 id) · /skills 列出/开关技能 · /plugin 插件 · /simplify 质量清理改动 · /remember <事实> 记记忆 · /debug-session 诊断 dao 自身日志 · /skillify 提炼技能 · /batch <大改> 并行 worktree 子代理 · /loop <间隔> <prompt> 周期重跑 · /mode 权限模式(default/auto/yolo) · /goal <目标> 长任务(带目标直接开跑,大任务自动分阶段编排) · /model 切模型 · /plan 切只读规划模式 · /bypass 免审批开/关(yolo) · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /audit 审计(memory/reflect/tools/perms/cache/skills) · /exit 退出",
+        output: "/init 生成 DAO.md · /context 上下文占用 · /tasks 后台任务 · /mcp MCP 服务器 · /diff 未提交变更 · /doctor 自检 · /review 审查改动 · /security-review 安全审查 · /hooks 钩子 · /agents 子代理类型 · /files 已读文件 · /memory 审核记忆(/memory delete <名> 删除) · /permissions 权限规则 · /resume <id> 载入会话 · /rewind <n> 回退对话 · /branch 分支会话 · /rename 命名会话 · /export 导出对话 · /copy 复制末条回答 · /btw 随手备注 · /account 管理账户(增/删/切换,无参弹选择器;/account add <key> [provider] [name]) · /config 配置 · /effort 思考强度 · /status 状态 · /session 会话信息(含 id) · /skills 列出/开关技能 · /plugin 插件 · /simplify 质量清理改动 · /remember <事实> 记记忆 · /debug-session 诊断 dao 自身日志 · /skillify 提炼技能 · /batch <大改> 并行 worktree 子代理 · /loop <间隔> <prompt> 周期重跑 · /mode 权限模式(智能判定/全权放行互切) · /goal <目标> 长任务(带目标直接开跑,大任务自动分阶段编排) · /model 切模型 · /lang 切中/英文 · /plan 切只读规划模式 · /bypass 全权放行开关 · /dod <命令> 验收命令 · /restore 回退检查点 · /theme 浅深色 · /clear 清空 · /compact 压缩 · /cost 用量 · /audit 审计(memory/reflect/tools/perms/cache/skills) · /exit 退出",
       };
     case "exit":
     case "quit":
