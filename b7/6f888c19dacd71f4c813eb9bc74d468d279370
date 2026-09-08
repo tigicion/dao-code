@@ -1,0 +1,27 @@
+src/tui/app/types.ts
+  s_149194f91cde9e::t_15aa152518ea8a 91-92
+src/config/validate_key.test.ts
+  s_149194f91cde9e::t_86a7ec3645e74a 100-150
+  s_149194f91cde9e::t_8a02edf873739a 2
+src/tui/theme.ts
+  s_149194f91cde9e::t_ab9a9c78c148c0 4
+  s_149194f91cde9e::t_fea65a37c52716 18,26
+src/config/validate_key.ts
+  s_149194f91cde9e::t_301fbb25437ff0 12,17-20,24,38-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "b76f888c19dacd71f4c813eb9bc74d468d279370",
+  "prompts": {},
+  "sessions": {
+    "s_149194f91cde9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a5a9ff94-f152-4665-b6fc-1e6fcd9ce66b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
