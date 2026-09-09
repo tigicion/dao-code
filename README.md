@@ -221,11 +221,40 @@ Built for long tasks that "run autonomously for a long time without drifting, ar
 - **Custom slash commands**: `.dao/commands/<name>.md` (body is a prompt template, `$ARGUMENTS`/`$1`). `/<name> args` expands into a single turn.
 - **Skills (ready-to-use skills)**: `.dao/skills/<name>/SKILL.md`. Progressive disclosure: startup lists only name+description; the model loads the body on demand via the `skill` tool.
 - **Hooks (lifecycle hooks)**: `.dao/hooks.json`. PreToolUse (can block) / PostToolUse (e.g. auto-format) / UserPromptSubmit (inject context / block) / SessionStart / End.
-- **MCP**: `.dao/mcp.json`. Connects to stdio MCP servers; tools auto-register as `mcp__<server>__<tool>`.
+- **MCP**: `.dao/mcp.json`. Connects to stdio and remote (HTTP/SSE) MCP servers; tools auto-register as `mcp__<server>__<tool>`.
 - **Subagent orchestration**: parallel `tasks[]`, async `background:true`, `isolate:true` git-worktree isolation, `task_send` to append instructions to a running task, foreground timeout auto-converts to background, transcripts spilled to `.dao/subagents/`.
 - **Steering**: type during a running turn; Enter queues it, processed automatically once the current turn ends.
 
 > Compatible with Claude Code: `settings.json`, `SKILL.md`, `hooks.json`, and `mcp.json` use the same formats as CC (tool names auto-map, e.g. `Bash↔exec_shell`), so existing CC configs/skills work as-is.
+
+### Example: adding web search via a remote MCP server (optional)
+
+The built-in `web_search` tool uses DuckDuckGo. If you want a stronger hosted search/research backend, any remote MCP server works through the same `mcp.json` — for example [You.com](https://you.com/docs) (search, URL content extraction, cited research). Nothing is connected by default; add it explicitly:
+
+```json
+// ~/.dao/mcp.json (user-level) or <project>/.dao/mcp.json (shared with the repo)
+{
+  "mcpServers": {
+    "you": {
+      "type": "http",
+      "url": "https://api.you.com/mcp",
+      "headers": { "Authorization": "Bearer <YDC_API_KEY>" }
+    }
+  }
+}
+```
+
+- Get a key at [you.com/platform/api-keys](https://you.com/platform/api-keys); keep it out of the committed project file (use the user-level config or your secret store).
+- Keyless alternative: `"url": "https://api.you.com/mcp?profile=free"` with no headers — basic web search only.
+- Tools register as `mcp__you__you-search`, `mcp__you__you-contents`, `mcp__you__you-research` and follow the normal `allow/ask/deny` permission rules (e.g. allow them in `.dao/settings.json` or per-call approval).
+
+You.com also publishes agent skills (`you-web`, `you-research`, `you-finance`, `you-discover`) in the same `SKILL.md` format dao reads, so they install through the built-in skill installer with automatic tool-name adaptation:
+
+```bash
+dao skill add https://github.com/youdotcom-oss/agent-skills --user
+```
+
+Both paths are optional and independent: use the MCP server, the skills, neither, or both.
 
 ## 🛠️ Tool overview
 
