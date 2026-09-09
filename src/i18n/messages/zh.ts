@@ -188,7 +188,7 @@ export const zh: Record<string, string> = {
   "ui.reason.http": "API 返回异常",
   "ui.reason.unknown": "未知错误",
   // 运行时通知
-  "ui.notice.themeSwitched": "已切换主题:{0}",
+  "ui.notice.themeSwitched": "已切换主题:{0}(本会话临时;重启按终端背景自动探测)",
   "ui.notice.langInvalid": "✗ 无效语言「{0}」,可选:zh / en",
   "ui.notice.compacted": "已压缩对话",
   "ui.notice.error": "出错:{0}",
@@ -261,7 +261,7 @@ export const zhTips: string[] = [
   "大任务:/goal <目标> 自主连续推进(直接带目标开跑);任务够大时会自动按研究→综合→实现→验证分阶段编排子代理",
   "/batch 把大改拆给多个 worktree 子代理并行做,各自一个分支",
   "/loop 5m <要做的事> 会话内周期跑;dao schedule 用本地 cron 定时跑",
-  "Shift+Tab 循环权限模式:智能判定 ⊙ → 全权放行 ※",
+  "Shift+Tab 循环权限模式:默认(写/执行前询问)→ 智能判定 ⊙(AI 评估风险)→ 全权放行 ※(免审批)",
   "/bypass 全权放行免审批(慎用);deny 规则与危险命令(rm -rf / 等)仍会拦你",
   "dao 会自动记忆;/remember <事> 手动记一条,/memory 看用户/知识/项目三层记忆",
   "/effort 调思考强度(low/medium/high/max);/cost 看用量与缓存命中率",

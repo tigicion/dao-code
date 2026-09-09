@@ -2183,7 +2183,7 @@ async function main() {
           if (name === "mode") {
             const arg = line.trim().split(/\s+/)[1];
             if (!arg) {
-              return { handled: true, output: `当前权限模式:${getMode() === "bypassPermissions" ? "全权放行" : getMode() === "auto" ? "智能判定" : getMode()}。用法:/mode <auto|全权放行>(两档互切;default 仍可用 /mode default 显式指定;plan 只读规划用 /plan 进入)` };
+              return { handled: true, output: `当前权限模式:${getMode() === "bypassPermissions" ? "全权放行" : getMode() === "auto" ? "智能判定" : getMode()}。Shift+Tab 三档循环:默认 → 智能判定 → 全权放行;也可 /mode <default|auto|全权放行> 直接指定;plan 只读规划用 /plan 进入` };
             }
             if (arg === "plan") {
               return { handled: true, output: "plan 是只读规划权限模式,不经 /mode 切换——用 /plan(会话只读)或 settings.defaultMode = \"plan\"/`--permission-mode plan` 进入。" };
@@ -2327,13 +2327,12 @@ async function main() {
           sessionId: store.id,
         }),
         cycleMode: () => {
-          // 切换循环只含 auto(智能判定)/bypassPermissions(全权放行)两档互切(用户要求);
-          // default 仍可 /mode default 显式进入;plan 只读规划不在循环里——当前若在 plan
-          // (经 /plan/settings 进入),Shift+Tab 视为进 auto 并退出 plan。
-          const order: PermissionMode[] = ["auto", "bypassPermissions"];
+          // Shift+Tab 三档循环:default(写/执行前询问)→ auto(智能判定,AI 裁决)→ bypassPermissions(全权放行)。
+          // plan 只读规划不在循环里(经 /plan/settings 进入);当前若在 plan,Shift+Tab 退出 plan 落到 default。
+          const order: PermissionMode[] = ["default", "auto", "bypassPermissions"];
           const cur = getMode();
           const idx = order.indexOf(cur);
-          const next = order[idx === -1 ? 0 : (idx + 1) % order.length]!;
+          const next = order[(idx + 1) % order.length]!; // idx=-1(plan/未知)→ 0 → default
           yolo = next === "bypassPermissions";
           session.mode = "normal";
           permModeOverride = next === "bypassPermissions" ? null : next;

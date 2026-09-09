@@ -188,7 +188,7 @@ export const en: Record<string, string> = {
   "ui.reason.http": "the API returned an error",
   "ui.reason.unknown": "unknown error",
   // Runtime notices
-  "ui.notice.themeSwitched": "Theme switched: {0}",
+  "ui.notice.themeSwitched": "Theme switched: {0} (this session only; auto-detected from terminal on restart)",
   "ui.notice.langInvalid": "✗ Invalid language \"{0}\", options: zh / en",
   "ui.notice.compacted": "Conversation compacted",
   "ui.notice.error": "Error: {0}",
@@ -261,7 +261,7 @@ export const enTips: string[] = [
   "Big tasks: /goal <goal> drives autonomously; when large enough it orchestrates subagents in research→synthesize→implement→verify phases",
   "/batch splits a big change across parallel worktree subagents, each on its own branch",
   "/loop 5m <thing> runs periodically in-session; dao schedule runs it on local cron",
-  "Shift+Tab cycles permission modes: smart decision ⊙ → full grant ※",
+  "Shift+Tab cycles permission modes: default (ask before write/exec) → smart decision ⊙ (AI risk assessment) → full grant ※ (no approval)",
   "/bypass full grant, no approvals (careful); deny rules and dangerous commands (rm -rf /…) still block you",
   "dao remembers automatically; /remember <thing> notes one manually, /memory shows the user/knowledge/project layers",
   "/effort tunes thinking depth (low/medium/high/max); /cost shows usage and cache hit rate",

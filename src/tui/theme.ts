@@ -18,8 +18,8 @@ const PALETTES: Record<Background, Record<Semantic, ColorSpec>> = {
     panel:     { rgb: [48, 54, 64],    ansi256: 237, ansi16: "100" }, // 用户输入回显的整行底色(比背景略亮的灰蓝,ink 正文在其上清晰)
   },
   light: {
-    ink:       { rgb: [40, 44, 52],    ansi256: 238, ansi16: "30" },
-    jade:      { rgb: [38, 110, 96],   ansi256: 29,  ansi16: "36" },
+    ink:       { rgb: [26, 30, 38],    ansi256: 235, ansi16: "30" },
+    jade:      { rgb: [30, 96, 84],     ansi256: 29,  ansi16: "36" },
     vermilion: { rgb: [178, 48, 42],   ansi256: 160, ansi16: "31" },
     dim:       { rgb: [120, 126, 134], ansi256: 244, ansi16: "90" },
     gold:      { rgb: [150, 118, 46],  ansi256: 136, ansi16: "33" },

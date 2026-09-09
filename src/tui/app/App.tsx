@@ -9,6 +9,7 @@ import { Welcome } from "../Welcome.js";
 import { t, tips, setLang, getLang, switchLang, type Lang } from "../../i18n/i18n.js";
 import { daoVerb, DAO_VERBS } from "../spinner_words.js";
 import { clampLines, parseTodoResult } from "./format.js";
+import { displayWidth } from "../width.js";
 import type { TurnEvents } from "../render.js";
 import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../approval/types.js";
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
@@ -64,9 +65,24 @@ function findImagePaths(text: string): string[] {
 
 // 空闲时底部轮换的轻提示(CC 风格:克制暗色一行,无 emoji)。运行中的"可排队"提示单独硬编码。
 // 取末 n 行(流式动态区用,完成后整段会以 markdown 提交进 Static)。
-function tail(s: string, n: number): string {
+// 取字符串末尾、【软换行后】不超过 n 个可见行的部分。
+// 关键:动态区限高按【视觉行】算——一条逻辑长行在窄终端会折成 ceil(宽/列) 个视觉行。
+// 只数 \n(旧实现)会漏算软换行,长行溢出动态区 → 触发 <Static> 重画 → 整屏闪 + 太极闪现。
+// 从末尾往回累积视觉行,够 n 即停;命中上限时行首补 "…" 提示有截断。
+export function tail(s: string, n: number, cols = 80): string {
+  const w = Math.max(1, cols);
+  const rowsOf = (ln: string) => Math.max(1, Math.ceil(displayWidth(ln) / w));
   const all = s.split("\n");
-  return all.length <= n ? s : "…\n" + all.slice(-n).join("\n");
+  let rows = 0;
+  let i = all.length;
+  while (i > 0) {
+    const next = rows + rowsOf(all[i - 1]!);
+    if (next > n) break;
+    rows = next;
+    i--;
+  }
+  if (i <= 0) return s; // 全部放得下
+  return "…\n" + all.slice(i).join("\n");
 }
 
 const LANG: Record<string, string> = {
@@ -423,6 +439,7 @@ export function App(deps: AppDeps) {
       if (name === "theme") {
         const next = bg === "dark" ? "light" : "dark";
         setBg(next);
+        // 仅本会话临时覆盖;不落盘——下次启动仍按终端背景自动探测(纯自动适配)。
         pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.themeSwitched", next === "light" ? t("ui.theme.light") : t("ui.theme.dark")) });
         return;
       }
@@ -925,7 +942,7 @@ export function App(deps: AppDeps) {
       exitArmedTimer.current = setTimeout(() => setExitArmed(false), 2000);
       return;
     }
-    // Shift+Tab:循环权限模式(智能判定→全权放行,两档互切),随时可用。
+    // Shift+Tab:循环权限模式(默认 → 智能判定 → 全权放行,三档循环),随时可用。
     if (key.tab && key.shift && deps.cycleMode) {
       const m = deps.cycleMode();
       setStatus(deps.getStatus());
@@ -1116,6 +1133,8 @@ export function App(deps: AppDeps) {
   // 否则 ink 每个 token 重绘时会把超出部分滚动、连带重画 <Static>(欢迎屏太极闪现)+ 整屏闪。
   // 完整思考/答案在回合结束都会进 <Static>,预览短一点不丢内容。每个 token 都会重渲染,故 resize 也能跟上。
   const liveCap = Math.max(4, Math.min(MAX_LIVE_LINES, (process.stdout.rows ?? 40) - 10));
+  // 动态区可用列宽:tail() 按此把逻辑长行折成视觉行来限高(见 tail 注释)。
+  const liveCols = process.stdout.columns ?? 80;
 
   return (
     <Box flexDirection="column">
@@ -1137,9 +1156,9 @@ export function App(deps: AppDeps) {
         <Box flexDirection="column" marginTop={1}>
           {/* 推理预览:只显示思考文本(spinner/动词/耗时统一放下方状态行,避免重复)。 */}
           {live.reasoning && !live.content ? (
-            <Text color={c("dim")}>{tail(live.reasoning, liveCap)}</Text>
+            <Text color={c("dim")}>{tail(live.reasoning, liveCap, liveCols)}</Text>
           ) : null}
-          {live.content ? <Text>{tail(live.content, liveCap)}</Text> : null}
+          {live.content ? <Text>{tail(live.content, liveCap, liveCols)}</Text> : null}
           {/* 唯一的状态行:spinner + 当前活动/动词 + 耗时 + 工具数 + 排队数(长任务也看得见在干嘛)。 */}
           <Text color={c("dim")}>
             {spin} {live.lastActivity || (live.content ? t("ui.live.generating") : verb)}…{" "}
@@ -1437,14 +1456,13 @@ const hl = (line: string, lang: string): string => {
 
 function Row({ item, c, expanded }: { item: TranscriptItem; c: (s: Parameters<typeof semHex>[0]) => string; expanded?: boolean }) {
   if (item.kind === "user") {
-    // 整行贯通底色 + 左侧 jade 竖条:让用户输入一眼与 AI 回复区分开。width 100% 使深色底铺满整行。
+    // 整行贯通底色区分用户输入与 AI 回复(width 100% 铺满整行);左缩进 2 格,不再用竖条标记。
     const lines = item.text.split("\n");
     return (
       <Box flexDirection="column" marginTop={1} width="100%">
         {lines.map((ln, i) => (
           <Box key={i} width="100%" backgroundColor={c("panel")}>
-            <Text color={c("jade")}>▎ </Text>
-            <Text color={c("ink")}>{ln || " "}</Text>
+            <Text color={c("ink")}>{"  "}{ln || " "}</Text>
           </Box>
         ))}
       </Box>

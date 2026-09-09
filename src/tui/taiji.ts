@@ -22,7 +22,15 @@ type RGB = [number, number, number];
 interface Palette { yang: RGB; yin: RGB }
 const PALETTES: Record<Background, Palette> = {
   dark: { yang: [236, 238, 242], yin: [64, 116, 106] },
-  light: { yang: [54, 62, 74], yin: [104, 162, 146] },
+  light: { yang: [46, 56, 66], yin: [38, 120, 102] },
+};
+
+// ansi256 退化档的鱼身索引(纯 256 终端如 Apple Terminal 无 truecolor 时走这里,与 PALETTES 的
+// truecolor RGB 对齐)。yang=浅色鱼身,yin=深/绿鱼身:dark 底 yang 近白、yin 青;light 底 yang
+// 深灰、yin 深珉绿。此前这里 bg 无关(恒 254/65),导致浅色终端的浅鱼身仍近白被洗掉——现按 bg 分档。
+const ANSI256: Record<Background, Record<Exclude<Cls, "out">, number>> = {
+  dark: { yang: 254, yin: 65 },
+  light: { yang: 238, yin: 29 },
 };
 
 const ROWS = 8; // 行数 = 纵向像素数(与词标块同高)
@@ -64,7 +72,7 @@ export function renderTaiji(caps: Capabilities, bg: Background = "dark"): string
   const bgc = (c: Exclude<Cls, "out">) =>
     truecolor
       ? `\x1b[48;2;${pal[c][0]};${pal[c][1]};${pal[c][2]}m`
-      : `\x1b[48;5;${c === "yang" ? 254 : 65}m`;
+      : `\x1b[48;5;${ANSI256[bg][c]}m`;
 
   const out: string[] = [];
   for (let py = 0; py < ROWS; py++) {
