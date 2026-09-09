@@ -284,10 +284,9 @@ async function main() {
   // 触发、触发后模型立刻收敛写完,回归后同一题再没通过过)。同时判据已修正为"改动文件或执行命令"
   // (见 loop.ts 的 PROGRESS_TOOLS),误触发率比当初关掉它的时候低得多。
   // 交互式会话(TTY 且非一次性 prompt)默认不开进度提醒——有人盯着,卡没卡用户看得见,
-  // 提醒只会打断正常工作流。argvPrompt 在下面才解析,这里用等价判定:TTY 且无位置参数
-  // (rawArgs 去掉 flag 后非空 = 有 prompt = headless 一次性)。
-  const hasPositionalPrompt = rawArgs.some((a) => !a.startsWith("-"));
-  const progressAdviceFlag = !rawArgs.includes("--no-progress-advice") && !(process.stdin.isTTY === true && !hasPositionalPrompt);
+  // 提醒只会打断正常工作流。真正的判定见下方 progressAdviceFlag(要等 argvPrompt 解析完,
+  // 才能准确区分交互式与 headless;此处 rawArgs 里 -c/--model 等的【值】不以 - 开头,
+  // 天真地扫位置参数会把 `dao -c <session-id>` 的 id 误当 prompt → 交互式下误开提醒)。
   const noMemory = evalFlag || rawArgs.includes("--no-memory");
   // 只管磁盘/插件技能 + 自定义子代理/命令,不管内置技能(见下面 noBuiltinSkills)。
   const noSkills = evalFlag || rawArgs.includes("--no-skills");
@@ -816,6 +815,10 @@ async function main() {
   // 真正的交互式会话:有 TTY 且不是一次性 --goal 调用——决定 ctx.askChoice 是否注入(下方)、
   // 也决定系统提示词要不要加"会话特定指引"(AskUserQuestion 在 headless 下没人回答)。
   const interactiveSession = process.stdin.isTTY === true && !argvPrompt;
+  // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒):仅 headless/一次性场景默认开,
+  // 交互式默认关(有人盯着,卡没卡看得见,提醒只会打断)。用权威的 interactiveSession(基于解析后的
+  // argvPrompt)判定,避免 `dao -c <session-id>` 的 id 被误当 prompt 而在交互式下误开。--no-progress-advice 显式关。
+  const progressAdviceFlag = !rawArgs.includes("--no-progress-advice") && !interactiveSession;
   // 快字段(顶层目录/内存)同步瞬时,直接拼进不可变 system prompt。慢字段(工具链/git/网络)
   // 不再同步 await——见下方 envNoticeQueue,避免网络探测拖慢 Ink 挂载(index.ts 里的 runInkApp)。
   const envSnapshot = formatFastEnvFields(probeTopLevelDir(workspaceRoot), probeMemory(), lang === "en");
