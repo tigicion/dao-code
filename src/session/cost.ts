@@ -22,13 +22,15 @@ export const KNOWN_PRICES: Record<string, Prices> = {
   "glm-5.1": { inputHit: 1.3, inputMiss: 6, output: 24 },
   "kimi-k2.6": { inputHit: 1.1, inputMiss: 6.5, output: 27 },
   "kimi-k2.7-code": { inputHit: 1.3, inputMiss: 6.5, output: 27 },
-  "minimax-m2.7": { inputHit: 0.42, inputMiss: 2.1, output: 8.4 },
-  "minimax-m3": { inputHit: 0.42, inputMiss: 2.1, output: 8.4 },
   "ernie-5.1": { inputHit: 1.6, inputMiss: 4, output: 18 },
 };
 
 // 美元报价(官方计费页,$/1M tokens)。换算汇率默认 6.8(2026-07 USD/CNY 中间价附近),可用 DAO_USD_CNY_RATE 覆盖。
 const USD_PRICES: Record<string, Prices> = {
+  "MiniMax-M3": { inputHit: 0.12, inputMiss: 0.6, output: 2.4 },
+  "minimax-m3": { inputHit: 0.12, inputMiss: 0.6, output: 2.4 },
+  "MiniMax-M2.7": { inputHit: 0.06, inputMiss: 0.3, output: 1.2 },
+  "minimax-m2.7": { inputHit: 0.06, inputMiss: 0.3, output: 1.2 },
   "claude-opus-4-8": { inputHit: 0.5, inputMiss: 5, output: 25 },
   "gpt-5": { inputHit: 0.125, inputMiss: 1.25, output: 10 },
 };

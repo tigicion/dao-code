@@ -38,6 +38,16 @@ describe("人民币计费", () => {
     expect(def.inputMiss).toBeCloseTo(1.25 * 6.8, 5);
   });
 
+  it("uses current USD prices for official MiniMax model IDs and lowercase aliases", () => {
+    const m3 = { inputHit: 0.84, inputMiss: 4.2, output: 16.8 };
+    const m27 = { inputHit: 0.42, inputMiss: 2.1, output: 8.4 };
+
+    expect(pricesFor("MiniMax-M3", { DAO_USD_CNY_RATE: "7" } as any)).toEqual(m3);
+    expect(pricesFor("minimax-m3", { DAO_USD_CNY_RATE: "7" } as any)).toEqual(m3);
+    expect(pricesFor("MiniMax-M2.7", { DAO_USD_CNY_RATE: "7" } as any)).toEqual(m27);
+    expect(pricesFor("minimax-m2.7", { DAO_USD_CNY_RATE: "7" } as any)).toEqual(m27);
+  });
+
   it("未知模型名仍退化到 pro/flash 启发式,不报错", () => {
     expect(pricesFor("some-new-flash-model").inputMiss).toBe(1);
     expect(pricesFor("some-new-model").inputMiss).toBe(3);
