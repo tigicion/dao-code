@@ -704,11 +704,20 @@ export function App(deps: AppDeps) {
     if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: t("ui.skill.none") }); return; }
     setSkillPick({ items: list, idx: 0, showBundled: false });
   };
-  const openModelPicker = () => {
+  const openModelPicker = async () => {
     const list = deps.listModels?.() ?? [];
     if (!list.length) { pushItem({ id: nextId(), kind: "notice", text: t("ui.model.none") }); return; }
     const idx = Math.max(0, list.findIndex((m) => m.active));
     setModelPick({ items: list, idx });
+    // 自定义网关:异步拉取 /models 替换列表(拉不到则保留当前 model 单项)。
+    const gwModels = await deps.listGatewayModels?.();
+    if (gwModels && gwModels.length) {
+      const currentModel = deps.getStatus().model;
+      setModelPick((p) => p && {
+        items: gwModels.map((m) => ({ model: m, active: m === currentModel })),
+        idx: Math.max(0, gwModels.indexOf(currentModel)),
+      });
+    }
   };
 
   useInput((ch, key) => {
@@ -1301,7 +1310,7 @@ export function App(deps: AppDeps) {
               const focused = i === gwModelPick.idx;
               return (
                 <Text key={i} color={focused ? c("jade") : c("ink")}>
-                  {focused ? "❯ " : "  "}{i < 9 ? `${i + 1}. ` : "   "}{m}
+                  {focused ? "❯ " : "  "}{i + 1}. {m}
                 </Text>
               );
             })}

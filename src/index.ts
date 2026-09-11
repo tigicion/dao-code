@@ -488,9 +488,14 @@ async function main() {
       const p = profilesCfg.profiles[n]!;
       return { name: n, active: n === profilesCfg.activeProfile, detail: `${p.provider}/${p.model} · ${p.keyRef ? "钥匙串" : "文件"}` };
     });
-  // /model 无参选择器:只列当前 provider 下已知的模型串,和 /model 文本命令的校验范围一致。
-  const listModels = () =>
-    (MODELS_BY_PROVIDER[cfg.provider] ?? MODELS_BY_PROVIDER.deepseek).map((m) => ({ model: m, active: m === session.model }));
+  // /model 无参选择器:内置 provider 列 MODELS_BY_PROVIDER;自定义网关(baseUrl 与默认不同)只列当前 model,
+  // 由 openModelPicker 异步拉取网关 /models 替换列表。
+  const listModels = () => {
+    const activeProf = profilesCfg.profiles[profilesCfg.activeProfile];
+    const isCustomGw = activeProf && activeProf.baseUrl !== DEFAULTS[activeProf.provider].baseUrl;
+    if (isCustomGw) return [{ model: session.model, active: true }];
+    return (MODELS_BY_PROVIDER[cfg.provider] ?? MODELS_BY_PROVIDER.deepseek).map((m) => ({ model: m, active: m === session.model }));
+  };
   // 切换:钥匙串读取是异步的,但 model/provider/baseUrl 都在 profile 文件里,可同步生效(让 StatusBar 立即刷新);
   // 只有 apiKey 需要等钥匙串异步解析(下一回合 streamChat 读 cfg.apiKey)。
   const switchAccount = (name: string): boolean => {
@@ -2301,9 +2306,17 @@ async function main() {
             if (sk) return { handled: true, prompt: sk.body };
           }
           // /model:委托 dispatchCommand 切换会话模型，并持久化到当前 profile 的 model 字段（下次启动保持）。
+          // 自定义网关的 model 不在 MODELS_BY_PROVIDER 里,跳过 dispatchCommand 的校验直接设置。
           if (name === "model") {
-            const result = dispatchCommand(line, session, cfg.provider);
             const activeProf = profilesCfg.profiles[profilesCfg.activeProfile];
+            const isCustomGw = activeProf && activeProf.baseUrl !== DEFAULTS[activeProf.provider].baseUrl;
+            const modelArg = line.trim().split(/\s+/)[1];
+            if (isCustomGw && modelArg) {
+              session.setModel(modelArg);
+              if (activeProf) { activeProf.model = modelArg; saveProfiles(keyFile, profilesCfg).catch(() => {}); }
+              return { handled: true, output: `已切换模型:${modelArg}` };
+            }
+            const result = dispatchCommand(line, session, cfg.provider);
             if (activeProf) {
               activeProf.model = session.model;
               saveProfiles(keyFile, profilesCfg).catch(() => {});
@@ -2366,6 +2379,13 @@ async function main() {
         removeAccount,
         addAccount,
         fetchGatewayModels: (baseUrl, key) => fetchModels(baseUrl, key),
+        listGatewayModels: async () => {
+          const p = profilesCfg.profiles[profilesCfg.activeProfile];
+          if (!p || p.baseUrl === DEFAULTS[p.provider].baseUrl) return null;
+          const cred = await resolveCredential(profilesCfg, kc);
+          if (!cred) return null;
+          return fetchModels(p.baseUrl, cred.key);
+        },
         listSkills,
         setSkillEnabled,
         batchSkills,

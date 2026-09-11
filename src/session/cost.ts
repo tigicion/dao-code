@@ -9,17 +9,34 @@ const num = (env: string | undefined, def: number): number => {
   return Number.isFinite(n) && n >= 0 ? n : def;
 };
 
-// 各模型实价(￥/1M tokens),2026-07 按各厂商官方计费页核实:
-// - deepseek-v4-pro/flash:DAO 直连 DeepSeek 官方报价。
-// - doubao/glm/kimi/minimax/ernie:火山方舟(ARK)/百度千帆/智谱/Moonshot/MiniMax 官方计费页(元/千tokens 换算为元/百万)。
+// 各模型实价(￥/1M tokens),2026-09 按各厂商官方计费页核实:
+// - deepseek-v4-pro/flash:DeepSeek 官方 peak 价 $1.32/$3.96、$0.30/$1.20,按汇率 6.8 折算。
+// - claude-opus/sonnet:Anthropic 官方 $5/$25、$3/$15、$2/$10,按汇率 6.8 折算。
+// - glm-5.2/5.3:智谱官方 ￥8/￥28;glm-5.3-flash:￥0.8/￥2.8。
+// - gpt-5.5:OpenAI 官方 $5/$30,按汇率 6.8 折算。
+// - doubao/kimi/minimax/ernie:火山方舟(ARK)/百度千帆/Moonshot/MiniMax 官方计费页。
+// 网关模型名(如 DeepSeek-V4-Pro-joybuilder)通过 normalizeModelKey 归一化后匹配。
 export const KNOWN_PRICES: Record<string, Prices> = {
-  "deepseek-v4-pro": { inputHit: 0.025, inputMiss: 3, output: 6 },
-  "deepseek-v4-flash": { inputHit: 0.02, inputMiss: 1, output: 2 },
-  "doubao-seed-2.0-pro": { inputHit: 0.64, inputMiss: 3.2, output: 16 },
-  "doubao-seed-2.0-lite": { inputHit: 0.12, inputMiss: 0.6, output: 3.6 },
-  "doubao-seed-2.0-code": { inputHit: 0.64, inputMiss: 3.2, output: 16 },
-  "glm-5.2": { inputHit: 2, inputMiss: 8, output: 28 },
-  "glm-5.1": { inputHit: 1.3, inputMiss: 6, output: 24 },
+  // DeepSeek(￥/1M,peak 价;cache hit = miss/10)
+  "deepseek-v4-pro": { inputHit: 0.9, inputMiss: 9, output: 27 },
+  "deepseek-v4-flash": { inputHit: 0.2, inputMiss: 2, output: 8.2 },
+  // Claude($/1M → ￥按 6.8 折算;cache hit = miss/10)
+  "claude-opus-4-6": { inputHit: 3.4, inputMiss: 34, output: 170 },
+  "claude-opus-4-7": { inputHit: 3.4, inputMiss: 34, output: 170 },
+  "claude-opus-4-8": { inputHit: 3.4, inputMiss: 34, output: 170 },
+  "claude-sonnet-4-6": { inputHit: 2.04, inputMiss: 20.4, output: 102 },
+  "claude-sonnet-5": { inputHit: 1.36, inputMiss: 13.6, output: 68 },
+  // GLM(￥/1M;cache hit = miss/4)
+  "glm-5-2": { inputHit: 2, inputMiss: 8, output: 28 },
+  "glm-5-3": { inputHit: 2, inputMiss: 8, output: 28 },
+  "glm-5-3-flash": { inputHit: 0.2, inputMiss: 0.8, output: 2.8 },
+  // GPT($/1M → ￥按 6.8 折算;cache hit = miss/10)
+  "gpt-5-5": { inputHit: 3.4, inputMiss: 34, output: 204 },
+  // 其他国产模型(￥/1M)
+  "doubao-seed-2-0-pro": { inputHit: 0.64, inputMiss: 3.2, output: 16 },
+  "doubao-seed-2-0-lite": { inputHit: 0.12, inputMiss: 0.6, output: 3.6 },
+  "doubao-seed-2-0-code": { inputHit: 0.64, inputMiss: 3.2, output: 16 },
+  "glm-5-1": { inputHit: 1.3, inputMiss: 6, output: 24 },
   "kimi-k2.6": { inputHit: 1.1, inputMiss: 6.5, output: 27 },
   "kimi-k2.7-code": { inputHit: 1.3, inputMiss: 6.5, output: 27 },
   "minimax-m2.7": { inputHit: 0.42, inputMiss: 2.1, output: 8.4 },
@@ -27,33 +44,31 @@ export const KNOWN_PRICES: Record<string, Prices> = {
   "ernie-5.1": { inputHit: 1.6, inputMiss: 4, output: 18 },
 };
 
-// 美元报价(官方计费页,$/1M tokens)。换算汇率默认 6.8(2026-07 USD/CNY 中间价附近),可用 DAO_USD_CNY_RATE 覆盖。
-const USD_PRICES: Record<string, Prices> = {
-  "claude-opus-4-8": { inputHit: 0.5, inputMiss: 5, output: 25 },
-  "gpt-5": { inputHit: 0.125, inputMiss: 1.25, output: 10 },
-};
+// 网关模型名归一化:小写 + 去 -joybuilder / -local 后缀 + 点转横杠,
+// 使网关返回的模型名(如 Claude-Opus-4.8-joybuilder)能命中 KNOWN_PRICES 里的 key(如 claude-opus-4-8)。
+function normalizeModelKey(model: string): string {
+  return model.toLowerCase().replace(/-joybuilder$/, "").replace(/-local$/, "").replace(/\./g, "-");
+}
 
-// 按模型名取价:已知模型走实价表;美元计价模型按汇率折算;其余未知模型(如自定义/新增串)
-// 退化到旧的 pro/flash 启发式(含 "flash" → Flash 挡),避免报错。env 仅覆盖启发式挡与汇率。
+// 按模型名取价:先精确匹配,再归一化匹配(网关模型名);命中不了退化到 pro/flash 启发式,避免报错。
+// env 覆盖启发式挡与汇率。
 export function pricesFor(model: string, env: NodeJS.ProcessEnv = process.env): Prices {
   const known = KNOWN_PRICES[model];
   if (known) return known;
-  const usd = USD_PRICES[model];
-  if (usd) {
-    const rate = num(env.DAO_USD_CNY_RATE, 6.8);
-    return { inputHit: usd.inputHit * rate, inputMiss: usd.inputMiss * rate, output: usd.output * rate };
-  }
+  const norm = normalizeModelKey(model);
+  const knownNorm = KNOWN_PRICES[norm];
+  if (knownNorm) return knownNorm;
   if (/flash/i.test(model)) {
     return {
-      inputHit: num(env.DAO_PRICE_FLASH_INPUT_HIT, 0.02),
-      inputMiss: num(env.DAO_PRICE_FLASH_INPUT_MISS, 1),
-      output: num(env.DAO_PRICE_FLASH_OUTPUT, 2),
+      inputHit: num(env.DAO_PRICE_FLASH_INPUT_HIT, 0.2),
+      inputMiss: num(env.DAO_PRICE_FLASH_INPUT_MISS, 2),
+      output: num(env.DAO_PRICE_FLASH_OUTPUT, 8.2),
     };
   }
   return {
-    inputHit: num(env.DAO_PRICE_INPUT_HIT, 0.025),
-    inputMiss: num(env.DAO_PRICE_INPUT_MISS, 3),
-    output: num(env.DAO_PRICE_OUTPUT, 6),
+    inputHit: num(env.DAO_PRICE_INPUT_HIT, 0.9),
+    inputMiss: num(env.DAO_PRICE_INPUT_MISS, 9),
+    output: num(env.DAO_PRICE_OUTPUT, 27),
   };
 }
 
