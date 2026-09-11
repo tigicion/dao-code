@@ -1,20 +1,7 @@
-src/index.ts
-  s_524e5c742c4806::t_e4814c6a97dc7e 287-289
-  s_524e5c742c4806::t_6c4a71ceed083a 818-821
 ---
 {
   "schema_version": "authorship/3.0.0",
   "git_ai_version": "1.5.7",
   "base_commit_sha": "db01f134e2f1b1c04f371820a6143eb01a0fb6bd",
-  "prompts": {},
-  "sessions": {
-    "s_524e5c742c4806": {
-      "agent_id": {
-        "tool": "claude",
-        "id": "871bb59d-458b-45e6-9e35-4a553ca51963",
-        "model": "claude-opus-4-8"
-      },
-      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
-    }
-  }
+  "prompts": {}
 }
