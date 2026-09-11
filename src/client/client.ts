@@ -208,6 +208,17 @@ export async function* streamChat(
     } catch {
       return []; // 半个 JSON 不该出现(已按 \n\n 切),保险跳过
     }
+    // SSE 流内 error 事件(如 brpc 网关 E2004 max_concurrency 过载):服务端在 200 响应的流里
+    // 直接返回 {"error":{"code":"E2004","message":"..."}},没有 choices/delta。旧逻辑只看
+    // choices[0].delta、不识别 error 字段,静默跳过 → 流式"成功"结束但无产出 → loop.ts 当成
+    // 空响应 → 重试一次还是 E2004 → "连续两次空响应,结束本轮"。这里识别后抛出可重试错误,
+    // 让下面的流式重试逻辑(指数退避)处理。
+    if (parsed?.error) {
+      const errMsg = typeof parsed.error === "string"
+        ? parsed.error
+        : `${parsed.error.code ?? "unknown"}: ${parsed.error.message ?? ""}`;
+      throw Object.assign(new Error(`SSE error from ${apiLabel(opts)}: ${errMsg}`), { retryableStatus: true });
+    }
     // usage chunk(choices 常为空)在 [DONE] 前到达——先抓它再判 delta。
     if (parsed?.usage) opts.onUsage?.(normalizeUsage(parsed.usage as Usage));
     const fr = parsed?.choices?.[0]?.finish_reason;

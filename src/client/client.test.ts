@@ -469,6 +469,31 @@ describe("streamChat", () => {
     expect(notified).toBe(1); // 上层被明确告知:这是"推理耗尽预算",不是普通空响应
   });
 
+  it("SSE 流内返回 error 事件(如 E2004 max_concurrency 过载)→ 抛错并触发重试,不静默吞成空响应", async () => {
+    // 真实场景:brpc 网关在 SSE 流里返回 {"error":{"code":"E2004","message":"...max_concurrency..."}},
+    // 旧 processPayload 只看 choices[0].delta、不识别 error 字段,静默跳过 → 流式"成功"结束但无产出
+    // → loop.ts 当成空响应 → 重试一次还是 E2004 → "连续两次空响应,结束本轮"。
+    let calls = 0;
+    const fetchImpl = (async (_url: string, init: any) => {
+      const b = JSON.parse(init.body); calls++;
+      if (b.stream && calls === 1) {
+        return new Response(sseStream([
+          'data: {"error":{"code":"E2004","message":"Reached server max_concurrency 2000"}}\n\n',
+          "data: [DONE]\n\n",
+        ]), { status: 200 });
+      }
+      if (b.stream) {
+        return new Response(sseStream(['data: {"choices":[{"delta":{"content":"ok"}}]}\n\n', "data: [DONE]\n\n"]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const { message } = await run(
+      streamChat({ ...base, messages: [{ role: "user", content: "hi" }], fetchImpl, maxRetries: 2, retryDelayMs: 0 }),
+    );
+    expect(message.content).toBe("ok");
+    expect(calls).toBe(2); // 第一发撞 E2004 → 退避重试 → 第二发成功
+  });
+
   it("背景查询遇 529 → 立即上抛,不重试/不兜底", async () => {
     let calls = 0;
     const fetchImpl = (async () => { calls++; return new Response("overloaded", { status: 529 }); }) as unknown as typeof fetch;
