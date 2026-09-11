@@ -168,7 +168,7 @@ export const en: Record<string, string> = {
   "ui.account.providerLabel.volcengine": "Volcengine coding plan",
   "ui.account.providerLabel.qianfan": "Qianfan token plan",
   "ui.account.providerLabel.custom": "Custom gateway (OpenAI-compatible)",
-  "ui.account.baseUrlPrompt": "Enter gateway baseUrl (e.g. http://llm-gw.jd.local/v1, blank to cancel): ",
+  "ui.account.baseUrlPrompt": "Enter gateway baseUrl (e.g. https://your-gateway.example.com/v1, blank to cancel): ",
   "ui.account.fetchingModels": "Fetching gateway model list…",
   "ui.account.gatewayModelTitle": "Select a model: ↑↓ select · ⏎ confirm · Esc cancel",
   "ui.account.modelPrompt": "Enter model name (no list fetched, blank to cancel): ",

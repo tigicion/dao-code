@@ -168,7 +168,7 @@ export const zh: Record<string, string> = {
   "ui.account.providerLabel.volcengine": "火山引擎 coding plan",
   "ui.account.providerLabel.qianfan": "千帆 token plan",
   "ui.account.providerLabel.custom": "自定义网关(OpenAI 兼容)",
-  "ui.account.baseUrlPrompt": "输入网关地址 baseUrl(如 http://llm-gw.jd.local/v1,留空取消):",
+  "ui.account.baseUrlPrompt": "输入网关地址 baseUrl(如 https://your-gateway.example.com/v1,留空取消):",
   "ui.account.fetchingModels": "正在拉取网关模型列表…",
   "ui.account.gatewayModelTitle": "选择模型:↑↓ 选 · ⏎ 确认 · Esc 取消",
   "ui.account.modelPrompt": "输入模型名(未拉到列表,留空取消):",
