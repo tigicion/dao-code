@@ -223,11 +223,40 @@ dao "把 src/utils.ts 里的 formatDate 改成支持时区"
 - **自定义 slash 命令**:`.dao/commands/<name>.md`(正文为 prompt 模板,`$ARGUMENTS`/`$1`)。`/<name> 参数` 展开成一个回合跑。
 - **Skill(开箱即用技能)**:`.dao/skills/<name>/SKILL.md`。渐进式披露:启动只列 name+description,模型用 `skill` 工具按需加载正文。
 - **Hooks(生命周期钩子)**:`.dao/hooks.json`。PreToolUse(可阻断)/PostToolUse(如自动格式化)/UserPromptSubmit(注入上下文/阻断)/SessionStart/End。
-- **MCP**:`.dao/mcp.json`。连 stdio MCP server,工具自动注册为 `mcp__<server>__<tool>`。
-- **子代理编排**:并行 `tasks[]`、`background:true` 异步后台、`isolate:true` git worktree 隔离、`task_send` 给运行中任务追加指令、前台超时自动转后台、转录落盘 `.dao/subagents/`。
+- **MCP**:`.dao/mcp.json`。连 stdio 与远程(HTTP/SSE)MCP server,工具自动注册为 `mcp__<server>__<tool>`。
+- **子代理编排**:并行 `tasks[]`、`background:true` 异步后台、`isolate:true` git-worktree 隔离、`task_send` 给运行中任务追加指令、前台超时自动转后台、转录落盘 `.dao/subagents/`。
 - **steering**:回合运行中也能打字,回车排队,当前回合结束后自动处理。
 
 > 兼容 Claude Code:`settings.json`、`SKILL.md`、`hooks.json`、`mcp.json` 与 CC 同款格式(工具名自动映射 `Bash↔exec_shell` 等),现成的 CC 配置/技能可直接拿来用。
+
+### 示例:通过远程 MCP server 加配联网搜索(可选)
+
+内置 `web_search` 走 DuckDuckGo。想要更强的托管搜索/研究后端时,任何远程 MCP server 都走同一个 `mcp.json`——例如 [You.com](https://you.com/docs)(搜索、URL 正文提取、带引用的研究)。默认不连任何 server,需要显式添加:
+
+```json
+// ~/.dao/mcp.json(用户级)或 <项目>/.dao/mcp.json(随仓库共享)
+{
+  "mcpServers": {
+    "you": {
+      "type": "http",
+      "url": "https://api.you.com/mcp",
+      "headers": { "Authorization": "Bearer <YDC_API_KEY>" }
+    }
+  }
+}
+```
+
+- 在 [you.com/platform/api-keys](https://you.com/platform/api-keys) 取 key;别把 key 提交进项目文件(用用户级配置或密钥管理)。
+- 免 key 替代:`"url": "https://api.you.com/mcp?profile=free"` 且不带 headers——仅基础网页搜索。
+- 工具注册为 `mcp__you__you-search`、`mcp__you__you-contents`、`mcp__you__you-research`,走既有 `allow/ask/deny` 权限规则(在 `.dao/settings.json` 加 allow 或按次审批)。
+
+You.com 也发布了 agent 技能(`you-web`、`you-research`、`you-finance`、`you-discover`),与 dao 读取的 `SKILL.md` 同格式,经内置技能安装器安装,外来技能的工具名自动适配:
+
+```bash
+dao skill add https://github.com/youdotcom-oss/agent-skills --user
+```
+
+两条路径各自独立、均可选:MCP server、技能、都不用、或都用,随你。
 
 ## 🛠️ 工具一览
 
