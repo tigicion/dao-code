@@ -1,0 +1,25 @@
+src/config/profiles.test.ts
+  s_84538b24a19360::t_9716664ab1eb74 152-156,160,168-171
+src/config/profiles.ts
+  s_84538b24a19360::t_9716664ab1eb74 81,85,88,90-91
+CHANGELOG.md
+  s_84538b24a19360::t_9716664ab1eb74 16-18
+src/index.ts
+  s_84538b24a19360::t_9716664ab1eb74 1395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "be1e66f9c7687f9c0e83d938703b0bdf62253520",
+  "prompts": {},
+  "sessions": {
+    "s_84538b24a19360": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13f02-08f8-78e2-9d6a-aafd45d02935",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
