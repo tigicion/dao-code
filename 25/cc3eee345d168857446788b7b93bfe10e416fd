@@ -1,0 +1,53 @@
+src/version.ts
+  s_55b901f281d40e::t_7646d37a74f921 2
+CHANGELOG.md
+  s_55b901f281d40e::t_7646d37a74f921 7-8,10-12
+src/tools/execute.ts
+  s_55b901f281d40e::t_63442458635fc5 242,244,246-251,254-257
+src/commands/scheduling.ts
+  s_55b901f281d40e::t_d319d33b32f432 1-14
+src/index.ts
+  s_55b901f281d40e::t_63442458635fc5 1345
+src/agent/loop_durable.test.ts
+  s_55b901f281d40e::t_26ed2ec61de8f0 1-97
+src/tools/types.ts
+  s_55b901f281d40e::t_63442458635fc5 97-98
+src/session/recovery.ts
+  s_55b901f281d40e::t_63442458635fc5 7-9,24
+src/repl.ts
+  s_55b901f281d40e::t_d319d33b32f432 3,86
+src/tui/app/App.tsx
+  s_55b901f281d40e::t_d319d33b32f432 2,470-474
+src/session/durable_store.ts
+  s_55b901f281d40e::t_63442458635fc5 209,211
+src/tools/agent.ts
+  s_55b901f281d40e::t_63442458635fc5 242
+src/tui/app/App.test.tsx
+  s_55b901f281d40e::t_b03a42713462e9 1430-1449
+src/repl.test.ts
+  s_55b901f281d40e::t_b03a42713462e9 241-276
+src/agent/loop.ts
+  s_55b901f281d40e::t_63442458635fc5 2,157-168
+package.json
+  s_55b901f281d40e::t_7646d37a74f921 3
+src/tools/agent.test.ts
+  s_55b901f281d40e::t_26ed2ec61de8f0 78-92
+package-lock.json
+  s_55b901f281d40e::t_60728b28b753ee 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "25cc3eee345d168857446788b7b93bfe10e416fd",
+  "prompts": {},
+  "sessions": {
+    "s_55b901f281d40e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a143c8-5d2e-7592-b037-f1610a5e3f0c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
