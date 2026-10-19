@@ -1,0 +1,63 @@
+README.zh-CN.md
+  s_59ff0f837fd084::t_50b59551dc651d 171-172,306-307
+package.json
+  s_59ff0f837fd084::t_6e64b2f4673402 3
+src/tools/agent.test.ts
+  s_59ff0f837fd084::t_0095fd575a22bd 243
+src/agent/runAgent.test.ts
+  s_59ff0f837fd084::t_d93e4ded815093 128-139
+src/tui/app/App.test.tsx
+  s_59ff0f837fd084::t_da5d3b8e6def10 41-88
+src/tui/app/AgentTasksPanel.tsx
+  s_59ff0f837fd084::t_0095fd575a22bd 27-28,30-31,34,38-39,45
+  s_59ff0f837fd084::t_6d080f2654e154 1-14,16-26,29,32-33,35-36,40-44,46-63
+  s_59ff0f837fd084::t_6e64b2f4673402 15,37
+src/version.ts
+  s_59ff0f837fd084::t_6e64b2f4673402 2
+src/agent/runAgent.ts
+  s_59ff0f837fd084::t_9c045dd699caa0 2,475
+docs/harness/subagents.md
+  s_59ff0f837fd084::t_50b59551dc651d 42,113-114
+src/index.ts
+  s_59ff0f837fd084::t_9c045dd699caa0 2503
+src/tui/app/App.tsx
+  s_59ff0f837fd084::t_6e64b2f4673402 1044
+  s_59ff0f837fd084::t_0095fd575a22bd 1251,1674
+  s_59ff0f837fd084::t_6d080f2654e154 2,311,1045-1052,1332,1345-1349,1359,1608
+src/tui/app/types.ts
+  s_59ff0f837fd084::t_9c045dd699caa0 50
+  s_59ff0f837fd084::t_6e64b2f4673402 49
+src/agent/turn_budget.ts
+  s_59ff0f837fd084::t_9c045dd699caa0 2-7
+  s_59ff0f837fd084::t_6e64b2f4673402 1
+CHANGELOG.md
+  s_59ff0f837fd084::t_6e64b2f4673402 7-17
+src/tools/agent.ts
+  s_59ff0f837fd084::t_d93e4ded815093 317
+README.md
+  s_59ff0f837fd084::t_50b59551dc651d 169-170,304-305
+src/agent/turn_budget.test.ts
+  s_59ff0f837fd084::t_d93e4ded815093 1-21
+src/agent/loop.test.ts
+  s_59ff0f837fd084::t_9662db2c0bf19b 1047
+src/tools/managed_shell.ts
+  s_59ff0f837fd084::t_9662db2c0bf19b 184-191
+package-lock.json
+  s_59ff0f837fd084::t_95c74fabe9a05f 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "408ced949a9172f9b3fcb1306770358436a9302e",
+  "prompts": {},
+  "sessions": {
+    "s_59ff0f837fd084": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15366-3e1c-7672-acd9-5c35a0687bd8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
