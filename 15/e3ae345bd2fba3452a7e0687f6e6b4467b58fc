@@ -1,0 +1,21 @@
+src/commands/commands.test.ts
+  s_59ff0f837fd084::t_3da3878332d4f5 4,6-14,174,178,196
+src/i18n/i18n.test.ts
+  s_59ff0f837fd084::t_3da3878332d4f5 1-2,104,115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "15e3ae345bd2fba3452a7e0687f6e6b4467b58fc",
+  "prompts": {},
+  "sessions": {
+    "s_59ff0f837fd084": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15366-3e1c-7672-acd9-5c35a0687bd8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
