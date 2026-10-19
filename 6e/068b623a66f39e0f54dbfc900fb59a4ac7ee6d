@@ -1,0 +1,65 @@
+src/tools/fetch_extract.test.ts
+  s_59ff0f837fd084::t_03a267f210b20a 3,12-14,18-23
+src/config/model_selection.test.ts
+  s_59ff0f837fd084::t_03a267f210b20a 1-25
+src/skills/convert.test.ts
+  s_59ff0f837fd084::t_03a267f210b20a 6,17-20,36-43,66
+CHANGELOG.md
+  s_59ff0f837fd084::t_02ca3c0cd349bb 7-14
+src/tools/agent.ts
+  s_59ff0f837fd084::t_4bb82ef78bff43 12-15,203
+  s_59ff0f837fd084::t_bce13eb1e23c04 10
+  s_59ff0f837fd084::t_9efd878c73f9ef 218
+src/tools/agent.test.ts
+  s_59ff0f837fd084::t_4bb82ef78bff43 13-17,70
+  s_59ff0f837fd084::t_9efd878c73f9ef 206-219
+src/agent/resume_agent.ts
+  s_59ff0f837fd084::t_bce13eb1e23c04 11,63,101-102,112,115
+src/agent/runAgent.test.ts
+  s_59ff0f837fd084::t_9efd878c73f9ef 1,7-9,135-160
+  s_59ff0f837fd084::t_4bb82ef78bff43 116,455,472,489
+src/agent/resume_agent.test.ts
+  s_59ff0f837fd084::t_9efd878c73f9ef 42-56
+docs/harness/subagents.md
+  s_59ff0f837fd084::t_02ca3c0cd349bb 115-123
+src/permissions/classifier_model.ts
+  s_59ff0f837fd084::t_bce13eb1e23c04 1-2,14,21
+package.json
+  s_59ff0f837fd084::t_02ca3c0cd349bb 3
+src/config/model_selection.ts
+  s_59ff0f837fd084::t_bce13eb1e23c04 1-21
+src/agent/runAgent.ts
+  s_59ff0f837fd084::t_bce13eb1e23c04 3-4,179
+src/tools/fetch_extract.ts
+  s_59ff0f837fd084::t_4bb82ef78bff43 4
+  s_59ff0f837fd084::t_bce13eb1e23c04 2,5-7
+src/index.ts
+  s_59ff0f837fd084::t_4bb82ef78bff43 1070,1190,1584,1593
+  s_59ff0f837fd084::t_bce13eb1e23c04 22,1074,1349,1448
+  s_59ff0f837fd084::t_02ca3c0cd349bb 688
+src/skills/convert.ts
+  s_59ff0f837fd084::t_02ca3c0cd349bb 6,8,58
+  s_59ff0f837fd084::t_4bb82ef78bff43 28-29,39-40,47
+src/permissions/classifier_model.test.ts
+  s_59ff0f837fd084::t_6e5967933a7d6d 7-16
+src/version.ts
+  s_59ff0f837fd084::t_02ca3c0cd349bb 2
+package-lock.json
+  s_59ff0f837fd084::t_0dc679ea47ee82 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "6e068b623a66f39e0f54dbfc900fb59a4ac7ee6d",
+  "prompts": {},
+  "sessions": {
+    "s_59ff0f837fd084": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15366-3e1c-7672-acd9-5c35a0687bd8",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
