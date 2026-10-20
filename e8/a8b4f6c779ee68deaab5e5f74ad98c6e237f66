@@ -1,0 +1,50 @@
+package.json
+  s_f8baafc6323de8::t_9343e47e8d533a 3
+scripts/verify-background-wait.mjs
+  s_1bf47760f699a0::t_9b8908296da2df 3,10-11,52-55,66-76,81
+  s_f8baafc6323de8::t_f700b7377c4631 56,77-80
+  s_1bf47760f699a0::t_224ebb60382f1c 17,57
+src/index.ts
+  s_1bf47760f699a0::t_c25d7c0b884f0d 1283
+src/session/durable_store.ts
+  s_1bf47760f699a0::t_c25d7c0b884f0d 194
+CHANGELOG.md
+  s_f8baafc6323de8::t_eb69787586ce25 7-13
+src/tools/managed_shell.test.ts
+  s_f8baafc6323de8::t_f700b7377c4631 2,30-48
+  s_1bf47760f699a0::t_23ca28e9f9e610 17,62-64
+  s_1bf47760f699a0::t_a357d8c6d3e215 1,49-61,65-81
+src/session/recovery.ts
+  s_1bf47760f699a0::t_c25d7c0b884f0d 34-36
+src/version.ts
+  s_f8baafc6323de8::t_9343e47e8d533a 2
+src/tools/managed_shell.ts
+  s_f8baafc6323de8::t_f700b7377c4631 5,17-30,179,195
+  s_1bf47760f699a0::t_c25d7c0b884f0d 186,188-194,196-199,214-215,224-240
+package-lock.json
+  s_f8baafc6323de8::t_28d4e9b0375002 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "e8a8b4f6c779ee68deaab5e5f74ad98c6e237f66",
+  "prompts": {},
+  "sessions": {
+    "s_1bf47760f699a0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15990-fd31-7683-8bc2-841947e34dd4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    },
+    "s_f8baafc6323de8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a159a2-999b-74c3-aeb0-350411eff2af",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
