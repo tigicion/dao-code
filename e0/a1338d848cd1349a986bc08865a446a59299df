@@ -1,0 +1,25 @@
+src/i18n/messages/en.ts
+  s_e319825de6acaa::t_f2ea3d8b86dfcd 61-62
+src/tui/app/App.tsx
+  s_e319825de6acaa::t_f2ea3d8b86dfcd 1673-1678
+src/tui/app/App.test.tsx
+  s_e319825de6acaa::t_f2ea3d8b86dfcd 1511-1513,1515-1516
+src/i18n/messages/zh.ts
+  s_e319825de6acaa::t_f2ea3d8b86dfcd 61-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "e0a1338d848cd1349a986bc08865a446a59299df",
+  "prompts": {},
+  "sessions": {
+    "s_e319825de6acaa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15c3d-70fd-7ed1-844d-c357bc23424e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
