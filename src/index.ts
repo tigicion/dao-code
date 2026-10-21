@@ -120,7 +120,7 @@ import { PermissionGate } from "./permissions/gate.js";
 import { loadPermissions, mergePermissions, appendRule, appendRuleSync, removeRule, removeRuleSync, enterpriseSettingsPath, extractCliPermissions, type PermissionMode } from "./permissions/settings.js";
 import { buildSystemPrompt, LONG_TASK_DIRECTIVE, LONG_TASK_DIRECTIVE_EN } from "./prompt/system_prompt.js";
 import { Session } from "./session/session.js";
-import { createSessionStore, logEvents, findResumable, loadState, listSessions } from "./session/log.js";
+import { createSessionStore, logEvents, findResumable, loadState, listSessions, firstUserExcerpt } from "./session/log.js";
 import { createCacheAuditSink, type CacheAuditSink, formatCacheReport } from "./session/cache_audit.js";
 import { auditEnabled } from "./session/audit_switch.js";
 import { createMemoryAuditSink, type MemoryAuditSink, summarizeMemoryTrace, formatMemoryReport, summarizeReflectTrace, formatReflectReport } from "./memory/memory_audit.js";
@@ -1256,7 +1256,7 @@ async function main() {
     await recoverBackground(store.durable!,backgroundRuntime,taskManager);
     store.bindBackground?.(()=>backgroundRuntime.checkpoint());
     session.messages=repairToolPairs(session.messages,store.durable!);
-    store.saveState({cwd:workspaceRoot,model:session.model,mode:session.mode,title:store.durable?.state()?.title,messages:session.messages,usage:{...session.usage}});
+    store.saveState({cwd:workspaceRoot,model:session.model,mode:session.mode,title:store.durable?.state()?.title,taskTitle:store.durable?.state()?.taskTitle,messages:session.messages,usage:{...session.usage}});
   };
   const recoveryCommand = async (line:string):Promise<string|undefined> => {
     if(!/^\/recovery\b/.test(line))return;
@@ -1264,7 +1264,7 @@ async function main() {
     const [,verb,scope,id,...rest]=line.trim().split(/\s+/);
     const recordDecision=(text:string)=>{
       session.messages.push({role:"user",content:`[用户恢复决定] ${text}`});
-      activeStore!.saveState({cwd:workspaceRoot,model:session.model,mode:session.mode,title:store.state()?.title,messages:session.messages,usage:{...session.usage}});
+      activeStore!.saveState({cwd:workspaceRoot,model:session.model,mode:session.mode,title:store.state()?.title,taskTitle:store.state()?.taskTitle,messages:session.messages,usage:{...session.usage}});
     };
     if(verb==="resolve") {store.atomic(()=>{store.resolveTool(scope??"",id??"",rest.join(" "));recordDecision(line);});return "已记录核实决定；请发送下一条指令继续。";}
     if(verb==="decide") {
@@ -1742,6 +1742,8 @@ async function main() {
       const sessionsDir = path.join(workspaceRoot, ".dao", "sessions");
       let resumeId: string | undefined;
       let initialItems: TranscriptItem[] = [];
+      let initialSessionTitle: string | undefined;
+      let initialTaskTitle: string | undefined;
       if (continueFlag) {
         // 给了明确 id(dao -c <id>)就精确续写那一个会话文件;没给才退回"最近一个可续写的会话"。
         const prev = cliResumeId ? loadState(sessionsDir, cliResumeId) : findResumable(sessionsDir, workspaceRoot);
@@ -1758,6 +1760,8 @@ async function main() {
           session.usage.cacheHitTokens += prev.usage.cacheHitTokens;
           session.usage.cacheMissTokens += prev.usage.cacheMissTokens;
           resumeId = prev.id; // 续写同一会话文件
+          initialSessionTitle = prev.title;
+          initialTaskTitle = prev.taskTitle;
           const recap = transcriptFromMessages(prev.messages);
           recap.unshift({ id: 0, kind: "notice", text: prev.backgroundWait ? "[已恢复上次会话;旧后台等待未恢复,请重新确认任务状态]" : "[已恢复上次会话]" });
           initialItems = recap.map((it, i) => ({ ...it, id: i + 1 })); // 统一编号(welcome 占 0)
@@ -1792,7 +1796,8 @@ async function main() {
       );
       const ckpt = createCheckpointer(workspaceRoot, { enabled: checkpointEnabled });
       const turnCheckpoints: (string | null)[] = []; // 第 k 项 = 第 k 条用户消息【之前】的影子 git 快照 sha,供 /rewind 联动回滚文件
-      let sessionTitle: string | undefined = store.durable?.state()?.title; // /rename 设置
+      let sessionTitle = store.durable?.state()?.title ?? initialSessionTitle; // /rename 设置
+      let taskTitle = store.durable?.state()?.taskTitle ?? initialTaskTitle ?? firstUserExcerpt(session.messages);
       if (longTask && !continueFlag) session.messages.push({ role: "system", content: lang === "en" ? LONG_TASK_DIRECTIVE_EN : LONG_TASK_DIRECTIVE });
       await injectSessionStart(); // SessionStart 注入(resume 替换后、首个回合前;幂等见 injectSessionStart)
       const persist = () =>
@@ -1801,6 +1806,7 @@ async function main() {
           model: session.model,
           mode: session.mode,
           title: sessionTitle,
+          taskTitle,
           messages: session.messages,
           backgroundWait: backgroundRuntime.activeWaits > 0,
           usage: { ...session.usage },
@@ -1817,6 +1823,7 @@ async function main() {
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${textStr.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text: textStr });
           session.addUser(text);
+          taskTitle ??= firstUserExcerpt([{ role: "user", content: textStr }]);
           skillRound++; // 新一轮:用于关联本轮 skill 加载(skillSink.loaded);模型从常驻技能列表按需加载,无 discovery 预筛。
           if (up.additionalContext) session.messages.push({ role: "system", content: `[hook 注入的上下文]\n${up.additionalContext}` });
           return true;
@@ -1876,6 +1883,7 @@ async function main() {
         skipBanner: firstRun,
         verbose,
         notify, // 审批/提问弹窗时桌面通知(对齐完成一轮的通知),用户切走也能知道 dao 在等确认
+        getTabName: () => sessionTitle || taskTitle,
         scheduler,
         bindEvents: (events) => { uiEvents = events; },
         submit: async (text) => { scheduler.submit(text); await scheduler.settled(); },
@@ -1885,7 +1893,13 @@ async function main() {
           if (!/^[a-zA-Z0-9:_-]+$/.test(name)) return { handled: false };
           if (name === "quit" && line.includes("--keep-background")) {keepBackgroundOnExit=true;return {handled:true,exit:true};}
           if(name === "recovery") return {handled:true,output:await recoveryCommand(line)};
-          if (name === "clear") scheduler.reset();
+          if (name === "clear") {
+            scheduler.reset();
+            const result = dispatchCommand(line, session, cfg.provider);
+            taskTitle = undefined; // 只清自动摘录,保留 /rename 的手动标题。
+            persist();
+            return result;
+          }
           if (name === "skills") {
             const rest = line.trim().split(/\s+/).slice(1);
             const sub = rest[0];
@@ -2132,6 +2146,7 @@ async function main() {
             scheduler.reset(); store.close?.(); store=next;
             session.messages=st.storageVersion===2?st.messages:sanitizeHistoryForResume(st.messages);
             session.setModel(st.model);session.mode=st.mode;Object.assign(session.usage,st.usage);sessionTitle=st.title;
+            taskTitle = st.taskTitle ?? firstUserExcerpt(st.messages);
             await bindStore(store); exitSessionId=store.id;setObsSession(store.id);
             persist();scheduler.recover();
             // 重放末段对话作回顾,让用户一眼看到"上次做到哪"(只取文本 user/assistant,末 6 条)。
@@ -2145,7 +2160,7 @@ async function main() {
           if (name === "branch") {
             const label = line.trim().split(/\s+/).slice(1).join(" ");
             const b = createSessionStore(sessionsDir); // 新会话 id
-            b.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, title: label || undefined, messages: session.messages, backgroundWait: backgroundRuntime.activeWaits > 0, usage: { ...session.usage } });
+            b.saveState({ cwd: workspaceRoot, model: session.model, mode: session.mode, title: label || undefined, taskTitle, messages: session.messages, backgroundWait: backgroundRuntime.activeWaits > 0, usage: { ...session.usage } });
             return { handled: true, output: `已把当前会话快照分支为 ${b.id}${label ? `(${label})` : ""}。\n切到该分支上下文:/resume ${b.id}(当前会话不受影响)` };
           }
           if (name === "rename") {

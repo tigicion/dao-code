@@ -32,6 +32,7 @@ export interface PersistedState {
   model: string;
   mode: Mode;
   title?: string; // /rename 设置;/resume 列表可显示
+  taskTitle?: string; // 首条任务摘录,独立于手动标题;压缩后仍保留,供终端标签命名。
   messages: ChatMessage[];
   usage: { promptTokens: number; completionTokens: number; cacheHitTokens: number; cacheMissTokens: number };
   updatedAt: number;
@@ -55,7 +56,7 @@ export interface SessionMeta {
 // 从消息里摘出首条纯文本用户消息,压成单行、截到 SUMMARY_LEN 供 /resume 列表展示。
 // 多模态消息(content 是 ContentPart[])跳过——同 transcriptFromMessages 的取舍,只认字符串正文。
 const SUMMARY_LEN = 60;
-function firstUserExcerpt(messages: ChatMessage[]): string | undefined {
+export function firstUserExcerpt(messages: ChatMessage[]): string | undefined {
   const m = messages.find((m) => m.role === "user" && typeof m.content === "string" && (m.content as string).trim());
   if (!m) return undefined;
   const flat = (m.content as string).replace(/\s+/g, " ").trim();
@@ -104,7 +105,7 @@ export function createSessionStore(baseDir: string, id?: string, options?: { cwd
         id: last.id, cwd: last.cwd, title: last.title, updatedAt: last.updatedAt, done: durable ? true : last.done,
         messageCount: last.messages.length,
         userMessageCount: last.messages.filter((m) => m.role === "user").length,
-        summary: firstUserExcerpt(last.messages),
+        summary: last.taskTitle ?? firstUserExcerpt(last.messages),
       };
       writeFileSync(metaPath, JSON.stringify(meta));
     } catch {}
@@ -177,7 +178,7 @@ export function logEvents(inner: TurnEvents, store: SessionStore): TurnEvents {
 export function loadMeta(baseDir: string, id: string): SessionMeta | null {
   if(existsSync(path.join(baseDir,id,"session.db"))) {
     const st=loadState(baseDir,id);
-    return st ? {id:st.id,cwd:st.cwd,title:st.title,updatedAt:st.updatedAt,done:st.done,messageCount:st.messages.length,userMessageCount:st.messages.filter(m=>m.role==="user").length,summary:firstUserExcerpt(st.messages)} : null;
+    return st ? {id:st.id,cwd:st.cwd,title:st.title,updatedAt:st.updatedAt,done:st.done,messageCount:st.messages.length,userMessageCount:st.messages.filter(m=>m.role==="user").length,summary:st.taskTitle??firstUserExcerpt(st.messages)} : null;
   }
   try {
     return JSON.parse(readFileSync(path.join(baseDir, id, "meta.json"), "utf8")) as SessionMeta;
@@ -187,7 +188,7 @@ export function loadMeta(baseDir: string, id: string): SessionMeta | null {
     return {
       id: st.id, cwd: st.cwd, title: st.title, updatedAt: st.updatedAt, done: st.done,
       messageCount: st.messages.length, userMessageCount: st.messages.filter((m) => m.role === "user").length,
-      summary: firstUserExcerpt(st.messages),
+      summary: st.taskTitle ?? firstUserExcerpt(st.messages),
     };
   }
 }

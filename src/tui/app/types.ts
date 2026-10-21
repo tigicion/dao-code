@@ -69,7 +69,9 @@ export interface AppDeps {
   // 桌面通知(标题, 正文);省略则不通知。审批/提问弹窗展示时调用一次,让切走的用户知道 dao 在等确认。
   notify?: (title: string, message: string) => void;
   // 标签标题圆点:需要输入或回合完成时点亮,查看/输入后清除。
-  tabAttention?: Pick<TabAttention, "mark" | "clear">;
+  tabAttention?: Pick<TabAttention, "mark" | "clear"> & Partial<Pick<TabAttention, "setTitle">>;
+  // 只读内存中的会话名:手动命名优先,其次首条任务摘录;不触发模型或磁盘读取。
+  getTabName?: () => string | undefined;
   // @文件补全:给前缀(子串),返回匹配的工作区相对路径(已截断);省略则不补全。
   completeFiles?: (prefix: string) => string[];
   // /resume 无参时的交互选择:返回本工作区历史会话(已按最近排序),App 弹出上下选择器;省略则退回文本列表。

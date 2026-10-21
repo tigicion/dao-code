@@ -96,6 +96,22 @@ describe("SessionStore", () => {
     expect(meta.summary).toBe("hi");
   });
 
+  it("首条任务摘录经过持久保存和对话压缩仍保留,清空后允许下一条任务重新命名", () => {
+    const s = createSessionStore(base, undefined, { cwd: base, durable: true });
+    try {
+      s.saveState({ ...stateInput(base), title: "手动标题", taskTitle: "修复登录" });
+      s.saveState({ ...stateInput(base), title: "手动标题", taskTitle: "修复登录", messages: [{ role: "user", content: "继续压缩后的任务" }] });
+      expect(loadState(base, s.id)?.taskTitle).toBe("修复登录");
+      expect(loadMeta(base, s.id)?.summary).toBe("修复登录");
+      expect(loadState(base, s.id)?.title).toBe("手动标题");
+      s.saveState({ ...stateInput(base), title: "手动标题", taskTitle: undefined, messages: [] });
+      expect(loadState(base, s.id)?.taskTitle).toBeUndefined();
+      expect(loadMeta(base, s.id)?.summary).toBeUndefined();
+      s.saveState({ ...stateInput(base), title: "手动标题", taskTitle: "整理索引" });
+      expect(loadMeta(base, s.id)?.summary).toBe("整理索引");
+    } finally { s.close?.(); }
+  });
+
   it("首条用户消息超长时摘录截断到 60 字符并加省略号,单行(换行/多空格压成单空格)", () => {
     const s = createSessionStore(base);
     const long = "a".repeat(80);

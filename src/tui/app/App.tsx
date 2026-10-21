@@ -20,6 +20,7 @@ import type { ContentPart } from "../../client/types.js";
 import { supportsVision, VISION_MODELS } from "../../config/profiles.js";
 import { getImageFromClipboard } from "../imagePaste.js";
 import { classifyPath, isImagePath, detectImageFormat } from "../../tools/paths.js";
+import { formatTabTitle } from "../tab_attention.js";
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 // 权限模式的友好名(Shift+Tab 提示与状态栏共用),避免直接暴露内部枚举名。走 t() 跟随 locale。
@@ -168,6 +169,10 @@ function resultDetail(name: string, ok: boolean, content: string): string {
 export function App(deps: AppDeps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  // 输入、命令、恢复会话与流式事件都会刷新界面;标题未变时 setTitle 不写终端。
+  useEffect(() => {
+    deps.tabAttention?.setTitle?.(formatTabTitle(deps.welcome.info.cwd, deps.getTabName?.()));
+  });
   const [bg, setBg] = useState(deps.welcome.bg); // /theme 运行时可切浅/深
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
   // /clear /rewind /resume 重置 transcript 时递增,强制 <Static> 重挂载:
@@ -641,8 +646,9 @@ export function App(deps: AppDeps) {
     controllerRef.current = controller;
     try {
       await deps.submit(text, { events: makeEvents(), signal: controller.signal });
-      if (!controller.signal.aborted) deps.tabAttention?.mark();
+      deps.tabAttention?.mark(controller.signal.aborted ? "attention" : "completed");
     } catch (e) {
+      deps.tabAttention?.mark();
       pushItem({ id: nextId(), kind: "notice", text: t("ui.notice.error", (e as Error).message) });
     } finally {
       setBusy(false);
@@ -706,8 +712,9 @@ export function App(deps: AppDeps) {
       } else if (!running) {
         setLive(null);
         setStatus(deps.getStatus());
-        // 等后台任务时只是让出回合,尚未完成;暂停/中断也不能报完成。
-        if (wasRunning && status.state === "idle") deps.tabAttention?.mark();
+        // 等后台任务时尚未完成;成功用绿点,暂停/异常用黄点。
+        if (wasRunning && status.state === "idle") deps.tabAttention?.mark("completed");
+        else if (wasRunning && status.state === "paused") deps.tabAttention?.mark();
       }
       wasRunning = running;
     });

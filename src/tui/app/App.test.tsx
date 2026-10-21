@@ -38,6 +38,50 @@ function makeDeps(over: Partial<AppDeps> = {}): AppDeps {
 }
 
 describe("App", () => {
+  it("标签同步首条任务、手动命名、清空和恢复,后续消息不改任务名", async () => {
+    let manual: string | undefined;
+    let task: string | undefined;
+    const tabAttention = { mark: vi.fn(), clear: vi.fn(), setTitle: vi.fn() };
+    const ui = render(<App {...makeDeps({
+      tabAttention, getTabName: () => manual || task,
+      submit: async (text) => { task ??= typeof text === "string" ? text : undefined; },
+      runCommand: (line) => {
+        if (line.startsWith("/rename ")) manual = line.slice(8);
+        if (line === "/clear") task = undefined;
+        if (line === "/resume previous") { manual = "恢复的会话名"; task = "旧任务"; }
+        return { handled: true };
+      },
+    })} />);
+    const send = async (text: string, expectedTitle: string) => {
+      ui.stdin.write(text);
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain(text));
+      ui.stdin.write("\r");
+      await vi.waitFor(() => expect(ui.lastFrame()).toContain("› ▎"));
+      await vi.waitFor(() => expect(tabAttention.setTitle).toHaveBeenLastCalledWith(expectedTitle));
+    };
+    try {
+      await delay();
+      expect(tabAttention.setTitle).toHaveBeenLastCalledWith("z");
+      await send("修复登录超时", "修复登录超时 · z");
+      await send("再补一个测试", "修复登录超时 · z");
+      await send("/clear", "z");
+      await send("整理索引", "整理索引 · z");
+      await send("/rename 数据库优化", "数据库优化 · z");
+      await send("/clear", "数据库优化 · z");
+      await send("/resume previous", "恢复的会话名 · z");
+    } finally { ui.unmount(); }
+  });
+
+  it("启动恢复的会话立即显示原名", async () => {
+    const tabAttention = { mark: vi.fn(), clear: vi.fn(), setTitle: vi.fn() };
+    const ui = render(<App {...makeDeps({ tabAttention, getTabName: () => "上次的任务" })} />);
+    try {
+      await delay();
+      expect(tabAttention.setTitle).toHaveBeenLastCalledWith("上次的任务 · z");
+      expect(tabAttention.mark).not.toHaveBeenCalled();
+    } finally { ui.unmount(); }
+  });
+
   it("短回合完成也点亮圆点,焦点切回/按键/粘贴清除且不污染输入", async () => {
     const tabAttention = { mark: vi.fn(), clear: vi.fn() };
     const submit = vi.fn<AppDeps["submit"]>(async () => {});
@@ -45,6 +89,7 @@ describe("App", () => {
     try {
       await delay(); ui.stdin.write("hi"); await delay(); ui.stdin.write("\r"); await delay();
       expect(tabAttention.mark).toHaveBeenCalledTimes(1);
+      expect(tabAttention.mark).toHaveBeenCalledWith("completed");
       tabAttention.clear.mockClear();
       ui.stdin.write("\x1b[O"); await delay();
       expect(tabAttention.clear).not.toHaveBeenCalled();
@@ -64,18 +109,20 @@ describe("App", () => {
     } finally { ui.unmount(); }
   });
 
-  it("异常和用户中断不会被当作成功完成点亮圆点", async () => {
+  it("异常和用户中断用黄点,不会被当作成功完成显示绿点", async () => {
     const tabAttention = { mark: vi.fn(), clear: vi.fn() };
     const ui = render(<App {...makeDeps({ tabAttention, submit: async () => { throw new Error("请求失败"); } })} />);
     try {
       await delay(); ui.stdin.write("hi"); await delay(); ui.stdin.write("\r"); await delay();
-      expect(tabAttention.mark).not.toHaveBeenCalled();
+      expect(tabAttention.mark).toHaveBeenCalledTimes(1);
+      expect(tabAttention.mark).toHaveBeenCalledWith();
       ui.rerender(<App {...makeDeps({ tabAttention, submit: async (_text, { signal }) => {
         await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
       } })} />);
       ui.stdin.write("hi"); await delay(); ui.stdin.write("\r"); await delay();
       ui.stdin.write("\x1b"); await delay(100);
-      expect(tabAttention.mark).not.toHaveBeenCalled();
+      expect(tabAttention.mark).toHaveBeenCalledTimes(2);
+      expect(tabAttention.mark).not.toHaveBeenCalledWith("completed");
     } finally { ui.unmount(); }
   });
 
@@ -1525,7 +1572,7 @@ describe("App", () => {
 });
 
 describe('App shared scheduler', () => {
-  it('后台等待不点亮圆点,恢复并完成后才点亮,继续运行时清除', async () => {
+  it('后台等待不点亮圆点,正常完成用绿点,后续失败用黄点', async () => {
     const { BackgroundRuntime } = await import('../../agent/background_runtime.js');
     const { SessionScheduler } = await import('../../agent/session_scheduler.js');
     const { Session } = await import('../../session/session.js');
@@ -1534,7 +1581,8 @@ describe('App shared scheduler', () => {
     const tabAttention = { mark: vi.fn(), clear: vi.fn() };
     let runs = 0;
     const scheduler = new SessionScheduler({ runtime, session: new Session('', 'm'), save: () => {}, user: async () => {},
-      run: async () => ++runs === 1 ? { kind: 'waiting', wait: runtime.prepare({ ids: ['a'], mode: 'all' }).handle } : { kind: 'completed' } });
+      run: async () => ++runs === 1 ? { kind: 'waiting', wait: runtime.prepare({ ids: ['a'], mode: 'all' }).handle }
+        : runs === 3 ? { kind: 'failed', error: new Error('后续请求失败') } : { kind: 'completed' } });
     const ui = render(<App {...makeDeps({ scheduler, tabAttention })} />);
     try {
       await delay(); scheduler.submit('start'); await scheduler.settled();
@@ -1542,10 +1590,12 @@ describe('App shared scheduler', () => {
       expect(tabAttention.mark).not.toHaveBeenCalled();
       task.finish(); await scheduler.finished();
       expect(tabAttention.mark).toHaveBeenCalledTimes(1);
+      expect(tabAttention.mark).toHaveBeenLastCalledWith("completed");
       tabAttention.clear.mockClear();
       scheduler.submit('next'); await scheduler.settled();
       expect(tabAttention.clear).toHaveBeenCalledTimes(1);
       expect(tabAttention.mark).toHaveBeenCalledTimes(2);
+      expect(tabAttention.mark).toHaveBeenLastCalledWith();
       scheduler.pause();
       expect(tabAttention.mark).toHaveBeenCalledTimes(2);
     } finally { ui.unmount(); scheduler.close(); }
