@@ -1,0 +1,133 @@
+src/agent/deck_messages.test.ts
+  s_f2f79008d8497c::t_88b5957dd46fbe 1-26
+src/tools/exit_worktree.test.ts
+  s_f2f79008d8497c::t_0a59fd50a86bb5 24
+src/commands/commands.test.ts
+  s_f2f79008d8497c::t_327e0cfa3d3244 126
+  s_f2f79008d8497c::t_a010cad0787af6 3,30,37-38,41-47,74,78-87,97,99,101-102,104,112,120
+src/config/profiles.test.ts
+  s_f2f79008d8497c::t_a010cad0787af6 102-115,121-127,131,133-134,137-146,151,184,188,207
+  s_f2f79008d8497c::t_755f7651f09c2e 2,116-120,174,178,183
+  s_f2f79008d8497c::t_dd6797bb8b753f 185-187
+  s_f2f79008d8497c::t_2a7bad208bf407 156-160
+CHANGELOG.md
+  s_f2f79008d8497c::t_a312f5b1135b17 7-21
+src/tools/fetch_extract.test.ts
+  s_f2f79008d8497c::t_bacde103c0c28f 12-14
+src/client/responses.test.ts
+  s_f2f79008d8497c::t_327e0cfa3d3244 99-103
+  s_f2f79008d8497c::t_8929c57a4a1cbc 1-98,104-105
+src/tui/app/App.test.tsx
+  s_f2f79008d8497c::t_0a59fd50a86bb5 2-3,19-20
+  s_f2f79008d8497c::t_60d8672f357fe9 1367-1371
+  s_680bdc41df055e::t_9e953f46edabe7 1433
+src/client/types.ts
+  s_f2f79008d8497c::t_8ec293b7f3f5f0 27-28
+src/config/validate_key.test.ts
+  s_f2f79008d8497c::t_728d0ea56077c7 7-17
+src/config/validate_key.ts
+  s_f2f79008d8497c::t_6318b671127225 3,25-28,31
+src/client/client.ts
+  s_f2f79008d8497c::t_8ec293b7f3f5f0 2,65-66,80,83-84,107,173,203,230,276
+  s_f2f79008d8497c::t_db3b45153fdbe8 3,104
+  s_f2f79008d8497c::t_d3bb9cab506fef 413
+src/client/responses.ts
+  s_f2f79008d8497c::t_8929c57a4a1cbc 54,58,63
+  s_f2f79008d8497c::t_8ec293b7f3f5f0 1-53,55-57,59-62,64-133
+src/config/profiles.ts
+  s_f2f79008d8497c::t_db3b45153fdbe8 39-40,63,77-93,103,129,138-143,146,148-153
+  s_f2f79008d8497c::t_9949af2b525756 42-48,50-55,57-62,67-72,75-76,99,110
+  s_f2f79008d8497c::t_a2bb46875e3995 73-74,132,137,144-145,147
+  s_f2f79008d8497c::t_f46428ce32d125 97-98
+  s_f2f79008d8497c::t_755f7651f09c2e 56
+  s_f2f79008d8497c::t_b567dac3f84a31 29-30,33-38,41,64-66,100-102,104-105,107,111-128,130
+package.json
+  s_f2f79008d8497c::t_19c9eb02a7c235 3
+src/tui/app/App.tsx
+  s_f2f79008d8497c::t_00f618c83081d7 20,601,628
+src/config/model_selection.test.ts
+  s_f2f79008d8497c::t_a010cad0787af6 16,19-24
+  s_f2f79008d8497c::t_f475ad71991825 12,25
+src/config/model_selection.ts
+  s_f2f79008d8497c::t_00f618c83081d7 18-20
+docs/architecture/models.md
+  s_f2f79008d8497c::t_2157a7e29ebc9d 1-28
+README.zh-CN.md
+  s_f2f79008d8497c::t_1f003183fabc86 144
+src/version.ts
+  s_f2f79008d8497c::t_19c9eb02a7c235 2
+src/agent/deck_bridge.ts
+  s_f2f79008d8497c::t_746367e027f377 1-33,47-78,125,161,170,172
+  s_f2f79008d8497c::t_93e46ca1faf2ac 46,86-114
+  s_f2f79008d8497c::t_327e0cfa3d3244 159-160,165
+  s_f2f79008d8497c::t_ef66021f5768d4 34-36,43-45
+  s_f2f79008d8497c::t_e74a0cbaa2d008 79-81,83-85
+  s_f2f79008d8497c::t_447119104a6663 115-117,122-124
+  s_f2f79008d8497c::t_48f8ed472fe25c 126-128,156-158
+  s_f2f79008d8497c::t_78b25d12747d72 162-164
+  s_f2f79008d8497c::t_15f1ddb825f834 166-169
+  s_f2f79008d8497c::t_76754cb8d4e0d9 171
+  s_f2f79008d8497c::t_793b262ace1ea9 173-175
+  s_f2f79008d8497c::t_2031a7af99243b 37-42,82,118-121,129-155,176-201
+README.md
+  s_f2f79008d8497c::t_1f003183fabc86 142
+src/agent/deck_bridge.test.ts
+  s_f2f79008d8497c::t_93e46ca1faf2ac 34
+  s_f2f79008d8497c::t_3ea95e21559aa0 46
+  s_f2f79008d8497c::t_88b5957dd46fbe 1-8,10-21,30-33,37-45,47-49,51-116,148-149
+  s_f2f79008d8497c::t_728d0ea56077c7 9,22-29,35-36,50,117-147
+src/agent/deck_cli.integration.test.ts
+  s_f2f79008d8497c::t_71b8e26c13527c 1-7,9-33,35-101
+  s_f2f79008d8497c::t_5993a333d11b35 8,34
+docs/architecture/agent-deck.md
+  s_f2f79008d8497c::t_2157a7e29ebc9d 1-24,26-31
+  s_f2f79008d8497c::t_f7048214875adf 25
+docs/README.md
+  s_f2f79008d8497c::t_60d8672f357fe9 12-13
+src/index.ts
+  s_f2f79008d8497c::t_f7048214875adf 1254-1263,2622
+  s_f2f79008d8497c::t_27420b8b5cf5d5 1122
+  s_f2f79008d8497c::t_44f7ebb38e7daa 341-343
+  s_f2f79008d8497c::t_00f618c83081d7 530,867,1041-1044,1113,1119,1121,1753
+  s_f2f79008d8497c::t_f6794ee46eb0a0 2,413,1264-1271,1552,1736,1847,1882,1906,2536-2543,2623-2626,2642,2651,2685
+package-lock.json
+  s_f2f79008d8497c::t_adad472ba3d770 3,9
+src/agent/deck_messages.ts
+  s_5f74f9d4fd56a3::t_b459f58e315edf 1-43
+src/prompt/system_prompt.ts
+  s_5f74f9d4fd56a3::t_84da2b378fdf09 837
+src/tools/read_file.ts
+  s_5f74f9d4fd56a3::t_89dff25026e419 14,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "f17e189dc68a0a0a0b9937784e1b7ce29aed80eb",
+  "prompts": {},
+  "sessions": {
+    "s_5f74f9d4fd56a3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15e7f-f325-79f3-811c-28ed6a4249da",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    },
+    "s_680bdc41df055e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16272-c70f-7071-b689-564f80928a72",
+        "model": "unknown"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    },
+    "s_f2f79008d8497c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16242-d564-7370-8858-94c3028fe9f2",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
