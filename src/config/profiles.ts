@@ -26,69 +26,131 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   // 智谱 GLM 编码套餐(Coding Plan):套餐 key 须打专属 Coding 端点(OpenAI Chat Completion 协议),
   // 与平台通用端点 open.bigmodel.cn/api/paas/v4 的 key 不通用(官方文档 coding-plan/quick-start)。
   zhipu: { baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4", model: "glm-5.3" },
-  anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-4-8" },
-  openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
+  anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-5-5" },
+  openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-6-astra" },
 };
 
-// 每个 provider 已知可用的模型串(/model 命令用来做校验+循环);deepseek 只有 pro/flash 两档,
-// volcengine coding plan 额外支持 doubao/glm/kimi/minimax 系列——控制台列出但实测 coding plan
-// 接口返回 UnsupportedModel 的串(如 doubao-seed-code,无 2.0 后缀的旧版)不收录,
-// 每条都用真实 key 打过 /chat/completions 拿到 200 才收进来(2026-07-17)。
-// qianfan 额外支持 glm-5.2/glm-5.1/kimi-k2.6/ernie-5.1(均为用户明确要求)。
-// ark-code-latest 为火山方舟控制台可选的编码套餐模型别名(用户明确要求,2026-08-05)。
-export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
-  deepseek: ["deepseek-v4-pro", "deepseek-v4-flash"],
-  volcengine: [
-    "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "doubao-seed-2.0-pro",
-    "doubao-seed-2.0-lite",
-    "doubao-seed-2.0-code",
-    "glm-5.2",
-    "kimi-k2.6",
-    "kimi-k2.7-code",
-    "minimax-m2.7",
-    "minimax-m3",
-    "ark-code-latest",
-  ],
-  qianfan: ["deepseek-v4-pro", "deepseek-v4-flash", "glm-5.2", "glm-5.1", "kimi-k2.6", "ernie-5.1"],
-  // zhipu coding plan 当前两档:glm-5.3(旗舰,纯文本)+ glm-5.3-flash(多模态,支持图片输入)。
-  zhipu: ["glm-5.3", "glm-5.3-flash"],
-  anthropic: [DEFAULTS.anthropic.model],
-  openai: [DEFAULTS.openai.model],
-};
-
-// 支持视觉(图片输入)的模型名集合。按模型粒度精确匹配(跨 provider)。
-// 维护依据(2026-07-17 核实官方文档,2026-07-26 补充 kimi-k2.7-code 用户确认):
-// - kimi-k2.6: Kimi 官方文档明确"支持图片和视频输入"
-// - kimi-k2.7-code: 用户确认同样支持图片输入
-// - glm-5.3-flash: 智谱官方文档标注"原生多模态模型,能够原生理解图片视频"(coding-plan/latest-model)
-// - glm-5.2/glm-5.1: 智谱文档标注"输入模态:文本",不支持
-// - glm-5.3: 智谱文档标注纯文本模型,不支持
-// - ernie-5.1: 千帆模型列表只在"文本生成"分类,不支持
-// - deepseek-v4-pro/flash: 千帆模型列表只在"文本生成"分类,不支持
-export const VISION_MODELS = new Set<string>([
-  "kimi-k2.6",
-  "kimi-k2.7-code",
-  "glm-5.3-flash",
-]);
-
-/** 当前 model 是否支持图片输入。不在 VISION_MODELS 中的模型一律视为不支持。 */
-export function supportsVision(model: string): boolean {
-  return VISION_MODELS.has(model);
+// 模型自身的属性:上下文窗口与是否支持图片输入不再是散落的 if-else/Set 平行结构,
+// 而是模型条目的字段——加新模型必须显式写 contextWindow(漏写直接编译不过)。
+export interface ModelInfo {
+  id: string;
+  contextWindow: number; // tok
+  vision?: boolean; // 支持图片输入
+  maxOutputTokens?: number; // 已核实的输出上限,省略时沿用调用方设置
 }
 
-// 上下文窗口默认值(tok):仅 glm-5.2 使用 200K,其他模型使用 1M。
+// 核对日期 2026-10-22;来源与兼容策略见 docs/architecture/models.md。
+// 清单只包含编码/工具调用模型;旧网关模型属性另行保留,不把路由别名当成固定模型。
+export const MODELS_BY_PROVIDER: Record<Provider, ModelInfo[]> = {
+  deepseek: [
+    { id: "deepseek-v4-pro", contextWindow: 1_000_000 },
+    { id: "deepseek-flash", contextWindow: 1_000_000, vision: true },
+  ],
+  volcengine: [
+    { id: "deepseek-v4-pro", contextWindow: 1_000_000 },
+    { id: "deepseek-v4-flash", contextWindow: 1_000_000 },
+    { id: "deepseek-v4.1-flash", contextWindow: 1_000_000, vision: true },
+    { id: "deepseek-v4.1-flash-economy", contextWindow: 1_000_000, vision: true },
+    { id: "doubao-seed-2.1-pro", contextWindow: 1_024_000, vision: true },
+    { id: "doubao-seed-2.1-lite", contextWindow: 1_024_000, vision: true },
+    { id: "doubao-seed-2.0-mini", contextWindow: 256_000, vision: true },
+    { id: "doubao-seed-evolving", contextWindow: 1_024_000, vision: true },
+    { id: "glm-5.3", contextWindow: 1_000_000 },
+    { id: "glm-5.3-flash", contextWindow: 1_000_000, vision: true },
+    { id: "kimi-k2.8-preview", contextWindow: 1_000_000, vision: true },
+    { id: "kimi-k3", contextWindow: 1_000_000, vision: true },
+    // 控制台路由可变:采用官方工具配置的保守窗口,切换目标后可 /context-window 覆盖。
+    { id: "ark-code-latest", contextWindow: 256_000, vision: true, maxOutputTokens: 32_000 },
+  ],
+  qianfan: [
+    { id: "deepseek-v4-pro", contextWindow: 1_000_000 },
+    { id: "deepseek-v4.1-flash-1017", contextWindow: 1_000_000, vision: true },
+    { id: "deepseek-v4.1-flash", contextWindow: 1_000_000, vision: true },
+    { id: "deepseek-v4-pro-0813", contextWindow: 1_000_000 },
+    { id: "deepseek-v4-flash-0731", contextWindow: 1_000_000 },
+    { id: "glm-5.3", contextWindow: 1_000_000 },
+    { id: "glm-5.3-flash", contextWindow: 1_000_000, vision: true },
+    { id: "glm-5.2", contextWindow: 1_000_000 },
+    { id: "glm-5.1", contextWindow: 198_000 },
+    // 既有账户兼容项,非当前 Token Plan 公布清单;不推断已退役。
+    { id: "kimi-k2.6", contextWindow: 256_000, vision: true },
+    { id: "ernie-5.1", contextWindow: 128_000, maxOutputTokens: 65_536 },
+  ],
+  zhipu: [
+    { id: "glm-5.3", contextWindow: 1_000_000 },
+    { id: "glm-5.3-flash", contextWindow: 1_000_000, vision: true },
+  ],
+  anthropic: [
+    { id: "claude-opus-5-5", contextWindow: 1_000_000, vision: true },
+    { id: "claude-fable-5-1", contextWindow: 1_000_000, vision: true },
+    { id: "claude-sonnet-5-5", contextWindow: 1_000_000, vision: true },
+    { id: "claude-haiku-5-5", contextWindow: 1_000_000, vision: true },
+  ],
+  openai: [
+    { id: "gpt-6-astra", contextWindow: 1_050_000, vision: true, maxOutputTokens: 128_000 },
+    { id: "gpt-6.1-sol", contextWindow: 1_050_000, vision: true, maxOutputTokens: 128_000 },
+    { id: "gpt-6-luna", contextWindow: 1_050_000, vision: true, maxOutputTokens: 128_000 },
+    { id: "gpt-5", contextWindow: 400_000, vision: true, maxOutputTokens: 128_000 },
+  ],
+};
+
+// 自定义网关的兼容属性(如京东网关的 GLM-5.2),独立于官方渠道当前公布的窗口。
+// 这张表不增加 /model 选择项,只为能力查询保留旧模型。
+// 旧模型维持已验证行为;渠道已停止推荐的型号不影响自定义网关的使用。
+const LEGACY_MODELS: readonly ModelInfo[] = [
+  { id: "glm-5.2", contextWindow: 200_000 },
+  { id: "glm-5.1", contextWindow: 1_000_000 },
+  { id: "kimi-k2.7-code", contextWindow: 256_000, vision: true, maxOutputTokens: 32_000 },
+  { id: "minimax-m3", contextWindow: 1_000_000, vision: true },
+];
+
+// 未知模型(自定义网关,如 GLM-5.3-joybuilder)的窗口回退值。
 const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 
+// 扁平索引:小写模型 id → 属性;显式兼容属性最后覆盖。
+const MODEL_INDEX: ReadonlyMap<string, ModelInfo> = new Map(
+  [...Object.values(MODELS_BY_PROVIDER).flat(), ...LEGACY_MODELS].map(
+    (m) => [m.id.toLowerCase(), m] as const,
+  ),
+);
+
+// 支持图片输入的模型名(提示文案展示用);查表判断走 supportsVision。
+export const VISION_MODEL_IDS: readonly string[] = [
+  ...new Set(
+    [...Object.values(MODELS_BY_PROVIDER).flat(), ...LEGACY_MODELS]
+      .filter((m) => m.vision)
+      .map((m) => m.id),
+  ),
+];
+
+/** 当前 model 是否支持图片输入。不在索引中的模型一律视为不支持。 */
+export function supportsVision(model: string): boolean {
+  return MODEL_INDEX.get(model.toLowerCase())?.vision === true;
+}
+
 /**
- * 模型默认上下文窗口(tok),不区分渠道。仅 glm-5.2 为 200K,其他模型为 1M。
+ * 官方端点优先使用渠道公布窗口;自定义网关使用已验证的兼容属性,未知模型回退 1M。
  * 用于初始化 CONTEXT_WINDOW 和 /model 切换时联动(用户手动 /context-window 或
  * DAO_CONTEXT_WINDOW 覆盖时,手动值优先,不随模型切换改变)。
  * 模型名忽略大小写;保留可选渠道参数以兼容现有调用。
  */
-export function contextWindowFor(model: string, _provider?: Provider, _baseUrl?: string): number {
-  return model.toLowerCase() === "glm-5.2" ? 200_000 : DEFAULT_CONTEXT_WINDOW;
+export function contextWindowFor(model: string, provider?: Provider, baseUrl?: string): number {
+  return modelInfoFor(model, provider, baseUrl)?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+}
+
+function modelInfoFor(model: string, provider?: Provider, baseUrl?: string): ModelInfo | undefined {
+  const normalizedBase = baseUrl?.replace(/\/+$/, "");
+  provider ??= (Object.keys(DEFAULTS) as Provider[]).find(key => DEFAULTS[key].baseUrl === normalizedBase);
+  if (provider && (!baseUrl || baseUrl.replace(/\/+$/, "") === DEFAULTS[provider].baseUrl)) {
+    const info = MODELS_BY_PROVIDER[provider].find(m => m.id.toLowerCase() === model.toLowerCase());
+    if (info) return info;
+  }
+  return MODEL_INDEX.get(model.toLowerCase());
+}
+
+/** 限制已知模型的输出天花板,避免长输出重试发送超过服务端上限的预算。 */
+export function outputLimitFor(model: string, requested: number, baseUrl?: string): number {
+  return Math.min(requested, modelInfoFor(model, undefined, baseUrl)?.maxOutputTokens ?? requested);
 }
 
 function isV2(raw: unknown): raw is ProfilesConfig {

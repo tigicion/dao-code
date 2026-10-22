@@ -11,7 +11,7 @@ export const readFileTool = defineTool({
   description:
     "读取工作区内的文本文件,返回带行号(1-based,制表符分隔)的内容。可用 offset 指定起始行、limit 指定读取行数。" +
     "读文件优先用本工具,不要用 Bash 拼 cat/head/tail——那样拿不到行号,也绕不开下面这些护栏。\n" +
-    "支持文本和图片文件(png/jpg/gif/webp);图片以 base64 内联返回供多模态模型查看(仅 kimi-k2.6 等支持视觉的模型可用)。\n" +
+    "支持文本和图片文件(png/jpg/gif/webp);图片以 base64 内联返回供多模态模型查看(仅 glm-5.3-flash 等支持视觉的模型可用)。\n" +
     "边界:只读文本,遇二进制(含 NUL 字节)或超大文件(>5MB 且未给 offset/limit)会报错,不会返回乱码;" +
     "单行超 2000 字符会截断(防压缩过的代码/内联 base64 sourcemap 撑爆上下文);" +
     "不给 limit 时默认只读前 2000 行,截断处会提示续读的 offset,别误以为已经读完整个文件——" +
@@ -23,7 +23,7 @@ export const readFileTool = defineTool({
     "'编辑前是否读过'和'磁盘内容是否被外部改过'(改文件前必须先读它,就是为了建立这个基线)。",
   descriptionEn:
     "Reads a text file in the workspace, returning content with 1-based line numbers (tab-separated). Use offset for the starting line and limit to control lines read. " +
-    "Supports text and image files (png/jpg/gif/webp); images are returned as inline base64 for multimodal models (only vision-capable models like kimi-k2.6). " +
+    "Supports text and image files (png/jpg/gif/webp); images are returned as inline base64 for multimodal models (only vision-capable models like glm-5.3-flash). " +
     "Prefer this over shelling out to cat/head/tail via Bash — those give no line numbers and bypass the guardrails below.\n" +
     "Boundaries: text only — errors (not garbage output) on binary (NUL bytes) or oversized files (>5MB without offset/limit); " +
     "lines over 2000 chars get truncated (protects against minified code or inline base64 sourcemaps blowing up context); " +

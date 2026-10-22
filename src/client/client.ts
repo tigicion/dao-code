@@ -1,4 +1,6 @@
 import { parseSSEChunk } from "./sse.js";
+import { responsesFetch, usesResponses } from "./responses.js";
+import { outputLimitFor } from "../config/profiles.js";
 import type {
   AssistantMessage,
   StreamChatOptions,
@@ -60,7 +62,8 @@ function apiLabel(opts: { provider?: string; baseUrl: string }): string {
 export async function* streamChat(
   opts: StreamChatOptions,
 ): AsyncGenerator<StreamDelta, AssistantMessage> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const useResponses = usesResponses(opts.baseUrl, opts.model);
+  const fetchImpl = useResponses ? responsesFetch(opts.fetchImpl ?? fetch) : opts.fetchImpl ?? fetch;
   // DeepSeek 官方文档(api-docs.deepseek.com/guides/thinking_mode):两个 user 消息之间,
   // 若这一轮 assistant 发起过工具调用,思维链必须在后续所有请求里原样带回去(reasoning_content
   // 字段);没发起工具调用的轮次则不需要、也不应该带(原生 API 甚至会 400)。2026-07-24 用真实
@@ -74,10 +77,11 @@ export async function* streamChat(
       const content = m.content ?? "";
       if (m.reasoningContent) {
         return m.tool_calls
-          ? { role: m.role, content, tool_calls: m.tool_calls, reasoning_content: m.reasoningContent }
+          ? { role: m.role, content, tool_calls: m.tool_calls, reasoning_content: m.reasoningContent, ...(useResponses && m.responseItems ? { responseItems: m.responseItems } : {}) }
           : { role: m.role, content };
       }
-      return { ...m, content };
+      const { responseItems, ...rest } = m;
+      return { ...rest, content, ...(useResponses && responseItems ? { responseItems } : {}) };
     }
     if (m.role === "tool" && m.imageData) {
       // imageData 是内部字段(图片已通过单独的 user message 注入),不发给 API
@@ -97,10 +101,10 @@ export async function* streamChat(
   // 重试档同步上调到 256000,保持重试档相对基线的翻倍余量不塌缩)、可用 DAO_MAX_OUTPUT_TOKENS
   // 覆盖;调用方也可用 opts.maxTokens 单次覆盖(如权限分类器这类只需要几个字的场景,虽然不设
   // 也无妨——上限只是天花板,不影响实际生成量)。
-  const maxTokens = opts.maxTokens ?? (Number(process.env.DAO_MAX_OUTPUT_TOKENS) || 128000);
+  const maxTokens = outputLimitFor(opts.model, opts.maxTokens ?? (Number(process.env.DAO_MAX_OUTPUT_TOKENS) || 128000), opts.baseUrl);
   // OpenAI 的推理层模型(o1 系列、gpt-5 等)把 max_tokens 参数换成了 max_completion_tokens,
   // 传旧字段名会直接 400;其余(DeepSeek/火山方舟/千帆等 OpenAI-legacy 兼容网关)仍用 max_tokens。
-  const maxTokensField = /^(gpt-5|o1|o3|o4)/i.test(opts.model) ? "max_completion_tokens" : "max_tokens";
+  const maxTokensField = /^(gpt-[56]|o1|o3|o4)/i.test(opts.model) ? "max_completion_tokens" : "max_tokens";
   const body: Record<string, unknown> = {
     model: opts.model,
     messages: wireMessages,
@@ -166,6 +170,7 @@ export async function* streamChat(
       content: typeof msg.content === "string" && msg.content ? msg.content : null,
       ...(tc.length ? { tool_calls: tc } : {}),
       ...(typeof msg.reasoning_content === "string" && msg.reasoning_content ? { reasoningContent: msg.reasoning_content } : {}),
+      ...(msg.responseItems?.length ? { responseItems: msg.responseItems } : {}),
     };
   }
 
@@ -195,6 +200,7 @@ export async function* streamChat(
   // 累积状态(每次尝试前重置——仅在尚未产出任何 delta 时才会重试)。
   let content = "";
   let reasoning = ""; // 思维链累积,只落盘用(见 wireMessages),不影响请求/重试逻辑
+  let responseItems: Record<string, unknown>[] = [];
   let finishReason: string | undefined; // length=输出被截断(触发续写恢复)
   const toolAcc: { id: string; name: string; args: string }[] = [];
   const announced = new Set<number>();
@@ -221,6 +227,7 @@ export async function* streamChat(
     }
     // usage chunk(choices 常为空)在 [DONE] 前到达——先抓它再判 delta。
     if (parsed?.usage) opts.onUsage?.(normalizeUsage(parsed.usage as Usage));
+    if (Array.isArray(parsed?.response_items)) responseItems = parsed.response_items;
     const fr = parsed?.choices?.[0]?.finish_reason;
     if (typeof fr === "string") {
       finishReason = fr; // 截断检测
@@ -266,6 +273,7 @@ export async function* streamChat(
     // 每次尝试独立的看门狗 + 累积状态(重试 = 从头重来)。
     content = "";
     reasoning = "";
+    responseItems = [];
     finishReason = undefined;
     toolAcc.length = 0;
     announced.clear();
@@ -402,6 +410,7 @@ export async function* streamChat(
     content: content || null,
     ...(tool_calls.length ? { tool_calls } : {}),
     ...(reasoning ? { reasoningContent: reasoning } : {}),
+    ...(responseItems.length ? { responseItems } : {}),
   };
   return message;
 }

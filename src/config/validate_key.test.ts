@@ -4,6 +4,17 @@ import { validateCredential, fetchModels } from "./validate_key.js";
 const cred = { baseUrl: "https://api.deepseek.com", key: "sk-x" };
 
 describe("validateCredential", () => {
+  it("官方 GPT-6 用 Responses 探针,不因旧参数误拒有效凭证", async () => {
+    let body: any;
+    const fakeFetch = (async (url, init) => {
+      expect(url).toBe("https://api.openai.com/v1/responses");
+      body = JSON.parse(String(init?.body));
+      return Response.json({ status: "completed", output: [] });
+    }) as typeof fetch;
+    expect(await validateCredential({ baseUrl: "https://api.openai.com/v1", key: "test", provider: "openai", model: "gpt-6.1-sol" }, fakeFetch)).toEqual({ ok: true });
+    expect(body.max_output_tokens).toBe(16);
+    expect(body).not.toHaveProperty("max_tokens");
+  });
   it("calls the provider's /models endpoint with a Bearer header", async () => {
     let seenUrl = "";
     let seenAuth = "";

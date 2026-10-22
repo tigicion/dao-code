@@ -24,6 +24,8 @@ export interface AssistantMessage {
   // 思维链(仅落盘/事后分析用,如 RHO/AHE 论文分析轨迹时读取):从 API 的 reasoning_content 累积而来,
   // 绝不随 messages 一起重发给 API(client.ts 组包请求体时会剥掉这个字段,只留 content/tool_calls)。
   reasoningContent?: string;
+  // Responses 无状态续写所需的加密推理项,随会话检查点保存。
+  responseItems?: Record<string, unknown>[];
 }
 export interface ToolMessage {
   role: "tool";

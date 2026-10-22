@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createDeckBridge } from "./agent/deck_bridge.js";
 import { recoverBackground, repairToolPairs } from "./session/recovery.js";
 import type { SessionStore } from "./session/log.js";
 import { runShellRunner } from "./tools/shell_runner.js";
@@ -337,6 +338,9 @@ async function main() {
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
   if (cliResumeId) flags.add(cliResumeId);
+  const modelIdx = rawArgs.indexOf("--model");
+  const cliModel = modelIdx >= 0 ? rawArgs[modelIdx + 1] : undefined;
+  if (cliModel) flags.add(cliModel);
   // 先抽取 CLI 权限规则/模式(--allow/--deny/--add-dir/--permission-mode),其余再去掉布尔 flag 作 prompt。
   const { config: cliPerms, rest: argsAfterPerms } = extractCliPermissions(rawArgs);
   const argvPrompt = argsAfterPerms.filter((a) => !flags.has(a)).join(" ").trim();
@@ -406,9 +410,7 @@ async function main() {
   let resolved: ResolvedCredential | null = null;
   if (cliApiKey && cliProvider) {
     // headless 临时 key:构造合成凭证(不持久化,不存 profile)
-    // --model 可覆盖默认模型(如 --model kimi-k2.6);未给则用 provider 默认模型。
-    const modelIdx = rawArgs.indexOf("--model");
-    const cliModel = modelIdx >= 0 ? rawArgs[modelIdx + 1] : undefined;
+    // --model 可覆盖默认模型(如 --model kimi-k2.8-preview);未给则用 provider 默认模型。
     resolved = {
       key: cliApiKey,
       provider: cliProvider,
@@ -416,7 +418,6 @@ async function main() {
       model: cliModel || DEFAULTS[cliProvider].model,
       source: "cli:--api-key",
     };
-    if (cliModel) flags.add(cliModel);
   } else {
     resolved = await resolveCredential(profilesCfg, kc);
   }
@@ -526,7 +527,7 @@ async function main() {
     const activeProf = profilesCfg.profiles[profilesCfg.activeProfile];
     const isCustomGw = activeProf && activeProf.baseUrl !== DEFAULTS[activeProf.provider].baseUrl;
     if (isCustomGw) return [{ model: session.model, active: true }];
-    return (MODELS_BY_PROVIDER[cfg.provider] ?? MODELS_BY_PROVIDER.deepseek).map((m) => ({ model: m, active: m === session.model }));
+    return (MODELS_BY_PROVIDER[cfg.provider] ?? MODELS_BY_PROVIDER.deepseek).map((m) => ({ model: m.id, active: m.id === session.model }));
   };
   // 切换:钥匙串读取是异步的,但 model/provider/baseUrl 都在 profile 文件里,可同步生效(让 StatusBar 立即刷新);
   // 只有 apiKey 需要等钥匙串异步解析(下一回合 streamChat 读 cfg.apiKey)。
@@ -863,7 +864,7 @@ async function main() {
 
   // 真正的交互式会话:有 TTY 且不是一次性 --goal 调用——决定 ctx.askChoice 是否注入(下方)、
   // 也决定系统提示词要不要加"会话特定指引"(AskUserQuestion 在 headless 下没人回答)。
-  const interactiveSession = process.stdin.isTTY === true && !argvPrompt;
+  const interactiveSession = (process.stdin.isTTY === true || process.env.DAO_DECK_MANAGED === "1") && !argvPrompt;
   // 进度提醒(noProgress 计数器,连续 N 轮无实质推进就追加静态提醒):仅 headless/一次性场景默认开,
   // 交互式默认关(有人盯着,卡没卡看得见,提醒只会打断)。用权威的 interactiveSession(基于解析后的
   // argvPrompt)判定,避免 `dao -c <session-id>` 的 id 被误当 prompt 而在交互式下误开。--no-progress-advice 显式关。
@@ -1037,7 +1038,10 @@ async function main() {
   const gate: ApprovalGate = new PermissionGate(
     getMode,
     getRules,
-    (reqs) => (inkApprovalPrompt ?? readlinePrompt)(reqs), // Ink 态用模态,否则 readline
+    async (reqs) => {
+      const clear = deck?.attention("approval", reqs.map(r => r.summary).join("\n"));
+      try { return await (process.env.DAO_DECK_MANAGED === "1" && deck ? deck.approve(reqs) : (inkApprovalPrompt ?? readlinePrompt)(reqs)); } finally { clear?.(); }
+    }, // Ink 态用模态,否则 readline
     (rule) => appendRule(localSettingsFile, rule, "allow"), // "always" 持久化
     (rule) => { sessionAllow.push(rule); }, // "session"/"always" 本会话生效
     classifyPermission, // auto 模式
@@ -1106,15 +1110,16 @@ async function main() {
     readMeta: new Map<string, { mtime: number; size: number }>(),
     pendingUnverifiedWrites: new Set<string>(),
     todoWriteRequired: argvPrompt ? { done: false } : undefined,
-    ask: (q: string) => (inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
+    ask: (q: string) => (process.env.DAO_DECK_MANAGED === "1" && deck ? deck.question(q) : inkAsk ? inkAsk(q) : ask(`\n${q}\n> `)),
     // 结构化选择:Ink 用 数字/↑↓+Enter 选择器(多选 checkbox);非交互(stdin/eval)退回"编号 + 自由作答"。
     // 只在真正交互式会话里提供——非交互场景不给这个函数,让 AskUserQuestion 工具退回 ctx.ask()(已有
     // 优雅降级:读到空就回"(用户未回答)"),loop.ts 的异常恢复逻辑也据此正确落到 headless 分支。
     ...(interactiveSession ? {
       askChoice: async (q: string, opts: string[], multi?: boolean) => {
-        if (inkAskChoice) return inkAskChoice(q, opts, multi);
+        if (process.env.DAO_DECK_MANAGED !== "1" && inkAskChoice) return inkAskChoice(q, opts, multi);
         const hint = multi ? "(回逗号分隔的多个序号,或直接作答)" : "(回序号选择,或直接作答)";
-        const raw = (await ask(`\n${q}\n${opts.map((o, i) => `  ${i + 1}. ${o}`).join("\n")}\n${hint}\n> `)).trim();
+        const question = `${q}\n${opts.map((o, i) => `  ${i + 1}. ${o}`).join("\n")}\n${hint}`;
+        const raw = (await ctx.ask!(question)).trim();
         const pick = (s: string) => { const n = Number(s.trim()); return Number.isInteger(n) && n >= 1 && n <= opts.length ? opts[n - 1]! : null; };
         if (multi && /[,，]/.test(raw)) {
           const picked = raw.split(/[,，]/).map(pick).filter((x): x is string => x !== null);
@@ -1246,6 +1251,24 @@ async function main() {
   const backgroundRuntime = new BackgroundRuntime([taskManager, processManager], workspaceRoot, (name, fields) => getBackend()?.event(name, fields));
   let activeScheduler: SessionScheduler | undefined;
   let activeStore: SessionStore | undefined;
+  // Agent Deck:观察与输入复用本地调度器,不依赖面板进程。
+  let deck: ReturnType<typeof createDeckBridge>;
+  const connectDeck = (scheduler: SessionScheduler) => {
+    deck?.close();
+    deck = createDeckBridge({ scheduler, session, runtime: backgroundRuntime, cwd: workspaceRoot,
+      version: VERSION, writable: !argvPrompt,
+      tasks: () => taskManager.all().map(t => ({ taskId: t.id, runId: t.runId, kind: t.kind,
+        description: t.description, status: t.status, progress: t.summary, result: (t.result ?? t.error)?.slice(0, 8000) })),
+      todos: () => todoStore.get(),
+      // 面板权限切换与原生 PermissionGate 使用同一份运行状态。
+      getPermissionMode: () => getMode(),
+      setPermissionMode: (mode) => {
+        session.mode = mode === "plan" ? "plan" : "normal";
+        yolo = mode === "bypassPermissions";
+        permModeOverride = mode === "default" || mode === "auto" ? mode : null;
+      },
+    });
+  };
   let keepBackgroundOnExit = false;
   const bindStore = async (store: SessionStore) => {
     activeStore=store;ctx.durableStore=store.durable;ctx.toolScope="root";
@@ -1526,6 +1549,7 @@ async function main() {
       streamChat,
       executeToolCalls,
       write,
+      events: deck?.events(plainEvents(write)),
       compact: runCompaction, // L2.2 反应式压缩
       shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
@@ -1709,6 +1733,7 @@ async function main() {
       activeScheduler = new SessionScheduler({ runtime: backgroundRuntime, session, save: argvCheckpoint,
         keepAlive: true, notice: write, user: async () => {},
         run: (signal, boundary) => runOneTurn(argvCheckpoint, signal, boundary) });
+      connectDeck(activeScheduler);
       activeScheduler.recover();
       activeScheduler.submit(argvPrompt);
       await activeScheduler.finished();
@@ -1725,7 +1750,7 @@ async function main() {
       return;
     }
     // caps / gitBranch / welcomeInfo / welcome 束已在首启分支之前构造(与 onboarding 共用);此处直接复用。
-    if (process.stdout.isTTY) {
+    if (process.stdout.isTTY && process.env.DAO_DECK_MANAGED !== "1") {
       // 交互态:Ink REPL(inline)。常见路径下从未创建 readline(stdin 干净),Ink 的 useInput 直接接管;
       // 仅当首次运行做过 key 引导才存在 rl,此时关掉让出 stdin。
       subagentWrite = () => {}; // Ink 态静默子代理直接输出
@@ -1819,6 +1844,7 @@ async function main() {
           const textStr = typeof text === "string" ? text : text.filter(p => p.type === "text").map(p => (p as { text: string }).text).join(" ");
           // UserPromptSubmit 钩子:可阻断本次提交、或把命令输出注入为上下文。
           const up = await gateUserPrompt(textStr);
+          if (deck?.input(textStr, !up.blocked) && !up.blocked) uiEvents.userMessage?.(textStr);
           if (up.blocked) { uiEvents.notice(`[提交被 hook 阻止] ${up.reason || ""}`); return false; }
           turnCheckpoints.push(ckpt.snapshot(`回合前: ${textStr.slice(0, 60)}`)); // 回合前快照(供 /restore 与 /rewind code 回退)
           store.append({ t: "user", text: textStr });
@@ -1853,7 +1879,7 @@ async function main() {
             backgroundRuntime, onBoundary: boundary,
             listOtherAccounts: () => listAccounts().filter((a) => !a.active).map((a) => ({ name: a.name })), // 限流菜单用
             switchAccountAndWait,
-            events: logEvents(uiEvents, store), // 渲染的同时写日志
+            events: deck?.events(logEvents(uiEvents, store)) ?? logEvents(uiEvents, store), // 渲染的同时写日志
             // 主会话不限轮数:靠 token 预算触发自动 compact;DAO_MAX_TURNS 可设硬上限(eval 用)。
             signal,
             onCheckpoint: persist, // 每个工具轮落一次盘,回合中途异常上抛也不连带丢掉此前已成功的步骤
@@ -1877,6 +1903,7 @@ async function main() {
         },
       });
       activeScheduler = scheduler;
+      connectDeck(scheduler);
       scheduler.recover();
       await runInkApp({
         welcome,
@@ -2506,8 +2533,14 @@ async function main() {
         },
         register: ({ approvalPrompt, askUser, askChoice }) => {
           inkApprovalPrompt = approvalPrompt;
-          inkAsk = askUser;
-          inkAskChoice = askChoice;
+          inkAsk = async (q) => {
+            const clear = deck?.attention("question", q);
+            try { return await askUser(q); } finally { clear?.(); }
+          };
+          inkAskChoice = async (q, options, multi) => {
+            const clear = deck?.attention("question", q + "\n" + options.join(" / "));
+            try { return await askChoice(q, options, multi); } finally { clear?.(); }
+          };
         },
         completeFiles: (prefix) =>
           (prefix ? fileCache.filter((f) => f.includes(prefix)) : fileCache).slice(0, 8),
@@ -2586,6 +2619,11 @@ async function main() {
       permAudit = createPermAuditSink(store.dir, getMode);
       ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
       const readLine = async (): Promise<string | null> => {
+        // 托管模式由桥接接收输入,面板重启不会结束当前 Agent。
+        if (process.env.DAO_DECK_MANAGED === "1") return await new Promise<null>((resolve) => {
+          const stop = () => { activeScheduler?.pause(); process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop); resolve(null); };
+          process.once("SIGTERM", stop); process.once("SIGINT", stop);
+        });
         write("\n> ");
         return nextLine();
       };
@@ -2601,6 +2639,7 @@ async function main() {
         user: async (text) => {
           const input = typeof text === "string" ? text : JSON.stringify(text);
           const up = await gateUserPrompt(input);
+          deck?.input(input, !up.blocked);
           if (up.blocked) { write(`[提交被 hook 阻止] ${up.reason || ""}\n`); return false; }
           session.addUser(text);
           if (up.additionalContext) session.messages.push({ role: "system", content: up.additionalContext });
@@ -2609,6 +2648,7 @@ async function main() {
         run: (signal, boundary) => runOneTurn(persistRepl, signal, boundary),
       });
       activeScheduler = scheduler;
+      connectDeck(scheduler);
       scheduler.recover();
       await runRepl({ session, readLine, scheduler, runTurn: async () => {}, write, compact: runCompaction, getProvider: () => cfg.provider,
         command: async(line)=>{
@@ -2642,6 +2682,7 @@ async function main() {
     if (exitSessionId) write(`会话 ${exitSessionId} · 续写:dao -c ${exitSessionId}(或省略 id 续写最近一个)或启动后 /resume ${exitSessionId}\n`);
     // 退出【不再】蒸馏:记忆已在各热回合边界增量捕获;退出时缓存已凉,全量蒸只会撞冷缓存全价。
   } finally {
+    deck?.close();
     activeScheduler?.close();
     taskManager.cancelAll();
     backgroundRuntime.dispose();

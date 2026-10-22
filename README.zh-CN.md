@@ -141,7 +141,7 @@ npm install && npm run build && npm link   # 之后可全局 dao
 | 命令 | 作用 |
 |---|---|
 | `/init` | 扫描本仓库生成 `DAO.md`(项目概览/约定,供以后会话自动加载) |
-| `/model [id]` | 切换模型(不带参数在 `deepseek-v4-pro` / `deepseek-v4-flash` 间切换) |
+| `/model [id]` | 切换模型(不带参数在 `deepseek-v4-pro` / `deepseek-flash` 间切换) |
 | `/mode [x]` | 权限模式 `default` / `auto`(智能审批)/ `yolo`(亦 **Shift+Tab** 循环) |
 | `/plan` | 快捷切换 plan(只读+提方案)/ normal |
 | `/goal <目标>` | 长任务自主模式(自动批准 + 连续推进,大任务自动分阶段) |

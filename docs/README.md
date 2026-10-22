@@ -9,6 +9,8 @@
 | [`MAINTAINER-SETUP.md`](MAINTAINER-SETUP.md) | 维护者运维清单(发布、演示录制等) | — |
 
 新增内容放哪:
+
+- 模型清单与官方依据：[模型配置](architecture/models.md)；本地面板协议与验收：[Agent Deck](architecture/agent-deck.md)。
 - 解释"现在怎么运作"的 → `architecture/`(保持与代码一致)。
 - 某次特性的设计/计划草稿 → `design/specs/`、`design/plans/`,文件名带日期前缀。
 - dao 跑通真实任务的实测/实证 → `case-studies/`,带日期与复现配方。

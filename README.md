@@ -139,7 +139,7 @@ Common slash commands (full list via `/help`):
 | Command | Effect |
 |---|---|
 | `/init` | Scan the repo and generate `DAO.md` (project overview/conventions, auto-loaded in future sessions) |
-| `/model [id]` | Switch model (no arg toggles `deepseek-v4-pro` / `deepseek-v4-flash`) |
+| `/model [id]` | Switch model (no arg toggles `deepseek-v4-pro` / `deepseek-flash`) |
 | `/mode [x]` | Permission mode `default` / `auto` (smart approval) / `yolo` (also **Shift+Tab** to cycle) |
 | `/plan` | Quick toggle plan (read-only + propose) / normal |
 | `/goal <objective>` | Autonomous long-task mode (auto-approve + keep going; large tasks auto-staged) |

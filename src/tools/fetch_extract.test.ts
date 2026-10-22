@@ -9,9 +9,9 @@ describe("resolveExtractModel", () => {
   });
 
   it("DeepSeek 系 provider(deepseek/volcengine/qianfan)默认用 flash 档", () => {
-    expect(resolveExtractModel(undefined, "deepseek", "deepseek-v4-pro", DEFAULTS.deepseek.baseUrl)).toBe("deepseek-v4-flash");
-    expect(resolveExtractModel(undefined, "volcengine", "deepseek-v4-pro", DEFAULTS.volcengine.baseUrl)).toBe("deepseek-v4-flash");
-    expect(resolveExtractModel(undefined, "qianfan", "deepseek-v4-pro", DEFAULTS.qianfan.baseUrl)).toBe("deepseek-v4-flash");
+    expect(resolveExtractModel(undefined, "deepseek", "deepseek-v4-pro", DEFAULTS.deepseek.baseUrl)).toBe("deepseek-flash");
+    expect(resolveExtractModel(undefined, "volcengine", "deepseek-v4-pro", DEFAULTS.volcengine.baseUrl)).toBe("deepseek-v4.1-flash");
+    expect(resolveExtractModel(undefined, "qianfan", "deepseek-v4-pro", DEFAULTS.qianfan.baseUrl)).toBe("deepseek-v4.1-flash");
   });
 
   it("zhipu 默认用同族便宜档 glm-5.3-flash(端点没有 deepseek 系模型)", () => {

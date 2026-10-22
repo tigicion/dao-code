@@ -21,7 +21,7 @@ beforeEach(async () => {
   git(["add", "."], repo);
   git(["commit", "-m", "init"], repo);
 });
-afterEach(async () => { await fs.rm(repo, { recursive: true, force: true }); });
+afterEach(async () => { await fs.rm(repo, { recursive: true, force: true, maxRetries: 3, retryDelay: 30 }); });
 
 function makeCtx(): ToolContext {
   return { workspaceRoot: repo, createWorktree: (id: string) => createWorktree(repo, id) };

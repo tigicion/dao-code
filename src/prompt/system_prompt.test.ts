@@ -20,8 +20,8 @@ describe("buildSystemPrompt (zh)", () => {
   it("model self-identification (zh): states model id + vision support", () => {
     expect(prompt).toContain("你当前运行的模型是 deepseek-v4-pro");
     expect(prompt).toContain("不支持图片输入");
-    const visionPrompt = buildSystemPrompt({ modelId: "kimi-k2.7-code", toolSummaries: "- a:b" });
-    expect(visionPrompt).toContain("你当前运行的模型是 kimi-k2.7-code");
+    const visionPrompt = buildSystemPrompt({ modelId: "kimi-k3", toolSummaries: "- a:b" });
+    expect(visionPrompt).toContain("你当前运行的模型是 kimi-k3");
     expect(visionPrompt).toContain("这个模型支持图片输入");
   });
 
@@ -293,8 +293,8 @@ describe("buildSystemPrompt (en)", () => {
   });
 
   it("model self-identification: states the running model id and vision support (positive case)", () => {
-    const p = buildSystemPrompt({ modelId: "kimi-k2.6", toolSummaries: "- a:b", lang: "en" });
-    expect(p).toContain("You are currently running as kimi-k2.6");
+    const p = buildSystemPrompt({ modelId: "glm-5.3-flash", toolSummaries: "- a:b", lang: "en" });
+    expect(p).toContain("You are currently running as glm-5.3-flash");
     expect(p).toContain("This model supports image input");
     expect(p).not.toContain("does not support image input");
   });

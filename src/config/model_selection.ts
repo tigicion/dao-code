@@ -15,7 +15,9 @@ export interface ModelSelectionContext { model: string; provider: Provider; base
 export function defaultAuxiliaryModel(context: ModelSelectionContext): string {
   const { model, provider, baseUrl } = context;
   if (baseUrl.replace(/\/+$/, "") !== DEFAULTS[provider].baseUrl.replace(/\/+$/, "")) return model;
-  if (["deepseek", "volcengine", "qianfan"].includes(provider) && /^deepseek-v4-(pro|flash)$/i.test(model)) return "deepseek-v4-flash";
+  if (["deepseek", "volcengine", "qianfan"].includes(provider) && /^deepseek-(?:v4(?:\.1)?-(?:pro|flash)(?:-\d+|-economy)?|flash)$/i.test(model)) {
+    return provider === "deepseek" ? "deepseek-flash" : "deepseek-v4.1-flash";
+  }
   if (provider === "zhipu" && /^glm-5\.3$/i.test(model)) return "glm-5.3-flash";
   return model;
 }

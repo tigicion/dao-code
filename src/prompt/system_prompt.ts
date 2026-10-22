@@ -834,7 +834,7 @@ No one is watching this run or available to redirect you mid-course — the firs
 }
 
 // 模型自我认知:告知模型自己当前实际运行的模型名+是否支持视觉,而不是让它只能从工具描述里
-// 读到"仅 kimi-k2.6 等支持视觉的模型可用"这类第三人称表述、自己去猜"我是不是其中之一"。
+// 读到"仅 glm-5.3-flash 等支持视觉的模型可用"这类第三人称表述、自己去猜"我是不是其中之一"。
 // 已观察到真实反模式:模型在推理里准确引用出这条工具说明,却因为找不到"我current是谁"的
 // 锚点而反过来断定自己不支持视觉,从未尝试 Read 图片就转去找 OCR 等替代方案。
 function buildModelVisionNote(modelId: string): string {

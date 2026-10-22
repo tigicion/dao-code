@@ -1,5 +1,6 @@
 import type { Provider } from "./profiles.js";
 import { DEFAULTS } from "./profiles.js";
+import { responsesFetch, usesResponses } from "../client/responses.js";
 
 // 落盘前轻量校验凭证:打 provider 的 /models(最便宜的鉴权请求),确认 key 有效。
 // 对标 opencode wizard 的 "runs a model check";避免存了错 key 要到首条消息才炸。
@@ -21,11 +22,13 @@ export async function validateCredential(
     if (cred.model || cred.provider === "volcengine" || cred.provider === "qianfan" || cred.provider === "zhipu") {
       // 探针模型:给了 model 用 model;否则用该 provider 的默认模型——zhipu coding 端点没有
       // deepseek 系模型,沿用写死的 deepseek-v4-flash 会把有效 key 误判成失败。
-      const probeModel = cred.model ?? (cred.provider ? DEFAULTS[cred.provider].model : "deepseek-v4-flash");
-      res = await fetchImpl(`${cred.baseUrl}/chat/completions`, {
+      const probeModel = cred.model ?? (cred.provider ? DEFAULTS[cred.provider].model : "deepseek-flash");
+      const useResponses = usesResponses(cred.baseUrl, probeModel);
+      const probeFetch = useResponses ? responsesFetch(fetchImpl) : fetchImpl;
+      res = await probeFetch(`${cred.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cred.key}` },
-        body: JSON.stringify({ model: probeModel, messages: [{ role: "user", content: "1" }], max_tokens: 1 }),
+        body: JSON.stringify({ model: probeModel, messages: [{ role: "user", content: "1" }], max_tokens: useResponses ? 16 : 1 }),
       });
     } else {
       res = await fetchImpl(`${cred.baseUrl}/models`, {

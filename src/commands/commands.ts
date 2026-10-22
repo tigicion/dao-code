@@ -28,7 +28,7 @@ export function dispatchCommand(input: string, session: Session, provider: Provi
 
   switch (cmd) {
     case "model": {
-      const known = MODELS_BY_PROVIDER[provider] ?? MODELS_BY_PROVIDER.deepseek;
+      const known = (MODELS_BY_PROVIDER[provider] ?? MODELS_BY_PROVIDER.deepseek).map((m) => m.id);
       if (arg) {
         if (!known.includes(arg)) {
           return { handled: true, output: `✗ ${provider} 下未知模型「${arg}」,可选:${known.join(" / ")}` };

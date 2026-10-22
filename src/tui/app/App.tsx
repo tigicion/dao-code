@@ -17,7 +17,7 @@ import type { ApprovalDecision, ApprovalPrompt, ApprovalRequest } from "../../ap
 import type { AppDeps, LiveState, StatusInfo, TranscriptItem } from "./types.js";
 import type { Provider } from "../../config/profiles.js";
 import type { ContentPart } from "../../client/types.js";
-import { supportsVision, VISION_MODELS } from "../../config/profiles.js";
+import { supportsVision, VISION_MODEL_IDS } from "../../config/profiles.js";
 import { getImageFromClipboard } from "../imagePaste.js";
 import { classifyPath, isImagePath, detectImageFormat } from "../../tools/paths.js";
 import { formatTabTitle } from "../tab_attention.js";
@@ -598,7 +598,7 @@ export function App(deps: AppDeps) {
       if (imagePaths.length > 0) {
         const currentModel = deps.getStatus().model;
         if (!supportsVision(currentModel)) {
-          pushItem({ id: nextId(), kind: "notice", text: `⚠ 当前模型 ${currentModel} 不支持图片输入,图片已忽略。可用: ${[...VISION_MODELS].join(", ")}` });
+          pushItem({ id: nextId(), kind: "notice", text: `⚠ 当前模型 ${currentModel} 不支持图片输入,图片已忽略。可用: ${VISION_MODEL_IDS.join(", ")}` });
           await runAgentTurn(full);
           return;
         }
@@ -625,7 +625,7 @@ export function App(deps: AppDeps) {
       const currentModel = deps.getStatus().model;
       if (!supportsVision(currentModel)) {
         const textOnly = full.filter(p => p.type === "text").map(p => (p as { text: string }).text).join(" ").trim();
-        pushItem({ id: nextId(), kind: "notice", text: `⚠ 当前模型 ${currentModel} 不支持图片输入,图片已忽略。可用支持图片的模型: ${[...VISION_MODELS].join(", ")}` });
+        pushItem({ id: nextId(), kind: "notice", text: `⚠ 当前模型 ${currentModel} 不支持图片输入,图片已忽略。可用支持图片的模型: ${VISION_MODEL_IDS.join(", ")}` });
         await runAgentTurn(textOnly || "[图片已忽略]");
         return;
       }

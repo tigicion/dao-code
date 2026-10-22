@@ -1,6 +1,6 @@
 import React from "react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render } from "ink-testing-library";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { cleanup, render } from "ink-testing-library";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +16,8 @@ vi.mock("../../i18n/i18n.js", async (original) => ({
 }));
 
 const delay = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+// 每个用例卸载组件,避免状态栏计时器与输入监听跨用例累积。
+afterEach(cleanup);
 
 function makeDeps(over: Partial<AppDeps> = {}): AppDeps {
   return {
@@ -1362,10 +1364,11 @@ describe("App", () => {
     for (const ch of "/theme") stdin.write(ch);
     await delay();
     stdin.write("\r");
-    await delay();
-    const f = lastFrame()!;
-    expect(f).toContain("Theme switched");
-    expect(f).not.toContain("已切换主题");
+    await vi.waitFor(() => {
+      const f = lastFrame()!;
+      expect(f).toContain("Theme switched");
+      expect(f).not.toContain("已切换主题");
+    });
   });
 
   it("i18n:权限模式提示 + 模式标签跟随 locale(Shift+Tab)", async () => {
@@ -1427,7 +1430,7 @@ describe("App", () => {
     const { lastFrame, stdin } = render(
       <App {...makeDeps({
         submit: async (t, { events }) => { submitted = t; events.assistantDone({ role: "assistant", content: "ok" }); },
-        getStatus: () => ({ model: "kimi-k2.6", mode: "normal", promptTokens: 12, completionTokens: 3, cacheHitRatio: 0.5, yolo: false, branch: "main", contextPct: 0.3, contextWindow: 1_000_000, contextUsed: 3000 }), // 支持图片输入的模型
+        getStatus: () => ({ model: "glm-5.3-flash", mode: "normal", promptTokens: 12, completionTokens: 3, cacheHitRatio: 0.5, yolo: false, branch: "main", contextPct: 0.3, contextWindow: 1_000_000, contextUsed: 3000 }), // 支持图片输入的模型
       })} />,
     );
     stdin.write(`\x1b[200~${imgPath}\x1b[201~`);
