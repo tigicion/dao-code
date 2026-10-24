@@ -71,6 +71,15 @@ describe("resolveActive", () => {
   });
 });
 
+describe("DEFAULTS.minimax", () => {
+  it("uses the global direct endpoint and Flash-first M3 default", () => {
+    expect(DEFAULTS.minimax).toEqual({
+      baseUrl: "https://api.minimax.io/v1",
+      model: "MiniMax-M3.1-Flash",
+    });
+  });
+});
+
 describe("DEFAULTS.volcengine", () => {
   it("points at the coding-plan base url with deepseek-v4-pro as default model", () => {
     expect(DEFAULTS.volcengine).toEqual({
@@ -130,6 +139,9 @@ describe("MODELS_BY_PROVIDER", () => {
   it("zhipu coding plan 两档:glm-5.3 + glm-5.3-flash", () => {
     expect(MODELS_BY_PROVIDER.zhipu).toEqual(["glm-5.3", "glm-5.3-flash"]);
   });
+  it("MiniMax direct is Flash-first and keeps M3 as the second owned choice", () => {
+    expect(MODELS_BY_PROVIDER.minimax).toEqual(["MiniMax-M3.1-Flash", "MiniMax-M3"]);
+  });
 });
 
 describe("supportsVision", () => {
@@ -139,6 +151,11 @@ describe("supportsVision", () => {
   });
   it("glm-5.3-flash(多模态)支持视觉", () => {
     expect(supportsVision("glm-5.3-flash")).toBe(true);
+  });
+  it("MiniMax M3.1 Flash and M3 support image input", () => {
+    expect(supportsVision("MiniMax-M3.1-Flash")).toBe(true);
+    expect(supportsVision("MiniMax-M3")).toBe(true);
+    expect(supportsVision("minimax-m3.1-flash")).toBe(true);
   });
   it("deepseek-v4-pro 等非视觉模型返回 false", () => {
     expect(supportsVision("deepseek-v4-pro")).toBe(false);
@@ -178,6 +195,8 @@ describe("contextWindowFor", () => {
     expect(contextWindowFor("deepseek-v4-pro")).toBe(1_000_000);
     expect(contextWindowFor("deepseek-v4-flash")).toBe(1_000_000);
     expect(contextWindowFor("kimi-k2.6")).toBe(1_000_000);
+    expect(contextWindowFor("MiniMax-M3.1-Flash")).toBe(1_000_000);
+    expect(contextWindowFor("MiniMax-M3")).toBe(1_000_000);
     expect(contextWindowFor("unknown-model")).toBe(1_000_000);
   });
 });

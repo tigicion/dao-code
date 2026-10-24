@@ -114,6 +114,42 @@ describe("streamChat", () => {
     expect(sentBody.stream).toBe(true);
   });
 
+  it("normalizes MiniMax M3.1 Flash thinking to the OpenAI reasoning_effort contract", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\\n\\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    await run(streamChat({
+      baseUrl: "https://api.minimaxi.com/v1",
+      apiKey: "sk",
+      model: "MiniMax-M3.1-Flash",
+      messages: [{ role: "user", content: "hi" }],
+      extra: { thinking: { type: "disabled" } },
+      fetchImpl: capturingFetch,
+    }));
+    expect(sentBody.reasoning_effort).toBe("max");
+    expect(sentBody.thinking).toBeUndefined();
+  });
+
+  it("preserves MiniMax gateway and M3 thinking fields for explicit custom requests", async () => {
+    let sentBody: any;
+    const capturingFetch = (async (_url: string, init: any) => {
+      sentBody = JSON.parse(init.body);
+      return new Response(sseStream(["data: [DONE]\\n\\n"]), { status: 200 });
+    }) as unknown as typeof fetch;
+    await run(streamChat({
+      baseUrl: "https://gateway.example/v1",
+      apiKey: "sk",
+      model: "MiniMax-M3.1-Flash",
+      messages: [{ role: "user", content: "hi" }],
+      extra: { thinking: { type: "disabled" } },
+      fetchImpl: capturingFetch,
+    }));
+    expect(sentBody.thinking).toEqual({ type: "disabled" });
+    expect(sentBody.reasoning_effort).toBeUndefined();
+  });
+
   it("显式设置 max_tokens 上限,不依赖各家 API 隐式默认值(默认 128000,可用 opts.maxTokens 覆盖)", async () => {
     let sentBody: any;
     const capturingFetch = (async (_url: string, init: any) => {

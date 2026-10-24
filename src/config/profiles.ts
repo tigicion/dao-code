@@ -2,7 +2,7 @@
 // 多 key 切换 = 切 profile;多 provider = profile 带不同 provider;未来订阅 = 另一种凭证类型。
 // 不引入"用户(user)"概念——DAO 是本地 CLI,DeepSeek 无账号体系,user 等于给不存在的登录服务器建模。
 
-export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine" | "qianfan" | "zhipu";
+export type Provider = "deepseek" | "anthropic" | "openai" | "volcengine" | "qianfan" | "zhipu" | "minimax";
 
 export interface Profile {
   provider: Provider;
@@ -28,6 +28,8 @@ export const DEFAULTS: Record<Provider, { baseUrl: string; model: string }> = {
   zhipu: { baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4", model: "glm-5.3" },
   anthropic: { baseUrl: "https://api.anthropic.com", model: "claude-opus-4-8" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-5" },
+  // Set the profile baseUrl to https://api.minimaxi.com/v1 for direct CN access.
+  minimax: { baseUrl: "https://api.minimax.io/v1", model: "MiniMax-M3.1-Flash" },
 };
 
 // 每个 provider 已知可用的模型串(/model 命令用来做校验+循环);deepseek 只有 pro/flash 两档,
@@ -56,6 +58,7 @@ export const MODELS_BY_PROVIDER: Record<Provider, string[]> = {
   zhipu: ["glm-5.3", "glm-5.3-flash"],
   anthropic: [DEFAULTS.anthropic.model],
   openai: [DEFAULTS.openai.model],
+  minimax: ["MiniMax-M3.1-Flash", "MiniMax-M3"],
 };
 
 // 支持视觉(图片输入)的模型名集合。按模型粒度精确匹配(跨 provider)。
@@ -71,11 +74,13 @@ export const VISION_MODELS = new Set<string>([
   "kimi-k2.6",
   "kimi-k2.7-code",
   "glm-5.3-flash",
+  "minimax-m3.1-flash",
+  "minimax-m3",
 ]);
 
 /** 当前 model 是否支持图片输入。不在 VISION_MODELS 中的模型一律视为不支持。 */
 export function supportsVision(model: string): boolean {
-  return VISION_MODELS.has(model);
+  return VISION_MODELS.has(model.toLowerCase());
 }
 
 // 上下文窗口默认值(tok):仅 glm-5.2 使用 200K,其他模型使用 1M。
@@ -87,8 +92,15 @@ const DEFAULT_CONTEXT_WINDOW = 1_000_000;
  * DAO_CONTEXT_WINDOW 覆盖时,手动值优先,不随模型切换改变)。
  * 模型名忽略大小写;保留可选渠道参数以兼容现有调用。
  */
-export function contextWindowFor(model: string, _provider?: Provider, _baseUrl?: string): number {
-  return model.toLowerCase() === "glm-5.2" ? 200_000 : DEFAULT_CONTEXT_WINDOW;
+export function contextWindowFor(model: string, provider?: Provider, baseUrl?: string): number {
+  const key = model.toLowerCase();
+  if (key === "glm-5.2") return 200_000;
+  if (/^glm-/.test(key) && provider === "deepseek" && baseUrl && baseUrl !== DEFAULTS.deepseek.baseUrl) {
+    return 200_000;
+  }
+  if (key === "minimax-m3.1-flash" || key === "minimax-m3") return DEFAULT_CONTEXT_WINDOW;
+  return DEFAULT_CONTEXT_WINDOW;
+}
 }
 
 function isV2(raw: unknown): raw is ProfilesConfig {

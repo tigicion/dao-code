@@ -331,7 +331,7 @@ async function main() {
   const cliApiKey = apiKeyIdx >= 0 ? rawArgs[apiKeyIdx + 1] : undefined;
   const providerIdx = rawArgs.indexOf("--provider");
   const cliProviderRaw = providerIdx >= 0 ? rawArgs[providerIdx + 1] : undefined;
-  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "zhipu" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
+  const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "zhipu" || cliProviderRaw === "minimax" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
   const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--no-progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions", "--no-web"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
   if (cliApiKey) flags.add(cliApiKey);

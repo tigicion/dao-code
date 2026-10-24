@@ -57,6 +57,16 @@ function apiLabel(opts: { provider?: string; baseUrl: string }): string {
   return opts.provider || opts.baseUrl;
 }
 
+function miniMaxFlashExtra(opts: StreamChatOptions): Record<string, unknown> | undefined {
+  const direct = /^https:\/\/api\.minimax(?:i)?\.com\/v1\/?$/i.test(opts.baseUrl);
+  if (!direct || opts.model.toLowerCase() !== "minimax-m3.1-flash") return opts.extra;
+  const extra = { ...(opts.extra ?? {}) };
+  const thinking = extra.thinking as { type?: unknown } | undefined;
+  delete extra.thinking;
+  if (thinking?.type === "disabled" && extra.reasoning_effort === undefined) extra.reasoning_effort = "max";
+  return extra;
+}
+
 export async function* streamChat(
   opts: StreamChatOptions,
 ): AsyncGenerator<StreamDelta, AssistantMessage> {
@@ -112,7 +122,7 @@ export async function* streamChat(
     ...(opts.parallelToolCalls !== undefined
       ? { parallel_tool_calls: opts.parallelToolCalls }
       : {}),
-    ...opts.extra,
+    ...miniMaxFlashExtra(opts),
   };
 
   // 空闲看门狗:连接挂起/模型停滞导致长时间收不到任何数据时,自动中断本次流并抛清晰错误。

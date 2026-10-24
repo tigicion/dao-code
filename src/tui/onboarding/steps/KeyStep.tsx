@@ -23,6 +23,7 @@ export function KeyStep({
   const c = (sem: Parameters<typeof semHex>[0]) => semHex(sem, bg);
   const helpKey = provider === "volcengine" ? "onboard.key.help.volcengine"
     : provider === "qianfan" ? "onboard.key.help.qianfan"
+    : provider === "minimax" ? "onboard.key.help.minimax"
     : provider === "zhipu" ? "onboard.key.help.zhipu"
     : "onboard.key.help.deepseek";
 
