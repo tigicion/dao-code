@@ -49,6 +49,12 @@ describe("人民币计费", () => {
     expect(pricesFor("GLM-5.3-Flash")).toEqual({ inputHit: 0.2, inputMiss: 0.8, output: 2.8 });
   });
 
+  it("MiniMax canonical and lowercase aliases use the official standard baseline", () => {
+    expect(pricesFor("MiniMax-M3.1-Flash")).toEqual({ inputHit: 0.102, inputMiss: 1.02, output: 4.08 });
+    expect(pricesFor("minimax-m3.1-flash")).toEqual({ inputHit: 0.102, inputMiss: 1.02, output: 4.08 });
+    expect(pricesFor("MiniMax-M3")).toEqual({ inputHit: 0.408, inputMiss: 2.04, output: 8.16 });
+  });
+
   it("未知模型名仍退化到 pro/flash 启发式,不报错", () => {
     expect(pricesFor("some-new-flash-model").inputMiss).toBe(2);
     expect(pricesFor("some-new-model").inputMiss).toBe(9);

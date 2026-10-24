@@ -39,8 +39,13 @@ export const KNOWN_PRICES: Record<string, Prices> = {
   "glm-5-1": { inputHit: 1.3, inputMiss: 6, output: 24 },
   "kimi-k2.6": { inputHit: 1.1, inputMiss: 6.5, output: 27 },
   "kimi-k2.7-code": { inputHit: 1.3, inputMiss: 6.5, output: 27 },
+  // MiniMax official USD prices converted at the repository's 6.8 CNY/USD rate.
+  // M3 uses the published standard-tier baseline; the >512k tier is retained in
+  // the source inventory because the published threshold is not an integer expansion.
+  "minimax-m3.1-flash": { inputHit: 0.102, inputMiss: 1.02, output: 4.08 },
+  "minimax-m3": { inputHit: 0.408, inputMiss: 2.04, output: 8.16 },
+  // Legacy Volcengine alias retained for explicit saved/custom profiles.
   "minimax-m2.7": { inputHit: 0.42, inputMiss: 2.1, output: 8.4 },
-  "minimax-m3": { inputHit: 0.42, inputMiss: 2.1, output: 8.4 },
   "ernie-5.1": { inputHit: 1.6, inputMiss: 4, output: 18 },
 };
 
