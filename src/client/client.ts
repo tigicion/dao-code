@@ -69,7 +69,8 @@ export async function* streamChat(
   // 字段);没发起工具调用的轮次则不需要、也不应该带(原生 API 甚至会 400)。2026-07-24 用真实
   // 火山方舟(ARK)网关做过对照实验:两种做法都不报错(ARK 比原生 API 宽松),但带上时
   // prompt_tokens 确实按思维链长度真实增长——说明 ARK 会读这个字段喂给模型,不是静默丢弃。
-  const wireMessages = opts.messages.map((m) => {
+  const wireMessages = opts.messages.map((message) => {
+    const { archiveId: _id, archiveSession: _scope, createdAt: _at, origin: _origin, rawContent: _raw, ...m } = message;
     if (m.role === "assistant") {
       // 火山方舟(ARK)等网关对 assistant 消息的 content 字段要求非 null——纯工具调用回合
       // 的 content: null(OpenAI 规范允许)发给这类网关会返回空响应或 400。DeepSeek 原生 API

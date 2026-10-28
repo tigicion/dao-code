@@ -1,5 +1,9 @@
 # 长期记忆(Memory)
 
+> 2026-10-27：当前默认已替换为 [Hermes 记忆实现](../architecture/hermes-memory.md)。本文及下述 Mem0 说明仅保留为历史设计，不再描述默认生产链路。
+
+> 2026-10-26：已增加 Mem0 OSS 后端。启用、迁移及个人代理演进见 [Mem0 接入说明](../architecture/mem0-personal-agent.md)。下文描述文件兼容后端及历史设计。
+
 > 最后核对:2026-07-07,commit `33df233`
 
 ## 一句话定位

@@ -108,7 +108,9 @@ export class Session {
     return `本会话用量:输入 ${promptTokens} tok(cache 命中 ${cacheHitTokens},命中率 ${pct}%)· 输出 ${completionTokens} tok · 约 ${cost}${this.budgetCNY !== undefined ? `(提醒阈值 ${formatCNY(this.budgetCNY)})` : ""}`;
   }
 
+  beforeUser?: () => void;
   addUser(content: string | ContentPart[]): void {
+    this.beforeUser?.();
     this.messages.push({ role: "user", content });
   }
 

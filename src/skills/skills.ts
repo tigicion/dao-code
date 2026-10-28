@@ -85,6 +85,7 @@ async function loadFrom(baseDir: string): Promise<Skill[]> {
   }
   const out: Skill[] = [];
   for (const e of entries) {
+    if(e.name.startsWith("."))continue;
     if (e.isDirectory()) {
       // <name>/SKILL.md
       const file = path.join(baseDir, e.name, "SKILL.md");

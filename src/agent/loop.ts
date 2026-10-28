@@ -68,6 +68,7 @@ export function sanitizeHistoryForResume(messages: ChatMessage[]): ChatMessage[]
 }
 
 export interface TurnDeps {
+  memoryContextWindow?: () => number;
   session: Session;
   config: { baseUrl: string; apiKey: string };
   registry: ToolRegistry;
@@ -152,7 +153,13 @@ export interface TurnDeps {
 // 在已有的 session.messages 上跑一个用户回合,直到模型不再请求工具。
 export async function runTurn(deps: TurnDeps): Promise<TurnOutcome> {
   const control = deps.backgroundRuntime && !deps.background ? new WaitControl(deps.backgroundRuntime) : undefined;
-  try { return await runTurnInner(deps, control); }
+  const memory = !deps.background && !deps.ctx.subagentDepth ? deps.ctx.memoryRuntime : undefined;
+  try {
+    await memory?.beforeTurn(deps.session);
+    const outcome = await runTurnInner(deps, control);
+    if(outcome.kind === "completed") await memory?.afterTurn({session:deps.session,registry:deps.registry,ctx:deps.ctx,gate:deps.gate,stream:deps.streamChat,contextWindow:deps.memoryContextWindow?.() ?? 128000,oneShot:!!deps.ctx.headless});
+    return outcome;
+  }
   catch (error) {
     control?.rollback();
     if (deps.ctx.durableStore) {
@@ -170,7 +177,7 @@ export async function runTurn(deps: TurnDeps): Promise<TurnOutcome> {
       ? { kind: "interrupted", reason: "user" }
       : { kind: "failed", error: error instanceof Error ? error : new Error(String(error)) };
   }
-  finally { control?.rollback(); }
+  finally { control?.rollback(); memory?.endTurn(); }
 }
 
 async function runTurnInner(deps: TurnDeps, control?: WaitControl): Promise<TurnOutcome> {
@@ -281,7 +288,7 @@ async function runTurnInner(deps: TurnDeps, control?: WaitControl): Promise<Turn
       });
       try {
         deps.backgroundRuntime?.modelRequested();
-        const gen = deps.streamChat({
+        const request: StreamChatOptions = {
           baseUrl: deps.config.baseUrl,
           apiKey: deps.config.apiKey,
           model,
@@ -327,7 +334,9 @@ async function runTurnInner(deps: TurnDeps, control?: WaitControl): Promise<Turn
           onEmptyTruncation: () => { emptyTruncation = true; },
           signal,
           background: deps.background, // 背景查询 529 不重试
-        });
+        };
+        if(!deps.background && !deps.ctx.subagentDepth) deps.ctx.memoryRuntime?.rememberRequest(request);
+        const gen = deps.streamChat(request);
         return await consumeStream(gen, events);
       } catch (e) {
         if (signal?.aborted) throw e; // 用户取消:不重试
@@ -452,7 +461,7 @@ async function runTurnInner(deps: TurnDeps, control?: WaitControl): Promise<Turn
       const notes = deps.drainNotifications();
       if (notes.length) {
         events.notice(`\n[↩ 收到 ${notes.length} 个后台任务结果]\n`);
-        for (const n of notes) session.messages.push({ role: "user", content: `[后台任务结果]\n${n}` });
+        for (const n of notes) session.messages.push({ role: "user", origin:"background_event", content: `[后台任务结果]\n${n}` });
       }
     }
     // MCP server 状态变化通知:同样放工具轮边界统一消费,不在事件发生的任意时刻直接改
@@ -669,6 +678,7 @@ async function runTurnInner(deps: TurnDeps, control?: WaitControl): Promise<Turn
       }
       turnToolMessages = toolMessages;
       session.messages.push(...toolMessages);
+      for(const call of toolCalls) if(call.function.name === "Agent") { const result=toolMessages.find(m=>m.tool_call_id===call.id);if(result&&typeof result.content==="string")deps.ctx.memoryRuntime?.provider?.delegation(result.content,deps.ctx.memoryRuntime.identity); }
     } else {
       const toolMessages = await deps.executeToolCalls(toolCalls, deps.registry, toolCtx, deps.gate);
       for (const tc of toolCalls) {
@@ -677,6 +687,7 @@ async function runTurnInner(deps: TurnDeps, control?: WaitControl): Promise<Turn
       }
       turnToolMessages = toolMessages;
       session.messages.push(...toolMessages);
+      for(const call of toolCalls) if(call.function.name === "Agent") { const result=toolMessages.find(m=>m.tool_call_id===call.id);if(result&&typeof result.content==="string")deps.ctx.memoryRuntime?.provider?.delegation(result.content,deps.ctx.memoryRuntime.identity); }
     }
 
     if (control?.pending) {
@@ -712,7 +723,7 @@ async function runTurnInner(deps: TurnDeps, control?: WaitControl): Promise<Turn
       .filter((m) => m.imageData)
       .map((m) => ({ type: "image_url" as const, image_url: { url: `data:${m.imageData!.mediaType};base64,${m.imageData!.base64}` } }));
     if (imageParts.length > 0) {
-      session.messages.push({ role: "user", content: [...imageParts, { type: "text", text: "[以上图片由 Read 工具读取,请基于图片内容回答用户的问题]" }] });
+      session.messages.push({ role: "user", origin:"tool_image", content: [...imageParts, { type: "text", text: "[以上图片由 Read 工具读取,请基于图片内容回答用户的问题]" }] });
     }
 
     // P2-11 编辑后诊断回灌:本轮改了文件 → 跑诊断命令,有报错就注入 [诊断],模型当轮自查自改。

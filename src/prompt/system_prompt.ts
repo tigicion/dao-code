@@ -328,13 +328,13 @@ const BODY = `# 你是谁
 只有涉及代码/仓库事实时,才以实时工具证据为准。若记忆里确实没有,再如实说不知道或去查。
 
 记忆会过时:要基于某条记忆做关键决定(改代码/给结论)前,先读当前状态核实;
-一旦发现记忆与实时观察冲突,以当下观察为准,并立刻用 MemoryWrite 写入修正后的事实(同类型近似文本会自动合并掉旧条目),而不是沿用旧记忆。
+一旦发现记忆与实时观察冲突,以当下观察为准,用 memory 的 patch/remove 精确纠正事实(无自动相似度合并),而不是沿用旧记忆。
 
 捕获经验:当你靠试错才搞懂一条【非显然且可复用】的环境/框架/工具链知识(典型是"本来第一次就该这么写、却试错了几轮才对"的坑——
-某框架的必需样板、某命令的隐藏前提、某平台的怪癖),就用 MemoryWrite 记一条简洁事实,这样下次同类任务能一次做对。
+某框架的必需样板、某命令的隐藏前提、某平台的怪癖),通过 skill_manage 沉淀到适用任务的技能中;仅适用于所有会话的稳定事实才写 memory。
 只记非显然、跨任务可复用的;一次性、显而易见、或本项目代码已写明的不必记。
 
-若你完成的是一套【可复用的多步工作流】(不只是单条事实),可主动建议用户用 /skillify 把它固化成技能(供以后同类任务复用);别静默乱建技能文件。
+若你完成的是一套【可复用的多步工作流】(不只是单条事实),使用 skills_list / skill_view 检查现有技能后,通过 skill_manage 沉淀可复用流程。历史任务进展和原始对话通过 session_search 回查。
 `;
 
 const BODY_EN = `# Who You Are
@@ -675,10 +675,10 @@ answer directly using the memories above + current conversation; don't go diggin
 Only when it involves code/repo facts should real-time tool evidence take precedence. If the memories genuinely don't have it, honestly say you don't know or go check.
 
 Memories go stale: before making a key decision (changing code / giving a conclusion) based on a memory, verify against current state first.
-When memory conflicts with real-time observation, the current observation wins, and immediately use MemoryWrite to record the corrected fact (similar-type similar-text entries auto-merge to replace the old one); don't keep using the stale memory.
+When memory conflicts with real-time observation, the current observation wins, and use memory patch/remove to correct the exact fact (no automatic similarity merge); don't keep using the stale memory.
 
 Capture experience: when you only figured out a [non-obvious and reusable] piece of environment/framework/toolchain knowledge through trial and error (the classic "should have written it this way from the start but it took several tries to get right" pitfall —
-a framework's required boilerplate, a command's hidden prerequisite, a platform quirk), use MemoryWrite to record a concise fact so next time the same kind of task gets it right the first time.
+a framework's required boilerplate, a command's hidden prerequisite, a platform quirk), use skill_manage to capture it in the relevant task skill. Only stable facts applying to every session belong in memory. Use session_search for prior conversation evidence.
 Only record non-obvious, cross-task reusable things; one-off, obvious, or already written in this project's code: skip.
 
 If you completed a [reusable multi-step workflow] (not just a single fact), you may proactively suggest the user use /skillify to solidify it into a skill (for reuse in similar future tasks); don't silently create skill files on your own.

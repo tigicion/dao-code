@@ -8,7 +8,7 @@ export interface Validation { verdict: Verdict; }
 
 export async function validateMemory(m: Memory, workspaceRoot: string, today: string): Promise<Validation> {
   if (m.validUntil && m.validUntil < today) return { verdict: "stale" };
-  if (!m.source) return { verdict: "ok" };
+  if (!m.source || ["user_stated", "inferred"].includes(m.source)) return { verdict: "ok" };
   const rel = m.source.split("#")[0] ?? m.source;
   let file: string;
   try { file = resolveInWorkspace(workspaceRoot, rel); } catch { return { verdict: "ok" }; } // 越界 source 不验证,放行

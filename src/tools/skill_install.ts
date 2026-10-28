@@ -28,7 +28,7 @@ export const skillInstallTool = defineTool({
   handler: async (args, ctx) => {
     const scope = args.scope ?? "user";
     let out = "";
-    await installSkills(args.source, scope, ctx.workspaceRoot, (s) => { out += s; });
+    await installSkills(args.source, scope, ctx.workspaceRoot, (s) => { out += s; }, ctx.memoryRuntime?.skills.root);
     out = out.trim() || "(完成)";
     // 装完自动加载进当前会话(追加式,便宜、无需重启);headless/子代理未注入则跳过。
     const loaded = ctx.loadInstalledSkills ? await ctx.loadInstalledSkills(scope) : [];

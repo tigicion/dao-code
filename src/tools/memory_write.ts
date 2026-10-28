@@ -41,11 +41,12 @@ export const memoryWriteTool = defineTool({
     delete: z.boolean().optional().describe("true=删除一条已有记忆(按 title 或 name 定位,真删文件),而非写入。删除时只需给 title/text 之一。"),
   }),
   handler: async (args, ctx) => {
+    if (ctx.memoryBackend?.kind === "disabled") return "本会话已禁用记忆。";
     // 删除路径:真删文件(不写"已删除"墓碑)。按 title 或 text 定位,跨三个作用域查找。
     if (args.delete) {
       const key = (args.title || args.text || "").trim();
       if (!key) return "删除失败:需提供 title 或 text 来定位要删除的记忆。";
-      const removed = await withMemLock(() =>
+      const removed = ctx.memoryBackend ? await ctx.memoryBackend.remove(key) : await withMemLock(() =>
         deleteMemory(
           [
             memDir("project", ctx.workspaceRoot, ctx.homeDir),
@@ -59,7 +60,7 @@ export const memoryWriteTool = defineTool({
     }
     if (!args.text || !args.text.trim()) return "写入失败:text 必填(删除请用 delete: true)。";
     // S5.1:密钥绝不写进持久记忆。命中即拒(不落盘),让模型改记不含密钥的描述。
-    const secrets = findSecrets(args.text);
+    const secrets = findSecrets(JSON.stringify(args));
     if (secrets.length) return `拒绝写入记忆:疑似含密钥(${secrets.join("、")})。请勿把凭据写进记忆;如需记录,改写成不含密钥的描述。`;
     // 显式 scope 优先;否则按 type 的作用域路由(与 confidence 无关)。
     const scope = args.scope ?? routeScope(args.type ?? "semantic");
@@ -79,7 +80,7 @@ export const memoryWriteTool = defineTool({
       // knowledge 层打项目 origin(供按项目过滤注入,挡跨项目泄漏);user/project 层无需。
       ...(scope === "knowledge" ? { origin: projectIdOf(ctx.workspaceRoot) } : {}),
     });
-    const r = await withMemLock(async () => {
+    const r = ctx.memoryBackend ? await ctx.memoryBackend.put(cand, scope) : await withMemLock(async () => {
       const existing = await loadAllMemories(
         memDir("project", ctx.workspaceRoot, ctx.homeDir),
         memDir("user", ctx.workspaceRoot, ctx.homeDir),

@@ -43,7 +43,7 @@ describe("durable turn failure recovery", () => {
       f.store.markInterruptedTools();
       expect(await runTurn(f.deps)).toMatchObject({ kind: "failed" });
       expect(write).not.toHaveBeenCalled();
-      expect(f.session.messages.slice(-2)).toEqual([
+      expect(f.session.messages.slice(-2).map(({archiveId: _id, archiveSession: _scope, createdAt: _at, ...m}) => m)).toEqual([
         { role: "tool", tool_call_id: "Read", content: "known result" },
         { role: "tool", tool_call_id: "Write", content: expect.stringContaining("未执行") },
       ]);
@@ -75,7 +75,7 @@ describe("durable turn failure recovery", () => {
       const turn = runTurn(f.deps).then(result => { settled = true; return result; });
       await tick(); expect(settled).toBe(false);
       done.resolve(); expect(await turn).toMatchObject({ kind: "failed" });
-      expect(f.session.messages.slice(-2)).toEqual([
+      expect(f.session.messages.slice(-2).map(({archiveId: _id, archiveSession: _scope, createdAt: _at, ...m}) => m)).toEqual([
         { role: "tool", tool_call_id: "failed", content: expect.stringContaining("结果未知") },
         { role: "tool", tool_call_id: "slow", content: "read result" },
       ]);

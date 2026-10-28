@@ -1,101 +1,105 @@
 import type { ChatMessage, ContentPart } from "../client/types.js";
-
 // 粗估 token:中英混排约 3 字符/token;统计 content 与 assistant 的 tool_calls。
 export function estimateTokens(messages: ChatMessage[]): number {
-  let chars = 0;
-  for (const m of messages) {
-    if (typeof m.content === "string") chars += m.content.length;
-    else if (Array.isArray(m.content)) {
-      for (const part of m.content) {
-        if (part.type === "text") chars += part.text.length;
-        else chars += 100; // image_url 固定开销估算
-      }
+    let chars = 0;
+    for (const m of messages) {
+        if (typeof m.content === "string")
+            chars += m.content.length;
+        else if (Array.isArray(m.content)) {
+            for (const part of m.content) {
+                if (part.type === "text")
+                    chars += part.text.length;
+                else
+                    chars += 100; // image_url 固定开销估算
+            }
+        }
+        if (m.role === "assistant" && m.tool_calls) {
+            for (const tc of m.tool_calls) {
+                chars += tc.function.name.length + tc.function.arguments.length;
+            }
+        }
     }
-    if (m.role === "assistant" && m.tool_calls) {
-      for (const tc of m.tool_calls) {
-        chars += tc.function.name.length + tc.function.arguments.length;
-      }
-    }
-  }
-  return Math.ceil(chars / 3);
+    return Math.ceil(chars / 3);
 }
-
-export function shouldCompact(messages: ChatMessage[], maxTokens: number, ratio = 0.85): boolean {
-  return estimateTokens(messages) >= maxTokens * ratio;
+export function compressionRatio(window: number, configured = .5): number {
+    return window < 512000 ? Math.max(.75, configured) : configured;
 }
-
+export function shouldCompact(messages: ChatMessage[], maxTokens: number, ratio = compressionRatio(maxTokens)): boolean {
+    return estimateTokens(messages) >= maxTokens * ratio;
+}
 export interface CompactOptions {
-  summarize: (messages: ChatMessage[]) => Promise<string>;
+    summarize: (messages: ChatMessage[]) => Promise<string>;
+    maxTokens?: number;
+    protectLastN?: number;
+    archiveAvailable?: boolean;
 }
-
-// 压缩(整段摘要,无 verbatim tail):保留 messages[0](系统前缀+记忆)+ 一份覆盖其后【全部】对话的摘要
-// + 可选的活任务清单 pin。
-// 为何不再保留"最近 N 轮原文":压缩后前缀本就从【新摘要】处断开缓存,tail 落在冷区、留原文对缓存无益;
-// 续接改由摘要的"当前工作/下一步(附原话引用)"小节承载(参考 的整段摘要)。这也根除了"最近轮含大
-// 工具输出 → tail 膨胀、压不动"的结构性问题,并让单 user 轮长任务也走同一条摘要路径(无需 microcompact)。
-export async function compactMessages(
-  messages: ChatMessage[],
-  opts: CompactOptions,
-  pinned?: string, // 压缩后重注入的"活的任务清单",使计划穿越压缩、防长任务目标漂移
-): Promise<ChatMessage[]> {
-  if (messages.length <= 1) return messages; // 只有 system(或空)→ 无可压
-  const system = messages[0]!;
-  const rest = messages.slice(1);
-
-  const pinnedMsg = (): ChatMessage[] =>
-    pinned && pinned.trim() ? [{ role: "system", content: `[当前任务清单(请据此继续,勿偏离)]\n${pinned}` }] : [];
-
-  // ④ 增量压缩:若 rest 开头是【上次压缩留下的摘要】,把它的【文本】原样保留(不二次摘要 → 免转述磨损),
-  // 只把其后新增的摘要拼上。重复压缩越来越便宜、且早期要点逐字不衰减。
-  // 【缓存】不把旧摘要剔除再发——它在主对话热缓存前缀里,连它一起发([system, ...rest] 正是热缓存的前缀)
-  // 才命中缓存;摘要器由 instruction 被告知勿重复它(见 index.ts)。
-  const SUMMARY_MARK = "[早期对话摘要";
-  let priorSummary = "";
-  if (rest[0]?.role === "system" && typeof rest[0].content === "string" && rest[0].content.startsWith(SUMMARY_MARK)) {
-    priorSummary = rest[0].content;
-  }
-  if (priorSummary && rest.length === 1) return messages; // 只剩旧摘要、无新内容 → 不动
-
-  // L2.3 降级阶梯:摘要失败(模型挂/熔断打开)→ 硬截断兜底,绝不让"压缩本身"把长任务搞崩。
-  let summary: string;
-  try {
-    // 压缩前 strip 图片(base64 体积大,压缩不需要图片,只保留 [image] 标记)
-    const stripped = stripImagesFromMessages([system, ...rest]);
-    summary = await opts.summarize(stripped); // 发 [system, ...全部对话]:整段摘要 + 命中主对话热缓存
-  } catch {
-    const marker: ChatMessage = {
-      role: "system",
-      content: `${priorSummary ? priorSummary + "\n\n" : ""}[早期对话已截断(摘要暂不可用):为继续任务保留了系统提示与任务清单,对话细节已舍弃。如缺关键背景,请向用户确认。]`,
-    };
-    return [system, marker, ...pinnedMsg()];
-  }
-  const merged = priorSummary
-    ? `${priorSummary}\n\n[续·本次新增]\n${summary}` // 旧摘要保留 + 追加新增
-    : `[早期对话摘要——上下文超限已压缩,以下是早段对话的摘要]\n${summary}\n\n从中断处直接继续,不要复述摘要、不要寒暄,像没中断过一样接着上一个任务。`;
-  const summaryMsg: ChatMessage = { role: "system", content: merged };
-  return [system, summaryMsg, ...pinnedMsg()];
+/** Hermes-style summary + bounded recent raw tail. Caller archives BEFORE invoking this. */
+export async function compactMessages(messages: ChatMessage[], opts: CompactOptions, pinned?: string): Promise<ChatMessage[]> {
+    if (messages.length <= 3)
+        return messages;
+    const system = messages[0]!;
+    const budget = Math.max(512, Math.min(8000, Math.floor((opts.maxTokens ?? 32000) * .15)));
+    let start = Math.max(1, messages.length - (opts.protectLastN ?? 20));
+    // Never start in the middle of assistant tool calls and results.
+    while (start > 1 && messages[start]?.role === "tool")
+        start--;
+    while (start < messages.length - 2 && estimateTokens(messages.slice(start)) > budget) {
+        let next = start + 1;
+        while (next < messages.length && messages[next]?.role === "tool")
+            next++;
+        // Keep the final call/result group whole; bound its payloads below.
+        if (next >= messages.length)
+            break;
+        start = next;
+    }
+    let tail = messages.slice(start);
+    const lastUser = messages.findLast(m => m.role === "user" && !m.origin);
+    if (lastUser && !tail.includes(lastUser))
+        tail = [lastUser, ...tail];
+    // Raw evidence remains in the archive. Very large tool payloads get bounded API copies.
+    tail = tail.map(m => m.role === "tool" && typeof m.content === "string" && m.content.length > 4000 ? { ...m, content: m.content.slice(0, 3000) + "\n[tool output pruned; recover original with session_search]" } : m);
+    const retained = new Set(tail.map(m => m.archiveId).filter(Boolean));
+    const old = messages.slice(1, start).filter(m => !tail.includes(m) && !(m.archiveId && retained.has(m.archiveId)));
+    if (!old.length)
+        return messages;
+    let summary: string;
+    try {
+        summary = await opts.summarize(stripImagesFromMessages([system, ...old]));
+        if (!summary.trim())
+            throw new Error("Empty summary");
+    }
+    catch {
+        summary = "Summary unavailable. Continue from the retained recent messages and task list.";
+    }
+    // Re-summarize old summaries; repeatedly concatenating them grows context without bound.
+    summary = Array.from(summary).slice(0, Math.max(3000, budget * 3)).join("");
+    const anchors = old.filter(m => m.archiveId).slice(-8).map(m => m.archiveId).join(", ");
+    const evidence = opts.archiveAvailable ? `Original messages remain searchable via session_search. Anchors: ${anchors}` : "Original archive is unavailable for this execution context.";
+    return [system, { role: "system", origin: "compaction", content: `[早期对话摘要]\n${summary}\n${evidence}\nContinue the current task without repeating this summary.` }, ...(pinned?.trim() ? [{ role: "system" as const, origin: "task_pin", content: `[当前任务清单]\n${pinned}` }] : []), ...tail];
 }
-
 /** 压缩前 strip 图片 block:替换为 [image] 文字标记,避免 base64 膨胀压缩请求。 */
 export function stripImagesFromMessages(messages: ChatMessage[]): ChatMessage[] {
-  return messages.map((m) => {
-    if (!Array.isArray(m.content)) return m; // system/纯文本 user/tool 不含图片
-    let changed = false;
-    const stripped: ContentPart[] = [];
-    for (const part of m.content) {
-      if (part.type === "image_url") {
-        changed = true;
-        // 连续 [image] 去重:上一个已是 [image] 则不再追加
-        const last = stripped[stripped.length - 1];
-        if (!(last && last.type === "text" && last.text === "[image]")) {
-          stripped.push({ type: "text", text: "[image]" });
+    return messages.map((m) => {
+        if (!Array.isArray(m.content))
+            return m; // system/纯文本 user/tool 不含图片
+        let changed = false;
+        const stripped: ContentPart[] = [];
+        for (const part of m.content) {
+            if (part.type === "image_url") {
+                changed = true;
+                // 连续 [image] 去重:上一个已是 [image] 则不再追加
+                const last = stripped[stripped.length - 1];
+                if (!(last && last.type === "text" && last.text === "[image]")) {
+                    stripped.push({ type: "text", text: "[image]" });
+                }
+            }
+            else {
+                stripped.push(part);
+            }
         }
-      } else {
-        stripped.push(part);
-      }
-    }
-    if (!changed) return m;
-    // 只可能是 user 或 tool 消息(system content 是 string,上面已 return)
-    return { ...m, content: stripped } as ChatMessage;
-  });
+        if (!changed)
+            return m;
+        // 只可能是 user 或 tool 消息(system content 是 string,上面已 return)
+        return { ...m, content: stripped } as ChatMessage;
+    });
 }

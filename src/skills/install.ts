@@ -14,9 +14,10 @@ export async function installSkills(
   scope: "user" | "project",
   workspaceRoot: string,
   write: (s: string) => void,
+  userSkillRoot?: string,
 ): Promise<void> {
   const dest = scope === "user"
-    ? path.join(os.homedir(), ".dao", "skills")
+    ? userSkillRoot ?? path.join(os.homedir(), ".dao", "skills")
     : path.join(workspaceRoot, ".dao", "skills");
 
   let srcRoot = source;

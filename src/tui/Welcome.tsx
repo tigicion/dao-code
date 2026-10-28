@@ -58,7 +58,7 @@ export function Welcome({
   // 落款 + 名句合一行(紧凑;「道」已由朱印承担,不再重复)。
   const sealLine = (
     <Text>
-      <Text color={c("jade")}>DAO CODE</Text>
+      <Text color={c("jade")}>{info.version.includes("-beta") ? "beta DAO CODE" : "DAO CODE"}</Text>
       <Text color={c("dim")}>{"  ·  "}v{info.version}{"  ·  "}</Text>
       <Text color={c("jade")}>「{maxim.text}」</Text>
     </Text>

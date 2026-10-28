@@ -1,6 +1,7 @@
 // 把反思器抽出的 ReflectMem 解析成"待 upsert 的 Memory 候选"。
 // mergeInto 命中已有记忆(按 title 或 slug 匹配)→ 复用该条 name+type,upsert 走精确键覆盖(即合并增强);
 // 否则按自身 title 新建。纯函数、可测;落盘(routeScope+upsert)在 index 接线里。
+import type { MemoryBackend, MemoryEntry } from "../memory/backend.js";
 import type { Memory, MemoryType } from "../memory/types.js";
 import { newMemory } from "../memory/types.js";
 import { slug, supersedeMemory, writeMemory, touchMemory } from "../memory/store.js";
@@ -37,11 +38,20 @@ export async function applyCorrections(
   dirFor: (t: MemoryType) => string,
   today: string,
   cap = 3,
+  backend?: MemoryBackend,
 ): Promise<Correction[]> {
   const applied: Correction[] = [];
   for (const c of corrections.slice(0, cap)) {
     const target = findByTitle(existing, c.target);
     if (!target || target.locked) continue; // 找不到/锁定 → 跳过,不抛
+    if (backend) {
+      const entry = target as MemoryEntry;
+      await backend.replace(c.action === "supersede"
+        ? { ...entry, status: "superseded", supersededBy: entry.name, validUntil: today }
+        : { ...entry, text: c.newText! });
+      applied.push(c);
+      continue;
+    }
     const dir = dirFor(target.type);
     if (c.action === "supersede") {
       await supersedeMemory(dir, target.name, target.name, today); // 指向自身=纯失效;软删可追溯
@@ -60,11 +70,18 @@ export async function applyConfirmed(
   existing: Memory[],
   dirFor: (t: MemoryType) => string,
   today: string,
+  backend?: MemoryBackend,
 ): Promise<number> {
   let n = 0;
   for (const title of confirmed) {
     const target = findByTitle(existing, title);
     if (!target) continue;
+    if (backend) {
+      if (target.locked) continue;
+      await backend.replace({ ...(target as MemoryEntry), lastUsed: today });
+      n++;
+      continue;
+    }
     if (await touchMemory(dirFor(target.type), target.name, today)) n++;
   }
   return n;

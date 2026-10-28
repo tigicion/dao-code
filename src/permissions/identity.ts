@@ -4,6 +4,11 @@ import { stripSafeWrappers } from "./bash_preprocess.js";
 // DAO 工具名 → CC 工具名 + 取哪个参数作匹配值。让 CC settings.json 的规则原样适用于 DAO 工具。
 // 返回 null = 该工具无 CC 对应(memory/todo/agent 等),退回 DAO 能力默认放行逻辑。
 const MAP: Record<string, { ccTool: string; arg: string }> = {
+  memory: { ccTool: "memory", arg: "target" },
+  skill_manage: { ccTool: "skill_manage", arg: "name" },
+  skill_view: { ccTool: "skill_view", arg: "name" },
+  skills_list: { ccTool: "skills_list", arg: "" },
+  session_search: { ccTool: "session_search", arg: "query" },
   Bash: { ccTool: "Bash", arg: "command" },
   Read: { ccTool: "Read", arg: "path" },
   Edit: { ccTool: "Edit", arg: "path" },

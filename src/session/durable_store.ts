@@ -1,3 +1,4 @@
+import { ARCHIVE_SCHEMA, archiveSnapshot } from "./archive.js";
 import { randomUUID, createHash } from "node:crypto";
 import { chmodSync, readFileSync, existsSync, mkdirSync, realpathSync, statfsSync } from "node:fs";
 import path from "node:path";
@@ -34,7 +35,7 @@ type Owner = {
     identity: ProcessIdentity;
     epoch: number;
 };
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const decode = <T>(row: unknown): T | undefined => row ? JSON.parse((row as {
     json: string;
 }).json) as T : undefined;
@@ -56,7 +57,7 @@ export class DurableStore {
             const originalVersion = (this.db.prepare("PRAGMA user_version").get() as {
                 user_version: number;
             }).user_version;
-            if (originalVersion !== 0 && originalVersion !== SCHEMA_VERSION)
+            if (originalVersion !== 0 && originalVersion !== 2 && originalVersion !== SCHEMA_VERSION)
                 throw new Error(`不支持的会话存储版本 ${originalVersion}，未修改原数据。`);
             this.db.exec("PRAGMA busy_timeout=3000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON");
             if ((this.db.prepare("PRAGMA journal_mode").get() as {
@@ -69,14 +70,14 @@ export class DurableStore {
             const version = (this.db.prepare("PRAGMA user_version").get() as {
                 user_version: number;
             }).user_version;
-            if (version !== 0 && version !== SCHEMA_VERSION)
+            if (version !== 0 && version !== 2 && version !== SCHEMA_VERSION)
                 throw new Error(`不支持的会话存储版本 ${version}，未修改原数据。`);
             this.db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, json TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, json TEXT NOT NULL, delivered INTEGER);
         CREATE TABLE IF NOT EXISTS tools (scope TEXT NOT NULL, id TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY(scope,id));
         CREATE TABLE IF NOT EXISTS agents (run_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, json TEXT NOT NULL);
-        PRAGMA user_version=2;`);
+        `);
             const owner = transaction(this.db, () => {
                 const existing = this.readMeta<{
                     sessionId: string;
@@ -96,6 +97,16 @@ export class DurableStore {
                 return next;
             });
             this.epoch = owner.epoch;
+            if (originalVersion === 2) {
+                const backup = path.join(dir, `session-v2-${randomUUID()}.db`);
+                this.db.exec("VACUUM INTO '" + backup.replace(/'/g, "''") + "'");
+            }
+            transaction(this.db, () => {
+                this.db.exec(ARCHIVE_SCHEMA);
+                const columns=this.db.prepare("PRAGMA table_info(memory_messages)").all() as {name:string}[];
+                if(!columns.some(c=>c.name==="api_json"))this.db.exec("ALTER TABLE memory_messages ADD COLUMN api_json TEXT NOT NULL DEFAULT '{}' ");
+                this.db.exec("PRAGMA user_version=3;");
+            });
             chmodSync(path.join(dir, "session.db"), 0o600);
         }
         catch (error) {
@@ -128,6 +139,16 @@ export class DurableStore {
             }
         });
     }
+    afterSave?: () => void;
+    bindMemoryProfile(profile: string): string {
+        return this.atomic(() => {
+            const prior = this.readMeta<string>("memory_profile");
+            if(prior && prior !== profile) throw new Error("会话记忆 profile 不匹配");
+            this.putMeta("memory_profile", profile);
+            const id=this.readMeta<string>("archive_uuid") ?? randomUUID();
+            this.putMeta("archive_uuid",id);return id;
+        });
+    }
     state() { return this.readMeta<PersistedState>("checkpoint"); }
     background() { return this.readMeta<BackgroundCheckpoint>("background"); }
     save(state: PersistedState, background?: BackgroundCheckpoint) {
@@ -138,9 +159,11 @@ export class DurableStore {
                     this.db.prepare("UPDATE events SET delivered=? WHERE id=? AND delivered IS NULL").run(revision, id);
                 this.putMeta("background", { ...background, consumed: [], events: background.events.filter(e => !background.consumed.includes(e.eventId)) });
             }
+            archiveSnapshot(this.db,state.messages,revision);
             this.putMeta("checkpoint", state);
             this.putMeta("revision", revision);
         });
+        this.afterSave?.();
     }
     setState(state: BackgroundCheckpoint["state"]) {
         this.atomic(() => {
@@ -240,7 +263,7 @@ export function readDurableState(dir: string): PersistedState | undefined {
     try {
         if ((db.prepare("PRAGMA user_version").get() as {
             user_version: number;
-        }).user_version !== SCHEMA_VERSION)
+        }).user_version > SCHEMA_VERSION)
             throw new Error("会话版本不兼容。");
         const state = decode<PersistedState>(db.prepare("SELECT json FROM meta WHERE key='checkpoint'").get());
         if (!state)

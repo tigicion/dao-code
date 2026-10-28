@@ -131,6 +131,7 @@ export async function decideAsync(p: DecideParams): Promise<Decision> {
   // 8. 无规则命中 → 模式 + 能力默认
   const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";
   if (p.mode === "plan") return sideEffecting ? "deny" : "allow";
+
   if (p.mode === "auto" && sideEffecting) {
     if (AUTO_ALLOWLIST.has(p.toolName) && !isSensitiveTargetCall(p)) return "allow";
     if (autoEditAllow(p)) return "allow";
@@ -170,6 +171,7 @@ function autoEditAllow(p: DecideParams): boolean {
 }
 
 function decideBase(p: DecideParams): Decision {
+  if(p.mode === "plan" && (p.toolName === "memory" || p.toolName === "skill_manage")) return "deny";
   const id = toCcIdentity(p.toolName, p.argsJson);
   const ruleDec = id ? evaluate(p.rules, id) : null;
 
@@ -212,6 +214,8 @@ function decideBase(p: DecideParams): Decision {
   // 8. 无规则命中 → 模式 + 能力默认
   const sideEffecting = p.capability === "write" || p.capability === "exec" || p.capability === "network";
   if (p.mode === "plan") return sideEffecting ? "deny" : "allow";
+  // Bounded local learning tools enforce their own write approval; explicit rules above still win.
+  if (p.toolName === "memory" || p.toolName === "skill_manage") return "allow";
   if (p.mode === "auto" && sideEffecting) {
     // 敏感目标不享受白名单快速放行(白名单里 Read 会放掉 ~/.ssh/id_rsa)——须交分类器。
     if (AUTO_ALLOWLIST.has(p.toolName) && !isSensitiveTargetCall(p)) return "allow";

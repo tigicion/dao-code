@@ -8,6 +8,10 @@ export type Capability = "read" | "write" | "exec" | "network" | "plan";
 export type Approval = "auto" | "suggest" | "required";
 
 export interface ToolContext {
+  memoryRuntime?: import("../memory/runtime.js").MemoryRuntime;
+  memoryActor?: "foreground" | "background_review";
+  skillReadHashes?: Map<string, string>;
+  memoryBackend?: import("../memory/backend.js").MemoryBackend;
   durableStore?: import("../session/durable_store.js").DurableStore;
   toolScope?: string;
   rollbackTaskWait?: () => void;

@@ -14,11 +14,11 @@ export const BUILTIN_COMMANDS: Record<string, BuiltinCommand> = {
     buildPrompt: () => SIMPLIFY_BODY, // 与内置 simplify 技能共用同一份正文
   },
   remember: {
-    description: "记一条跨会话记忆(自动判断类型与归属层)",
+    description: "保存跨会话事实或任务技能经验",
     argHint: "<要记住的事实>",
     buildPrompt: (a) =>
       a.trim()
-        ? `用 MemoryWrite 记住下面这条事实,自行判断 type(user 用户信息/feedback 工作方式/procedural 跨项目知识/semantic 项目事实/episodic 项目进展)与归属层:
+        ? `用 memory 的 operations 批次保存下列事实(user 为用户资料,memory 为所有会话适用的环境约定)。若是任务专属流程或纠正,先读技能并用 skill_manage 保存,不要写任务进展日志:
 ${a.trim()}`
         : "",
   },

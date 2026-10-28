@@ -1,0 +1,12 @@
+{
+  "userId": "local",
+  "dimension": 1536,
+  "embedder": {
+    "provider": "openai",
+    "config": {
+      "apiKey": "${DAO_EMBEDDING_API_KEY}",
+      "baseURL": "https://api.openai.com/v1",
+      "model": "text-embedding-3-small"
+    }
+  }
+}

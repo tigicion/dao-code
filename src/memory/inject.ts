@@ -11,7 +11,9 @@ export function buildMemorySection(items: { mem: Memory; verdict: Verdict }[]): 
   for (const { mem, verdict } of items) {
     if (verdict === "stale") continue;
     const suffix = verdict === "changed" ? "(可能已过期:来源已变,请以实时文件为准)" : "";
-    lines.push(`- ${mem.text}${suffix}`);
+    const certainty = mem.source === "inferred" || (mem.confidence !== undefined && mem.confidence < 0.7)
+      ? "[待验证推断,不可视为用户承诺] " : "";
+    lines.push(`- ${certainty}${mem.text}${suffix}`);
   }
   return lines.join("\n");
 }

@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { MemoryRuntime } from "./memory/runtime.js";
+import { profileHome } from "./memory/hermes_config.js";
+import { memoryTool, sessionSearchTool, skillsListTool, skillViewTool, skillManageTool } from "./tools/hermes_memory.js";
+import { compressionRatio } from "./agent/compact.js";
 import { createDeckBridge } from "./agent/deck_bridge.js";
 import { recoverBackground, repairToolPairs } from "./session/recovery.js";
 import type { SessionStore } from "./session/log.js";
@@ -10,7 +14,7 @@ import type { TurnOutcome } from "./agent/background_types.js";
 import { taskWaitTool } from "./tools/task_wait.js";
 import { plainEvents, type TurnEvents } from "./tui/render.js";
 import { createInterface, type Interface } from "node:readline/promises";
-import { readFileSync, mkdirSync, writeFileSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
@@ -52,8 +56,6 @@ import { askUserTool } from "./tools/ask_user.js";
 import { fetchUrlTool } from "./tools/fetch_url.js";
 import { webSearchTool } from "./tools/web_search.js";
 import { todoWriteTool } from "./tools/todo_write.js";
-import { memoryWriteTool } from "./tools/memory_write.js";
-import { memoryReadTool } from "./tools/memory_read.js";
 import { runAgent } from "./agent/runAgent.js";
 import { resolveLang, setLang, getLang, t, readUserLang, writeUserLang } from "./i18n/i18n.js";
 import { createTaskManager } from "./agent/tasks.js";
@@ -102,18 +104,8 @@ import { repoMapTool } from "./tools/repo_map.js";
 import { buildRepoMap, wrapRepoMapNotice, repoMapTokenBudget } from "./repomap/index.js";
 import { processManager } from "./tools/process_manager.js";
 import { agentTool } from "./tools/agent.js";
-import { loadAllMemories, upsertMemory, migrateLegacy, routeScope, projectIdOf, keepKnowledgeForProject } from "./memory/store.js";
-import { gatherAudit, formatAudit } from "./memory/audit.js";
 import { buildClassifierMessages, parseXmlBlock, parseXmlReason, STAGE1_SUFFIX, STAGE2_SUFFIX, type AutoModeRules } from "./permissions/classifier.js";
-import { validateMemory, type Verdict } from "./memory/validate.js";
-import { buildMemorySection, selectFullText, selectIndexNames, buildIndexSection } from "./memory/inject.js";
-import { reflect as unifiedReflect } from "./agent/unified_reflect.js";
-import { initCadence, tickCadence, applyOutcome } from "./agent/reflect_cadence.js";
-import { reflectMemToCand, applyCorrections, applyConfirmed } from "./agent/reflect_persist.js";
-import { apiToolsForMode } from "./tools/tools_for_mode.js";
 import { CHALLENGER_PROMPT, REFOCUSER_PROMPT } from "./agent/reflect_prompts.js";
-import { gcMemories } from "./memory/gc.js";
-import { maybeConsolidate } from "./memory/consolidate.js";
 import type { ApprovalGate } from "./approval/types.js";
 import { makeApprovalPrompt } from "./approval/stdin_prompt.js";
 import { loadAlwaysApproved, appendAlwaysApproved } from "./approval/store.js";
@@ -215,7 +207,12 @@ async function main() {
   const executeToolCalls = wrapToolExec(executeToolCallsRaw as unknown as Parameters<typeof wrapToolExec>[0]);
   // --version/-v 必须在任何初始化(读配置/连 API)之前拦下,否则整句会被当 prompt 发给模型。
   if (rawArgs.includes("--version") || rawArgs.includes("-v")) {
-    process.stdout.write(`dao-code v${VERSION}\n`);
+    process.stdout.write(`${VERSION.includes("-beta") ? "beta " : ""}dao-code v${VERSION}\n`);
+    return;
+  }
+  if (rawArgs[0] === "memory" || rawArgs[0] === "curator") {
+    const { memoryCli } = await import("./memory/hermes_cli.js");
+    process.stdout.write(JSON.stringify(await memoryCli(rawArgs, process.cwd()), null, 2) + "\n");
     return;
   }
   // 操作员命令:dao trust —— 信任当前目录,允许加载其项目级 .dao/settings.json 与 hooks.json。不连 API。
@@ -285,7 +282,7 @@ async function main() {
   const taskFlag = rawArgs.includes("--goal") || rawArgs.includes("--task") || rawArgs.includes("--coordinator"); // --task/--coordinator 为旧别名,均进长任务自主模式(已并入)
   // 回合末"统一反思器"(反思进展 + 抽/改记忆)默认关闭,--reflect-memory 启动时显式开启才跑。
   // 启动时定一次、会话全程不变——中途切换会让系统提示词字节变化,废掉整段对话的前缀缓存。
-  const reflectMemoryFlag = rawArgs.includes("--reflect-memory");
+  const reflectMemoryFlag = false; // Legacy extractor retired; Hermes review is configured separately.
   // 轮内"确定性卡住检测"(assessTurn→挑战者/纠偏者 fork)同样默认关闭,--reflect-challenger 才开。
   // 这是另一套独立机制(不依赖 --reflect-memory),之前一直无条件跑(仅一次性 headless 因
   // argvPrompt 而被跳过),交互态/非 TTY 多轮管道下每轮都在算 + 命中阈值就 fork 一次 LLM 调用。
@@ -315,7 +312,9 @@ async function main() {
   // 提醒只会打断正常工作流。真正的判定见下方 progressAdviceFlag(要等 argvPrompt 解析完,
   // 才能准确区分交互式与 headless;此处 rawArgs 里 -c/--model 等的【值】不以 - 开头,
   // 天真地扫位置参数会把 `dao -c <session-id>` 的 id 误当 prompt → 交互式下误开提醒)。
-  const noMemory = evalFlag || rawArgs.includes("--no-memory");
+  const noMemory = evalFlag || rawArgs.includes("--no-memory") || process.env.DAO_NO_MEMORY === "1";
+  const memoryProfile = rawArgs.includes("--profile") ? rawArgs[rawArgs.indexOf("--profile")+1] : "default";
+  if (!memoryProfile || memoryProfile.startsWith("--")) throw new Error("--profile requires a name");
   // 只管磁盘/插件技能 + 自定义子代理/命令,不管内置技能(见下面 noBuiltinSkills)。
   const noSkills = evalFlag || rawArgs.includes("--no-skills");
   // 内置技能单独一个开关,--eval 不隐含它,只有显式 --no-skills 才关。
@@ -335,6 +334,7 @@ async function main() {
   const cliProvider = (cliProviderRaw === "deepseek" || cliProviderRaw === "volcengine" || cliProviderRaw === "qianfan" || cliProviderRaw === "zhipu" || cliProviderRaw === "anthropic" || cliProviderRaw === "openai") ? cliProviderRaw : undefined;
   const flags = new Set(["--yolo", "--continue", "-c", "--goal", "--task", "--coordinator", "--verbose", "--debug", "--api-key", "--provider", "--model", "--obs", "--reflect-memory", "--reflect-challenger", "--progress-advice", "--no-progress-advice", "--eval", "--no-memory", "--no-skills", "--no-mcp", "--no-hooks", "--no-project-instructions", "--no-web"]);
   // 同时把每个 flag 后面的参数值也加进 flags(避免被拼成 prompt)
+  flags.add("--profile"); flags.add(memoryProfile);
   if (cliApiKey) flags.add(cliApiKey);
   if (cliProviderRaw) flags.add(cliProviderRaw);
   if (cliResumeId) flags.add(cliResumeId);
@@ -603,7 +603,7 @@ async function main() {
     // --no-web / --eval 跳过(见上方 noWeb 定义处说明):不注册就是全流程(含子代理,子代理复用
     // 同一个 registry)都拿不到这两个工具,不是"注册了但不给用"这种更容易被绕过的软限制。
     ...(noWeb ? [] : [fetchUrlTool, webSearchTool]),
-    todoWriteTool, memoryWriteTool, memoryReadTool, skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
+    todoWriteTool, ...(noMemory ? [] : [memoryTool, sessionSearchTool, ...(noSkills?[]:[skillsListTool, skillViewTool, skillManageTool])]), skillTool, skillInstallTool, taskSendTool, messageParentTool, agentTool, scheduleTool,
     taskWaitTool, taskCreateTool, taskListTool, taskGetTool, taskOutputTool, taskUpdateTool, taskStopTool, notifyUserTool,
     enterPlanModeTool, exitPlanModeTool,
     enterWorktreeTool, exitWorktreeTool,
@@ -666,74 +666,13 @@ async function main() {
     .map((t) => `- ${t.function.name}:${t.function.description}`)
     .join("\n");
 
-  // ---- 记忆读路径(会话启动一次性):迁移旧 JSON → 加载 → 确定性权威验证 → 注入固定前缀 ----
-  const projectMemoryDir = path.join(workspaceRoot, ".dao", "memory");
-  const userMemoryDir = path.join(os.homedir(), ".dao", "memory");
-  // 三层记忆:项目级(本项目事实/进展)、用户级(用户信息+偏好)、知识库(跨项目可复用技术知识 procedural)。
-  const knowledgeMemoryDir = path.join(os.homedir(), ".dao", "knowledge");
+  // Hermes is the only active memory policy. Legacy data is migrated explicitly, never GC'd at startup.
   const today = new Date().toISOString().slice(0, 10);
-  // 一次性把旧 memories.json 迁移成 md(已迁移则跳过;目录不存在也容错)。
-  await migrateLegacy(projectMemoryDir, today);
-  await migrateLegacy(userMemoryDir, today);
-  // 衰减 GC:先剪掉死记忆(留存跌破阈值的低价值事实 / 过期且宽限期已过的取代项),
-  // 使它们既不被加载也不被注入。确定性,无 LLM。
-  await gcMemories(projectMemoryDir, today);
-  await gcMemories(userMemoryDir, today);
-  await gcMemories(knowledgeMemoryDir, today);
-  // 启动期合并 pass:【后台非阻塞】——合并本身可能带一次 LLM 调用(几十秒),绝不能 await 在用户能打字之前
-  // (见 20260701 慢启动:knowledge 作用域一次合并把启动卡住)。代价:本会话注入用【合并前】的集合,
-  // 合并结果下个会话生效——只影响真正触发合并的那次(每 3 天/作用域一次,shouldConsolidate 节流),可接受。
-  // 审计:onAudit 直接写 memoryAudit;后台合并在 sink 建好(下方创建)之后才完成,触发时 sink 已就绪。
-  // 并发:maybeConsolidate 内部自载记忆快照;与反思器每回合写入极少撞同一文件,撞了 last-write-wins、下轮自愈。
-  if (!noMemory && !argvPrompt) {
-    const consolModel = getAgentModel(process.env.DAO_CONSOLIDATE_MODEL, cfg.model);
-    const consolNow = Date.now();
-    const consolCommon = {
-      today, now: consolNow, streamChat,
-      config: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }, model: consolModel,
-      onAudit: (e: { scope: string; groups: number; superseded: number; reasons: string[] }) => memoryAudit.consolidated(e),
-    };
-    void (async () => {
-      try {
-        await maybeConsolidate({ ...consolCommon, dir: userMemoryDir, scope: "user" });
-        await maybeConsolidate({ ...consolCommon, dir: knowledgeMemoryDir, scope: "knowledge" });
-        await maybeConsolidate({ ...consolCommon, dir: projectMemoryDir, scope: "project" });
-      } catch { /* 后台合并失败绝不影响会话 */ }
-    })();
-  }
-  // knowledge 层单独加载并【按项目过滤】:只留本项目学到的(origin 命中)或 locked 钉住的通用知识,
-  // 挡掉别的项目学到的领域知识泄进本会话(如 iOS 记忆进 dao-code)。project/user 层不过滤。
-  const projectId = projectIdOf(workspaceRoot);
-  const localMems = await loadAllMemories(projectMemoryDir, userMemoryDir);
-  const knowAll = await loadAllMemories(knowledgeMemoryDir);
-  const knowKept = knowAll.filter((m) => keepKnowledgeForProject(m, projectId));
-  const recallForeign = knowAll.length - knowKept.length; // 被项目过滤挡掉的 knowledge 条数(可观测)
-  const memories = [...localMems, ...knowKept];
-  // 逐条对照 live code 做确定性验证(stale 剔除 / changed 标注 / ok 注入)。
-  const validated: { mem: (typeof memories)[number]; verdict: Verdict }[] = [];
-  for (const mem of memories) {
-    const { verdict } = await validateMemory(mem, workspaceRoot, today);
-    validated.push({ mem, verdict });
-  }
-  // 注入:DAO_NO_MEMORY 禁注入(demo 对照);小 N(<50)全注入整句、跳索引层(召回最简);
-  // 否则两层——高价值整句常驻 + 长尾只给 title 索引(MemoryRead 按需取整句)。
-  // 都在会话开始算定、整会话固定,不刷新、不破前缀缓存。
-  const SMALL_N = 50;
-  const liveCount = validated.filter((v) => v.verdict !== "stale").length;
-  let injectedMems: typeof validated; let indexNames: string[];
-  if (noMemory) {
-    injectedMems = []; indexNames = [];
-  } else if (liveCount < SMALL_N) {
-    injectedMems = selectFullText(validated, today, SMALL_N); indexNames = [];
-  } else {
-    injectedMems = selectFullText(validated, today);
-    indexNames = selectIndexNames(validated, today, injectedMems);
-  }
-  const memoryText = buildMemorySection(injectedMems) + buildIndexSection(indexNames);
-  const recallStale = validated.filter((v) => v.verdict === "stale").length;
-  const recallChanged = validated.filter((v) => v.verdict === "changed").length;
-  const recallTypes: Record<string, number> = {};
-  for (const it of injectedMems) recallTypes[it.mem.type] = (recallTypes[it.mem.type] ?? 0) + 1;
+  const memoryRuntime = noMemory ? undefined : new MemoryRuntime(profileHome(memoryProfile), workspaceRoot, memoryProfile);
+  if(noSkills && memoryRuntime)memoryRuntime.config.curator.enabled=false;
+  await memoryRuntime?.initialize();
+  const memoryText = memoryRuntime?.prompt() ?? "";
+
 
   // B-5 插件多组件:插件除 skills 外还可带 commands/agents/hooks;先加载插件、聚合其组件目录。
   const installedPlugins = await loadPlugins();
@@ -769,7 +708,7 @@ async function main() {
   // 插件技能打【命名空间】(=插件名):用于 plugin:slug 调用与防撞;本地/项目/内置不加前缀。
   const pluginSkills = noSkills ? [] : (await Promise.all(installedPlugins.map(async (p) => (await loadSkills(p.skillsDir)).map((s) => ({ ...s, namespace: p.name }))))).flat();
   const diskSkills = noSkills ? [] : [
-    ...(await loadSkills(path.join(os.homedir(), ".dao", "skills"), path.join(workspaceRoot, ".dao", "skills"))),
+    ...(await loadSkills(path.join(profileHome(memoryProfile), "skills"), path.join(workspaceRoot, ".dao", "skills"))),
     ...pluginSkills,
   ];
   const diskNames = new Set(diskSkills.map((s) => s.name));
@@ -886,7 +825,7 @@ async function main() {
       reflectMemoryEnabled: reflectMemoryFlag,
       reflectChallengerEnabled: reflectChallengerFlag,
       interactive: interactiveSession,
-    }) + agentTypesSection + skillsSection;
+    }) + agentTypesSection + "<!-- dao-skills:start -->" + skillsSection + "<!-- dao-skills:end -->";
 
   // 慢字段(工具链/git/网络):envSnapshotPromise 在 index.ts:297 就已经发起、和 onboarding 等
   // 慢启动流程并发跑;这里只是等它就绪后格式化打 tag、推进队列。loop.ts 的 drainEnvNotices 在
@@ -1049,6 +988,7 @@ async function main() {
   );
 
   const session = new Session(systemPrompt, cfg.model);
+  session.beforeUser=()=>memoryRuntime?.requestCancel();
   // 缓存审计:根 sink。会话 store 就绪(下方)后赋值;此处先占位 no-op,
   // 让早于 store 定义的闭包(classify/子代理/压缩/蒸馏)能按引用捕获其绑定,运行时已是真 sink。
   let cacheSink: CacheAuditSink = { record() {} };
@@ -1104,6 +1044,7 @@ async function main() {
   // 直接判成中止,而不是走后面的限流重试/模型回退/退避重试。
   const ctx: ToolContext = {
     workspaceRoot,
+    memoryRuntime,
     headless: !!argvPrompt,
     foregroundRegistry: createForegroundRegistry(),
     readFiles: new Set<string>(),
@@ -1151,18 +1092,17 @@ async function main() {
   ctx.agentDefinitions = agentDefs;
   ctx.skills = skills;
   // skill 工具加载某技能后回调:累加使用频率并异步落盘(用于发现/列表加权)。
-  ctx.recordSkillUse = (name: string) => { usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); skillSink.loaded(skillRound, name); };
+  ctx.recordSkillUse = (name: string) => { memoryRuntime?.skills.used(skills.find(s=>s.name===name)?.slug ?? name); usageMap = recordUsage(usageMap, name, today); void saveUsage(os.homedir(), usageMap); skillSink.loaded(skillRound, name); };
   // SkillInstall 装完 → 把新技能加载进【当前会话】(无需重启):load 目标 scope 目录 → 未知的 push 进活列表(ctx.skills 同引用)
   // → 追加一条 catalog system 消息(同框法;append-only,只此一条一次性 miss,不动已缓存前缀)。返回新加载技能名。
   ctx.loadInstalledSkills = async (scope) => {
-    const dir = scope === "project" ? path.join(workspaceRoot, ".dao", "skills") : path.join(os.homedir(), ".dao", "skills");
-    const known = new Set(skills.map((s) => s.name.toLowerCase()));
-    const fresh = (await loadSkills(dir)).filter((s) => !known.has(s.name.toLowerCase()) && !disabledSet.has(s.name) && !s.paths?.length);
-    if (!fresh.length) return [];
-    skills.push(...fresh);
-    const lines = skillCatalogLines(fresh);
-    if (lines) session.messages.push({ role: "system", content: lang === "en" ? `\n# New skills loaded (active this session; use the skill tool to load their full body before acting when they match the task)\n${lines}` : `\n# 新装 skill(本次会话已加载,匹配任务时先用 skill 工具加载其正文再动手)\n${lines}` });
-    return fresh.map((s) => s.name);
+    const dir = scope === "project" ? path.join(workspaceRoot, ".dao", "skills") : path.join(profileHome(memoryProfile), "skills");
+    const loaded=(await loadSkills(dir)).filter(s=>!disabledSet.has(s.name)&&!s.paths?.length);
+    const fresh=loaded.filter(s=>!skills.some(old=>old.name===s.name&&old.body===s.body));
+    for(let i=skills.length-1;i>=0;i--){const old=skills[i]!;if(old.dir.startsWith(dir+path.sep)&&!loaded.some(s=>s.name===old.name))skills.splice(i,1);}
+    for(const next of fresh){const i=skills.findIndex(s=>s.name===next.name);if(i>=0)skills[i]=next;else skills.push(next);}
+    if(fresh.length)mcpChangeQueue.push(`Skill catalog changed; use Skill or skill_view to read the current version before applying it.\n${skillCatalogLines(fresh)}`);
+    return fresh.map(s=>s.name);
   };
   // 文件操作后触发:动态发现 .dao/skills/ 目录 + 评估条件 skill 路径匹配。
   // fire-and-forget(不阻塞工具返回);新 skill 通过尾部 system 消息注入(不碰固定前缀)。
@@ -1271,7 +1211,10 @@ async function main() {
   };
   let keepBackgroundOnExit = false;
   const bindStore = async (store: SessionStore) => {
+    if (session.messages[0]?.content === "DAO_HERMES_FORK_PENDING") session.messages[0] = {role:"system",content:systemPrompt};
+    if (memoryRuntime && store.durable?.state()?.messages[0]?.content !== "DAO_HERMES_FORK_PENDING" && store.durable?.state()?.messages.some(m => m.role === "user") && !String(store.durable.state()?.messages[0]?.content).includes("<!-- dao-curated-memory:start -->")) throw new Error("旧会话使用旧记忆协议。请只读查看，或通过 dao memory fork-session <会话目录> 创建 Hermes 继承会话。");
     activeStore=store;ctx.durableStore=store.durable;ctx.toolScope="root";
+    if(store.durable) memoryRuntime?.bind(store.durable);
     if(store.durable?.state() && ctx.todoWriteRequired)ctx.todoWriteRequired.done=true;
     setObsSession(store.id);cacheSink=createCacheAuditSink(store.dir);memoryAudit=createMemoryAuditSink(store.dir);
     toolAudit=createToolAuditSink(store.dir);permAudit=createPermAuditSink(store.dir,getMode);skillSink=createSkillAuditSink(store.dir);
@@ -1393,7 +1336,7 @@ async function main() {
   const underExtra = (abs: string) => extraDirs.some((d) => abs === d || abs.startsWith(d.endsWith("/") ? d : d + "/"));
   // dao 自管的 skill/插件目录:skill 正文常引同目录伴随文件(如 superpowers 的 implementer-prompt.md),
   // 它们在区外但是受信内容,【只读】放行不追问(写仍走审批——故只用于 approveExternalRead,不进 extraDirs)。
-  const daoSkillDirs = [path.join(os.homedir(), ".dao", "skills"), path.join(os.homedir(), ".dao", "plugins")];
+  const daoSkillDirs = [path.join(profileHome(memoryProfile), "skills"), path.join(os.homedir(), ".dao", "plugins")];
   const underDaoSkills = (abs: string) => daoSkillDirs.some((d) => abs.startsWith(d.endsWith("/") ? d : d + "/"));
   ctx.approveExternalRead = async (abs: string): Promise<boolean> => {
     if (yolo || externalReadGranted || underExtra(abs) || underDaoSkills(abs)) return true; // dao skill/插件资源:只读放行
@@ -1435,7 +1378,7 @@ async function main() {
   // Q1 当前上下文 token:优先用主模型上次真实 prompt_tokens(准,尤其中文)。
   // 无真实值时返回 0——启动与 /clear 后 StatusBar 应显示 0% 而非按系统提示估算的非零值
   // (系统提示是常驻开销,不是"对话已用上下文";真实用量要到首次 API 调用后才有)。
-  const contextTokens = () => session.lastPromptTokens ?? 0;
+  const contextTokens = () => session.lastPromptTokens ?? estimateTokens(session.messages);
   // P2-11 编辑后诊断命令(如 "tsc --noEmit"):设了才在写/改文件后跑、把报错回灌模型。
   // 显式 DAO_DIAGNOSTICS_CMD 优先;否则 DAO_DIAGNOSTICS=1 时按项目自动探测(tsc/eslint)。默认不跑。
   const DIAG_CMD = process.env.DAO_DIAGNOSTICS_CMD?.trim()
@@ -1451,7 +1394,7 @@ async function main() {
   // 先 <分析> 草稿过一遍,再 <摘要> 输出 9 个固定小节;不丢技术细节/决策/用户原话。
   const COMPACT_INSTRUCTION = `现在把【以上整段对话】压缩成一份详尽的中文摘要,重点保留用户的明确请求和你已做的动作,确保技术细节、代码模式、架构决策不丢,以便不丢上下文地继续工作。
 
-注意:对话开头可能有【早期对话摘要】或【当前任务清单】这类系统消息——它们会被原样保留,请【不要重复摘要它们】,只摘要其后的真实对话内容。
+注意:对话开头可能有【早期对话摘要】或【当前任务清单】这类系统消息——请将旧摘要与新增对话合并成有界摘要,保留仍有效的用户意图、事实、证据锚点和未完成任务,不要逐次无限追加旧摘要。
 
 先在 <分析> 标签里按时间顺序逐段过一遍对话——每段识别:用户的明确请求与意图、你的处理方式、关键决策与技术概念、具体文件名/代码片段/函数签名/文件改动、遇到的错误及修复、尤其用户给的纠正性反馈;核对技术准确与完整。然后在 <摘要> 标签里输出下面 9 个固定小节:
 
@@ -1509,16 +1452,25 @@ async function main() {
     catch (e) { compactFails++; if (compactFails >= 3) breakerOpenedAt = Date.now(); throw e; }
   };
 
+  const compactSession = async (): Promise<{before:number;after:number}> => {
+    await memoryRuntime?.precompress(session.messages);
+    const original=session.messages;
+    // Persist the raw source before any pruning or summary generation.
+    if(activeStore) activeStore.saveState({cwd:workspaceRoot,model:session.model,mode:session.mode,messages:original,usage:{...session.usage}});
+    const fingerprint=JSON.stringify(original), before=estimateTokens(original);
+    const revision=activeStore?.durable?.readMeta<number>("revision");
+    let candidate=await compactMessages(original,{summarize:summarizeWithBreaker,maxTokens:CONTEXT_WINDOW,protectLastN:memoryRuntime?.config.compression.protect_last_n,archiveAvailable:!!activeStore?.durable},todoStore.get().length?formatTodos(todoStore.get()):undefined);
+    if(ctx.signal?.aborted || session.messages!==original || JSON.stringify(original)!==fingerprint || activeStore?.durable?.readMeta<number>("revision")!==revision) return {before,after:before};
+    if(candidate===original)return {before,after:before};
+    candidate=memoryRuntime?.refreshPrompt(candidate)??candidate;
+    if(candidate[0]?.role === "system")candidate[0]={...candidate[0],archiveId:undefined,content:candidate[0].content.replace(/<!-- dao-skills:start -->[\s\S]*?<!-- dao-skills:end -->/,()=>"<!-- dao-skills:start -->"+(skills.length?skillsHeader+skillCatalogLines(skills):"")+"<!-- dao-skills:end -->")};
+    if(activeStore) activeStore.saveState({cwd:workspaceRoot,model:session.model,mode:session.mode,messages:candidate,usage:{...session.usage}});
+    session.messages=candidate;session.lastPromptTokens=undefined;session.lastSentLength=0;
+    return {before,after:estimateTokens(candidate)};
+  };
   const runCompaction = async (): Promise<void> => {
-    // 按 token 量判断(而非消息条数):整段摘要把全部对话塌成一条摘要消息,条数骤减但要看 token 真减了多少。
-    const before = estimateTokens(session.messages);
-    session.messages = await compactMessages(
-      session.messages,
-      { summarize: summarizeWithBreaker },
-      todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
-    );
-    const after = estimateTokens(session.messages);
-    write(after < before ? `\n[已压缩对话:~${before.toLocaleString()} → ~${after.toLocaleString()} tok]\n` : `\n[对话较短,无需压缩]\n`);
+    const {before,after}=await compactSession();
+    write(`\n[对话压缩:~${before.toLocaleString()} → ~${after.toLocaleString()} tok]\n`);
   };
 
   // P3-63 防休眠 + 长回合完成通知:回合期间持 wakelock;耗时超阈值则完成时弹桌面通知。
@@ -1551,7 +1503,8 @@ async function main() {
       write,
       events: deck?.events(plainEvents(write)),
       compact: runCompaction, // L2.2 反应式压缩
-      shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
+      memoryContextWindow: () => CONTEXT_WINDOW,
+      shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * compressionRatio(CONTEXT_WINDOW, memoryRuntime?.config.compression.threshold), // §4 轮内主动压缩
       diagnose: makeDiagnose(), // P2-11 编辑后诊断
       reflect: (argvPrompt || !reflectChallengerFlag) ? undefined : reflect, // 轮内卡住检测(assessTurn→挑战者);一次性/eval 不反思,默认关闭需 --reflect-challenger
       progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);仅 headless 默认开,交互式默认关;--no-progress-advice 显式关
@@ -1564,13 +1517,7 @@ async function main() {
       onCheckpoint,
     }));
     if (outcome.kind !== "completed") return outcome;
-    // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。argvPrompt(一次性/eval)不跑。
-    if (!argvPrompt) {
-      const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
-      if (compactionImminent || REFLECT_SYNC) await maybeReflect({ compactionImminent });
-      else void maybeReflect({ compactionImminent });
-    }
-    if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
+    if (contextTokens() >= CONTEXT_WINDOW * compressionRatio(CONTEXT_WINDOW, memoryRuntime?.config.compression.threshold)) {
       write("\n[接近上限,自动压缩…]\n");
       await runCompaction();
     }
@@ -1579,102 +1526,9 @@ async function main() {
 
   // Ink 态压缩:不向 stdout 写(会冲渲染),只压缩消息;提示由 App 通过 events/notice 给出。
   // 返回前后 token 估算,供 App 展示压缩效果(如 "~12K → ~3K tok")。
-  const inkCompact = async (): Promise<{ before: number; after: number }> => {
-    const before = estimateTokens(session.messages);
-    session.messages = await compactMessages(
-      session.messages,
-      { summarize: summarizeWithBreaker },
-      todoStore.get().length ? formatTodos(todoStore.get()) : undefined,
-    );
-    const after = estimateTokens(session.messages);
-    return { before, after };
-  };
+  const inkCompact = compactSession;
 
-  // 统一反思器(回合末):一个 fork,既反思进展(advisory,有问题才注入)又抽记忆(含 mergeInto 合并)。
-  // 复用主前缀热缓存(fork:同 tools+思考强度);自适应节奏默认每回合、连续安静回退至多 N。
-  let reflectBusy = false; // 防并发:上次后台反思未完成则跳过本次
-  let cadenceState = initCadence();
-  const pendingReflectAdvisories: string[] = []; // 反思器 advisory(有问题才入队),回合边界 append-only 注入
-  const REFLECT_MAX_INTERVAL = process.env.DAO_REFLECT_EVERY === "1" ? 1 : (Number(process.env.DAO_REFLECT_MAX_INTERVAL) || 3);
-  const NO_MEMORY = noMemory;
-  const REFLECT_SYNC = process.env.DAO_REFLECT_SYNC === "1"; // 测试/demo:反思同步完成再继续(否则后台 void)
-
-  const runReflector = async (): Promise<{ onTrack: boolean; mem: number }> => {
-    if (reflectBusy || NO_MEMORY || !session.messages.some((m) => m.role === "user")) return { onTrack: true, mem: 0 };
-    reflectBusy = true;
-    try {
-      const fork = process.env.DAO_DISTILL_FORK !== "0";
-      const model = fork ? session.model : defaultClassifierModel(classifierContext());
-      const reflectConfig = { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey };
-      const tools = fork ? apiToolsForMode(registry, session.mode, lang) : undefined;
-      // 只发上次主请求已缓存的前缀(slice 到 lastSentLength)→ 前缀字节一致、命中热缓存。
-      const msgs = fork && session.lastSentLength > 0 ? session.messages.slice(0, session.lastSentLength) : session.messages;
-      const existing = await loadAllMemories(projectMemoryDir, userMemoryDir, knowledgeMemoryDir);
-      // 已有候选(供 mergeInto):有 title 的按 importance 降序【全量】给(标题便宜、可全当合并目标 → 不漏低重要度相关条);
-      // 200 条安全上限防极端;正文只取前 N(见 unified_reflect.buildTail)。
-      const candidates = existing.filter((m) => m.title).sort((a, b) => b.importance - a.importance).slice(0, 200).map((m) => ({ title: m.title!, text: m.text }));
-      const result = await unifiedReflect({
-        streamChat, config: reflectConfig, model, messages: msgs, today,
-        existing: candidates, fork, tools, reasoningEffort: process.env.DAO_REASONING_EFFORT || "max",
-        onUsage: (u) => {
-          session.addUsage(u as never, model);
-          const sysRaw = typeof session.messages[0]?.content === "string" ? (session.messages[0]!.content as string) : "";
-          cacheSink.record({ agent: "distill", depth: 0, turn: 0, model, usage: u as never, sys: sysRaw, tools: JSON.stringify(tools ?? []), tail: "", msgs: JSON.stringify(msgs) });
-        },
-      });
-      // 记忆落盘:mergeInto 感知 → 精确键 upsert(同 name 覆盖即合并增强)。
-      let added = 0, merged = 0;
-      for (const m of result.memories) {
-        const scope = routeScope(reflectMemToCand(m, existing, today).type);
-        // 只给 knowledge 层打 origin(项目标签):user 层全局、project 层已按目录隔离,无需标签。
-        const cand = reflectMemToCand(m, existing, today, scope === "knowledge" ? projectId : undefined);
-        const dir = scope === "knowledge" ? knowledgeMemoryDir : scope === "user" ? userMemoryDir : projectMemoryDir;
-        const res = await upsertMemory(dir, cand, existing);
-        if (res.action === "updated") merged++; else added++;
-      }
-      // 纠错闭环:被实测推翻 → supersede/revise;被实测证实 → touch 续命。dirFor 按 type 路由作用域目录。
-      const dirFor = (t: import("./memory/types.js").MemoryType) => {
-        const sc = routeScope(t);
-        return sc === "knowledge" ? knowledgeMemoryDir : sc === "user" ? userMemoryDir : projectMemoryDir;
-      };
-      const applied = await applyCorrections(result.corrections, existing, dirFor, today);
-      const confirmed = await applyConfirmed(result.confirmed, existing, dirFor, today);
-      for (const c of applied) memoryAudit.corrected({ target: c.target, action: c.action, reason: c.reason });
-      const corrected = applied.length;
-      const advisoryInjected = !!result.advisory;
-      if (result.advisory) pendingReflectAdvisories.push(`[反思]\n${result.advisory}`); // 有问题才注入(append-only)
-      memoryAudit.reflected({ ran: true, onTrack: result.onTrack, advisoryInjected, memAdded: added, memMerged: merged, interval: cadenceState.interval, note: result.note, corrected, confirmed });
-      return { onTrack: result.onTrack, mem: added + merged };
-    } catch (e) {
-      if (process.env.DAO_DEBUG_REFLECT) console.error("[reflect] 失败:", e);
-      return { onTrack: true, mem: 0 };
-    } finally {
-      reflectBusy = false;
-    }
-  };
-
-  // 回合末入口:deepseek 官方 key 不限流,每轮都跑(仅 reflectBusy 防并发);
-  // 其它 provider(volcengine/qianfan/zhipu 等 coding-plan/token-plan,计费敏感)用自适应节奏(连续安静则放慢)。
-  const maybeReflect = async (opts: { compactionImminent: boolean }): Promise<void> => {
-    if (!reflectMemoryFlag || argvPrompt || NO_MEMORY) return; // 默认关闭,--reflect-memory 才跑
-    // deepseek 不限流:跳过 cadence,每轮直接跑(仅用 reflectBusy 防并发堆叠)。
-    // 读 cfg.provider(活值,随 /account 切换更新)而非 resolved.provider(启动时快照,切账户后不再变)。
-    if (cfg.provider === "deepseek") {
-      void runReflector(); // fire-and-forget;reflectBusy 在内部防并发;真实 audit 在 runReflector 内写
-      return;
-    }
-    // 非 deepseek 官方 key(coding-plan/token-plan 计费敏感):自适应 cadence,省钱
-    const tick = tickCadence(cadenceState, REFLECT_MAX_INTERVAL);
-    const run = tick.run || opts.compactionImminent;
-    cadenceState = run ? { ...tick.next, counter: 0 } : tick.next;
-    if (!run) {
-      memoryAudit.reflected({ ran: false, onTrack: true, advisoryInjected: false, memAdded: 0, memMerged: 0, interval: cadenceState.interval });
-      return;
-    }
-    const out = await runReflector();
-    cadenceState = applyOutcome(cadenceState, out.onTrack && out.mem === 0, REFLECT_MAX_INTERVAL);
-    if (process.env.DAO_DEBUG_REFLECT) console.error(`[reflect] ran onTrack=${out.onTrack} mem=${out.mem} interval=${cadenceState.interval}`);
-  };
+  const pendingReflectAdvisories: string[] = [];
 
   // 反思层 fork:同模型(命中主对话热缓存)对进展做精简复核,返回结论(由 loop 作 advisory 注入参考)。
   // DAO_REFLECT=0 关闭。失败静默返回 null,绝不影响主流程。
@@ -1805,7 +1659,7 @@ async function main() {
       toolAudit = createToolAuditSink(store.dir);
       permAudit = createPermAuditSink(store.dir, getMode);
       ctx.toolAudit = toolAudit; ctx.permAudit = permAudit; ctx.memoryAudit = memoryAudit;
-      memoryAudit.recalled(injectedMems.length, recallStale, recallChanged, recallTypes, recallForeign);
+      memoryAudit.recalled(memoryRuntime ? memoryRuntime.store.read("memory").length + memoryRuntime.store.read("user").length : 0, 0, 0, {}, 0);
       try {
         if (auditEnabled(process.env, "SKILL")) {
           writeFileSync(path.join(store.dir, "skills-catalog.json"),
@@ -1867,7 +1721,8 @@ async function main() {
             executeToolCalls,
             write: () => {},
             compact: inkCompact, // L2.2 反应式压缩
-            shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * 0.85, // §4 轮内主动压缩
+            memoryContextWindow: () => CONTEXT_WINDOW,
+      shouldCompact: () => contextTokens() >= CONTEXT_WINDOW * compressionRatio(CONTEXT_WINDOW, memoryRuntime?.config.compression.threshold), // §4 轮内主动压缩
             diagnose: makeDiagnose(signal), // P2-11 编辑后诊断
             reflect: reflectChallengerFlag ? reflect : undefined, // 轮内卡住检测(assessTurn→挑战者);默认关闭,--reflect-challenger 才开
             progressAdvice: progressAdviceFlag, // 进度提醒(noProgress 计数器);仅 headless 默认开,交互式默认关;--no-progress-advice 显式关
@@ -1886,13 +1741,7 @@ async function main() {
           }));
           if (outcome.kind !== "completed") return outcome;
           store.append({ t: "turn_end" });
-          // 回合末统一反思:记忆 + 方向。自适应节奏;压缩前同步先抢救。
-          {
-            const compactionImminent = contextTokens() >= CONTEXT_WINDOW * 0.85;
-            if (compactionImminent || REFLECT_SYNC) await maybeReflect({ compactionImminent });
-            else void maybeReflect({ compactionImminent });
-          }
-          if (contextTokens() >= CONTEXT_WINDOW * 0.85) {
+          if (contextTokens() >= CONTEXT_WINDOW * compressionRatio(CONTEXT_WINDOW, memoryRuntime?.config.compression.threshold)) {
             const before = session.messages.length;
             uiEvents.notice("[接近上限,自动压缩…]");
             await inkCompact();
@@ -1921,8 +1770,10 @@ async function main() {
           if (name === "quit" && line.includes("--keep-background")) {keepBackgroundOnExit=true;return {handled:true,exit:true};}
           if(name === "recovery") return {handled:true,output:await recoveryCommand(line)};
           if (name === "clear") {
+            await memoryRuntime?.cancel();
             scheduler.reset();
             const result = dispatchCommand(line, session, cfg.provider);
+            session.messages=memoryRuntime?.refreshPrompt(session.messages)??session.messages;
             taskTitle = undefined; // 只清自动摘录,保留 /rename 的手动标题。
             persist();
             return result;
@@ -2095,26 +1946,10 @@ async function main() {
             checks.push(`· 工作区 ${workspaceRoot} · 模型 ${session.model} · ${mcp.getServerStatus().length} 个 MCP 服务器`);
             return { handled: true, output: "dao doctor:\n" + checks.map((c) => "  " + c).join("\n") };
           }
-          if (name === "memory") {
-            const tiers: [string, string][] = [["用户", userMemoryDir], ["知识", knowledgeMemoryDir], ["项目", projectMemoryDir]];
-            const rest = line.trim().split(/\s+/).slice(1);
-            const today = new Date().toISOString().slice(0, 10);
-            if (rest[0] === "delete" || rest[0] === "rm" || rest[0] === "forget") {
-              const targets = rest.slice(1);
-              if (!targets.length) return { handled: true, output: "用法:/memory delete <名> [名…](名见 /memory 审核报告)" };
-              const done: string[] = [], miss: string[] = [];
-              for (const t of targets) {
-                let hit = false;
-                for (const [, dir] of tiers) {
-                  const fp = path.join(dir, `${t}.md`);
-                  try { rmSync(fp); hit = true; break; } catch { /* 该层没有 */ }
-                }
-                (hit ? done : miss).push(t);
-              }
-              return { handled: true, output: `${done.length ? `已删除:${done.join(", ")}` : ""}${miss.length ? `\n未找到:${miss.join(", ")}` : ""}`.trim() || "无操作" };
-            }
-            return { handled: true, output: formatAudit(gatherAudit(tiers, today), today) };
-          }
+          if (name === "refine") { await memoryRuntime?.refine({session,registry,ctx,gate,stream:streamChat,contextWindow:CONTEXT_WINDOW,oneShot:false}); return {handled:true,output:memoryRuntime?"复盘已完成，写入和提议见 /memory 与 /audit memory。":"本会话已禁用记忆。"}; }
+          if (name === "memory") return {handled:true,output:memoryRuntime ? JSON.stringify(memoryRuntime.command(line.trim().split(/\s+/).slice(1)),null,2) : "本会话已禁用记忆。"};
+          if (name === "curator") return {handled:true,output:memoryRuntime ? JSON.stringify(memoryRuntime.curator(!line.includes("--apply")),null,2) : "本会话已禁用记忆。"};
+
           if (name === "permissions") {
             const r = getRules();
             const fmt = (label: string, arr: string[]) => `${label}:${arr.length ? arr.join(", ") : "(无)"}`;
@@ -2132,6 +1967,7 @@ async function main() {
               `  消息:${session.messages.length} 条\n` +
               `  缓存审计:${cachePath}(/audit cache 查看)` };
           }
+          if (name === "audit" && /^\/audit\s+memory\s*$/.test(line) && memoryRuntime) return {handled:true,output:JSON.stringify(memoryRuntime.store.db.prepare("SELECT * FROM audit ORDER BY seq DESC LIMIT 100").all(),null,2)};
           if (name === "audit") {
             const parts = line.trim().split(/\s+/);
             const sub = parts[1];
@@ -2653,6 +2489,7 @@ async function main() {
       await runRepl({ session, readLine, scheduler, runTurn: async () => {}, write, compact: runCompaction, getProvider: () => cfg.provider,
         command: async(line)=>{
           if(/^\/quit\s+--keep-background\s*$/.test(line)){keepBackgroundOnExit=true;return {handled:true,exit:true};}
+          if(/^\/memory\b/.test(line))return {handled:true,output:memoryRuntime?JSON.stringify(memoryRuntime.command(line.trim().split(/\s+/).slice(1)),null,2):"本会话已禁用记忆。"};
           const recovery=await recoveryCommand(line);if(recovery!==undefined)return {handled:true,output:recovery};
           if(!/^\/resume\b/.test(line))return {handled:false};
           const id=line.trim().split(/\s+/)[1];
@@ -2687,6 +2524,7 @@ async function main() {
     taskManager.cancelAll();
     backgroundRuntime.dispose();
     if(keepBackgroundOnExit) processManager.detach(); else processManager.reset();
+    await memoryRuntime?.close();
     activeStore?.close?.();
     process.removeListener("SIGTERM",preserveStop);process.removeListener("SIGINT",preserveStop);
     closeRl();

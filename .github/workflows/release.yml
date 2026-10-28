@@ -26,7 +26,7 @@ jobs:
             out="dao-${t#bun-}"
             [ "$t" = "bun-windows-x64" ] && out="$out.exe"
             echo "→ $out"
-            bun build ./src/index.ts --compile --target="$t" --outfile "dist-bin/$out"
+            bun scripts/bundle.ts --target "$t" --outfile "dist-bin/$out"
           done
           ls -lh dist-bin
       - uses: softprops/action-gh-release@v2

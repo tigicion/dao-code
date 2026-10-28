@@ -57,8 +57,9 @@ export function buildWelcome(
 
   blank();
   // 品牌 + 版本落款(「道」已由朱印承担)
-  const sealRaw = `DAO CODE  ·  v${info.version}`;
-  const sealLine = `${P("DAO CODE", "jade")}  ${P("·", "dim")}  ${P(`v${info.version}`, "dim")}`;
+  const productName = info.version.includes("-beta") ? "beta DAO CODE" : "DAO CODE";
+  const sealRaw = `${productName}  ·  v${info.version}`;
+  const sealLine = `${P(productName, "jade")}  ${P("·", "dim")}  ${P(`v${info.version}`, "dim")}`;
   out.push(centerColored(sealLine, displayWidth(sealRaw), cols));
 
   // 随机名句(去掉出处,大家都知道老子)

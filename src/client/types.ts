@@ -34,7 +34,9 @@ export interface ToolMessage {
   /** 工具返回的图片数据(execute.ts 暂存,loop.ts 据此在 tool messages 后注入 user image message) */
   imageData?: { base64: string; mediaType: string };
 }
-export type ChatMessage = SystemMessage | UserMessage | AssistantMessage | ToolMessage;
+export type ChatMessage = (SystemMessage | UserMessage | AssistantMessage | ToolMessage) & {
+  archiveId?: string; archiveSession?: string; createdAt?: number; origin?: string; rawContent?: string | ContentPart[];
+};
 
 // ---- 流式增量(用于渲染)----
 export type StreamDelta =
