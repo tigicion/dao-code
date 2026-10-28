@@ -1,0 +1,218 @@
+docs/harness/memory.md
+  s_67fd4b3a8b3b7e::t_f382c333e7555f 5-6
+  s_7e3751a7d95788::t_e0cced4934aa9c 3-4
+src/memory/curated_store.ts
+  s_7e3751a7d95788::t_c4afd051b135aa 52-53
+  s_7e3751a7d95788::t_f33ac09ffc6acd 1-11,13-19,21-51,54-56,60-113,115-172,174-203,205-210,212-216,218-225,227-232,234-239
+  s_7e3751a7d95788::t_08250f70932f83 12,20,57-59,114,173,204,211,217,226,233
+src/client/types.ts
+  s_7e3751a7d95788::t_89ef54c507266e 37,39
+  s_7e3751a7d95788::t_bd971ae13a24b1 38
+src/memory/threat_patterns.ts
+  s_7e3751a7d95788::t_f33ac09ffc6acd 1-146,148-155,161
+  s_7e3751a7d95788::t_8ad7d23199d8cf 147,156-160
+src/session/archive.ts
+  s_7e3751a7d95788::t_89ef54c507266e 1-4,6-8,10-20,22-23,25-34,36-38,40-43,45-63,65
+  s_7e3751a7d95788::t_fbbcc85fa34c94 5,9,21,24,35,39,44,64
+src/agent/unified_reflect.ts
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 28,56-60
+  s_67fd4b3a8b3b7e::t_b52ea58c6d88d2 61
+src/agent/compact.test.ts
+  s_7e3751a7d95788::t_a4a0c49de8a561 7-17
+  s_7e3751a7d95788::t_aed3f38378a137 4-6
+  s_7e3751a7d95788::t_d6825f745a448a 18-20
+  s_7e3751a7d95788::t_7c7c628d9a7001 2,21-26
+src/tui/banner.ts
+  s_7e3751a7d95788::t_16e32c1a45a505 60-62
+src/agent/longtask_eval.test.ts
+  s_7e3751a7d95788::t_437b312e8a6921 81,93
+src/memory/runtime.ts
+  s_7e3751a7d95788::t_c4afd051b135aa 145-146,231-233
+  s_7e3751a7d95788::t_437b312e8a6921 200-206,209-212,238
+  s_7e3751a7d95788::t_de277029ebc268 1-144,147-199,207-208,213-230,234-237,239-246
+src/tools/memory_read.ts
+  s_67fd4b3a8b3b7e::t_84f900d04339ee 20,27,39-41,46
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 14
+  s_67fd4b3a8b3b7e::t_842486bc081dbd 7,42-45
+src/memory/validate.ts
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 11
+src/memory/mem0.test.ts
+  s_67fd4b3a8b3b7e::t_875d0b333341db 1-36,38-40,42-140
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 37,41
+src/skills/manage.ts
+  s_7e3751a7d95788::t_3e395a3d920082 1-13,15-17,19-33,35,37-267
+  s_7e3751a7d95788::t_437b312e8a6921 18
+  s_7e3751a7d95788::t_811b2edf39556f 14,34,36
+src/memory/backend.ts
+  s_67fd4b3a8b3b7e::t_057105d2ccee81 11,50-52
+  s_67fd4b3a8b3b7e::t_81d05d037ac5a2 1-10,12-49,53-66
+docs/design/specs/2026-10-27-hermes-memory-replacement-trd.md
+  s_7e3751a7d95788::t_b9f2b85465ecfc 1-2,6-426
+  s_7e3751a7d95788::t_e0cced4934aa9c 3-5
+src/memory/provider.ts
+  s_7e3751a7d95788::t_3e395a3d920082 2-6,8-24,26,35,37-47,49-61,64-66,68-69,71-82,87
+  s_7e3751a7d95788::t_b1f0981a9fd806 1,7,25,27-34,36,48,62-63,67,70,83-86
+src/agent/compact.ts
+  s_7e3751a7d95788::t_c4afd051b135aa 47-53
+  s_7e3751a7d95788::t_9f4bd3aa850889 4-20,22-25,27-28,31-34,36-46,54-78,82-98,100-104
+src/tools/hermes_memory.ts
+  s_7e3751a7d95788::t_437b312e8a6921 12,21,24-26
+  s_7e3751a7d95788::t_4d5d7c828624a9 1-11,13-20,22-23
+src/memory/hermes.test.ts
+  s_7e3751a7d95788::t_7e4dcf977c5998 1-37,39-52,56-58
+  s_7e3751a7d95788::t_8c332a10b61a75 38,53-55
+src/skills/install.ts
+  s_7e3751a7d95788::t_437b312e8a6921 17,20
+src/memory/inject.ts
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 14-16
+src/tools/skill_install.ts
+  s_7e3751a7d95788::t_437b312e8a6921 31
+src/memory/config.ts
+  s_67fd4b3a8b3b7e::t_84f900d04339ee 1-7,9-56,67-73
+  s_67fd4b3a8b3b7e::t_057105d2ccee81 8,57-66
+docs/architecture/mem0-personal-agent.md
+  s_67fd4b3a8b3b7e::t_f382c333e7555f 1-74
+.github/workflows/release.yml
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 29
+src/memory/mem0.ts
+  s_67fd4b3a8b3b7e::t_057105d2ccee81 1,14,16-18
+  s_67fd4b3a8b3b7e::t_81d05d037ac5a2 2-13,15,19-49,51-96
+  s_67fd4b3a8b3b7e::t_84f900d04339ee 50
+scripts/mem0-sqlite-bun.ts
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 1-9
+README.zh-CN.md
+  s_67fd4b3a8b3b7e::t_f382c333e7555f 345,347
+  s_7e3751a7d95788::t_c4afd051b135aa 16,53,70,194,210
+  s_7e3751a7d95788::t_e0cced4934aa9c 72,74,251-252,346,348
+docs/architecture/hermes-memory-analysis.md
+  s_7e3751a7d95788::t_47511b715b4ecb 1-331
+docs/architecture/hermes-memory.md
+  s_7e3751a7d95788::t_e0cced4934aa9c 1-38,40-100
+  s_7e3751a7d95788::t_8b8583d2ab7692 39,101-108
+src/tui/Welcome.tsx
+  s_7e3751a7d95788::t_16e32c1a45a505 61
+src/agent/reflect_persist.ts
+  s_67fd4b3a8b3b7e::t_f98e7f4f02638f 4,41,47-54,73,79-84
+src/index.ts
+  s_4cf9f26043bae8::t_26bb0b5e415961 17
+  s_7e3751a7d95788::t_16e32c1a45a505 210
+  s_7e3751a7d95788::t_437b312e8a6921 1100-1105
+  s_67fd4b3a8b3b7e::t_f98e7f4f02638f 1952
+  s_7e3751a7d95788::t_46f7a3c89674a3 211-213
+  s_7e3751a7d95788::t_70dea4a323c1bc 1099
+  s_67fd4b3a8b3b7e::t_94a6c7e4c3077c 1949-1951
+  s_4cf9f26043bae8::t_f0724af77ea87a 2-5,214-215,285,315-317,337,606,669,671-675,711,828,991,1047,1095,1214-1215,1217,1339,1381,1397,1455-1470,1472-1473,1506-1507,1520,1529,1531,1662,1724-1725,1744,1773,1776,1970,2492,2527
+src/tools/memory_write.ts
+  s_67fd4b3a8b3b7e::t_84f900d04339ee 44,49,63,83
+docs/architecture/memory.md
+  s_7e3751a7d95788::t_e0cced4934aa9c 3-4
+  s_67fd4b3a8b3b7e::t_f382c333e7555f 5-6
+docs/design/specs/2026-10-26-personal-agent-memory-trd.md
+  s_67fd4b3a8b3b7e::t_96e342e3a871e4 165,214-215,232-233,301
+  s_67fd4b3a8b3b7e::t_8a0d4415dfb280 1-164,166-213,216-231,234-300,302-347
+docs/examples/mem0.json
+  s_67fd4b3a8b3b7e::t_f382c333e7555f 1-12
+src/version.ts
+  s_7e3751a7d95788::t_16e32c1a45a505 2
+src/session/durable_store.ts
+  s_7e3751a7d95788::t_89ef54c507266e 1,38,60,73,80,100-103,142-151,162,166
+  s_7e3751a7d95788::t_0b8262229987c8 104-109,266
+package.json
+  s_7e3751a7d95788::t_16e32c1a45a505 3
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 28
+  s_7e3751a7d95788::t_59caf13fec89f8 72
+scripts/verify-mem0.ts
+  s_67fd4b3a8b3b7e::t_057105d2ccee81 1-42
+src/commands/builtin.test.ts
+  s_7e3751a7d95788::t_437b312e8a6921 8,11
+src/session/history_index.ts
+  s_7e3751a7d95788::t_89ef54c507266e 5,7-25,28-30,38-157,160-161,164,168,187-188
+  s_7e3751a7d95788::t_e19d09ec398f6a 1-4,6,26-27,31-37,158-159,162-163,165-167,169-186
+src/memory/migrate.ts
+  s_67fd4b3a8b3b7e::t_22905f5e25f5e1 4,23
+  s_67fd4b3a8b3b7e::t_f98e7f4f02638f 1-3,5-18,20-22,24-32
+  s_67fd4b3a8b3b7e::t_057105d2ccee81 19
+scripts/bundle.ts
+  s_67fd4b3a8b3b7e::t_da3e730bed196e 1-27
+src/tools/types.ts
+  s_67fd4b3a8b3b7e::t_84f900d04339ee 14
+  s_7e3751a7d95788::t_b72fa67680eeac 11-13
+third_party/hermes-memory/LICENSE
+  s_7e3751a7d95788::t_f33ac09ffc6acd 1-21
+package-lock.json
+  s_7e3751a7d95788::t_76bc09e6b85140 3,9,17,63-69,3293-3302,3722-3733,3780-3803,3899-3904,3927-3938,4577-4588,4599-4612,4849-4857,4909-4918,4992-5006,5339-5347,5628-5703,5977-5991,6049-6070,6689-6875,7076-7115,7214-7258,7789-7797,8585-8594,8796-8801,9611-9619,9634-9649
+scripts/hermes/smoke.ts
+  s_7e3751a7d95788::t_604fde8a74d403 1-23
+scripts/hermes/store-reference.py
+  s_7e3751a7d95788::t_143b1c11c0e37b 1-31
+src/agent/agent_tools.ts
+  s_7e3751a7d95788::t_370ae378b5116a 26
+src/agent/loop.ts
+  s_7e3751a7d95788::t_3e51f6e5f2c943 71,156-162,180,291,337-339,464,681,690,726
+src/agent/loop_durable.test.ts
+  s_7e3751a7d95788::t_053c857d906a10 46,78
+src/client/client.ts
+  s_7e3751a7d95788::t_171c76f04a1aa4 72-73
+src/commands/builtin.ts
+  s_7e3751a7d95788::t_45366766f67870 17,21
+src/commands/commands.ts
+  s_7e3751a7d95788::t_af1d2b20ccf213 74
+src/learning/background_review.ts
+  s_7e3751a7d95788::t_3a740d56a49fa9 1-76
+src/memory/hermes_cli.ts
+  s_7e3751a7d95788::t_6b0f28000a79ce 1-93
+src/memory/hermes_concurrency.test.ts
+  s_7e3751a7d95788::t_3fed3e0e97b34d 1-19
+src/memory/hermes_config.ts
+  s_7e3751a7d95788::t_eebdded7d3456a 1-26
+src/memory/hermes_differential.test.ts
+  s_7e3751a7d95788::t_635a30c23035a1 1-43
+src/memory/hermes_lifecycle.test.ts
+  s_7e3751a7d95788::t_21225cebdc6596 1-51
+src/memory/hermes_migration.ts
+  s_7e3751a7d95788::t_fbcfba68e4e08d 1-209
+src/permissions/engine.ts
+  s_7e3751a7d95788::t_326f341f0c5068 134,174,217-218
+src/permissions/identity.ts
+  s_7e3751a7d95788::t_a2bcb46f905aab 7-11
+src/prompt/system_prompt.ts
+  s_7e3751a7d95788::t_2c7b08090f3d5c 331,334,337,678,681
+src/session/session.ts
+  s_7e3751a7d95788::t_86b68125f315dd 111,113
+src/skills/skills.ts
+  s_7e3751a7d95788::t_a816ac03ede3db 88
+third_party/hermes-memory/UPSTREAM.md
+  s_7e3751a7d95788::t_0f8115d0f359d9 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.6",
+  "base_commit_sha": "62015e7fa6f1a591760eda3796d014edc67213cf",
+  "prompts": {},
+  "sessions": {
+    "s_4cf9f26043bae8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17d91-c59d-7042-9110-8d8844d8710b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    },
+    "s_67fd4b3a8b3b7e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17756-3c8c-78a2-8155-886d1dfc0c7b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    },
+    "s_7e3751a7d95788": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17b5d-636c-7852-a76e-08563b1ff70f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "huaruoxu1 <huaruoxu1@jd.com>"
+    }
+  }
+}
